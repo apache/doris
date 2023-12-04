@@ -182,6 +182,53 @@ suite("test_decimalv3_overflow") {
     """
     sql "set enable_decimal256=false;"
 
+
+    sql """
+        drop TABLE IF EXISTS test_decimal128_overflow1;
+    """
+    sql """
+        CREATE TABLE test_decimal128_overflow1(
+          k1 decimalv3(6, 0),
+          k2 decimalv3(38, 0)
+        )
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 8
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into test_decimal128_overflow1 values
+            (10, 17014118346046923173168730371588410572);
+    """
+    // multiply result not overflow, but result is overflow
+    test {
+        sql """
+        select k1, k2, k1 * k2 from test_decimal128_overflow1 order by 1,2;
+        """
+        exception "Arithmetic overflow"
+    }
+
+    sql """
+        drop TABLE IF EXISTS test_decimal128_overflow1;
+    """
+    sql """
+        CREATE TABLE test_decimal128_overflow1(
+          k1 decimalv3(6, 1),
+          k2 decimalv3(38, 32)
+        )
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 8
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into test_decimal128_overflow1 values
+            (-99999.9, 999999.99999999999999999999999999999999);
+    """
+    qt_decimal128_overflow1_3 """
+        select k1, k2, k1 * k2 from test_decimal128_overflow1 order by 1,2;
+    """
+
     sql "drop TABLE IF EXISTS test_decimal128_overflow2;"
     sql """
         CREATE TABLE test_decimal128_overflow2(
@@ -301,6 +348,9 @@ suite("test_decimalv3_overflow") {
     """
     sql """
         insert into test_decimal128_overflow6 values
+            (-0.0000001, 1234564.11112),
+            (-0.0000001, 1234567.11112),
+            (0.0000001, 1234564.11112),
             (0.0000001, 1234567.11112);
     """
     // (38, 6)
@@ -394,10 +444,13 @@ suite("test_decimalv3_overflow") {
         insert into test_decimal128_overflow10 values
             (9999999999999999999999999999999999999.1, 1.11112);
     """
-    // TODO: result is actually overflowed
-    qt_decimal128_overflow10_2 """
+    // TODO: result 10000000000000000000000000000000000000.2 is actually overflowed
+    test {
+        sql """
         select k1, k2, k1 + k2 from test_decimal128_overflow10 order by 1,2;
-    """
+        """
+        exception "Arithmetic overflow"
+    }
 
     qt_decimal128_overflow10_3 """
         select k1, k2, k1 - k2 from test_decimal128_overflow10 order by 1,2;
@@ -423,6 +476,101 @@ suite("test_decimalv3_overflow") {
     qt_decimal128_overflow11 """
         select k1, k2, k1 + k2 from test_decimal128_overflow11 order by 1,2;
     """
+
+    sql "drop TABLE IF EXISTS test_decimal128_overflow12;"
+    sql """
+        CREATE TABLE test_decimal128_overflow12(
+          k1 decimalv3(37, 1),
+          k2 decimalv3(37, 36)
+        )
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 8
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into test_decimal128_overflow12 values
+            (999999999999999999999999999999999999.9, 9.999999999999999999999999999999999999);
+    """
+    // plus result type: (36 + 36 + 1=73, 36) -> (38, 38 - 36) -> (38, 2)
+    // 1000000000000000000000000000000000009.90 actually overflowed
+    test {
+        sql """
+        select k1, k2, k1 + k2 from test_decimal128_overflow12 order by 1,2;
+        """
+        exception "Arithmetic overflow"
+    }
+
+
+
+    sql "drop TABLE IF EXISTS test_decimal128_overflow13;"
+    sql """
+        CREATE TABLE test_decimal128_overflow13(
+          k1 decimalv3(38, 0),
+          k2 decimalv3(38, 0)
+        )
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 8
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    // integer plus result not overflow, but is overflow for the final result
+    sql """
+        insert into test_decimal128_overflow13 values
+            (99999999999999999999999999999999999999, 70141183460469231731687303715884105728);
+    """
+    test {
+        sql """
+        select k1, k2, k1 + k2 from test_decimal128_overflow13 order by 1,2;
+        """
+        exception "Arithmetic overflow"
+    }
+
+    sql "drop TABLE IF EXISTS test_decimal128_overflow13;"
+    sql """
+        CREATE TABLE test_decimal128_overflow13(
+          k1 decimalv3(38, 0),
+          k2 decimalv3(38, 0)
+        )
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 8
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    // integer plus result not overflow, but is overflow for the final result
+    sql """
+        insert into test_decimal128_overflow13 values
+            (-99999999999999999999999999999999999999, -70141183460469231731687303715884105728);
+    """
+    test {
+        sql """
+        select k1, k2, k1 + k2 from test_decimal128_overflow13 order by 1,2;
+        """
+        exception "Arithmetic overflow"
+    }
+
+    sql "drop TABLE IF EXISTS test_decimal128_overflow13;"
+    sql """
+        CREATE TABLE test_decimal128_overflow13(
+          k1 decimalv3(38, 1),
+          k2 decimalv3(38, 1)
+        )
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 8
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into test_decimal128_overflow13 values
+            (9999999999999999999999999999999999999.9, 9999999999999999999999999999999999999.9);
+    """
+    // plus result type: (37 + 1 + 1=39, 1) -> (38, 38 - 37) -> (38, 1)
+    test {
+        sql """
+        select k1, k2, k1 + k2 from test_decimal128_overflow13 order by 1,2;
+        """
+        exception "Arithmetic overflow"
+    }
 
     // decimal256
     /*

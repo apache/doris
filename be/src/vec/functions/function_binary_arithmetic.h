@@ -39,6 +39,7 @@
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/cast_type_to_either.h"
 #include "vec/functions/function.h"
+#include "vec/utils/template_helpers.hpp"
 
 namespace doris::vectorized {
 
@@ -246,12 +247,17 @@ private:
         // TODO: handle overflow of decimalv2
         if constexpr (OpTraits::is_multiply && IsDecimalV2<A> && IsDecimalV2<B> &&
                       IsDecimalV2<ResultType>) {
-            Op::template vector_vector<check_overflow>(a, b, c, size);
+            Op::vector_vector(a, b, c, size);
         } else {
-            for (size_t i = 0; i < size; i++) {
-                c[i] = typename ArrayC::value_type(
-                        apply(a[i], b[i], max_result_number, scale_diff_multiplier));
-            }
+            bool need_adjust_scale = scale_diff_multiplier.value > 1;
+            std::visit(
+                    [&](auto need_adjust_scale) {
+                        for (size_t i = 0; i < size; i++) {
+                            c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
+                                    a[i], b[i], max_result_number, scale_diff_multiplier));
+                        }
+                    },
+                    make_bool_variant(need_adjust_scale));
         }
     }
 
@@ -302,10 +308,15 @@ private:
         }
 
         /// default: use it if no return before
-        for (size_t i = 0; i < size; ++i) {
-            c[i] = typename ArrayC::value_type(
-                    apply(a[i], b, max_result_number, scale_diff_multiplier));
-        }
+        bool need_adjust_scale = scale_diff_multiplier.value > 1;
+        std::visit(
+                [&](auto need_adjust_scale) {
+                    for (size_t i = 0; i < size; ++i) {
+                        c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
+                                a[i], b, max_result_number, scale_diff_multiplier));
+                    }
+                },
+                make_bool_variant(need_adjust_scale));
     }
 
     static void vector_constant(const typename Traits::ArrayA::value_type* __restrict a, B b,
@@ -337,10 +348,15 @@ private:
                         Op::template apply(da, DecimalV2Value(b[i])).value());
             }
         } else {
-            for (size_t i = 0; i < size; ++i) {
-                c[i] = typename ArrayC::value_type(
-                        apply(a, b[i], max_result_number, scale_diff_multiplier));
-            }
+            bool need_adjust_scale = scale_diff_multiplier.value > 1;
+            std::visit(
+                    [&](auto need_adjust_scale) {
+                        for (size_t i = 0; i < size; ++i) {
+                            c[i] = typename ArrayC::value_type(apply<need_adjust_scale>(
+                                    a, b[i], max_result_number, scale_diff_multiplier));
+                        }
+                    },
+                    make_bool_variant(need_adjust_scale));
         }
     }
 
@@ -364,7 +380,7 @@ private:
 
     static ResultType constant_constant(A a, B b, const ResultType& max_result_number,
                                         const ResultType& scale_diff_multiplier) {
-        return ResultType(apply(a, b, max_result_number, scale_diff_multiplier));
+        return ResultType(apply<true>(a, b, max_result_number, scale_diff_multiplier));
     }
 
     static ResultType constant_constant(A a, B b, UInt8& is_null) {
@@ -496,6 +512,7 @@ public:
 
 private:
     /// there's implicit type conversion here
+    template <bool need_adjust_scale>
     static ALWAYS_INLINE NativeResultType apply(NativeResultType a, NativeResultType b,
                                                 const ResultType& max_result_number,
                                                 const ResultType& scale_diff_multiplier) {
@@ -505,22 +522,33 @@ private:
             // overflow in consider in operator
             return Op::template apply(DecimalV2Value(a), DecimalV2Value(b)).value();
         } else {
+            NativeResultType res;
             if constexpr (OpTraits::can_overflow && check_overflow) {
-                NativeResultType res;
                 // TODO handle overflow gracefully
                 if (UNLIKELY(Op::template apply<NativeResultType>(a, b, res))) {
+                    if constexpr (OpTraits::is_plus_minus) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow");
+                    }
+                    // multiply
                     if constexpr (std::is_same_v<NativeResultType, __int128>) {
                         wide::Int256 res256 = Op::template apply<wide::Int256>(a, b);
-                        if constexpr (OpTraits::is_multiply) {
-                            res256 /= scale_diff_multiplier.value;
+                        if constexpr (OpTraits::is_multiply && need_adjust_scale) {
+                            if (res256 > 0) {
+                                res256 = (res256 + scale_diff_multiplier.value / 2) /
+                                         scale_diff_multiplier.value;
+
+                            } else {
+                                res256 = (res256 - scale_diff_multiplier.value / 2) /
+                                         scale_diff_multiplier.value;
+                            }
                         }
                         // check if final result is overflow
-                        if (res256 > wide::Int256(max_result_number.value)) {
+                        if (res256 > wide::Int256(max_result_number.value) ||
+                            res256 < wide::Int256(-max_result_number.value)) {
                             throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
                                             "Arithmetic overflow");
                         } else {
-                            // round to final result precision
-                            DCHECK(OpTraits::is_multiply);
                             res = res256;
                         }
                     } else {
@@ -529,17 +557,31 @@ private:
                     }
                 } else {
                     // round to final result precision
-                    if constexpr (OpTraits::is_multiply) {
-                        res /= scale_diff_multiplier.value;
+                    if constexpr (OpTraits::is_multiply && need_adjust_scale) {
+                        if (res >= 0) {
+                            res = (res + scale_diff_multiplier.value / 2) /
+                                  scale_diff_multiplier.value;
+                        } else {
+                            res = (res - scale_diff_multiplier.value / 2) /
+                                  scale_diff_multiplier.value;
+                        }
+                    }
+                    if (res > max_result_number.value || res < -max_result_number.value) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow");
                     }
                 }
                 return res;
             } else {
-                if constexpr (OpTraits::is_multiply) {
-                    return Op::template apply<NativeResultType>(a, b) / scale_diff_multiplier.value;
-                } else {
-                    return Op::template apply<NativeResultType>(a, b);
+                res = Op::template apply<NativeResultType>(a, b);
+                if constexpr (OpTraits::is_multiply && need_adjust_scale) {
+                    if (res >= 0) {
+                        res = (res + scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
+                    } else {
+                        res = (res - scale_diff_multiplier.value / 2) / scale_diff_multiplier.value;
+                    }
                 }
+                return res;
             }
         }
     }
@@ -707,6 +749,10 @@ struct ConstOrVectorAdapter {
     }
 
 private:
+    // for multiply, e1: {p1, s1}, e2: {p2, s2}, the original result precision
+    // is {p1 + p2, s1 + s2}, but if the precision or scale is overflow, FE will adjust
+    // the result precsion and scale to the values specified in type_result, so
+    // we need to adjust the multiply result accordingly.
     static std::pair<ResultType, ResultType> get_max_and_multiplier(
             const LeftDataType& type_left, const RightDataType& type_right,
             const DataTypeDecimal<ResultType>& type_result) {

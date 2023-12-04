@@ -48,7 +48,6 @@ struct MultiplyImpl {
         return a * b;
     }
 
-    template <bool check_overflow>
     static void vector_vector(const ColumnDecimal128::Container::value_type* __restrict a,
                               const ColumnDecimal128::Container::value_type* __restrict b,
                               ColumnDecimal128::Container::value_type* c, size_t size) {
