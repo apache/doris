@@ -29,8 +29,8 @@ public class StatsDeriveResultTest {
     public void testUpdateRowCountByLimit() {
         StatsDeriveResult stats = new StatsDeriveResult(100);
         ColumnStatistic a = new ColumnStatistic(100, 10,  null, 1, 5, 10,
-                1, 100, null, null, false, null,
-                new Date().toString(), null);
+                1, 100, null, null, false,
+                new Date().toString());
         Id id = new Id(1);
         stats.addColumnStats(id, a);
         StatsDeriveResult res = stats.updateByLimit(0);
