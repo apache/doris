@@ -22,7 +22,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.PriorityQueue;
-import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
 // note(wb) refer java BlockingQueue, but support altering capacity
@@ -32,7 +31,6 @@ public class QueryQueue {
     private static final Logger LOG = LogManager.getLogger(QueryQueue.class);
     // note(wb) used unfair by default, need more test later
     private final ReentrantLock queueLock = new ReentrantLock();
-    private final Condition queueLockCond = queueLock.newCondition();
     // resource group property
     private int maxConcurrency;
     private int maxQueueSize;
@@ -141,7 +139,6 @@ public class QueryQueue {
                     nextToken.signal();
                 }
             }
-            
         } finally {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());

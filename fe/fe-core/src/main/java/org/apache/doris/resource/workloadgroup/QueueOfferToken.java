@@ -42,7 +42,8 @@ public class QueueOfferToken {
         this.offerResult = offerResult;
     }
 
-    public QueueOfferToken(Boolean addToQueueSuccess, Boolean isReadyToRun, long waitTimeout, String offerResultDetail) {
+    public QueueOfferToken(Boolean addToQueueSuccess, Boolean isReadyToRun, long waitTimeout,
+            String offerResultDetail) {
         this.offerResult = addToQueueSuccess;
         this.isReadyToRun = isReadyToRun;
         this.waitTimeout = waitTimeout;
