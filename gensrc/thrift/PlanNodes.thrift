@@ -475,6 +475,7 @@ struct TFrontendsMetadataParams {
 
 struct TMaterializedViewsMetadataParams {
   1: optional string database
+  2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TJobsMetadataParams {
