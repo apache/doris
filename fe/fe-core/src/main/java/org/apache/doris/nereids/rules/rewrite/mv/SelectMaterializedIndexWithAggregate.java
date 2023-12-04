@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnion;
@@ -883,12 +884,36 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         }
 
         @Override
+        public PreAggStatus visitBitmapUnion(BitmapUnion bitmapUnion, CheckContext context) {
+            Expression expr = bitmapUnion.child();
+            if (expr instanceof ToBitmap) {
+                expr = expr.child(0);
+            }
+            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(expr);
+            if (slotOpt.isPresent() && context.valueNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off("invalid bitmap_union: " + bitmapUnion.toSql());
+            }
+        }
+
+        @Override
         public PreAggStatus visitHllUnionAgg(HllUnionAgg hllUnionAgg, CheckContext context) {
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllUnionAgg.child());
             if (slotOpt.isPresent() && context.valueNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
                 return PreAggStatus.on();
             } else {
                 return PreAggStatus.off("invalid hll_union_agg: " + hllUnionAgg.toSql());
+            }
+        }
+
+        @Override
+        public PreAggStatus visitHllUnion(HllUnion hllUnion, CheckContext context) {
+            Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(hllUnion.child());
+            if (slotOpt.isPresent() && context.valueNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
+                return PreAggStatus.on();
+            } else {
+                return PreAggStatus.off("invalid hll_union: " + hllUnion.toSql());
             }
         }
 
