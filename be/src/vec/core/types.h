@@ -412,8 +412,7 @@ std::string decimal_to_string(const T& value, UInt32 scale) {
 }
 
 template <typename T>
-__attribute__((always_inline)) size_t decimal_to_string(const T& value, char* dst, UInt32 scale,
-                                                        const T& scale_multiplier) {
+size_t decimal_to_string(const T& value, char* dst, UInt32 scale, const T& scale_multiplier) {
     if (UNLIKELY(value == std::numeric_limits<T>::min())) {
         if constexpr (std::is_same_v<T, wide::Int256>) {
             // handle scale?
