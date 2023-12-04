@@ -44,28 +44,35 @@ public class AvroFileCache {
     public static class AvroFileMeta {
         private final String schema;
         private Set<String> requiredFields;
-        // TODO split file
-        private String splitInfo;
+        private Long splitStartOffset;
+        private Long splitSize;
 
         AvroFileMeta(String schema) {
             this.schema = schema;
-        }
-
-        AvroFileMeta(String schema, String splitInfo) {
-            this.schema = schema;
-            this.splitInfo = splitInfo;
         }
 
         public String getSchema() {
             return schema;
         }
 
-        public String getSplitInfo() {
-            return splitInfo;
-        }
-
         public void setRequiredFields(Set<String> requiredFields) {
             this.requiredFields = requiredFields;
+        }
+
+        public void setSplitStartOffset(Long splitStartOffset) {
+            this.splitStartOffset = splitStartOffset;
+        }
+
+        public void setSplitSize(Long splitSize) {
+            this.splitSize = splitSize;
+        }
+
+        public Long getSplitStartOffset() {
+            return this.splitStartOffset;
+        }
+
+        public Long getSplitSize() {
+            return this.splitSize;
         }
 
         public Set<String> getRequiredFields() {

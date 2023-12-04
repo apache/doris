@@ -89,6 +89,10 @@ Status AvroJNIReader::init_fetch_table_reader(
     if (type == TFileType::FILE_S3) {
         required_param.insert(_params.properties.begin(), _params.properties.end());
     }
+    required_param.insert(
+            std::make_pair("split_start_offset", std::to_string(_range.start_offset)));
+    required_param.insert(std::make_pair("split_size", std::to_string(_range.size)));
+    required_param.insert(std::make_pair("split_file_size", std::to_string(_range.file_size)));
     required_param.insert(std::make_pair("uri", _range.path));
     _jni_connector = std::make_unique<JniConnector>("org/apache/doris/avro/AvroJNIScanner",
                                                     required_param, column_names);

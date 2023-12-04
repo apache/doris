@@ -74,6 +74,9 @@ public class AvroJNIScanner extends JniScanner {
     private AvroFileMeta avroFileMeta;
     private AvroWrapper<Pair<Integer, Long>> inputPair;
     private NullWritable ignore;
+    private Long splitStartOffset;
+    private Long splitSize;
+    private Long splitFileSize;
 
     /**
      * Call by JNI for get table data or get table schema
@@ -100,6 +103,9 @@ public class AvroJNIScanner extends JniScanner {
             this.fieldInspectors = new ObjectInspector[requiredFields.length];
             this.inputPair = new AvroWrapper<>(null);
             this.ignore = NullWritable.get();
+            this.splitStartOffset = Long.parseLong(requiredParams.get(AvroProperties.SPLIT_START_OFFSET));
+            this.splitSize = Long.parseLong(requiredParams.get(AvroProperties.SPLIT_SIZE));
+            this.splitFileSize = Long.parseLong(requiredParams.get(AvroProperties.SPLIT_FILE_SIZE));
         }
     }
 
@@ -171,6 +177,8 @@ public class AvroJNIScanner extends JniScanner {
             avroFileCacheKey = new AvroFileCacheKey(fileType.name(), uri);
             avroFileMeta = AvroFileCache.getAvroFileMeta(avroFileCacheKey);
             avroFileMeta.setRequiredFields(requiredFieldSet);
+            avroFileMeta.setSplitStartOffset(splitStartOffset);
+            avroFileMeta.setSplitSize(splitSize);
             initFieldInspector();
             initTableInfo(requiredTypes, requiredFields, new ScanPredicate[0], fetchSize);
         } catch (Exception e) {
