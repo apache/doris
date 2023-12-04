@@ -19,9 +19,13 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 
+import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 class BuildStructInfoTest extends SqlTestBase {
     @Test
@@ -38,6 +42,26 @@ class BuildStructInfoTest extends SqlTestBase {
                 .matches(logicalJoin()
                         .when(j -> {
                             HyperGraph.toStructInfo(j);
+                            return true;
+                        }));
+
+    }
+
+    @Test
+    void testStructInfoNode() {
+        String sql = "select * from T1 inner join "
+                + "(select sum(id) as id from T2 where id = 1) T2 "
+                + "on T1.id = T2.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .deriveStats()
+                .matches(logicalJoin()
+                        .when(j -> {
+                            List<HyperGraph> hyperGraph = HyperGraph.toStructInfo(j);
+                            Assertions.assertTrue(hyperGraph.get(0).getNodes().stream()
+                                    .allMatch(n -> n.getPlan()
+                                            .collectToList(GroupPlan.class::isInstance).isEmpty()));
                             return true;
                         }));
 
