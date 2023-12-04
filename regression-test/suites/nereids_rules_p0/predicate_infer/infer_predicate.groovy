@@ -189,4 +189,103 @@ suite("infer_predicate") {
     // qt_infer_predicate_multi_join_window_function_partition """
     //     explain shape plan select t1.id, sum(t2.score) over (partition by t1.id) from t t1 join t t2 on t1.id = t2.id join t t3 on t1.id = t3.id where t3.name = 'a' group by t1.id;
     // """
+
+
+    // test cast case, so we need more data type table
+    sql """
+    CREATE TABLE IF NOT EXISTS t1(
+      `id` int(32),
+      `time` datetime(6) NULL,
+      `name` varchar(64) NULL
+    ) ENGINE = OLAP
+    DISTRIBUTED BY HASH(id) BUCKETS 4
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS t2(
+      `id` int(64),
+      `time` date NULL,
+      `name` string NULL
+    ) ENGINE = OLAP
+    DISTRIBUTED BY HASH(id) BUCKETS 4
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS t3(
+      `id` int(16),
+      `time` datetime(0) NULL,
+      `name` text NULL
+    ) ENGINE = OLAP
+    DISTRIBUTED BY HASH(id) BUCKETS 4
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    CREATE TABLE IF NOT EXISTS t4(
+      `id` int(8),
+      `time` datetime(3) NULL,
+      `name` varchar(64) NULL
+    ) ENGINE = OLAP
+    DISTRIBUTED BY HASH(id) BUCKETS 4
+    PROPERTIES (
+      "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    // 测试能上拉，并且能推导 t1.id = 1 -> t2.id = 1
+    qt_infer0 """
+        explain shape plan select * from (select * from t1 where t1.id =1) t1 join t2 on t1.id = t2.id;
+    """
+
+    // 测试多个 inner join，谓词 t1.id = 1 是否能成功推导 t2.id = 1 和 t3.id = 1
+    qt_infer1 """
+        explain shape plan select * from t1 join t2 on t1.id = t2.id join t t3 on t1.id = t3.id where t1.id = 1;
+    """
+
+    // 测试 left outer join, condition t1.id = 1 是否能成功推导 t2.id = 1
+    qt_infer2 """
+        explain shape plan select * from t1 left join t2 on t1.id = t2.id and t1.id = 1;
+    """
+
+    // 测试 full outer join, condition t1.id = 1 是否能成功推导 t2.id = 1
+    qt_infer3 """
+        explain shape plan select * from t1 full outer join t2 on t1.id = t2.id and t1.id = 1;
+    """
+
+    // 测试 left semi join, condition t1.id = 1 是否能成功推导 t2.id = 1
+    qt_infer4 """
+        explain shape plan select * from t1 left semi join t2 on t1.id = t2.id and t1.id = 1;
+    """
+
+    // 测试多个 inner join 中间有 project/limit，谓词 t1.id = 1 是否能成功推导 t2.id = 1 和 t3.id = 1
+    qt_infer5 """
+        explain shape plan select * from (select t1.id from t1 limit 10) t1 join t2 on t1.id = t2.id join t t3 on t1.id = t3.id where t1.id = 1;
+    """
+
+    // 测试左推右(t1.id = 1 -> t2.id = 1)，右推左(t2.name = 'bob' -> t1.name = 'bob')
+    qt_infer6 """
+        explain shape plan select * from t1 left join t2 on t1.id = t2.id and t1.id = 1 and t1.name = t2.name and t2.name = 'bob';
+    """
+
+    // bushy tree, 谓词都在最底部，需要一层层 pullup, 并能推导出所有的情况，应该是 2 * 2 * 2 * 2 = 16 种
+    qt_infer7 """
+        explain shape plan select * from
+        (select t1.id from (select * from t1 where t1.id > 1) t1 join (select * from t2 where t2.id < 9) t2 on t1.id = t2.id ) t12
+        join
+        (select t3.id from (select * from t3 where t3.id != 3) t3 join (select * from t4 where t4.id != 4) t4 on t3.id = t4.id ) t34
+        on t12.id = t34.id;
+    """
+
+    // 不等条件的推导
+    qt_infer8 """
+        explain shape plan select * from t1 join t2 on t1.id != t2.id where t1.id = 1;
+    """
 }

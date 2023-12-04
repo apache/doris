@@ -405,3 +405,123 @@ PhysicalResultSink
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t]
 
+-- !infer0 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !infer1 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+----------PhysicalDistribute
+------------filter((t2.id = 1))
+--------------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------filter((t3.id = 1))
+------------PhysicalOlapScan[t]
+
+-- !infer2 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.id = 1))
+--------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+
+-- !infer3 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=((t1.id = 1))
+--------PhysicalDistribute
+----------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------PhysicalOlapScan[t2]
+
+-- !infer4 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------filter((t1.id = 1))
+----------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((t2.id = 1))
+--------------PhysicalOlapScan[t2]
+
+-- !infer5 --
+PhysicalResultSink
+--PhysicalProject
+----hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------filter((t1.id = 1))
+----------PhysicalLimit[GLOBAL]
+------------PhysicalDistribute
+--------------PhysicalLimit[LOCAL]
+----------------PhysicalProject
+------------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+--------PhysicalDistribute
+----------filter((t2.id = 1))
+------------PhysicalOlapScan[t2]
+------PhysicalDistribute
+--------filter((t3.id = 1))
+----------PhysicalOlapScan[t]
+
+-- !infer6 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id) and (t1.name = t2.name)) otherCondition=((t1.id = 1))
+--------PhysicalOlapScan[t1]
+--------PhysicalDistribute
+----------filter((t2.id = 1) and (t2.name = 'bob'))
+------------PhysicalOlapScan[t2]
+
+-- !infer7 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF2 id->[id]
+--------hashJoin[INNER_JOIN] hashCondition=((t12.id = t34.id)) otherCondition=() build RFs:RF1 id->[id]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=() build RFs:RF0 id->[id]
+--------------PhysicalProject
+----------------filter(( not (id = 3)) and (t34.id < 9) and (t34.id > 1))
+------------------PhysicalOlapScan[t3] apply RFs: RF0 RF1
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------filter(( not (id = 4)) and (t4.id < 9) and (t4.id > 1))
+--------------------PhysicalOlapScan[t4]
+----------PhysicalDistribute
+------------PhysicalProject
+--------------filter((t1.id < 9) and (t1.id > 1))
+----------------PhysicalOlapScan[t1] apply RFs: RF2
+--------PhysicalDistribute
+----------PhysicalProject
+------------filter((t2.id < 9) and (t2.id > 1))
+--------------PhysicalOlapScan[t2]
+
+-- !infer8 --
+PhysicalResultSink
+--PhysicalDistribute
+----PhysicalProject
+------NestedLoopJoin[INNER_JOIN]( not (id = id))
+--------PhysicalOlapScan[t2]
+--------PhysicalDistribute
+----------filter((t1.id = 1))
+------------PhysicalOlapScan[t1]
+
