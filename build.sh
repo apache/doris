@@ -540,7 +540,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
 
     cd "${DORIS_HOME}"
 fi
-BUILD_DOCS="OFF"
+
 if [[ "${BUILD_DOCS}" = "ON" ]]; then
     # Build docs, should be built before Frontend
     echo "Build docs"
@@ -578,9 +578,9 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-#if [[ "${BUILD_FE}" -eq 1 ]]; then
-#    build_ui
-#fi
+if [[ "${BUILD_FE}" -eq 1 ]]; then
+    build_ui
+fi
 
 # Clean and build Frontend
 if [[ "${FE_MODULES}" != '' ]]; then
@@ -734,7 +734,7 @@ if [[ "${BUILD_BROKER}" -eq 1 ]]; then
     copy_common_files "${DORIS_OUTPUT}/apache_hdfs_broker/"
     cd "${DORIS_HOME}"
 fi
-BUILD_AUDIT=0
+
 if [[ "${BUILD_AUDIT}" -eq 1 ]]; then
     install -d "${DORIS_OUTPUT}/audit_loader"
 
