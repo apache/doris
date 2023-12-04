@@ -96,11 +96,13 @@ public:
 
     Status open(RowDescriptor* output_row_desc) {
         if (_vpartition->is_auto_partition()) {
-            auto [part_ctx, part_func] = _get_partition_function();
-            RETURN_IF_ERROR(part_ctx->prepare(_state, *output_row_desc));
-            RETURN_IF_ERROR(part_ctx->open(_state));
+            auto [part_ctxs, part_funcs] = _get_partition_function();
+            for (auto part_ctx : part_ctxs) {
+                RETURN_IF_ERROR(part_ctx->prepare(_state, *output_row_desc));
+                RETURN_IF_ERROR(part_ctx->open(_state));
+            }
         }
-        for (auto& index : _schema->indexes()) {
+        for (const auto& index : _schema->indexes()) {
             auto& where_clause = index->where_clause;
             if (where_clause != nullptr) {
                 RETURN_IF_ERROR(where_clause->prepare(_state, *output_row_desc));
@@ -125,9 +127,9 @@ public:
     void clear_batching_stats();
 
 private:
-    std::pair<vectorized::VExprContextSPtr, vectorized::VExprSPtr> _get_partition_function();
+    std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
-    Status _save_missing_values(vectorized::ColumnPtr col, vectorized::DataTypePtr value_type,
+    Status _save_missing_values(std::vector<std::vector<std::string>>& col_strs, int col_size,
                                 Block* block, std::vector<int64_t> filter);
 
     void _get_tablet_ids(vectorized::Block* block, int32_t index_idx,
@@ -142,11 +144,12 @@ private:
     Status _filter_block(vectorized::Block* block,
                          std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
-    Status _generate_rows_distribution_for_auto_parititon(
-            vectorized::Block* block, int partition_col_idx, bool has_filtered_rows,
-            std::vector<RowPartTabletIds>& row_part_tablet_ids, int64_t& rows_stat_val);
+    Status _generate_rows_distribution_for_auto_partition(
+            vectorized::Block* block, const std::vector<uint16_t>& partition_col_idx,
+            bool has_filtered_rows, std::vector<RowPartTabletIds>& row_part_tablet_ids,
+            int64_t& rows_stat_val);
 
-    Status _generate_rows_distribution_for_non_auto_parititon(
+    Status _generate_rows_distribution_for_non_auto_partition(
             vectorized::Block* block, bool has_filtered_rows,
             std::vector<RowPartTabletIds>& row_part_tablet_ids);
 
@@ -157,12 +160,10 @@ private:
     int _batch_size = 0;
 
     // for auto partitions
-    std::vector<std::vector<TStringLiteral>>
-            _partitions_need_create; // support only one partition column now
+    std::vector<std::vector<TStringLiteral>> _partitions_need_create;
     std::unique_ptr<MutableBlock> _batching_block;
     bool _deal_batched = false; // If true, send batched block before any block's append.
     size_t _batching_rows = 0, _batching_bytes = 0;
-    std::set<std::string> _deduper;
 
     MonotonicStopWatch _row_distribution_watch;
     OlapTableBlockConvertor* _block_convertor = nullptr;
