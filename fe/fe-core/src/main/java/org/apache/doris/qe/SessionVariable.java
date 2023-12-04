@@ -1446,8 +1446,9 @@ public class SessionVariable implements Serializable, Writable {
             "Set to true to enable Decimal256 type" })
     public boolean enableDecimal256 = false;
 
-    @VariableMgr.VarAttr(name = USE_HEALTH_REPLICA_WHEN_FIXED_CORRUPT, needForward = true, description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
-    "use other health replica when the use_fix_replica meet error" })
+    @VariableMgr.VarAttr(name = USE_HEALTH_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
+            description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
+            "use other health replica when the use_fix_replica meet error" })
     public boolean useHealthReplicaWhenFixedCorrupt = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
