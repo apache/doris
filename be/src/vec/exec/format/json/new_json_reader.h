@@ -147,13 +147,24 @@ private:
                            bool* is_empty_row);
     Status _judge_empty_row(size_t size, bool eof, bool* is_empty_row);
 
+    Status _handle_simdjson_error(simdjson::simdjson_error& error, Block& block, size_t num_rows,
+                                  bool* eof);
+
     Status _simdjson_handle_simple_json(RuntimeState* state, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof);
 
+    Status _simdjson_handle_simple_json_write_columns(
+            Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+            bool* eof);
+
     Status _simdjson_handle_flat_array_complex_json(RuntimeState* state, Block& block,
                                                     const std::vector<SlotDescriptor*>& slot_descs,
                                                     bool* is_empty_row, bool* eof);
+
+    Status _simdjson_handle_flat_array_complex_json_write_columns(
+            Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+            bool* eof);
 
     Status _simdjson_handle_nested_complex_json(RuntimeState* state, Block& block,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
