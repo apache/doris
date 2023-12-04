@@ -1448,7 +1448,7 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = USE_HEALTH_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
             description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
-            "use other health replica when the use_fix_replica meet error" })
+                "use other health replica when the use_fix_replica meet error" })
     public boolean useHealthReplicaWhenFixedCorrupt = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
