@@ -48,6 +48,9 @@ using strings::Substitute;
 
 Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result) {
     switch (type.type) {
+    case TYPE_NULL:
+        *result = arrow::null();
+        break;
     case TYPE_TINYINT:
         *result = arrow::int8();
         break;
@@ -79,6 +82,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DATETIMEV2:
     case TYPE_STRING:
     case TYPE_JSONB:
+    case TYPE_OBJECT:
         *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
@@ -94,6 +98,9 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         break;
     case TYPE_IPV6:
         *result = arrow::utf8();
+        break;
+    case TYPE_DECIMAL256:
+        *result = std::make_shared<arrow::Decimal256Type>(type.precision, type.scale);
         break;
     case TYPE_BOOLEAN:
         *result = arrow::boolean();
@@ -131,7 +138,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         break;
     }
     default:
-        return Status::InvalidArgument("Unknown primitive type({})", type.type);
+        return Status::InvalidArgument("Unknown primitive type({}) convert to Arrow type",
+                                       type.type);
     }
     return Status::OK();
 }

@@ -37,6 +37,12 @@ class JdbcUtils {
         }
     }
 
+    static Tuple2<List<List<Object>>, ResultSetMetaData> executeQueryToList(Connection conn, String sql) {
+        conn.createStatement().withCloseable { stmt ->
+            return toList(stmt.executeQuery(sql))
+        }
+    }
+
     static PreparedStatement prepareStatement(Connection conn, String sql) {
         return conn.prepareStatement(sql);
     }
