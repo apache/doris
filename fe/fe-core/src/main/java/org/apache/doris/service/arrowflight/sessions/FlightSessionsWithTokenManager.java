@@ -17,6 +17,7 @@
 
 package org.apache.doris.service.arrowflight.sessions;
 
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
@@ -27,13 +28,17 @@ import org.apache.arrow.flight.CallStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.atomic.AtomicInteger;
+
 public class FlightSessionsWithTokenManager implements FlightSessionsManager {
     private static final Logger LOG = LogManager.getLogger(FlightSessionsWithTokenManager.class);
 
     private final FlightTokenManager flightTokenManager;
+    private final AtomicInteger nextConnectionId;
 
     public FlightSessionsWithTokenManager(FlightTokenManager flightTokenManager) {
         this.flightTokenManager = flightTokenManager;
+        this.nextConnectionId = new AtomicInteger(0);
     }
 
     @Override
@@ -65,8 +70,16 @@ public class FlightSessionsWithTokenManager implements FlightSessionsManager {
                 return null;
             }
             flightTokenDetails.setCreatedSession(true);
-            return FlightSessionsManager.buildConnectContext(peerIdentity, flightTokenDetails.getUserIdentity(),
-                    flightTokenDetails.getRemoteIp());
+            ConnectContext connectContext = FlightSessionsManager.buildConnectContext(peerIdentity,
+                    flightTokenDetails.getUserIdentity(), flightTokenDetails.getRemoteIp());
+            connectContext.setConnectionId(nextConnectionId.getAndAdd(1));
+            connectContext.resetLoginTime();
+            if (!ExecuteEnv.getInstance().getScheduler().registerConnection(connectContext)) {
+                connectContext.getState()
+                        .setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS, "Reach limit of connections");
+                throw CallStatus.UNAUTHENTICATED.withDescription("Reach limit of connections").toRuntimeException();
+            }
+            return connectContext;
         } catch (IllegalArgumentException e) {
             LOG.error("Bearer token validation failed.", e);
             throw CallStatus.UNAUTHENTICATED.toRuntimeException();
