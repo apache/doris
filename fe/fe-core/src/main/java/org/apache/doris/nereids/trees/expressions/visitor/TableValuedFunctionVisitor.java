@@ -24,11 +24,14 @@ import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
+import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
+import org.apache.doris.nereids.trees.expressions.functions.table.Mtmvs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.Queries;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.functions.table.Tasks;
 import org.apache.doris.nereids.trees.expressions.functions.table.WorkloadGroups;
 
 /** TableValuedFunctionVisitor */
@@ -45,6 +48,18 @@ public interface TableValuedFunctionVisitor<R, C> {
 
     default R visitFrontends(Frontends frontends, C context) {
         return visitTableValuedFunction(frontends, context);
+    }
+
+    default R visitMtmvs(Mtmvs mtmvs, C context) {
+        return visitTableValuedFunction(mtmvs, context);
+    }
+
+    default R visitJobs(Jobs jobs, C context) {
+        return visitTableValuedFunction(jobs, context);
+    }
+
+    default R visitTasks(Tasks tasks, C context) {
+        return visitTableValuedFunction(tasks, context);
     }
 
     default R visitFrontendsDisks(FrontendsDisks frontendsDisks, C context) {
