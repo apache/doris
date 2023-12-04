@@ -17,11 +17,13 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
@@ -62,6 +64,10 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Invalid task metadata query");
         }
         this.jobType = jobType;
+        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
+        if (!userIdentity.isRootUser()) {
+            throw new AnalysisException("only root user can operate");
+        }
     }
 
     public static Integer getColumnIndexFromColumnName(String columnName, TMetadataTableRequestParams params)
@@ -93,6 +99,7 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
         metaScanRange.setMetadataType(TMetadataType.TASKS);
         TTasksMetadataParams taskParam = new TTasksMetadataParams();
         taskParam.setType(jobType.name());
+        taskParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setTasksParams(taskParam);
         return metaScanRange;
     }

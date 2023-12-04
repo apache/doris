@@ -17,11 +17,13 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TJobsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
@@ -62,6 +64,10 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
             throw new AnalysisException("Invalid job metadata query");
         }
         this.jobType = jobType;
+        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
+        if (!userIdentity.isRootUser()) {
+            throw new AnalysisException("only root user can operate");
+        }
     }
 
     public static Integer getColumnIndexFromColumnName(String columnName, TMetadataTableRequestParams params)
@@ -93,6 +99,7 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         metaScanRange.setMetadataType(TMetadataType.JOBS);
         TJobsMetadataParams jobParam = new TJobsMetadataParams();
         jobParam.setType(jobType.name());
+        jobParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setJobsParams(jobParam);
         return metaScanRange;
     }

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
@@ -62,11 +63,11 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
                     .build();
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("JobId", ScalarType.createStringType()),
-            new Column("JobName", ScalarType.createStringType()),
+            new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("Name", ScalarType.createStringType()),
             new Column("ExecuteType", ScalarType.createStringType()),
             new Column("RecurringStrategy", ScalarType.createStringType()),
-            new Column("JobStatus", ScalarType.createStringType()),
+            new Column("Status", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
             new Column("Comment", ScalarType.createStringType()));
 
@@ -166,7 +167,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     @Override
     public TRow getTvfInfo() {
         TRow trow = new TRow();
-        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
+        trow.addToColumnValue(new TCell().setLongVal(super.getJobId()));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobConfig().getExecuteType().name()));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobConfig().convertRecurringStrategyToString()));

@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -100,6 +101,7 @@ public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFun
         metaScanRange.setMetadataType(TMetadataType.MATERIALIZED_VIEWS);
         TMaterializedViewsMetadataParams mtmvParam = new TMaterializedViewsMetadataParams();
         mtmvParam.setDatabase(databaseName);
+        mtmvParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setMaterializedViewsParams(mtmvParam);
         return metaScanRange;
     }

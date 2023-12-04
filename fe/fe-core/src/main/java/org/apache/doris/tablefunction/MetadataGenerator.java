@@ -17,6 +17,7 @@
 
 package org.apache.doris.tablefunction;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
@@ -31,6 +32,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryDetail;
@@ -502,6 +504,8 @@ public class MetadataGenerator {
 
         TMaterializedViewsMetadataParams mtmvMetadataParams = params.getMaterializedViewsMetadataParams();
         String dbName = mtmvMetadataParams.getDatabase();
+        TUserIdentity currentUserIdent = mtmvMetadataParams.getCurrentUserIdent();
+        UserIdentity userIdentity = UserIdentity.fromThrift(currentUserIdent);
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         List<Table> tables;
@@ -515,6 +519,12 @@ public class MetadataGenerator {
 
         for (Table table : tables) {
             if (table instanceof MTMV) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME,
+                                table.getQualifiedDbName(), table.getName(),
+                                PrivPredicate.SHOW)) {
+                    continue;
+                }
                 MTMV mv = (MTMV) table;
                 TRow trow = new TRow();
                 trow.addToColumnValue(new TCell().setLongVal(mv.getId()));
