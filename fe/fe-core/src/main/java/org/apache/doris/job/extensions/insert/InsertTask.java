@@ -221,7 +221,7 @@ public class InsertTask extends AbstractTask {
     public TRow getTvfInfo() {
         TRow trow = new TRow();
         if (loadJob == null) {
-            return null;
+            return trow;
         }
 
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(loadJob.getId())));

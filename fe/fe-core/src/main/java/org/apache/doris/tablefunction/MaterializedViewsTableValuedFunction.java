@@ -41,7 +41,7 @@ import java.util.Map;
  * mtmvs("database" = "db1").
  */
 public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFunction {
-    public static final String NAME = "mtmvs";
+    public static final String NAME = "mv_infos";
     private static final String DB = "database";
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(DB);

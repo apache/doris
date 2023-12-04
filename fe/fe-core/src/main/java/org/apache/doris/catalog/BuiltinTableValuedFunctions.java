@@ -54,7 +54,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Numbers.class, "numbers"),
             tableValued(Queries.class, "queries"),
             tableValued(S3.class, "s3"),
-            tableValued(Mtmvs.class, "mtmvs"),
+            tableValued(Mtmvs.class, "mv_infos"),
             tableValued(Jobs.class, "jobs"),
             tableValued(Tasks.class, "tasks"),
             tableValued(WorkloadGroups.class, "workload_groups")

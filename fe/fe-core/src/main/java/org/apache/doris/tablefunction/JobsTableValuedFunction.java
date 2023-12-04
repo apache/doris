@@ -83,8 +83,10 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         }
         if (JobType.MTMV == jobType) {
             return MTMVJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
-        } else {
+        } else if (JobType.INSERT == jobType) {
             return InsertJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        } else {
+            throw new AnalysisException("Invalid job type: " + jobType.toString());
         }
     }
 
@@ -113,8 +115,10 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
     public List<Column> getTableColumns() throws AnalysisException {
         if (JobType.MTMV == jobType) {
             return MTMVJob.SCHEMA;
-        } else {
+        } else if (JobType.INSERT == jobType) {
             return InsertJob.SCHEMA;
+        } else {
+            throw new AnalysisException("Invalid job type: " + jobType.toString());
         }
     }
 }

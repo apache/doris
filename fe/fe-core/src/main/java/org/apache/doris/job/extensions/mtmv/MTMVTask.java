@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -58,8 +57,8 @@ public class MTMVTask extends AbstractTask {
     public static final Long MAX_HISTORY_TASKS_NUM = 100L;
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
-            new Column("TaskId", ScalarType.createType(PrimitiveType.BIGINT)),
-            new Column("JobId", ScalarType.createType(PrimitiveType.BIGINT)),
+            new Column("TaskId", ScalarType.createStringType()),
+            new Column("JobId", ScalarType.createStringType()),
             new Column("JobName", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
@@ -161,8 +160,8 @@ public class MTMVTask extends AbstractTask {
     @Override
     public TRow getTvfInfo() {
         TRow trow = new TRow();
-        trow.addToColumnValue(new TCell().setLongVal(super.getTaskId()));
-        trow.addToColumnValue(new TCell().setLongVal(super.getJobId()));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(super.getStatus().toString()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));

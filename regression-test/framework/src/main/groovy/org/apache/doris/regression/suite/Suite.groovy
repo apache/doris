@@ -791,7 +791,7 @@ class Suite implements GroovyInterceptable {
     }
 
     String getJobName(String dbName, String mtmvName) {
-        String showMTMV = "select JobName from mtmvs('database'='${dbName}') where Name = '${mtmvName}'";
+        String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
         List<List<Object>> result = sql(showMTMV)
         logger.info("result: " + result.toString())
