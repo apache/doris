@@ -479,10 +479,12 @@ struct TMaterializedViewsMetadataParams {
 
 struct TJobsMetadataParams {
   1: optional string type
+  2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TTasksMetadataParams {
   1: optional string type
+  2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TQueriesMetadataParams {

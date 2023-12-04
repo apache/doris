@@ -22,10 +22,10 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.InsertTask;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.thrift.TJobsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
+import org.apache.doris.thrift.TTasksMetadataParams;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -57,7 +57,7 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
         if (type == null) {
             throw new AnalysisException("Invalid task metadata query");
         }
-        JobType jobType = JobType.valueOf(type);
+        JobType jobType = JobType.valueOf(type.toUpperCase());
         if (jobType == null) {
             throw new AnalysisException("Invalid task metadata query");
         }
@@ -66,12 +66,12 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
 
     public static Integer getColumnIndexFromColumnName(String columnName, TMetadataTableRequestParams params)
             throws org.apache.doris.common.AnalysisException {
-        if (!params.isSetJobsMetadataParams()) {
-            throw new org.apache.doris.common.AnalysisException("Jobs metadata params is not set.");
+        if (!params.isSetTasksMetadataParams()) {
+            throw new org.apache.doris.common.AnalysisException("Tasks metadata params is not set.");
         }
-        TJobsMetadataParams jobMetadataParams = params.getJobsMetadataParams();
-        String type = jobMetadataParams.getType();
-        JobType jobType = JobType.valueOf(type);
+        TTasksMetadataParams taskMetadataParams = params.getTasksMetadataParams();
+        String type = taskMetadataParams.getType();
+        JobType jobType = JobType.valueOf(type.toUpperCase());
         if (jobType == null) {
             throw new AnalysisException("Invalid task metadata query");
         }
@@ -91,9 +91,9 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
     public TMetaScanRange getMetaScanRange() {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.TASKS);
-        TJobsMetadataParams jobParam = new TJobsMetadataParams();
-        jobParam.setType(jobType.name());
-        metaScanRange.setJobsParams(jobParam);
+        TTasksMetadataParams taskParam = new TTasksMetadataParams();
+        taskParam.setType(jobType.name());
+        metaScanRange.setTasksParams(taskParam);
         return metaScanRange;
     }
 

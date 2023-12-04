@@ -57,7 +57,7 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         if (type == null) {
             throw new AnalysisException("Invalid job metadata query");
         }
-        JobType jobType = JobType.valueOf(type);
+        JobType jobType = JobType.valueOf(type.toUpperCase());
         if (jobType == null) {
             throw new AnalysisException("Invalid job metadata query");
         }
@@ -71,7 +71,7 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         }
         TJobsMetadataParams jobMetadataParams = params.getJobsMetadataParams();
         String type = jobMetadataParams.getType();
-        JobType jobType = JobType.valueOf(type);
+        JobType jobType = JobType.valueOf(type.toUpperCase());
         if (jobType == null) {
             throw new AnalysisException("Invalid job metadata query");
         }
