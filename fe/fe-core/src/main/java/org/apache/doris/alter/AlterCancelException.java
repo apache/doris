@@ -18,6 +18,7 @@
 package org.apache.doris.alter;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 
 /*
  * This exception will be thrown when the alter job(v2) being cancelled due to
@@ -29,5 +30,10 @@ public class AlterCancelException extends DdlException {
 
     public AlterCancelException(String msg) {
         super(msg);
+    }
+
+    public AlterCancelException(String msg, ErrorCode mysqlErrorCode) {
+        super(msg);
+        setMysqlErrorCode(mysqlErrorCode);
     }
 }

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -186,22 +187,26 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public void writeLockOrDdlException() throws DdlException {
-        writeLockOrException(new DdlException("unknown table, tableName=" + name));
+        writeLockOrException(new DdlException("unknown table, tableName=" + name,
+                                        ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     @Override
     public void writeLockOrMetaException() throws MetaNotFoundException {
-        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name));
+        writeLockOrException(new MetaNotFoundException("unknown table, tableName=" + name,
+                                        ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     @Override
     public void writeLockOrAlterCancelException() throws AlterCancelException {
-        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name));
+        writeLockOrException(new AlterCancelException("unknown table, tableName=" + name,
+                                        ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     @Override
     public boolean tryWriteLockOrMetaException(long timeout, TimeUnit unit) throws MetaNotFoundException {
-        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name));
+        return tryWriteLockOrException(timeout, unit, new MetaNotFoundException("unknown table, tableName=" + name,
+                                        ErrorCode.ERR_BAD_TABLE_ERROR));
     }
 
     @Override
