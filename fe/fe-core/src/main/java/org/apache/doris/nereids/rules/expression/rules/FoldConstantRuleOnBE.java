@@ -22,9 +22,11 @@ import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.rules.expression.AbstractExpressionRewriteRule;
@@ -33,9 +35,15 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
+import org.apache.doris.nereids.types.DecimalV2Type;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PConstantExprResult;
+import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.system.Backend;
@@ -46,6 +54,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -181,26 +190,34 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             if (result.getStatus().getStatusCode() == 0) {
                 for (Entry<String, InternalService.PExprResultMap> e : result.getExprResultMapMap().entrySet()) {
                     for (Entry<String, InternalService.PExprResult> e1 : e.getValue().getMapMap().entrySet()) {
+                        PScalarType pScalarType = e1.getValue().getType();
+                        TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(pScalarType.getType());
+                        PrimitiveType primitiveType = PrimitiveType.fromThrift(Objects.requireNonNull(tPrimitiveType));
                         Expression ret;
                         if (e1.getValue().getSuccess()) {
-                            TPrimitiveType type = TPrimitiveType.findByValue(e1.getValue().getType().getType());
-                            Type t = Type.fromPrimitiveType(PrimitiveType.fromThrift(Objects.requireNonNull(type)));
-                            Expr staleExpr = LiteralExpr.create(e1.getValue().getContent(), Objects.requireNonNull(t));
-                            // Nereids type
-                            DataType t1 = DataType.convertFromString(staleExpr.getType().getPrimitiveType().toString());
-                            ret = Literal.of(staleExpr.getStringValue()).castTo(t1);
+                            DataType type;
+                            if (primitiveType == PrimitiveType.DATETIMEV2) {
+                                type = DateTimeV2Type.of(pScalarType.getScale());
+                            } else {
+                                type = DataType.fromCatalogType(ScalarType.createType(
+                                        PrimitiveType.fromThrift(tPrimitiveType)));
+                            }
+                            ret = Literal.of(e1.getValue().getContent()).castTo(type);
                         } else {
                             ret = constMap.get(e1.getKey());
                         }
+                        LOG.debug("Be constant folding convert {} to {}", e1.getKey(), ret);
                         resultMap.put(e1.getKey(), ret);
                     }
                 }
 
             } else {
-                LOG.warn("failed to get const expr value from be: {}", result.getStatus().getErrorMsgsList());
+                LOG.warn("query {} failed to get const expr value from be: {}",
+                        DebugUtil.printId(context.queryId()), result.getStatus().getErrorMsgsList());
             }
         } catch (Exception e) {
-            LOG.warn("failed to get const expr value from be: {}", e.getMessage());
+            LOG.warn("query {} failed to get const expr value from be: {}",
+                    DebugUtil.printId(context.queryId()), e.getMessage());
         }
         return resultMap;
     }
