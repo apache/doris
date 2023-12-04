@@ -889,22 +889,35 @@ InvertedIndexVisitor<QT>::InvertedIndexVisitor(roaring::Roaring* h, bool only_co
 
 template <InvertedIndexQueryType QT>
 int InvertedIndexVisitor<QT>::matches(uint8_t* packed_value) {
+    bool all_greater_than_max = true;
+    bool all_within_range = true;
+
     for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
         int offset = dim * _reader->bytes_per_dim_;
-        auto result = lucene::util::FutureArrays::CompareUnsigned(
-                packed_value, offset, offset + _reader->bytes_per_dim_,
-                (const uint8_t*)query_min.c_str(), offset, offset + _reader->bytes_per_dim_);
-        if (result < 0) {
-            return result;
-        }
-        result = lucene::util::FutureArrays::CompareUnsigned(
+
+        auto result_max = lucene::util::FutureArrays::CompareUnsigned(
                 packed_value, offset, offset + _reader->bytes_per_dim_,
                 (const uint8_t*)query_max.c_str(), offset, offset + _reader->bytes_per_dim_);
-        if (result > 0) {
-            return result;
+
+        auto result_min = lucene::util::FutureArrays::CompareUnsigned(
+                packed_value, offset, offset + _reader->bytes_per_dim_,
+                (const uint8_t*)query_min.c_str(), offset, offset + _reader->bytes_per_dim_);
+
+        all_greater_than_max &= (result_max > 0);
+        all_within_range &= (result_min > 0 && result_max < 0);
+
+        if (!all_greater_than_max && !all_within_range) {
+            return -1;
         }
     }
-    return 0;
+
+    if (all_greater_than_max) {
+        return 1;
+    } else if (all_within_range) {
+        return 0;
+    } else {
+        return -1;
+    }
 }
 
 template <>
@@ -914,13 +927,99 @@ int InvertedIndexVisitor<InvertedIndexQueryType::EQUAL_QUERY>::matches(uint8_t* 
         return std::memcmp(packed_value, (const uint8_t*)query_min.c_str(),
                            _reader->bytes_per_dim_);
     } else {
+        // if all dim value > matched value, then return > 0, otherwise return < 0
+        int return_result = 0;
         for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
             int offset = dim * _reader->bytes_per_dim_;
             auto result = lucene::util::FutureArrays::CompareUnsigned(
                     packed_value, offset, offset + _reader->bytes_per_dim_,
                     (const uint8_t*)query_min.c_str(), offset, offset + _reader->bytes_per_dim_);
-            if (result != 0) {
-                return result;
+            if (result < 0) {
+                return -1;
+            } else if (result > 0) {
+                return_result = 1;
+            }
+        }
+        return return_result;
+    }
+}
+
+template <>
+int InvertedIndexVisitor<InvertedIndexQueryType::LESS_THAN_QUERY>::matches(uint8_t* packed_value) {
+    if (_reader->num_data_dims_ == 1) {
+        auto result = std::memcmp(packed_value, (const uint8_t*)query_max.c_str(),
+                                  _reader->bytes_per_dim_);
+        if (result >= 0) {
+            return 1;
+        }
+        return 0;
+    } else {
+        bool all_greater_or_equal = true;
+        bool all_lesser = true;
+
+        for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
+            int offset = dim * _reader->bytes_per_dim_;
+            auto result = lucene::util::FutureArrays::CompareUnsigned(
+                    packed_value, offset, offset + _reader->bytes_per_dim_,
+                    (const uint8_t*)query_max.c_str(), offset, offset + _reader->bytes_per_dim_);
+
+            all_greater_or_equal &=
+                    (result >= 0);      // Remains true only if all results are greater or equal
+            all_lesser &= (result < 0); // Remains true only if all results are lesser
+        }
+
+        // Return 1 if all values are greater or equal, 0 if all are lesser, otherwise -1
+        return all_greater_or_equal ? 1 : (all_lesser ? 0 : -1);
+    }
+}
+
+template <>
+int InvertedIndexVisitor<InvertedIndexQueryType::LESS_EQUAL_QUERY>::matches(uint8_t* packed_value) {
+    if (_reader->num_data_dims_ == 1) {
+        auto result = std::memcmp(packed_value, (const uint8_t*)query_max.c_str(),
+                                  _reader->bytes_per_dim_);
+        if (result > 0) {
+            return 1;
+        }
+        return 0;
+    } else {
+        bool all_greater = true;
+        bool all_lesser_or_equal = true;
+
+        for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
+            int offset = dim * _reader->bytes_per_dim_;
+            auto result = lucene::util::FutureArrays::CompareUnsigned(
+                    packed_value, offset, offset + _reader->bytes_per_dim_,
+                    (const uint8_t*)query_max.c_str(), offset, offset + _reader->bytes_per_dim_);
+
+            all_greater &= (result > 0); // Remains true only if all results are greater
+            all_lesser_or_equal &=
+                    (result <= 0); // Remains true only if all results are lesser or equal
+        }
+
+        // Return 1 if all values are greater or equal, 0 if all are lesser, otherwise -1
+        return all_greater ? 1 : (all_lesser_or_equal ? 0 : -1);
+    }
+}
+
+template <>
+int InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>::matches(
+        uint8_t* packed_value) {
+    if (_reader->num_data_dims_ == 1) {
+        auto result = std::memcmp(packed_value, (const uint8_t*)query_min.c_str(),
+                                  _reader->bytes_per_dim_);
+        if (result <= 0) {
+            return -1;
+        }
+        return 0;
+    } else {
+        for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
+            int offset = dim * _reader->bytes_per_dim_;
+            auto result = lucene::util::FutureArrays::CompareUnsigned(
+                    packed_value, offset, offset + _reader->bytes_per_dim_,
+                    (const uint8_t*)query_min.c_str(), offset, offset + _reader->bytes_per_dim_);
+            if (result <= 0) {
+                return -1;
             }
         }
         return 0;
@@ -928,33 +1027,27 @@ int InvertedIndexVisitor<InvertedIndexQueryType::EQUAL_QUERY>::matches(uint8_t* 
 }
 
 template <>
-int InvertedIndexVisitor<InvertedIndexQueryType::LESS_THAN_QUERY>::matches(uint8_t* packed_value) {
-    for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
-        int offset = dim * _reader->bytes_per_dim_;
-        auto result = lucene::util::FutureArrays::CompareUnsigned(
-                packed_value, offset, offset + _reader->bytes_per_dim_,
-                (const uint8_t*)query_max.c_str(), offset, offset + _reader->bytes_per_dim_);
-        if (result >= 0) {
-            // we can't return result here, because if result == 0, we also need to return -1.
-            return 1;
-        }
-    }
-    return 0;
-}
-
-template <>
-int InvertedIndexVisitor<InvertedIndexQueryType::GREATER_THAN_QUERY>::matches(
+int InvertedIndexVisitor<InvertedIndexQueryType::GREATER_EQUAL_QUERY>::matches(
         uint8_t* packed_value) {
-    for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
-        int offset = dim * _reader->bytes_per_dim_;
-        auto result = lucene::util::FutureArrays::CompareUnsigned(
-                packed_value, offset, offset + _reader->bytes_per_dim_,
-                (const uint8_t*)query_min.c_str(), offset, offset + _reader->bytes_per_dim_);
-        if (result <= 0) {
+    if (_reader->num_data_dims_ == 1) {
+        auto result = std::memcmp(packed_value, (const uint8_t*)query_min.c_str(),
+                                  _reader->bytes_per_dim_);
+        if (result < 0) {
             return -1;
         }
+        return 0;
+    } else {
+        for (int dim = 0; dim < _reader->num_data_dims_; dim++) {
+            int offset = dim * _reader->bytes_per_dim_;
+            auto result = lucene::util::FutureArrays::CompareUnsigned(
+                    packed_value, offset, offset + _reader->bytes_per_dim_,
+                    (const uint8_t*)query_min.c_str(), offset, offset + _reader->bytes_per_dim_);
+            if (result < 0) {
+                return -1;
+            }
+        }
+        return 0;
     }
-    return 0;
 }
 
 template <InvertedIndexQueryType QT>
