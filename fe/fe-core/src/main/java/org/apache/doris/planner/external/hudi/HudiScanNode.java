@@ -223,7 +223,8 @@ public class HudiScanNode extends HiveScanNode {
 
         List<String> columnNames = new ArrayList<>();
         List<String> columnTypes = new ArrayList<>();
-        List<FieldSchema> allFields = hmsTable.getRemoteTable().getSd().getCols();
+        List<FieldSchema> allFields = Lists.newArrayList();
+        allFields.addAll(hmsTable.getRemoteTable().getSd().getCols());
         allFields.addAll(hmsTable.getRemoteTable().getPartitionKeys());
 
         for (Schema.Field hudiField : hudiSchema.getFields()) {
