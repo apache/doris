@@ -25,6 +25,7 @@
 #include <unordered_set>
 #include <vector>
 
+#include "arrow/io/interfaces.h"
 #include "io/file_factory.h"
 
 namespace doris {
