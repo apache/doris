@@ -312,6 +312,9 @@ struct TPaimonFileDesc {
     10: optional i64 last_update_time
 }
 
+struct TMaxComputeFileDesc {
+    1: optional string partition_spec
+}
 
 struct THudiFileDesc {
     1: optional string instant_time;
@@ -342,6 +345,7 @@ struct TTableFormatFileDesc {
     3: optional THudiFileDesc hudi_params
     4: optional TPaimonFileDesc paimon_params
     5: optional TTransactionalHiveDesc transactional_hive_params
+    6: optional TMaxComputeFileDesc max_compute_params
 }
 
 enum TTextSerdeType {
@@ -1024,6 +1028,8 @@ struct TExchangeNode {
   2: optional TSortInfo sort_info
   // This is tHe number of rows to skip before returning results
   3: optional i64 offset
+  // Shuffle partition type
+  4: optional Partitions.TPartitionType partition_type
 }
 
 struct TOlapRewriteNode {

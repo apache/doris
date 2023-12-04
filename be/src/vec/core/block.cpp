@@ -950,7 +950,8 @@ void MutableBlock::add_row(const Block* block, int row) {
     }
 }
 
-void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
+void MutableBlock::add_rows(const Block* block, const uint32_t* row_begin,
+                            const uint32_t* row_end) {
     DCHECK_LE(columns(), block->columns());
     const auto& block_data = block->get_columns_with_type_and_name();
     for (size_t i = 0; i < _columns.size(); ++i) {

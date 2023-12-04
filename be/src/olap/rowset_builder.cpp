@@ -309,7 +309,7 @@ Status RowsetBuilder::commit_txn() {
         // _tabelt->tablet_schema:  A(bigint), B(double)
         //  => update_schema:       A(bigint), B(double), C(int), D(int)
         const RowsetWriterContext& rw_ctx = _rowset_writer->context();
-        _tablet->update_by_least_common_schema(rw_ctx.tablet_schema);
+        RETURN_IF_ERROR(_tablet->update_by_least_common_schema(rw_ctx.tablet_schema));
     }
     // Transfer ownership of `PendingRowsetGuard` to `TxnManager`
     Status res = storage_engine->txn_manager()->commit_txn(_req.partition_id, *tablet, _req.txn_id,

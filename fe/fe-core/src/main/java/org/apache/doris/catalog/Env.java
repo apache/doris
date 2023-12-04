@@ -281,11 +281,13 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.io.DataInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -381,6 +383,7 @@ public class Env {
     // canRead can be true even if isReady is false.
     // for example: OBSERVER transfer to UNKNOWN, then isReady will be set to false, but canRead can still be true
     private AtomicBoolean canRead = new AtomicBoolean(false);
+    private String toMasterProgress = "";
     private BlockingQueue<FrontendNodeType> typeTransferQueue;
 
     // node name is used for bdbje NodeName.
@@ -959,8 +962,7 @@ public class Env {
         createTxnCleaner();
 
         // 6. start state listener thread
-        createStateListener();
-        listener.start();
+        startStateListener();
 
         // 7. create fe disk updater
         createFeDiskUpdater();
@@ -981,6 +983,8 @@ public class Env {
         TopicPublisher wgPublisher = new WorkloadGroupPublisher(this);
         topicPublisherThread.addToTopicPublisherList(wgPublisher);
         topicPublisherThread.start();
+
+        workloadGroupMgr.startUpdateThread();
     }
 
     // wait until FE is ready.
@@ -1386,6 +1390,7 @@ public class Env {
         isReady.set(false);
         canRead.set(false);
 
+        toMasterProgress = "open editlog";
         editLog.open();
 
         if (Config.edit_log_type.equalsIgnoreCase("bdb")) {
@@ -1395,6 +1400,7 @@ public class Env {
             }
         }
 
+        toMasterProgress = "replay journal";
         long replayStartTime = System.currentTimeMillis();
         // replay journals. -1 means replay all the journals larger than current journal id.
         replayJournal(-1);
@@ -1405,11 +1411,13 @@ public class Env {
 
         checkBeExecVersion();
 
+        toMasterProgress = "roll editlog";
         editLog.rollEditLog();
 
         // Log meta_version
         long journalVersion = MetaContext.get().getMetaVersion();
         if (journalVersion < FeConstants.meta_version) {
+            toMasterProgress = "log meta version";
             editLog.logMetaVersion(FeConstants.meta_version);
             MetaContext.get().setMetaVersion(FeConstants.meta_version);
         }
@@ -1451,6 +1459,7 @@ public class Env {
         // MUST set master ip before starting checkpoint thread.
         // because checkpoint thread need this info to select non-master FE to push image
 
+        toMasterProgress = "log master info";
         this.masterInfo = new MasterInfo(Env.getCurrentEnv().getSelfNode().getHost(),
                 Config.http_port,
                 Config.rpc_port);
@@ -1464,6 +1473,8 @@ public class Env {
         // so no need to check 'isReady' flag in this method
         postProcessAfterMetadataReplayed(false);
 
+        toMasterProgress = "start daemon threads";
+
         // start all daemon threads that only running on MASTER FE
         startMasterOnlyDaemonThreads();
         // start other daemon threads that should running on all FE
@@ -1471,6 +1482,7 @@ public class Env {
 
         MetricRepo.init();
 
+        toMasterProgress = "finished";
         canRead.set(true);
         isReady.set(true);
         checkLowerCaseTableNames();
@@ -1491,11 +1503,22 @@ public class Env {
      * 2. register some hook.
      * If there is, add them here.
      */
-    public void postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
+    public boolean postProcessAfterMetadataReplayed(boolean waitCatalogReady) {
         if (waitCatalogReady) {
             while (!isReady()) {
+                // Avoid endless waiting if the state has changed.
+                //
+                // Consider the following situation:
+                // 1. The follower replay journals and is not set to ready because the synchronization internval
+                //    exceeds meta delay toleration seconds.
+                // 2. The underlying BEBJE node of this follower is selected as the master, but the state listener
+                //    thread is waiting for catalog ready.
+                if (typeTransferQueue.peek() != null) {
+                    return false;
+                }
+
                 try {
-                    Thread.sleep(10 * 1000);
+                    Thread.sleep(100);
                 } catch (InterruptedException e) {
                     LOG.warn("", e);
                 }
@@ -1504,6 +1527,7 @@ public class Env {
 
         auth.rectifyPrivs();
         catalogMgr.registerCatalogRefreshListener(this);
+        return true;
     }
 
     // start all daemon threads only running on Master
@@ -1617,7 +1641,10 @@ public class Env {
         }
 
         // 'isReady' will be set to true in 'setCanRead()' method
-        postProcessAfterMetadataReplayed(true);
+        if (!postProcessAfterMetadataReplayed(true)) {
+            // the state has changed, exit early.
+            return;
+        }
 
         checkLowerCaseTableNames();
 
@@ -2470,7 +2497,7 @@ public class Env {
         }
     }
 
-    public void createStateListener() {
+    public void startStateListener() {
         listener = new Daemon("stateListener", STATE_CHANGE_CHECK_INTERVAL_MS) {
             @Override
             protected synchronized void runOneCycle() {
@@ -2578,6 +2605,7 @@ public class Env {
         };
 
         listener.setMetaContext(metaContext);
+        listener.start();
     }
 
     public synchronized boolean replayJournal(long toJournalId) {
@@ -5813,5 +5841,58 @@ public class Env {
         alter.setTask(task);
         alter.setRelation(relation);
         this.alter.processAlterMTMV(alter, false);
+    }
+
+    // Ensure the env is ready, otherwise throw an exception.
+    public void checkReadyOrThrow() throws Exception {
+        if (isReady()) {
+            return;
+        }
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Node catalog is not ready, please wait for a while. ")
+                .append("To master progress: " + toMasterProgress + ".\n")
+                .append("Frontends: \n");
+
+        for (String name : frontends.keySet()) {
+            Frontend frontend = frontends.get(name);
+            if (name == null) {
+                continue;
+            }
+            sb.append(frontend.toString()).append("\n");
+        }
+
+        if (haProtocol instanceof BDBHA) {
+            try {
+                BDBHA ha = (BDBHA) haProtocol;
+                List<InetSocketAddress> electableNodes = ha.getElectableNodes(true);
+                if (!electableNodes.isEmpty()) {
+                    sb.append("Electable nodes: \n");
+                    for (InetSocketAddress addr : electableNodes) {
+                        sb.append(addr.toString()).append("\n");
+                    }
+                }
+                List<InetSocketAddress> observerNodes = ha.getObserverNodes();
+                if (!observerNodes.isEmpty()) {
+                    sb.append("Observer nodes: \n");
+                    for (InetSocketAddress addr : electableNodes) {
+                        sb.append(addr.toString()).append("\n");
+                    }
+                }
+
+            } catch (Exception e) {
+                // pass
+            }
+        }
+
+        throw new Exception(sb.toString());
+    }
+
+    public void checkReadyOrThrowTException() throws TException {
+        try {
+            checkReadyOrThrow();
+        } catch (Exception e) {
+            throw new TException(e);
+        }
     }
 }

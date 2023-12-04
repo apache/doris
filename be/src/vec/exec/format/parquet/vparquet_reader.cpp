@@ -173,8 +173,9 @@ void ParquetReader::_init_profile() {
     }
 }
 
-void ParquetReader::close() {
+Status ParquetReader::close() {
     _close_internal();
+    return Status::OK();
 }
 
 void ParquetReader::_close_internal() {

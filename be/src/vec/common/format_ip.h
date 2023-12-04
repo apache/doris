@@ -37,6 +37,7 @@ constexpr size_t IPV4_MAX_NUM_VALUE = 4294967295; //num value of '255.255.255.25
 constexpr int IPV4_MAX_OCTET_VALUE = 255;         //max vulue of octet
 constexpr size_t IPV4_OCTET_BITS = 8;
 constexpr size_t DECIMAL_BASE = 10;
+constexpr size_t IPV6_BINARY_LENGTH = 16;
 
 namespace doris::vectorized {
 
@@ -190,5 +191,11 @@ inline bool parseIPv4whole(const char* src, unsigned char* dst) {
     const char* end = parseIPv4(src, dst);
     return end != nullptr && *end == '\0';
 }
+
+/** Rewritten inet_ntop6 from http://svn.apache.org/repos/asf/apr/apr/trunk/network_io/unix/inet_pton.c
+  *  performs significantly faster than the reference implementation due to the absence of sprintf calls,
+  *  bounds checking, unnecessary string copying and length calculation.
+  */
+void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_count = 0);
 
 } // namespace doris::vectorized

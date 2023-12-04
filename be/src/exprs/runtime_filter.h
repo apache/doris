@@ -244,10 +244,6 @@ public:
 
     void copy_from_other(IRuntimeFilter* other);
 
-    // insert data to build filter
-    // only used for producer
-    void insert(const void* data);
-    void insert(const StringRef& data);
     void insert_batch(vectorized::ColumnPtr column, size_t start);
 
     // publish filter

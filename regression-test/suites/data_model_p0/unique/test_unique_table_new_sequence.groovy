@@ -34,7 +34,7 @@ suite("test_unique_table_new_sequence") {
     "light_schema_change" = "true"
     );
     """
-    // load unique key
+    // test streamload with seq col
     streamLoad {
         table "${tableName}"
 
@@ -60,7 +60,7 @@ suite("test_unique_table_new_sequence") {
     sql "sync"
     order_qt_all "SELECT * from ${tableName}"
 
-    // load unique key
+    // test update data, using streamload with seq col
     streamLoad {
         table "${tableName}"
 
@@ -105,9 +105,17 @@ suite("test_unique_table_new_sequence") {
 
     order_qt_all "SELECT * from ${tableName}"
 
+    // test insert into with column list, which not contains the seq mapping column v2
+    test {
+        sql "INSERT INTO ${tableName} (k1, v1, v3, v4) values(15, 8, 20, 21)"
+        exception "Table ${tableName} has sequence column, need to specify the sequence column"
+    }
+
+    // test insert into without column list
     sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
 
-    sql "INSERT INTO ${tableName} values(15, 9, 18, 21, 22)"
+    // test insert into with column list
+    sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4) values(15, 9, 18, 21, 22)"
 
     sql "SET show_hidden_columns=true"
 
@@ -141,8 +149,18 @@ suite("test_unique_table_new_sequence") {
     );
     """
 
+    // test insert into with column list, which not contains the seq mapping column v4
+    // in begin/commit
     sql "begin;"
-    sql "insert into ${tableName} (k1, v1, v2, v3, v4) values (1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"
+    test {
+        sql "INSERT INTO ${tableName} (k1, v1, v2, v3) values(1,1,1,1)"
+        exception "Table ${tableName} has sequence column, need to specify the sequence column"
+    }
+    sql "commit;"
+
+    // test insert into without column list, in begin/commit
+    sql "begin;"
+    sql "insert into ${tableName} values (1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"
     sql "commit;"
 
     qt_1 "select * from ${tableName} order by k1;"

@@ -462,6 +462,10 @@ public class SessionVariable implements Serializable, Writable {
     public static final String MATERIALIZED_VIEW_REWRITE_ENABLE_CONTAIN_FOREIGN_TABLE
             = "materialized_view_rewrite_enable_contain_foreign_table";
 
+    // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
+    // this session variable is set to true.
+    public static final String FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT = "fallback_other_replica_when_fixed_corrupt";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -1441,6 +1445,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_DECIMAL256, needForward = true, description = { "控制是否在计算过程中使用Decimal256类型",
             "Set to true to enable Decimal256 type" })
     public boolean enableDecimal256 = false;
+
+    @VariableMgr.VarAttr(name = FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT, needForward = true,
+            description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
+                "use other health replica when the use_fix_replica meet error" })
+    public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.

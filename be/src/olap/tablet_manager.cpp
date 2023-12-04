@@ -968,7 +968,6 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
 }
 
 Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
-    DorisMetrics::instance()->report_tablet_requests_total->increment(1);
     LOG(INFO) << "begin to process report tablet info."
               << "tablet_id=" << tablet_info->tablet_id;
 
@@ -993,7 +992,6 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
     StorageEngine::instance()->txn_manager()->build_expire_txn_map(&expire_txn_map);
     LOG(INFO) << "find expired transactions for " << expire_txn_map.size() << " tablets";
 
-    DorisMetrics::instance()->report_all_tablets_requests_total->increment(1);
     HistogramStat tablet_version_num_hist;
     auto local_cache = std::make_shared<std::vector<TTabletStat>>();
     auto handler = [&](const TabletSharedPtr& tablet) {

@@ -641,7 +641,8 @@ TabletSchemaSPtr Tablet::tablet_schema_with_merged_max_schema_version(
         std::vector<TabletSchemaSPtr> schemas;
         std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
                        [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        target_schema = vectorized::schema_util::get_least_common_schema(schemas, nullptr);
+        static_cast<void>(
+                vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
         VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
     }
     return target_schema;
@@ -2679,7 +2680,7 @@ Status Tablet::_get_segment_column_iterator(
                                             rowset->rowset_id().to_string(), segid));
     }
     segment_v2::SegmentSharedPtr segment = *it;
-    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator));
+    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, nullptr));
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),
@@ -2912,7 +2913,7 @@ void Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_b
                                      << " r_pos: " << r->_row_pos;
                   return value < 0;
               });
-    std::vector<int> row_pos_vec;
+    std::vector<uint32_t> row_pos_vec;
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < row_in_blocks.size(); i++) {
         row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);

@@ -471,7 +471,7 @@ public class StatisticsAutoCollectorTest {
         new MockUp<OlapTable>() {
             int count = 0;
 
-            int[] rowCounts = {100, 0};
+            int[] rowCounts = {100, 100, 100, 0, 0, 0, 0};
             @Mock
             public long getRowCount() {
                 return rowCounts[count++];

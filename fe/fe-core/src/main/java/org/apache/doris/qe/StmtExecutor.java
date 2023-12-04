@@ -1417,11 +1417,14 @@ public class StmtExecutor {
         }
 
         // handle selects that fe can do without be, so we can make sql tools happy, especially the setup step.
-        Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
-        if (resultSet.isPresent()) {
-            sendResultSet(resultSet.get());
-            LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
-            return;
+        // TODO FE not support doris field type conversion to arrow field type.
+        if (!context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
+            Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
+            if (resultSet.isPresent()) {
+                sendResultSet(resultSet.get());
+                LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
+                return;
+            }
         }
 
         MysqlChannel channel = null;

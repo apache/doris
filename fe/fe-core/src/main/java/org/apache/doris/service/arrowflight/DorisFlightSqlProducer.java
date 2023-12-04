@@ -88,6 +88,12 @@ import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+/**
+ * Implementation of Arrow Flight SQL service
+ *
+ * All methods must catch all possible Exceptions, print and throw CallStatus,
+ * otherwise error message will be discarded.
+ */
 public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable {
     private static final Logger LOG = LogManager.getLogger(DorisFlightSqlProducer.class);
     private final Location location;
@@ -175,9 +181,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
 
     private FlightInfo executeQueryStatement(String peerIdentity, ConnectContext connectContext, String query,
             final FlightDescriptor descriptor) {
-        Preconditions.checkState(null != connectContext);
-        Preconditions.checkState(!query.isEmpty());
         try {
+            Preconditions.checkState(null != connectContext);
+            Preconditions.checkState(!query.isEmpty());
             // After the previous query was executed, there was no getStreamStatement to take away the result.
             connectContext.getFlightSqlChannel().reset();
             final FlightSqlConnectProcessor flightSQLConnectProcessor = new FlightSqlConnectProcessor(connectContext);
@@ -294,6 +300,9 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     public void createPreparedStatement(final ActionCreatePreparedStatementRequest request, final CallContext context,
             final StreamListener<Result> listener) {
         // TODO can only execute complete SQL, not support SQL parameters.
+        // For Python: the Python code will try to create a prepared statement (this is to fit DBAPI, IIRC) and
+        // if the server raises any error except for NotImplemented it will fail. (If it gets NotImplemented,
+        // it will ignore and execute without a prepared statement.) see: https://github.com/apache/arrow/issues/38786
         executorService.submit(() -> {
             ConnectContext connectContext = flightSessionsManager.getConnectContext(context.peerIdentity());
             try {
@@ -344,20 +353,27 @@ public class DorisFlightSqlProducer implements FlightSqlProducer, AutoCloseable 
     public Runnable acceptPutPreparedStatementUpdate(CommandPreparedStatementUpdate command, CallContext context,
             FlightStream flightStream, StreamListener<PutResult> ackStream) {
         return () -> {
-            while (flightStream.next()) {
-                final VectorSchemaRoot root = flightStream.getRoot();
-                final int rowCount = root.getRowCount();
-                // TODO support update
-                Preconditions.checkState(rowCount == 0);
+            try {
+                while (flightStream.next()) {
+                    final VectorSchemaRoot root = flightStream.getRoot();
+                    final int rowCount = root.getRowCount();
+                    // TODO support update
+                    Preconditions.checkState(rowCount == 0);
 
-                final int recordCount = -1;
-                final DoPutUpdateResult build = DoPutUpdateResult.newBuilder().setRecordCount(recordCount).build();
-                try (final ArrowBuf buffer = rootAllocator.buffer(build.getSerializedSize())) {
-                    buffer.writeBytes(build.toByteArray());
-                    ackStream.onNext(PutResult.metadata(buffer));
+                    final int recordCount = -1;
+                    final DoPutUpdateResult build = DoPutUpdateResult.newBuilder().setRecordCount(recordCount).build();
+                    try (final ArrowBuf buffer = rootAllocator.buffer(build.getSerializedSize())) {
+                        buffer.writeBytes(build.toByteArray());
+                        ackStream.onNext(PutResult.metadata(buffer));
+                    }
                 }
+                ackStream.onCompleted();
+            } catch (Exception e) {
+                String errMsg = "acceptPutPreparedStatementUpdate failed, " + e.getMessage() + ", "
+                        + Util.getRootCauseMessage(e);
+                LOG.warn(errMsg, e);
+                throw CallStatus.INTERNAL.withDescription(errMsg).withCause(e).toRuntimeException();
             }
-            ackStream.onCompleted();
         };
     }
 
