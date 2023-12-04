@@ -226,6 +226,16 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer
+                                            .PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                    "Property "
+                        + PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
             long groupCommitIntervalMs;
             String groupCommitIntervalMsStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);

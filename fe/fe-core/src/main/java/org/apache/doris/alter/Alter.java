@@ -505,6 +505,8 @@ public class Alter {
                         || properties
                             .containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
                         || properties
+                            .containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
+                        || properties
                             .containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD));
                 ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
