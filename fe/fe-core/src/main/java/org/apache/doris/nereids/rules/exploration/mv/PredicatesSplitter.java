@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
@@ -40,10 +41,10 @@ import java.util.List;
  */
 public class PredicatesSplitter {
 
-    private List<Expression> equalPredicates = new ArrayList<>();
-    private List<Expression> rangePredicates = new ArrayList<>();
-    private List<Expression> residualPredicates = new ArrayList<>();
-    private List<Expression> conjunctExpressions;
+    private final List<Expression> equalPredicates = new ArrayList<>();
+    private final List<Expression> rangePredicates = new ArrayList<>();
+    private final List<Expression> residualPredicates = new ArrayList<>();
+    private final List<Expression> conjunctExpressions;
 
     private final PredicateExtract instance = new PredicateExtract();
 
@@ -63,7 +64,7 @@ public class PredicatesSplitter {
             Expression rightArg = comparisonPredicate.getArgument(1);
             boolean leftArgOnlyContainsColumnRef = containOnlyColumnRef(leftArg, true);
             boolean rightArgOnlyContainsColumnRef = containOnlyColumnRef(rightArg, true);
-            if (comparisonPredicate instanceof EqualTo || comparisonPredicate instanceof NullSafeEqual) {
+            if (comparisonPredicate instanceof EqualPredicate) {
                 if (leftArgOnlyContainsColumnRef && rightArgOnlyContainsColumnRef) {
                     equalPredicates.add(comparisonPredicate);
                     return null;
@@ -85,7 +86,7 @@ public class PredicatesSplitter {
                 residualPredicates.add(compoundPredicate);
                 return null;
             }
-            return super.visitCompoundPredicate(compoundPredicate, context);
+            return super.visit(compoundPredicate, context);
         }
     }
 

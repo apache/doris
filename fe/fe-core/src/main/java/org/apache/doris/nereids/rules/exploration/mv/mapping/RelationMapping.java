@@ -116,11 +116,12 @@ public class RelationMapping extends Mapping {
     }
 
     private static String getTableQualifier(TableIf tableIf) {
-        String tableName = tableIf.getName();
-        DatabaseIf database = tableIf.getDatabase();
-        if (database == null) {
-            return null;
-        }
-        return database.getFullName() + ":" + tableName;
+        return String.valueOf(tableIf.getId());
+        // String tableName = tableIf.getName();
+        // DatabaseIf database = tableIf.getDatabase();
+        // if (database == null) {
+        //     return null;
+        // }
+        // return database.getFullName() + ":" + tableName;
     }
 }

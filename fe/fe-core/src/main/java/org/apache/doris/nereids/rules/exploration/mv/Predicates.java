@@ -62,26 +62,26 @@ public class Predicates {
      * The split different representation for predicate expression, such as equal, range and residual predicate.
      * */
     public static final class SplitPredicate {
-        private final Expression equalPredicates;
-        private final Expression rangePredicates;
-        private final Expression residualPredicates;
+        private final Expression equalPredicate;
+        private final Expression rangePredicate;
+        private final Expression residualPredicate;
 
-        public SplitPredicate(Expression equalPredicates, Expression rangePredicates, Expression residualPredicates) {
-            this.equalPredicates = equalPredicates;
-            this.rangePredicates = rangePredicates;
-            this.residualPredicates = residualPredicates;
+        public SplitPredicate(Expression equalPredicate, Expression rangePredicate, Expression residualPredicate) {
+            this.equalPredicate = equalPredicate;
+            this.rangePredicate = rangePredicate;
+            this.residualPredicate = residualPredicate;
         }
 
         public Expression getEqualPredicate() {
-            return equalPredicates;
+            return equalPredicate;
         }
 
         public Expression getRangePredicate() {
-            return rangePredicates;
+            return rangePredicate;
         }
 
         public Expression getResidualPredicate() {
-            return residualPredicates;
+            return residualPredicate;
         }
 
         public static SplitPredicate empty() {
@@ -101,25 +101,25 @@ public class Predicates {
          * isEmpty
          * */
         public boolean isEmpty() {
-            return equalPredicates == null
-                    && rangePredicates == null
-                    && residualPredicates == null;
+            return equalPredicate == null
+                    && rangePredicate == null
+                    && residualPredicate == null;
         }
 
         public List<Expression> toList() {
-            return ImmutableList.of(equalPredicates, rangePredicates, residualPredicates);
+            return ImmutableList.of(equalPredicate, rangePredicate, residualPredicate);
         }
 
         /**
          * Check the predicates in SplitPredicate is whether all true or not
          */
         public boolean isAlwaysTrue() {
-            return equalPredicates instanceof BooleanLiteral
-                    && rangePredicates instanceof BooleanLiteral
-                    && residualPredicates instanceof BooleanLiteral
-                    && ((BooleanLiteral) equalPredicates).getValue()
-                    && ((BooleanLiteral) rangePredicates).getValue()
-                    && ((BooleanLiteral) residualPredicates).getValue();
+            return equalPredicate instanceof BooleanLiteral
+                    && rangePredicate instanceof BooleanLiteral
+                    && residualPredicate instanceof BooleanLiteral
+                    && ((BooleanLiteral) equalPredicate).getValue()
+                    && ((BooleanLiteral) rangePredicate).getValue()
+                    && ((BooleanLiteral) residualPredicate).getValue();
         }
     }
 }
