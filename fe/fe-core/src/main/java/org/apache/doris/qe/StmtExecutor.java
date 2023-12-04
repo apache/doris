@@ -666,7 +666,7 @@ public class StmtExecutor {
             }
         } finally {
             if (offerRet != null && offerRet.isOfferSuccess()) {
-                queryQueue.poll();
+                queryQueue.releaseToken(offerRet);
             }
         }
     }

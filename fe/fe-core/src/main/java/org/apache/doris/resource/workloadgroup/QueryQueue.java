@@ -104,7 +104,7 @@ public class QueryQueue {
 
             if (currentRunningQueryNum < maxConcurrency) {
                 currentRunningQueryNum++;
-                return new QueueOfferToken(false, true, queueTimeout, "offer success");
+                return new QueueOfferToken(true, true, queueTimeout, "offer success");
             }
             // currentRunningQueryNum may bigger than maxRunningQueryNum
             // because maxRunningQueryNum can be altered
