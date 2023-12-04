@@ -27,6 +27,7 @@
 
 #include "arrow_pip_input_stream.h"
 #include "common/status.h"
+#include "cctz/time_zone.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "util/slice.h"
