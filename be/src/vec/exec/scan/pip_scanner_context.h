@@ -76,11 +76,15 @@ public:
             *block = std::move(_blocks_queues[id].front());
             _blocks_queues[id].pop_front();
 
-            if (_blocks_queues[id].empty() && _dependency) {
-                _dependency->block();
+            if (_blocks_queues[id].empty()) {
+                this->reschedule_scanner_ctx();
+                if (_dependency) {
+                    _dependency->block();
+                }
             }
         }
         _current_used_bytes -= (*block)->allocated_bytes();
+
         return Status::OK();
     }
 
