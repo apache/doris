@@ -241,8 +241,8 @@ public class CacheTest extends TestWithFeService {
             public Optional<ColumnStatistic> getColumnStatistic(String colName) {
                 return Optional.of(new ColumnStatistic(1, 2,
                         null, 3, 4, 5, 6, 7,
-                        null, null, false, null,
-                        new Date().toString(), null));
+                        null, null, false,
+                        new Date().toString()));
             }
         };
 
