@@ -466,7 +466,7 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
     for (auto cid : _seek_schema->column_ids()) {
         if (_column_iterators[cid] == nullptr) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
-                                                          &_column_iterators[cid]));
+                                                          &_column_iterators[cid], &_opts));
             ColumnIteratorOptions iter_opts {
                     .use_page_cache = _opts.use_page_cache,
                     .file_reader = _file_reader.get(),
