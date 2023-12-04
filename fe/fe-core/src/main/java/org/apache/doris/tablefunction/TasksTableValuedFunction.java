@@ -1,0 +1,114 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.tablefunction;
+
+import org.apache.doris.catalog.Column;
+import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.thrift.TJobsMetadataParams;
+import org.apache.doris.thrift.TMetaScanRange;
+import org.apache.doris.thrift.TMetadataTableRequestParams;
+import org.apache.doris.thrift.TMetadataType;
+
+import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Maps;
+
+import java.util.List;
+import java.util.Map;
+
+/**
+ * The Implement of table valued function
+ * tasks("type" = "mtmv").
+ */
+public class TasksTableValuedFunction extends MetadataTableValuedFunction {
+    public static final String NAME = "tasks";
+    private static final String TYPE = "type";
+
+    private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(TYPE);
+
+    private final JobType jobType;
+
+    public TasksTableValuedFunction(Map<String, String> params) throws AnalysisException {
+        Map<String, String> validParams = Maps.newHashMap();
+        for (String key : params.keySet()) {
+            if (!PROPERTIES_SET.contains(key.toLowerCase())) {
+                throw new AnalysisException("'" + key + "' is invalid property");
+            }
+            validParams.put(key.toLowerCase(), params.get(key));
+        }
+        String type = validParams.get(TYPE);
+        if (type == null) {
+            throw new AnalysisException("Invalid task metadata query");
+        }
+        JobType jobType = JobType.valueOf(type);
+        if (jobType == null) {
+            throw new AnalysisException("Invalid task metadata query");
+        }
+        this.jobType = jobType;
+    }
+
+    public static Integer getColumnIndexFromColumnName(String columnName, TMetadataTableRequestParams params)
+            throws org.apache.doris.common.AnalysisException {
+        if (!params.isSetJobsMetadataParams()) {
+            throw new org.apache.doris.common.AnalysisException("Jobs metadata params is not set.");
+        }
+        TJobsMetadataParams jobMetadataParams = params.getJobsMetadataParams();
+        String type = jobMetadataParams.getType();
+        JobType jobType = JobType.valueOf(type);
+        if (jobType == null) {
+            throw new AnalysisException("Invalid task metadata query");
+        }
+        if (JobType.MTMV == jobType) {
+            return MTMVTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        } else {
+            return InsertTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
+        }
+    }
+
+    @Override
+    public TMetadataType getMetadataType() {
+        return TMetadataType.TASKS;
+    }
+
+    @Override
+    public TMetaScanRange getMetaScanRange() {
+        TMetaScanRange metaScanRange = new TMetaScanRange();
+        metaScanRange.setMetadataType(TMetadataType.TASKS);
+        TJobsMetadataParams jobParam = new TJobsMetadataParams();
+        jobParam.setType(jobType.name());
+        metaScanRange.setJobsParams(jobParam);
+        return metaScanRange;
+    }
+
+    @Override
+    public String getTableName() {
+        return "TasksTableValuedFunction";
+    }
+
+    @Override
+    public List<Column> getTableColumns() throws AnalysisException {
+        if (JobType.MTMV == jobType) {
+            return MTMVTask.SCHEMA;
+        } else {
+            return InsertTask.SCHEMA;
+        }
+    }
+}
+
