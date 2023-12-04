@@ -108,8 +108,8 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
             return Status::InternalError(
                     "invalid cluster id. ignore. Record cluster id ={}, record frontend info {}. "
                     "Invalid cluster_id={}, invalid frontend info {}",
-                    _master_info->cluster_id, _master_info->frontend_infos, master_info.cluster_id,
-                    master_info.frontend_infos);
+                    _master_info->cluster_id, PrintFrontendInfos(_master_info->frontend_infos),
+                    master_info.cluster_id, PrintFrontendInfos(master_info.frontend_infos));
         }
     }
 
