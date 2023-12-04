@@ -39,12 +39,12 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalProject
---------------PhysicalOlapScan[t2] apply RFs: RF0
+--------------PhysicalOlapScan[t1]
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------PhysicalOlapScan[t1]
+----------------PhysicalOlapScan[t2]
 
 -- !left_anti_join_order --
 PhysicalResultSink
@@ -65,12 +65,13 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
+----------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalDistribute
 --------------PhysicalProject
 ----------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
 
 -- !full_outer_join_order --
 PhysicalResultSink
@@ -104,17 +105,19 @@ PhysicalResultSink
 -- !right_outer_join_order --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalProject
---------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------PhysicalTopN[MERGE_SORT]
+----PhysicalDistribute
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ------------PhysicalDistribute
---------------PhysicalTopN[LOCAL_SORT]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-----------PhysicalDistribute
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
+--------------PhysicalProject
+----------------PhysicalOlapScan[t1] apply RFs: RF0
+------------PhysicalDistribute
+--------------PhysicalTopN[MERGE_SORT]
+----------------PhysicalDistribute
+------------------PhysicalTopN[LOCAL_SORT]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
 
 -- !cross_join_order --
 PhysicalResultSink
@@ -514,14 +517,14 @@ PhysicalResultSink
 ----------PhysicalDistribute
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalProject
+------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[t1]
+--------------------PhysicalDistribute
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[t2]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
@@ -658,16 +661,17 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalDistribute
 ----PhysicalProject
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.id = t1.id)) otherCondition=()
-----------PhysicalProject
-------------PhysicalOlapScan[t1]
-----------PhysicalDistribute
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.id = t1.id)) otherCondition=()
+--------PhysicalProject
+----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalProject
---------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t2]
 --------PhysicalDistribute
 ----------PhysicalProject
-------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t3]
 
 -- !limit_correlated_subquery_window --
 PhysicalResultSink
@@ -868,17 +872,19 @@ PhysicalResultSink
 ----PhysicalDistribute
 ------PhysicalTopN[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t3]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
 ------------PhysicalDistribute
 --------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t2]
+----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------------PhysicalDistribute
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
+----------------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t2]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------PhysicalOlapScan[t3]
 
 -- !limit_multiple_full_outerjoin --
 PhysicalResultSink
