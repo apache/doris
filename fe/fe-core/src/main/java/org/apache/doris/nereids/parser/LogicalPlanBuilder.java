@@ -37,6 +37,7 @@ import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRefreshSchedule;
 import org.apache.doris.mtmv.MTMVRefreshTriggerInfo;
 import org.apache.doris.nereids.DorisParser;
+import org.apache.doris.nereids.DorisParser.AddConstraintContext;
 import org.apache.doris.nereids.DorisParser.AggClauseContext;
 import org.apache.doris.nereids.DorisParser.AliasQueryContext;
 import org.apache.doris.nereids.DorisParser.AliasedQueryContext;
@@ -232,6 +233,7 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
@@ -309,8 +311,10 @@ import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
+import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -612,6 +616,32 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     Maps.newHashMap(visitPropertyItemList(ctx.fileProperties)));
         }
         return new AlterMTMVCommand(alterMTMVInfo);
+    }
+
+    @Override
+    public LogicalPlan visitAddConstraint(AddConstraintContext ctx) {
+        LogicalPlan curTable = visitRelation(ctx.table);
+        ImmutableList<Slot> slots = ctx.constraint().slots.stream()
+                .map(RuleContext::getText)
+                .map(UnboundSlot::new)
+                .collect(ImmutableList.toImmutableList());
+        Constraint constraint;
+        if (ctx.constraint().UNIQUE() != null) {
+            constraint = Constraint.newUniqueConstraint(curTable, slots);
+        } else if (ctx.constraint().PRIMARY() != null) {
+            constraint = Constraint.newPrimaryKeyConstraint(curTable, slots);
+        } else if (ctx.constraint().FOREIGN() != null) {
+            ImmutableList<Slot> referenceSlots = ctx.constraint().referenceSlots.stream()
+                    .map(RuleContext::getText)
+                    .map(UnboundSlot::new)
+                    .collect(ImmutableList.toImmutableList());
+            List<String> nameParts = visitMultipartIdentifier(ctx.constraint().referenceTable);
+            LogicalPlan referenceTable = new UnboundRelation(StatementScopeIdGenerator.newRelationId(), nameParts);
+            constraint = Constraint.newForeignKeyConstraint(curTable, slots, referenceTable, referenceSlots);
+        } else {
+            throw new AnalysisException("Unsupported constraint " + ctx.getText());
+        }
+        return new AddConstraintCommand(ctx.constraintName.getText().toLowerCase(), constraint);
     }
 
     @Override

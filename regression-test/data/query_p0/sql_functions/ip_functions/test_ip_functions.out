@@ -21,3 +21,57 @@
 
 -- !sql --
 3232235521
+
+-- !sql --
+\N
+
+-- !sql --
+2a02:6b8::11
+
+-- !sql --
+fdfe::5a55:caff:fefa:9089
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+a00:509::
+
+-- !sql --
+abcd:1234:5600::
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+2a02:6b8::11
+
+-- !sql --
+\N
+
+-- !sql --
+::
+
+-- !sql --
+::
+
+-- !sql --
+\N
+
+-- !sql --
+aaaa:aaaa:ffff:ffff:ffff:ffff:aaaa:aaaa
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+::ffff:127.0.0.1

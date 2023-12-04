@@ -27,7 +27,6 @@ import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
@@ -126,9 +125,15 @@ public class PooledHiveMetaStoreClient {
     }
 
     public List<String> listPartitionNames(String dbName, String tblName) {
+        return listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
+    }
+
+    public List<String> listPartitionNames(String dbName, String tblName, long max) {
+        // list all parts when the limit is greater than the short maximum
+        short limited = max <= Short.MAX_VALUE ? (short) max : MAX_LIST_PARTITION_NUM;
         try (CachedClient client = getClient()) {
             try {
-                return client.client.listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
+                return client.client.listPartitionNames(dbName, tblName, limited);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;

@@ -366,6 +366,14 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
+    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
+    ExchangeType get_local_exchange_type() const override {
+        if (_probe_expr_ctxs.empty()) {
+            return _needs_finalize ? ExchangeType::PASSTHROUGH : ExchangeType::NOOP;
+        }
+        return ExchangeType::SHUFFLE;
+    }
+
     using DataSinkOperatorX<LocalStateType>::id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
     using DataSinkOperatorX<LocalStateType>::get_local_state;
@@ -405,6 +413,8 @@ protected:
     int64_t _limit; // -1: no limit
     bool _have_conjuncts;
     const bool _is_streaming;
+
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

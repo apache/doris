@@ -126,6 +126,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = false, masterOnly = false,
+            description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
+    public static boolean check_table_lock_leaky = false;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
@@ -1617,6 +1621,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
+
+    @ConfField(mutable = true)
+    public static long query_queue_update_interval_ms = 5000;
 
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;

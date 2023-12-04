@@ -259,9 +259,11 @@ suite("test_crud_wlg") {
     }
 
     // test query queue limit
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '1000');"
     sql "set workload_group=test_group;"
     sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
     sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
+    Thread.sleep(3000);
     try {
         sql "select 1;"
     } catch (Exception e) {
@@ -270,6 +272,7 @@ suite("test_crud_wlg") {
 
     sql "alter workload group test_group properties ( 'max_queue_size'='1' );"
     sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
+    Thread.sleep(3000);
     try {
         sql "select 1;"
     } catch (Exception e) {
@@ -277,7 +280,9 @@ suite("test_crud_wlg") {
     }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
+    Thread.sleep(3000);
     sql "select 1;"
     sql "set workload_group=normal;"
     sql "drop workload group test_group;"
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '5000');"
 }

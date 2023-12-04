@@ -29,6 +29,7 @@ import org.apache.http.protocol.HttpContext;
 import org.apache.http.util.EntityUtils;
 import org.apache.http.client.RedirectStrategy;
 import org.apache.http.impl.client.LaxRedirectStrategy;
+import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite("test_stream_load_properties", "p0") {
 
@@ -526,6 +527,7 @@ suite("test_stream_load_properties", "p0") {
                             throw new IllegalStateException("Expect backend stream load response code is 200, " +
                                     "but meet ${respCode}\nbody: ${body}")
                         }
+                        return body
                     }
                 }
             } catch (Throwable t) {
@@ -541,8 +543,103 @@ suite("test_stream_load_properties", "p0") {
             sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
 
             String txnId
+            def tableName1 =  "stream_load_" + tableName
+            // Invalid txn_id 1
             streamLoad {
-                table "stream_load_" + tableName
+                table tableName1
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            txnId = "ABCxyz"
+            def body = do_streamload_2pc.call(txnId, "commit", tableName1)
+            assertEquals("internal_error", parseJson(body).status.toLowerCase())
+            assertTrue(parseJson(body).msg.toLowerCase().contains("stoull"))
+
+            // Invalid txn_id 2
+            streamLoad {
+                table tableName1
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            txnId += "100ABC"
+            body = do_streamload_2pc.call(txnId, "commit", tableName1)
+            assertEquals("analysis_error", parseJson(body).status.toLowerCase())
+            assertTrue(parseJson(body).msg.toLowerCase().contains("not found"))
+
+            if (i <= 3) {
+                qt_sql_2pc_invalid_txnid "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_2pc_invalid_txnid "select * from ${tableName1} order by k00"
+            }
+
+            // Operation other than commit or abort
+            streamLoad {
+                table tableName1
+                set 'column_separator', '|'
+                set 'columns', columns[i]
+                set 'two_phase_commit', 'true'
+                file files[i]
+                time 10000 // limit inflight 10s
+
+                check { result, exception, startTime, endTime ->
+                    if (exception != null) {
+                        throw exception
+                    }
+                    log.info("Stream load result: ${result}".toString())
+                    def json = parseJson(result)
+                    txnId = json.TxnId
+                    assertEquals("success", json.Status.toLowerCase())
+                    assertEquals(20, json.NumberTotalRows)
+                    assertEquals(20, json.NumberLoadedRows)
+                    assertEquals(0, json.NumberFilteredRows)
+                    assertEquals(0, json.NumberUnselectedRows)
+                }
+            }
+            body = do_streamload_2pc.call(txnId, "invalidop", tableName1)
+            assertEquals("internal_error", parseJson(body).status.toLowerCase())
+            assertTrue(parseJson(body).msg.toLowerCase().contains("transaction operation should be 'commit' or 'abort'"))            
+            if (i <= 3) {
+                qt_sql_2pc_invalid_operation "select * from ${tableName1} order by k00,k01"
+            } else {
+                qt_sql_2pc_invalid_operation "select * from ${tableName1} order by k00"
+            }
+
+            streamLoad {
+                table tableName1
                 set 'column_separator', '|'
                 set 'columns', columns[i]
                 set 'two_phase_commit', 'true'
@@ -564,7 +661,6 @@ suite("test_stream_load_properties", "p0") {
                 }
             }
 
-            def tableName1 =  "stream_load_" + tableName
             if (i <= 3) {
                 qt_sql_2pc "select * from ${tableName1} order by k00,k01"
             } else {
@@ -580,7 +676,7 @@ suite("test_stream_load_properties", "p0") {
             }
 
             streamLoad {
-                table "stream_load_" + tableName
+                table tableName1
                 set 'column_separator', '|'
                 set 'columns', columns[i]
                 set 'two_phase_commit', 'true'
@@ -616,7 +712,7 @@ suite("test_stream_load_properties", "p0") {
                     break
                 }
                 if (count >= 60) {
-                    log.error("stream load commit can not visible for long time")
+                    log.error("stream load commit is not visible for long time")
                     assertEquals(20, res[0][0])
                     break
                 }
