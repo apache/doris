@@ -17,22 +17,55 @@
 
 package org.apache.doris.resource.workloadgroup;
 
+import java.util.concurrent.locks.Condition;
+import java.util.concurrent.locks.ReentrantLock;
+
 // used to mark QueryQueue offer result
 // if offer failed, then need to cancel query
 // and return failed reason to user client
 public class QueueOfferToken {
 
-    private Boolean offerResult;
+    private boolean offerResult = false;
+
+    private boolean isReadyToRun = false;
+
+    private long waitTimeout = 0;
+
+    private long enqueueTime = 0;
 
     private String offerResultDetail;
+
+    private final ReentrantLock queueLock = new ReentrantLock();
+    private final Condition queueLockCond = queueLock.newCondition();
 
     public QueueOfferToken(Boolean offerResult) {
         this.offerResult = offerResult;
     }
 
-    public QueueOfferToken(Boolean offerResult, String offerResultDetail) {
-        this.offerResult = offerResult;
+    public QueueOfferToken(Boolean addToQueueSuccess, Boolean isReadyToRun, long waitTimeout, String offerResultDetail) {
+        this.offerResult = addToQueueSuccess;
+        this.isReadyToRun = isReadyToRun;
+        this.waitTimeout = waitTimeout;
         this.offerResultDetail = offerResultDetail;
+        this.enqueueTime = System.currentTimeMillis();
+    }
+
+    public boolean waitSignal() throws InterruptedException {
+        if (isReadyToRun) {
+            return true;
+        }
+        queueLockCond.wait(waitTimeout);
+        // If wait timeout and is steal not ready to run, then return false
+        if (!isReadyToRun) {
+            return false;
+        } else {
+            return true;
+        }
+    }
+
+    public void signal() {
+        isReadyToRun = true;
+        queueLockCond.signal();
     }
 
     public Boolean isOfferSuccess() {

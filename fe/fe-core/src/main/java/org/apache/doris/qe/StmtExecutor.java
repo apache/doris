@@ -613,7 +613,7 @@ public class StmtExecutor {
                 && context.getSessionVariable().getEnablePipelineEngine()) {
             queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
-                offerRet = queryQueue.offer();
+                offerRet = queryQueue.getToken();
             } catch (InterruptedException e) {
                 // this Exception means try lock/await failed, so no need to handle offer result
                 LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
@@ -621,6 +621,11 @@ public class StmtExecutor {
             }
             if (offerRet != null && !offerRet.isOfferSuccess()) {
                 String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
+                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
+                throw new UserException(retMsg);
+            }
+            if (!offerRet.waitSignal()) {
+                String retMsg = "queue success and wait timeout";
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
                 throw new UserException(retMsg);
             }
