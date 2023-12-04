@@ -378,7 +378,7 @@ private:
     }
     void _close_without_key() {
         //because prepare maybe failed, and couldn't create agg data.
-        //but finally call close to destory agg data, if agg data has bitmapValue
+        //but finally call close to destroy agg data, if agg data has bitmapValue
         //will be core dump, it's not initialized
         if (agg_data_created_without_key) {
             static_cast<void>(_destroy_agg_status(agg_data->without_key));
