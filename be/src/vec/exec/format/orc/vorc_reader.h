@@ -287,7 +287,7 @@ private:
         if (scale_params.scale_type != DecimalScaleParams::NOT_INIT) {
             return;
         }
-        auto* decimal_type = reinterpret_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
+        auto* decimal_type = reinterpret_cast<DataTypeDecimal<DecimalPrimitiveType>*>(
                 const_cast<IDataType*>(remove_nullable(data_type).get()));
         auto dest_scale = decimal_type->get_scale();
         if (dest_scale > orc_decimal_scale) {
@@ -324,7 +324,7 @@ private:
 
         auto* cvb_data = data->values.data();
         auto& column_data =
-                static_cast<ColumnDecimal<Decimal<DecimalPrimitiveType>>&>(*data_column).get_data();
+                static_cast<ColumnDecimal<DecimalPrimitiveType>&>(*data_column).get_data();
         auto origin_size = column_data.size();
         column_data.resize(origin_size + num_values);
 
