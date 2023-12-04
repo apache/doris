@@ -2194,7 +2194,6 @@ public class Coordinator implements CoordInterface {
                 // only analysis olap scan node
                 continue;
             }
-            Collections.shuffle(locations);
             Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.computeIfAbsent(scanNode.getFragmentId(),
                     k -> Sets.newHashSet());
             scanNodeIds.add(scanNode.getId().asInt());
