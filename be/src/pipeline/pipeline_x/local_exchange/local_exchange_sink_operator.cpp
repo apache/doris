@@ -17,6 +17,8 @@
 
 #include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
 
+#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
+
 namespace doris::pipeline {
 
 Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -26,47 +28,12 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _compute_hash_value_timer = ADD_TIMER(profile(), "ComputeHashValueTime");
     _distribute_timer = ADD_TIMER(profile(), "DistributeDataTime");
 
-    auto& p = _parent->cast<LocalExchangeSinkOperatorX>();
-    _num_rows_in_queue.resize(p._num_partitions);
-    for (size_t i = 0; i < p._num_partitions; i++) {
-        _num_rows_in_queue[i] = ADD_COUNTER_WITH_LEVEL(
-                profile(), "NumRowsInQueue" + std::to_string(i), TUnit::UNIT, 1);
-    }
-    RETURN_IF_ERROR(p._partitioner->clone(state, _partitioner));
-    return Status::OK();
-}
+    _exchanger = _shared_state->exchanger.get();
+    DCHECK(_exchanger != nullptr);
 
-Status LocalExchangeSinkLocalState::split_rows(RuntimeState* state,
-                                               const uint32_t* __restrict channel_ids,
-                                               vectorized::Block* block, SourceState source_state) {
-    auto& data_queue = _shared_state->data_queue;
-    const auto num_partitions = data_queue.size();
-    const auto rows = block->rows();
-    auto row_idx = std::make_shared<std::vector<int>>(rows);
-    {
-        _partition_rows_histogram.assign(num_partitions + 1, 0);
-        for (size_t i = 0; i < rows; ++i) {
-            _partition_rows_histogram[channel_ids[i]]++;
-        }
-        for (int32_t i = 1; i <= num_partitions; ++i) {
-            _partition_rows_histogram[i] += _partition_rows_histogram[i - 1];
-        }
-
-        for (int32_t i = rows - 1; i >= 0; --i) {
-            (*row_idx)[_partition_rows_histogram[channel_ids[i]] - 1] = i;
-            _partition_rows_histogram[channel_ids[i]]--;
-        }
-    }
-    auto new_block = vectorized::Block::create_shared(block->clone_empty());
-    new_block->swap(*block);
-    for (size_t i = 0; i < num_partitions; i++) {
-        size_t start = _partition_rows_histogram[i];
-        size_t size = _partition_rows_histogram[i + 1] - start;
-        if (size > 0) {
-            data_queue[i].enqueue({new_block, {row_idx, start, size}});
-            _shared_state->set_ready_for_read(i);
-            COUNTER_UPDATE(_num_rows_in_queue[i], size);
-        }
+    if (_exchanger->get_type() == ExchangeType::SHUFFLE) {
+        auto& p = _parent->cast<LocalExchangeSinkOperatorX>();
+        RETURN_IF_ERROR(p._partitioner->clone(state, _partitioner));
     }
 
     return Status::OK();
@@ -77,17 +44,7 @@ Status LocalExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-    {
-        SCOPED_TIMER(local_state._compute_hash_value_timer);
-        RETURN_IF_ERROR(local_state._partitioner->do_partitioning(state, in_block,
-                                                                  local_state.mem_tracker()));
-    }
-    {
-        SCOPED_TIMER(local_state._distribute_timer);
-        RETURN_IF_ERROR(local_state.split_rows(
-                state, (const uint32_t*)local_state._partitioner->get_channel_ids(), in_block,
-                source_state));
-    }
+    RETURN_IF_ERROR(local_state._exchanger->sink(state, in_block, source_state, local_state));
 
     if (source_state == SourceState::FINISHED) {
         local_state._shared_state->sub_running_sink_operators();

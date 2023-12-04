@@ -20,6 +20,7 @@
 #include "common/logging.h"
 #include "pipeline/exec/operator.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
 
 namespace doris::pipeline {
 
@@ -28,7 +29,7 @@ struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
     std::vector<DependencySPtr>& upstream_dependencies;
-    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
+    std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
     int task_idx;
 
     DependencySPtr dependency;
@@ -39,7 +40,7 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
-    std::shared_ptr<LocalExchangeSharedState> local_exchange_state;
+    std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
     const TDataSink& tsink;
 };
 
@@ -160,6 +161,10 @@ public:
         LOG(FATAL) << "should not reach here!";
         return Status::OK();
     }
+    virtual Status init(ExchangeType type) {
+        LOG(FATAL) << "should not reach here!";
+        return Status::OK();
+    }
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Runtime Profile is not owned by operator");
@@ -170,6 +175,8 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
+    virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
+    virtual ExchangeType get_local_exchange_type() const { return ExchangeType::NOOP; }
 
     Status prepare(RuntimeState* state) override;
 
@@ -178,6 +185,8 @@ public:
     [[nodiscard]] bool can_terminate_early() override { return false; }
 
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
+
+    [[nodiscard]] virtual bool need_to_local_shuffle() const { return true; }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -311,6 +320,10 @@ public:
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
+    virtual std::string name_suffix() const {
+        return " (id=" + std::to_string(_parent->node_id()) + ")";
+    }
+
     Status close(RuntimeState* state) override;
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
@@ -394,6 +407,8 @@ protected:
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
     RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _memory_used_counter = nullptr;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
     std::shared_ptr<Dependency> _finish_dependency;
 };
 
@@ -423,7 +438,7 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    virtual Status init() {
+    virtual Status init(ExchangeType type) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 
@@ -448,6 +463,8 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
+    virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
+    virtual ExchangeType get_local_exchange_type() const { return ExchangeType::NOOP; }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
@@ -566,7 +583,7 @@ public:
 
     [[nodiscard]] std::string debug_string(int indentation_level) const override;
 
-    virtual std::string id_name() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
+    virtual std::string name_suffix() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
     Dependency* dependency() override { return _dependency; }
 

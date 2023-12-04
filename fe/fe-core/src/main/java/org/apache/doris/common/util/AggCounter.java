@@ -26,18 +26,27 @@ public class AggCounter extends Counter {
     Counter min;
     int number;
 
-    public AggCounter(org.apache.doris.thrift.TUnit type, long value) {
-        super(type, value);
-        max = new Counter(type, value);
-        sum = new Counter(type, value);
-        min = new Counter(type, value);
-        number = 1;
+    public AggCounter(org.apache.doris.thrift.TUnit type) {
+        super(type, 0);
+        max = new Counter(type, 0);
+        sum = new Counter(type, 0);
+        min = new Counter(type, 0);
+        number = 0;
     }
 
     public void addCounter(Counter counter) {
-        max.maxValue(counter);
-        sum.addValue(counter);
-        min.minValue(counter);
+        if (counter == null) {
+            return;
+        }
+        if (number == 0) {
+            max.setValue(counter.getValue());
+            sum.setValue(counter.getValue());
+            min.setValue(counter.getValue());
+        } else {
+            max.maxValue(counter);
+            sum.addValue(counter);
+            min.minValue(counter);
+        }
         number++;
     }
 
@@ -59,7 +68,17 @@ public class AggCounter extends Counter {
                     + RuntimeProfile.printCounter(min.getValue(), min.getType());
             return infoString;
         } else {
-            String infoString = RuntimeProfile.printCounter(sum.getValue(), sum.getType());
+            Counter avg = new Counter(sum.getType(), sum.getValue());
+            avg.divValue(number);
+            String infoString = ""
+                    + RuntimeProfile.SUM_TIME_PRE
+                    + RuntimeProfile.printCounter(sum.getValue(), sum.getType()) + ", "
+                    + RuntimeProfile.AVG_TIME_PRE
+                    + RuntimeProfile.printCounter(avg.getValue(), avg.getType()) + ", "
+                    + RuntimeProfile.MAX_TIME_PRE
+                    + RuntimeProfile.printCounter(max.getValue(), max.getType()) + ", "
+                    + RuntimeProfile.MIN_TIME_PRE
+                    + RuntimeProfile.printCounter(min.getValue(), min.getType());
             return infoString;
         }
     }

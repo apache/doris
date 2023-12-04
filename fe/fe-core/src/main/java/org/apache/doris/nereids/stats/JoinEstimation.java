@@ -20,6 +20,7 @@ package org.apache.doris.nereids.stats;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -44,6 +45,7 @@ import java.util.stream.Collectors;
  */
 public class JoinEstimation {
     private static double DEFAULT_ANTI_JOIN_SELECTIVITY_COEFFICIENT = 0.3;
+    private static double UNKNOWN_COL_STATS_FILTER_SEL_LOWER_BOUND = 0.5;
 
     private static EqualPredicate normalizeHashJoinCondition(EqualPredicate equal, Statistics leftStats,
             Statistics rightStats) {
@@ -169,6 +171,27 @@ public class JoinEstimation {
                 .build();
     }
 
+    private static double computeSelectivityForBuildSideWhenColStatsUnknown(Statistics buildStats, Join join) {
+        double sel = 1.0;
+        for (Expression cond : join.getHashJoinConjuncts()) {
+            if (cond instanceof EqualTo) {
+                EqualTo equal = (EqualTo) cond;
+                if (equal.left() instanceof Slot && equal.right() instanceof Slot) {
+                    ColumnStatistic buildColStats = buildStats.findColumnStatistics(equal.left());
+                    if (buildColStats == null) {
+                        buildColStats = buildStats.findColumnStatistics(equal.right());
+                    }
+                    if (buildColStats != null) {
+                        double buildSel = Math.min(buildStats.getRowCount() / buildColStats.count, 1.0);
+                        buildSel = Math.max(buildSel, UNKNOWN_COL_STATS_FILTER_SEL_LOWER_BOUND);
+                        sel = Math.min(sel, buildSel);
+                    }
+                }
+            }
+        }
+        return sel;
+    }
+
     private static Statistics estimateInnerJoin(Statistics leftStats, Statistics rightStats, Join join) {
         if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
             double rowCount = Math.max(leftStats.getRowCount(), rightStats.getRowCount());
@@ -245,14 +268,15 @@ public class JoinEstimation {
 
     private static Statistics estimateSemiOrAnti(Statistics leftStats, Statistics rightStats, Join join) {
         if (hashJoinConditionContainsUnknownColumnStats(leftStats, rightStats, join)) {
+            double sel = computeSelectivityForBuildSideWhenColStatsUnknown(rightStats, join);
             if (join.getJoinType().isLeftSemiOrAntiJoin()) {
-                return new StatisticsBuilder().setRowCount(leftStats.getRowCount())
+                return new StatisticsBuilder().setRowCount(leftStats.getRowCount() * sel)
                         .putColumnStatistics(leftStats.columnStatistics())
                         .putColumnStatistics(rightStats.columnStatistics())
                         .build();
             } else {
                 //right semi or anti
-                return new StatisticsBuilder().setRowCount(rightStats.getRowCount())
+                return new StatisticsBuilder().setRowCount(rightStats.getRowCount() * sel)
                         .putColumnStatistics(leftStats.columnStatistics())
                         .putColumnStatistics(rightStats.columnStatistics())
                         .build();

@@ -97,8 +97,6 @@ public:
                                      Transform>::execute(block, arguments, result,
                                                          input_rows_count);
     }
-
-    bool has_information_about_monotonicity() const override { return true; }
 };
 
 } // namespace doris::vectorized

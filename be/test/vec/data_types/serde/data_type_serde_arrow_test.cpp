@@ -70,6 +70,8 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -98,6 +100,8 @@ void serialize_and_deserialize_arrow_test() {
                 {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
                 {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
                 {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
+                {"k8", FieldType::OLAP_FIELD_TYPE_IPV4, 8, TYPE_IPV4, false},
+                {"k9", FieldType::OLAP_FIELD_TYPE_IPV6, 9, TYPE_IPV6, false},
         };
     } else {
         cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
@@ -443,6 +447,34 @@ void serialize_and_deserialize_arrow_test() {
                 vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st,
                                                                 col_name);
                 block.insert(type_and_name);
+            }
+            break;
+        case TYPE_IPV4:
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                auto vec = vectorized::ColumnIPv4::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(i);
+                }
+                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
+                                                                col_name);
+                block.insert(std::move(type_and_name));
+            }
+            break;
+        case TYPE_IPV6:
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                auto vec = vectorized::ColumnIPv6::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(i);
+                }
+                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
+                                                                col_name);
+                block.insert(std::move(type_and_name));
             }
             break;
         default:

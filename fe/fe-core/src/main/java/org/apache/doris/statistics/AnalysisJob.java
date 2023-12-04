@@ -119,7 +119,7 @@ public class AnalysisJob {
         if (killed) {
             return;
         }
-        // buf could be empty when nothing need to do, for example user submit an analysis task for table with no data
+        // buf could be empty when nothing need to do,r for example user submit an analysis task for table with no data
         // change
         if (!buf.isEmpty())  {
             String insertStmt = "INSERT INTO " + StatisticConstants.FULL_QUALIFIED_STATS_TBL_NAME + " VALUES ";
@@ -128,28 +128,17 @@ public class AnalysisJob {
                 values.add(data.toSQL(true));
             }
             insertStmt += values.toString();
-            int retryTimes = 0;
-            while (retryTimes < StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
-                if (killed) {
-                    return;
-                }
-                try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
-                    stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
-                    executeWithExceptionOnFail(stmtExecutor);
-                    break;
-                } catch (Exception t) {
-                    LOG.warn("Failed to write buf: " + insertStmt, t);
-                    retryTimes++;
-                    if (retryTimes >= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
-                        updateTaskState(AnalysisState.FAILED, t.getMessage());
-                        return;
-                    }
-                }
+            try (AutoCloseConnectContext r = StatisticsUtil.buildConnectContext(false)) {
+                stmtExecutor = new StmtExecutor(r.connectContext, insertStmt);
+                executeWithExceptionOnFail(stmtExecutor);
+            } catch (Exception t) {
+                throw new RuntimeException("Failed to analyze: " + t.getMessage());
             }
         }
         updateTaskState(AnalysisState.FINISHED, "");
         syncLoadStats();
         queryFinished.clear();
+        buf.clear();
     }
 
     protected void executeWithExceptionOnFail(StmtExecutor stmtExecutor) throws Exception {
@@ -189,6 +178,18 @@ public class AnalysisJob {
 
     public void deregisterJob() {
         analysisManager.removeJob(jobInfo.jobId);
+        for (BaseAnalysisTask task : queryingTask) {
+            task.info.colToPartitions.clear();
+            if (task.info.partitionNames != null) {
+                task.info.partitionNames.clear();
+            }
+        }
+        for (BaseAnalysisTask task : queryFinished) {
+            task.info.colToPartitions.clear();
+            if (task.info.partitionNames != null) {
+                task.info.partitionNames.clear();
+            }
+        }
     }
 
     protected void syncLoadStats() {

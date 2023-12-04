@@ -31,6 +31,7 @@
 #include "gutil/integral_types.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/multi_cast_data_streamer.h"
+#include "pipeline/exec/operator.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
 #include "vec/common/sort/partition_sorter.h"
 #include "vec/common/sort/sorter.h"
@@ -352,13 +353,9 @@ public:
         int64_t used_in_state;
     };
     MemoryRecord mem_usage_record;
-    std::unique_ptr<MemTracker> mem_tracker = std::make_unique<MemTracker>("AggregateOperator");
     bool agg_data_created_without_key = false;
 
 private:
-    void _release_tracker() {
-        mem_tracker->release(mem_usage_record.used_in_state + mem_usage_record.used_in_arena);
-    }
     void _close_with_serialized_key() {
         std::visit(
                 [&](auto&& agg_method) -> void {
@@ -378,7 +375,6 @@ private:
                     }
                 },
                 agg_data->method_variant);
-        _release_tracker();
     }
     void _close_without_key() {
         //because prepare maybe failed, and couldn't create agg data.
@@ -388,7 +384,6 @@ private:
             static_cast<void>(_destroy_agg_status(agg_data->without_key));
             agg_data_created_without_key = false;
         }
-        _release_tracker();
     }
     Status _destroy_agg_status(vectorized::AggregateDataPtr data) {
         for (int i = 0; i < aggregate_evaluators.size(); ++i) {
@@ -579,21 +574,34 @@ public:
     }
 };
 
-using PartitionedBlock = std::pair<std::shared_ptr<vectorized::Block>,
-                                   std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
+enum class ExchangeType : uint8_t {
+    NOOP = 0,
+    SHUFFLE = 1,
+    PASSTHROUGH = 2,
+};
+
+inline std::string get_exchange_type_name(ExchangeType idx) {
+    switch (idx) {
+    case ExchangeType::NOOP:
+        return "NOOP";
+    case ExchangeType::SHUFFLE:
+        return "SHUFFLE";
+    case ExchangeType::PASSTHROUGH:
+        return "PASSTHROUGH";
+    }
+    LOG(FATAL) << "__builtin_unreachable";
+    __builtin_unreachable();
+}
+
+class Exchanger;
+
 struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
-    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> data_queue;
+    std::unique_ptr<Exchanger> exchanger {};
     std::vector<Dependency*> source_dependencies;
-    std::atomic<int> running_sink_operators = 0;
     std::mutex le_lock;
-    void sub_running_sink_operators() {
-        std::unique_lock<std::mutex> lc(le_lock);
-        if (running_sink_operators.fetch_sub(1) == 1) {
-            _set_ready_for_read();
-        }
-    }
+    void sub_running_sink_operators();
     void _set_ready_for_read() {
         for (auto* dep : source_dependencies) {
             DCHECK(dep);

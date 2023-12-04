@@ -71,6 +71,8 @@ public:
 
     PipelinePtr add_pipeline();
 
+    PipelinePtr add_pipeline(PipelinePtr parent);
+
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
     virtual RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
