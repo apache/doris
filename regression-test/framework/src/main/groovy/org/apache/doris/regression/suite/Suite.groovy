@@ -791,18 +791,14 @@ class Suite implements GroovyInterceptable {
     }
 
     String getJobName(String dbName, String mtmvName) {
-        String showMTMV = "select * from mtmvs('database'='${dbName}') where Name = '${mtmvName}'";
+        String showMTMV = "select JobName from mtmvs('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
-        List<List<String>> showMTMVMetaResult = sql_meta(showMTMV)
-        logger.info("showMTMVMetaResult: " + showMTMVMetaResult.toString())
-        int index = showMTMVMetaResult.indexOf(['JobName', 'TINYTEXT'])
-        logger.info("index: " + index)
         List<List<Object>> result = sql(showMTMV)
         logger.info("result: " + result.toString())
         if (result.isEmpty()) {
             Assert.fail();
         }
-        return result.last().get(index);
+        return result.last().get(0);
     }
 }
 
