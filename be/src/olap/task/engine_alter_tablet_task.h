@@ -29,7 +29,7 @@ class TAlterTabletReqV2;
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineAlterTabletTask : public EngineTask {
+class EngineAlterTabletTask final : public EngineTask {
 public:
     Status execute() override;
 

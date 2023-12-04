@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "agent/agent_server.h"
+#include "agent/topic_subscriber.h"
 #include "common/status.h"
 
 namespace doris {
