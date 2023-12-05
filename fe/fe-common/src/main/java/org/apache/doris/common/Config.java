@@ -973,6 +973,14 @@ public class Config extends ConfigBase {
     public static int publish_version_queued_limit_number = 1000;
 
     /**
+     * if be un health (clone failed in time window or version accumulate) , when version incomplete,
+     * tabletScheduler will create replica in health bes
+     * default true
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean create_new_replica_in_health_backends = true;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */

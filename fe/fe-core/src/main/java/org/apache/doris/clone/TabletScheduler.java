@@ -23,6 +23,7 @@ import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -82,6 +83,7 @@ import java.util.Optional;
 import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * TabletScheduler saved the tablets produced by TabletChecker and try to schedule them.
@@ -721,6 +723,12 @@ public class TabletScheduler extends MasterDaemon {
         incrDestPathCopingSize(tabletCtx);
     }
 
+    private boolean isSuitableBe(Long beId) {
+        return Config.create_new_replica_in_health_backends
+            && !Env.getCurrentSystemInfo().isExceedCloneFailedLimit(beId)
+            && !Env.getCurrentSystemInfo().isLastPublishVersionAccumulated(beId);
+    }
+
     // In dealing with the case of missing replicas, we need to select a tag with missing replicas
     // according to the distribution of replicas.
     // If no replica of the tag is missing, an exception is thrown.
@@ -733,7 +741,7 @@ public class TabletScheduler extends MasterDaemon {
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
             if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
-                    && be.isMixNode()) {
+                    && be.isMixNode() && isSuitableBe(be.getId())) {
                 Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
                 currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
             }
@@ -764,7 +772,23 @@ public class TabletScheduler extends MasterDaemon {
             throws SchedException {
         stat.counterReplicaVersionMissingErr.incrementAndGet();
         try {
-            tabletCtx.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots);
+            Set<Long> bes = Sets.newHashSet();
+            for (Backend be : infoService.getAllBackends()) {
+                Set<DiskInfo> sameMediumBe = be.getDisks().values().stream()
+                        .filter(diskInfo -> diskInfo.getStorageMedium() == tabletCtx.getStorageMedium())
+                        .collect(Collectors.toSet());
+                if (!sameMediumBe.isEmpty()) {
+                    bes.add(be.getId());
+                }
+            }
+            List<Long> suitableBes = backendsWorkingSlots.keySet().stream().filter(beId ->
+                    !Env.getCurrentSystemInfo().isLastPublishVersionAccumulated(beId)
+                    && !Env.getCurrentSystemInfo().isExceedCloneFailedLimit(beId)
+                    && infoService.getBackendsByTag(tabletCtx.getTag()).stream()
+                        .map(Backend::getId).collect(Collectors.toSet()).contains(beId)
+                    && bes.contains(beId)
+            ).collect(Collectors.toList());
+            tabletCtx.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots, suitableBes);
         } catch (SchedException e) {
             // could not find dest, try add a missing.
             if (e.getStatus() == Status.UNRECOVERABLE) {
@@ -1348,6 +1372,11 @@ public class TabletScheduler extends MasterDaemon {
         for (BackendLoadStatistic bes : beStatistics) {
             if (!bes.isAvailable()) {
                 LOG.debug("backend {} is not available, skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
+                continue;
+            }
+
+            if (!isSuitableBe(bes.getBeId())) {
+                LOG.debug("backend {} is unhealthy , skip. tablet: {}", bes.getBeId(), tabletCtx.getTabletId());
                 continue;
             }
 
