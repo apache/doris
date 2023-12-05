@@ -25,7 +25,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.MapType;
-import org.apache.doris.catalog.OlapTable;
+// import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -330,14 +330,24 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (this.fileFormatType == TFileFormatType.FORMAT_WAL) {
             List<Column> fileColumns = new ArrayList<>();
             Table table = Env.getCurrentInternalCatalog().getTableByTableId(tableId);
-            List<Column> tableColumns = table.getBaseSchema(false);
+            List<Column> tableColumns = table.getFullSchema();
             for (int i = 1; i <= tableColumns.size(); i++) {
-                fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getDataType(), true));
+                try {
+                    LOG.info("i:" + i);
+                    LOG.info("name:" + tableColumns.get(i - 1));
+                    LOG.info(tableColumns.get(i - 1).toString());
+                    LOG.info("type:" + tableColumns.get(i - 1).getDataType());
+                    //fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getDataType(), true));
+                    fileColumns.add(new Column("c" + i, Type.STRING, false));
+                } catch (Exception e) {
+                    LOG.info("exception:" + e);
+                }
             }
-            Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
-            if (deleteSignColumn != null) {
-                fileColumns.add(new Column("c" + (tableColumns.size() + 1), deleteSignColumn.getDataType(), true));
+            StringBuilder sb = new StringBuilder();
+            for (Column c : tableColumns) {
+                sb.append(c.getName() + ",");
             }
+            LOG.info("columns:" + sb.toString());
             return fileColumns;
         }
 
@@ -349,6 +359,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             // `request == null` means we don't need to get schemas from BE,
             // and we fill a dummy col for this table.
             if (request != null) {
+                LOG.info("request is not null");
                 Future<InternalService.PFetchTableSchemaResult> future = BackendServiceProxy.getInstance()
                         .fetchTableStructureAsync(address, request);
 
@@ -376,6 +387,11 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } catch (TException e) {
             throw new AnalysisException("getFetchTableStructureRequest exception", e);
         }
+        StringBuilder sb = new StringBuilder();
+        for (Column c : columns) {
+            sb.append(c.getName() + ",");
+        }
+        LOG.info("columns:" + sb.toString());
         return columns;
     }
 
@@ -407,6 +423,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private Pair<Type, Integer> getColumnType(List<PTypeNode> typeNodes, int start) {
         PScalarType columnType = typeNodes.get(start).getScalarType();
         TPrimitiveType tPrimitiveType = TPrimitiveType.findByValue(columnType.getType());
+        LOG.info("tPrimitiveType:" + tPrimitiveType);
         Type type;
         int parsedNodes;
         if (tPrimitiveType == TPrimitiveType.ARRAY) {
@@ -448,6 +465,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         for (int idx = 0; idx < result.getColumnNums(); ++idx) {
             PTypeDesc type = result.getColumnTypes(idx);
             String colName = result.getColumnNames(idx);
+            LOG.info("idx:" + idx);
             columns.add(new Column(colName, getColumnType(type.getTypesList(), 0).key(), true));
         }
         // add path columns
