@@ -242,6 +242,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String CHECK_OVERFLOW_FOR_DECIMAL = "check_overflow_for_decimal";
 
+    public static final String DECIMAL_OVERFLOW_SCALE = "decimal_overflow_scale";
+
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
@@ -465,6 +467,8 @@ public class SessionVariable implements Serializable, Writable {
     // When set use fix replica = true, the fixed replica maybe bad, try to use the health one if
     // this session variable is set to true.
     public static final String FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT = "fallback_other_replica_when_fixed_corrupt";
+
+    public static final String WAIT_FULL_BLOCK_SCHEDULE_TIMES = "wait_full_block_schedule_times";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -832,6 +836,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
 
+    @VariableMgr.VarAttr(name = WAIT_FULL_BLOCK_SCHEDULE_TIMES)
+    public int waitFullBlockScheduleTimes = 2;
+
     public int getBeNumberForTest() {
         return beNumberForTest;
     }
@@ -923,8 +930,15 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
-    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
-    private boolean checkOverflowForDecimal = false;
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, varType = VariableAnnotation.DEPRECATED)
+    private boolean checkOverflowForDecimal = true;
+
+    @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, description = {
+            "当decimal数值计算结果精度溢出时，计算结果最多可保留的小数位数", "When the precision of the result of"
+            + " a decimal numerical calculation overflows,"
+            + "the maximum number of decimal scale that the result can be retained"
+    })
+    public int decimalOverflowScale = 6;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
     public boolean enableDPHypOptimizer = false;
@@ -2157,6 +2171,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public String getSqlDialect() {
         return sqlDialect;
+    }
+
+    public int getWaitFullBlockScheduleTimes() {
+        return waitFullBlockScheduleTimes;
     }
 
     public ParseDialect.Dialect getSqlParseDialect() {

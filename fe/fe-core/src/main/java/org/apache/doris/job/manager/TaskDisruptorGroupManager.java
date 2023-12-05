@@ -120,7 +120,7 @@ public class TaskDisruptorGroupManager<T extends AbstractTask> {
                 };
         TaskDisruptor mtmvDisruptor = new TaskDisruptor<>(mtmvEventFactory, DISPATCH_MTMV_TASK_QUEUE_SIZE,
                 mtmvTaskThreadFactory, new BlockingWaitStrategy(), insertTaskExecutorHandlers, eventTranslator);
-        disruptorMap.put(JobType.MTMV, mtmvDisruptor);
+        disruptorMap.put(JobType.MV, mtmvDisruptor);
     }
 
     public void dispatchTimerJob(AbstractJob<T> job) {

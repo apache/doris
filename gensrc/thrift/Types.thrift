@@ -699,6 +699,8 @@ enum TMetadataType {
   CATALOGS,
   FRONTENDS_DISKS,
   MATERIALIZED_VIEWS,
+  JOBS,
+  TASKS,
   QUERIES,
 }
 

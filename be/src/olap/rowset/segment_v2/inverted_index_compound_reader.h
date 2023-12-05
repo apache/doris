@@ -91,6 +91,7 @@ public:
     void close() override;
     std::string toString() const override;
     std::string getFileName() { return file_name; }
+    std::string getPath() const;
     static const char* getClassName();
     const char* getObjectName() const override;
 };

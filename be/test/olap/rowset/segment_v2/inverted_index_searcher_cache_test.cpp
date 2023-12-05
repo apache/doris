@@ -62,20 +62,24 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
 
     //insert searcher
     Status status = Status::OK();
-    status = index_searcher_cache->insert(fs, kTestDir, file_name_1);
+    status = index_searcher_cache->insert(fs, kTestDir, file_name_1,
+                                          InvertedIndexReaderType::FULLTEXT);
     EXPECT_EQ(Status::OK(), status);
 
-    status = index_searcher_cache->insert(fs, kTestDir, file_name_2);
+    status = index_searcher_cache->insert(fs, kTestDir, file_name_2,
+                                          InvertedIndexReaderType::FULLTEXT);
     EXPECT_EQ(Status::OK(), status);
 
     OlapReaderStatistics stats;
+    bool has_null = true;
 
     // lookup after insert
     {
         // case 1: lookup exist entry
         InvertedIndexCacheHandle inverted_index_cache_handle;
-        status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_1,
-                                                          &inverted_index_cache_handle, &stats);
+        status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_1, &inverted_index_cache_handle, &stats,
+                InvertedIndexReaderType::FULLTEXT, has_null);
         EXPECT_EQ(Status::OK(), status);
 
         auto cache_value_1 =
@@ -83,8 +87,9 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
                         ->value(inverted_index_cache_handle._handle);
         EXPECT_GE(UnixMillis(), cache_value_1->last_visit_time);
 
-        status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_2,
-                                                          &inverted_index_cache_handle, &stats);
+        status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats,
+                InvertedIndexReaderType::FULLTEXT, has_null);
         EXPECT_EQ(Status::OK(), status);
 
         auto cache_value_2 =
@@ -101,7 +106,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         {
             InvertedIndexCacheHandle inverted_index_cache_handle_1;
             status = index_searcher_cache->get_index_searcher(
-                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats);
+                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats,
+                    InvertedIndexReaderType::FULLTEXT, has_null);
             EXPECT_EQ(Status::OK(), status);
             EXPECT_FALSE(inverted_index_cache_handle_1.owned);
         }
@@ -110,7 +116,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         {
             InvertedIndexCacheHandle inverted_index_cache_handle_1;
             status = index_searcher_cache->get_index_searcher(
-                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats);
+                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats,
+                    InvertedIndexReaderType::FULLTEXT, has_null);
             EXPECT_EQ(Status::OK(), status);
             EXPECT_FALSE(inverted_index_cache_handle_1.owned);
 
@@ -123,14 +130,16 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         // not use cache
         InvertedIndexCacheHandle inverted_index_cache_handle_2;
         status = index_searcher_cache->get_index_searcher(
-                fs, kTestDir, file_name_not_exist_2, &inverted_index_cache_handle_2, &stats, false);
+                fs, kTestDir, file_name_not_exist_2, &inverted_index_cache_handle_2, &stats,
+                InvertedIndexReaderType::FULLTEXT, has_null, false);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_TRUE(inverted_index_cache_handle_2.owned);
         EXPECT_EQ(nullptr, inverted_index_cache_handle_2._cache);
         EXPECT_EQ(nullptr, inverted_index_cache_handle_2._handle);
 
-        status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_2,
-                                                          &inverted_index_cache_handle_2, &stats);
+        status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_not_exist_2, &inverted_index_cache_handle_2, &stats,
+                InvertedIndexReaderType::FULLTEXT, has_null);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_FALSE(inverted_index_cache_handle_2.owned);
         auto cache_value_use_cache_2 =
@@ -150,7 +159,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     InvertedIndexSearcherCache::CacheKey key_1(file_name_1);
     IndexCacheValuePtr cache_value_1 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_1->size = 200;
-    cache_value_1->index_searcher = nullptr;
+    //cache_value_1->index_searcher;
     cache_value_1->last_visit_time = 10;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_1, cache_value_1.release()));
@@ -160,7 +169,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     InvertedIndexSearcherCache::CacheKey key_2(file_name_2);
     IndexCacheValuePtr cache_value_2 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_2->size = 800;
-    cache_value_2->index_searcher = nullptr;
+    //cache_value_2->index_searcher;
     cache_value_2->last_visit_time = 20;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_2, cache_value_2.release()));
@@ -177,7 +186,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     InvertedIndexSearcherCache::CacheKey key_3(file_name_3);
     IndexCacheValuePtr cache_value_3 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_3->size = 400;
-    cache_value_3->index_searcher = nullptr;
+    //cache_value_3->index_searcher;
     cache_value_3->last_visit_time = 30;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_3, cache_value_3.release()));
@@ -194,7 +203,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_usage) {
     InvertedIndexSearcherCache::CacheKey key_4(file_name_4);
     IndexCacheValuePtr cache_value_4 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_4->size = 100;
-    cache_value_4->index_searcher = nullptr;
+    //cache_value_4->index_searcher;
     cache_value_4->last_visit_time = 40;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_4, cache_value_4.release()));
@@ -217,7 +226,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     InvertedIndexSearcherCache::CacheKey key_1(file_name_1);
     IndexCacheValuePtr cache_value_1 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_1->size = 20;
-    cache_value_1->index_searcher = nullptr;
+    //cache_value_1->index_searcher;
     cache_value_1->last_visit_time = 10;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_1, cache_value_1.release()));
@@ -227,7 +236,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     InvertedIndexSearcherCache::CacheKey key_2(file_name_2);
     IndexCacheValuePtr cache_value_2 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_2->size = 50;
-    cache_value_2->index_searcher = nullptr;
+    //cache_value_2->index_searcher;
     cache_value_2->last_visit_time = 20;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_2, cache_value_2.release()));
@@ -248,7 +257,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     InvertedIndexSearcherCache::CacheKey key_3(file_name_3);
     IndexCacheValuePtr cache_value_3 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_3->size = 80;
-    cache_value_3->index_searcher = nullptr;
+    //cache_value_3->index_searcher;
     cache_value_3->last_visit_time = 30;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_3, cache_value_3.release()));
@@ -275,7 +284,7 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
     InvertedIndexSearcherCache::CacheKey key_4(file_name_4);
     IndexCacheValuePtr cache_value_4 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_4->size = 100;
-    cache_value_4->index_searcher = nullptr;
+    //cache_value_4->index_searcher;
     cache_value_4->last_visit_time = 40;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_4, cache_value_4.release()));
@@ -310,7 +319,7 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
     InvertedIndexSearcherCache::CacheKey key_1(file_name_1);
     IndexCacheValuePtr cache_value_1 = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
     cache_value_1->size = 200;
-    cache_value_1->index_searcher = nullptr;
+    //cache_value_1->index_searcher;
     cache_value_1->last_visit_time = 10;
     index_searcher_cache->_cache->release(
             index_searcher_cache->_insert(key_1, cache_value_1.release()));
@@ -327,7 +336,7 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
 
         // insert key_2, and then evict {key_1, cache_value_1}
         cache_value_2->size = 800;
-        cache_value_2->index_searcher = nullptr;
+        //cache_value_2->index_searcher;
         cache_value_2->last_visit_time = 20;
         index_searcher_cache->_cache->release(
                 index_searcher_cache->_insert(key_2, cache_value_2.release()));
@@ -347,10 +356,12 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
 
     // lookup key_2 not exist, then insert into cache, and evict key_1
     OlapReaderStatistics stats;
+    bool has_null = false;
     {
         InvertedIndexCacheHandle inverted_index_cache_handle;
         auto status = index_searcher_cache->get_index_searcher(
-                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats);
+                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats,
+                InvertedIndexReaderType::FULLTEXT, has_null);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_FALSE(inverted_index_cache_handle.owned);
     }
@@ -358,7 +369,8 @@ TEST_F(InvertedIndexSearcherCacheTest, remove_element_only_in_table) {
     {
         InvertedIndexCacheHandle inverted_index_cache_handle;
         auto status = index_searcher_cache->get_index_searcher(
-                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats);
+                fs, kTestDir, file_name_2, &inverted_index_cache_handle, &stats,
+                InvertedIndexReaderType::FULLTEXT, has_null);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_FALSE(inverted_index_cache_handle.owned);
         auto cache_value_use_cache =

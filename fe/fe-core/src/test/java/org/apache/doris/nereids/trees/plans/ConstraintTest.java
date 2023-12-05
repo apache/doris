@@ -26,6 +26,7 @@ import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
 import org.apache.doris.utframe.TestWithFeService;
@@ -37,7 +38,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 import java.util.Set;
 
-class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSupported {
+class ConstraintTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
     public void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -63,10 +64,10 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
     }
 
     @Test
-    void addPrimaryKeyConstraintTest() throws Exception {
-        AddConstraintCommand command = (AddConstraintCommand) new NereidsParser().parseSingle(
+    void primaryKeyConstraintTest() throws Exception {
+        AddConstraintCommand addCommand = (AddConstraintCommand) new NereidsParser().parseSingle(
                 "alter table t1 add constraint pk primary key (k1)");
-        command.run(connectContext, null);
+        addCommand.run(connectContext, null);
         PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(logicalOlapScan().when(o -> {
             Constraint c = o.getTable().getConstraint("pk");
             if (c instanceof PrimaryKeyConstraint) {
@@ -75,10 +76,16 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
             }
             return false;
         }));
+
+        DropConstraintCommand dropCommand = (DropConstraintCommand) new NereidsParser().parseSingle(
+                "alter table t1 drop constraint pk");
+        dropCommand.run(connectContext, null);
+        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
     }
 
     @Test
-    void addUniqueConstraintTest() throws Exception {
+    void uniqueConstraintTest() throws Exception {
         AddConstraintCommand command = (AddConstraintCommand) new NereidsParser().parseSingle(
                 "alter table t1 add constraint un unique (k1)");
         command.run(connectContext, null);
@@ -90,12 +97,18 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
             }
             return false;
         }));
+
+        DropConstraintCommand dropCommand = (DropConstraintCommand) new NereidsParser().parseSingle(
+                "alter table t1 drop constraint un");
+        dropCommand.run(connectContext, null);
+        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
     }
 
     @Test
-    void addForeignKeyConstraintTest() throws Exception {
+    void foreignKeyConstraintTest() throws Exception {
         AddConstraintCommand command = (AddConstraintCommand) new NereidsParser().parseSingle(
-                "alter table t1 add constraint fk foreign key (k1) references t2(k1)");
+                "alter table t1 add constraint fk foreign key (k1) references t2 (k1)");
         try {
             command.run(connectContext, null);
         } catch (Exception e) {
@@ -123,12 +136,30 @@ class AddConstraintTest extends TestWithFeService implements PlanPatternMatchSup
             Constraint c = o.getTable().getConstraint("pk");
             if (c instanceof PrimaryKeyConstraint) {
                 Set<String> columnNames = ((PrimaryKeyConstraint) c).getPrimaryKeyNames();
-                List<TableIf> referenceTable = ((PrimaryKeyConstraint) c).getReferenceTables();
+                List<TableIf> foreignTables = ((PrimaryKeyConstraint) c).getForeignTables();
                 return columnNames.size() == 2
                         && columnNames.equals(Sets.newHashSet("k1", "k2"))
-                        && referenceTable.size() == 1 && referenceTable.get(0).getName().equals("t1");
+                        && foreignTables.size() == 1 && foreignTables.get(0).getName().equals("t1");
             }
             return false;
         }));
+
+        // drop fk
+        DropConstraintCommand dropCommand = (DropConstraintCommand) new NereidsParser().parseSingle(
+                "alter table t1 drop constraint fk");
+        dropCommand.run(connectContext, null);
+        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
+        // drop pk and fk referenced it also should be dropped
+        ((AddConstraintCommand) new NereidsParser().parseSingle(
+                "alter table t1 add constraint fk foreign key (k1, k2) references t2(k1, k2)")).run(connectContext,
+                null);
+        ((DropConstraintCommand) new NereidsParser().parseSingle("alter table t2 drop constraint pk"))
+                .run(connectContext, null);
+
+        PlanChecker.from(connectContext).parse("select * from t1").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
+        PlanChecker.from(connectContext).parse("select * from t2").analyze().matches(
+                logicalOlapScan().when(o -> o.getTable().getConstraintsMap().isEmpty()));
     }
 }

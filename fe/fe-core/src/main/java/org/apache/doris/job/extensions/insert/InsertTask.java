@@ -18,7 +18,9 @@
 package org.apache.doris.job.extensions.insert;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
@@ -29,9 +31,13 @@ import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
@@ -48,6 +54,29 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 @Slf4j
 public class InsertTask extends AbstractTask {
+
+    public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
+            new Column("TaskId", ScalarType.createStringType()),
+            new Column("Label", ScalarType.createStringType()),
+            new Column("Status", ScalarType.createStringType()),
+            new Column("EtlInfo", ScalarType.createStringType()),
+            new Column("TaskInfo", ScalarType.createStringType()),
+            new Column("ErrorMsg", ScalarType.createStringType()),
+            new Column("CreateTimeMs", ScalarType.createStringType()),
+            new Column("FinishTimeMs", ScalarType.createStringType()),
+            new Column("TrackingUrl", ScalarType.createStringType()),
+            new Column("LoadStatistic", ScalarType.createStringType()),
+            new Column("User", ScalarType.createStringType()));
+
+    public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        for (int i = 0; i < SCHEMA.size(); i++) {
+            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        COLUMN_TO_INDEX = builder.build();
+    }
 
     private String labelName;
 
@@ -186,6 +215,47 @@ public class InsertTask extends AbstractTask {
         // user
         jobInfo.add(loadJob.getUserInfo().getQualifiedUser());
         return jobInfo;
+    }
+
+    @Override
+    public TRow getTvfInfo() {
+        TRow trow = new TRow();
+        if (loadJob == null) {
+            return trow;
+        }
+
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(loadJob.getId())));
+        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLabel()));
+        trow.addToColumnValue(new TCell().setStringVal(loadJob.getState().name()));
+        // etl info
+        String etlInfo = FeConstants.null_string;
+        if (!loadJob.getLoadingStatus().getCounters().isEmpty()) {
+            etlInfo = Joiner.on("; ").withKeyValueSeparator("=").join(loadJob.getLoadingStatus().getCounters());
+        }
+        trow.addToColumnValue(new TCell().setStringVal(etlInfo));
+
+        // task info
+        String taskInfo = "cluster:" + loadJob.getResourceName() + "; timeout(s):" + loadJob.getTimeout()
+                + "; max_filter_ratio:" + loadJob.getMaxFilterRatio() + "; priority:" + loadJob.getPriority();
+        trow.addToColumnValue(new TCell().setStringVal(taskInfo));
+
+        // err msg
+        String errMsg = FeConstants.null_string;
+        if (loadJob.getFailMsg() != null) {
+            errMsg = "type:" + loadJob.getFailMsg().getCancelType() + "; msg:" + loadJob.getFailMsg().getMsg();
+        }
+        trow.addToColumnValue(new TCell().setStringVal(errMsg));
+
+        // create time
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(loadJob.getCreateTimestamp())));
+
+        // load end time
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(loadJob.getFinishTimestamp())));
+        // tracking url
+        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadingStatus().getTrackingUrl()));
+        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
+        trow.addToColumnValue(new TCell().setStringVal(loadJob.getUserInfo().getQualifiedUser()));
+        return trow;
     }
 
 }
