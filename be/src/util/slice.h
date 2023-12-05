@@ -344,19 +344,21 @@ class OwnedSlice : private Allocator<false, false, false> {
 public:
     OwnedSlice() : _slice((uint8_t*)nullptr, 0) {}
 
-    OwnedSlice(OwnedSlice&& src) : _slice(src._slice) {
+    OwnedSlice(OwnedSlice&& src) : _slice(src._slice), _capacity(src._capacity) {
         src._slice.data = nullptr;
         src._slice.size = 0;
+        src._capacity = 0;
     }
 
     OwnedSlice& operator=(OwnedSlice&& src) {
         if (this != &src) {
             std::swap(_slice, src._slice);
+            std::swap(_capacity, src._capacity);
         }
         return *this;
     }
 
-    ~OwnedSlice() { Allocator::free(_slice.data, _slice.size); }
+    ~OwnedSlice() { Allocator::free(_slice.data, _capacity); }
 
     const Slice& slice() const { return _slice; }
 
@@ -364,7 +366,8 @@ private:
     // faststring also inherits Allocator and disables mmap.
     friend class faststring;
 
-    OwnedSlice(uint8_t* _data, size_t size) : _slice(_data, size) {}
+    OwnedSlice(uint8_t* _data, size_t size, size_t capacity)
+            : _slice(_data, size), _capacity(capacity) {}
 
 private:
     // disable copy constructor and copy assignment
@@ -372,6 +375,7 @@ private:
     void operator=(const OwnedSlice&) = delete;
 
     Slice _slice;
+    size_t _capacity = 0;
 };
 
 } // namespace doris
