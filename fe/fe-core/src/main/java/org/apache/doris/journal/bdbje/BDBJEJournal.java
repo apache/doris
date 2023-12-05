@@ -18,6 +18,7 @@
 package org.apache.doris.journal.bdbje;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.DataOutputBuffer;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.NetUtils;
@@ -75,14 +76,6 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     private AtomicLong nextJournalId = new AtomicLong(1);
 
     public BDBJEJournal(String nodeName) {
-        initBDBEnv(nodeName);
-    }
-
-    /*
-     * Initialize bdb environment.
-     * node name is ip_port (the port is edit_log_port)
-     */
-    private void initBDBEnv(String nodeName) {
         environmentPath = Env.getServingEnv().getBdbDir();
         HostInfo selfNode = Env.getServingEnv().getSelfNode();
         selfNodeName = nodeName;
@@ -327,13 +320,14 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
     public synchronized void open() {
         if (bdbEnvironment == null) {
             File dbEnv = new File(environmentPath);
-            bdbEnvironment = new BDBEnvironment();
+
+            boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+            bdbEnvironment = new BDBEnvironment(Env.getServingEnv().isElectable(), metadataFailureRecovery);
 
             HostInfo helperNode = Env.getServingEnv().getHelperNode();
             String helperHostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), helperNode.getPort());
             try {
-                bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort, helperHostPort,
-                        Env.getServingEnv().isElectable());
+                bdbEnvironment.setup(dbEnv, selfNodeName, selfNodeHostPort, helperHostPort);
             } catch (Exception e) {
                 if (e instanceof DatabaseNotFoundException) {
                     LOG.error("It is not allowed to set metadata_failure_recovery"
@@ -380,7 +374,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 reSetupBdbEnvironment(insufficientLogEx);
             } catch (RollbackException rollbackEx) {
                 LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
-                bdbEnvironment.closeReplicatedEnvironment();
+                bdbEnvironment.close();
                 bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
             }
         }
@@ -414,8 +408,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
         bdbEnvironment.close();
         bdbEnvironment.setup(new File(environmentPath), selfNodeName, selfNodeHostPort,
-                NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), helperNode.getPort()),
-                Env.getServingEnv().isElectable());
+                NetUtils.getHostPortInAccessibleFormat(helperNode.getHost(), helperNode.getPort()));
     }
 
     @Override
@@ -506,7 +499,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
             } catch (RollbackException rollbackEx) {
                 if (!Env.isCheckpointThread()) {
                     LOG.warn("catch rollback log exception. will reopen the ReplicatedEnvironment.", rollbackEx);
-                    bdbEnvironment.closeReplicatedEnvironment();
+                    bdbEnvironment.close();
                     bdbEnvironment.openReplicatedEnvironment(new File(environmentPath));
                 } else {
                     throw rollbackEx;

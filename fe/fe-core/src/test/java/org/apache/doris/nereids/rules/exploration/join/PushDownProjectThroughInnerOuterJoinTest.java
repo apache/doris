@@ -74,6 +74,59 @@ class PushDownProjectThroughInnerOuterJoinTest implements MemoPatternMatchSuppor
     }
 
     @Test
+    public void pushRightSide() {
+        // project (t1.id + 1) as alias, t1.name, (t2.id + 1) as alias, t2.name
+        List<NamedExpression> projectExprs = ImmutableList.of(
+                new Alias(new Add(scan1.getOutput().get(0), Literal.of(1)), "alias"),
+                scan1.getOutput().get(1),
+                scan2.getOutput().get(1)
+        );
+        // complex projection contain ti.id, which isn't in Join Condition
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))
+                .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(PushDownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
+                .printlnOrigin()
+                .printlnExploration()
+                .matchesExploration(
+                        logicalJoin(
+                                logicalProject(
+                                    logicalJoin(
+                                            logicalProject().when(project -> project.getProjects().size() == 2),
+                                            logicalOlapScan()
+                                    )
+                                ),
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    public void pushNoSide() {
+        // project (t1.id + 1) as alias, t1.name, (t2.id + 1) as alias, t2.name
+        List<NamedExpression> projectExprs = ImmutableList.of(
+                new Alias(new Add(scan1.getOutput().get(0), Literal.of(1)), "alias"),
+                scan1.getOutput().get(1),
+                scan2.getOutput().get(1)
+        );
+        // complex projection contain ti.id, which isn't in Join Condition
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.FULL_OUTER_JOIN, Pair.of(1, 1))
+                .projectExprs(projectExprs)
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .build();
+
+        int plansNumber = PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyExploration(PushDownProjectThroughInnerOuterJoin.INSTANCE.buildRules())
+                .plansNumber();
+        Assertions.assertEquals(1, plansNumber);
+    }
+
+    @Test
     public void pushdownProjectInCondition() {
         // project (t1.id + 1) as alias, t1.name, (t2.id + 1) as alias, t2.name
         List<NamedExpression> projectExprs = ImmutableList.of(

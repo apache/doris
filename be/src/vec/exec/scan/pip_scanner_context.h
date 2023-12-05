@@ -76,11 +76,15 @@ public:
             *block = std::move(_blocks_queues[id].front());
             _blocks_queues[id].pop_front();
 
-            if (_blocks_queues[id].empty() && _dependency) {
-                _dependency->block();
+            if (_blocks_queues[id].empty()) {
+                this->reschedule_scanner_ctx();
+                if (_dependency) {
+                    _dependency->block();
+                }
             }
         }
         _current_used_bytes -= (*block)->allocated_bytes();
+
         return Status::OK();
     }
 
@@ -122,8 +126,8 @@ public:
                     hashes[i] = hashes[i] % element_size;
                 }
 
-                std::vector<int> channel2rows[element_size];
-                for (int i = 0; i < rows; i++) {
+                std::vector<uint32_t> channel2rows[element_size];
+                for (uint32_t i = 0; i < rows; i++) {
                     channel2rows[hashes[i]].emplace_back(i);
                 }
 
@@ -230,10 +234,10 @@ private:
     std::vector<std::unique_ptr<std::mutex>> _colocate_block_mutexs;
 
     void _add_rows_colocate_blocks(vectorized::Block* block, int loc,
-                                   const std::vector<int>& rows) {
+                                   const std::vector<uint32_t>& rows) {
         int row_wait_add = rows.size();
         const int batch_size = _batch_size;
-        const int* begin = &rows[0];
+        const uint32_t* begin = rows.data();
         std::lock_guard<std::mutex> l(*_colocate_block_mutexs[loc]);
 
         while (row_wait_add > 0) {

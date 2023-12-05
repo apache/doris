@@ -338,7 +338,7 @@ void LoadStream::_report_result(StreamId stream, const Status& st,
         response.add_failed_tablet_ids(id);
     }
 
-    if (_enable_profile) {
+    if (_enable_profile && _close_load_cnt == _total_streams) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
         uint8_t* buf = nullptr;
