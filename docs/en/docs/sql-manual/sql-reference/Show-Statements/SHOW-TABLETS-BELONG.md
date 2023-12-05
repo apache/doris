@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW-ANALYZE-TABLETS",
+    "title": "SHOW-TABLETS-BELONG",
     "language": "en"
 }
 ---
@@ -26,13 +26,13 @@ under the License.
 
 <version since="dev">
 
-## SHOW-ANALYZE-TABLETS
+## SHOW-TABLETS-BELONG
 
 </version>
 
 ### Name
 
-SHOW ANALYZE TABLETS
+SHOW TABLETS BELONG
 
 ### Description
 
@@ -41,7 +41,7 @@ Used to show tablets and information of their belonging table
 grammar：
 
 ```sql
-SHOW ANALYZE TABLETS tablet-ids;
+SHOW TABLETS BELONG tablet-ids;
 ```
 
 illustrate：
@@ -54,7 +54,7 @@ illustrate：
 1. show information of four tablet-ids (actually, three tablet-ids. Result will be deduplicated)
 
     ```sql
-    SHOW ANALYZE TABLETS 27028,78880,78382,27028;
+    SHOW TABLETS BELONG 27028,78880,78382,27028;
     ```
 
     ```
@@ -68,7 +68,7 @@ illustrate：
 
 ### Keywords
 
-    SHOW, ANALYZE, TABLETS
+    SHOW, TABLETS, BELONG
 
 ### Best Practice
 

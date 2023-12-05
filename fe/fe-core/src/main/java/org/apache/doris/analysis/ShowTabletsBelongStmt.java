@@ -27,11 +27,11 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ShowAnalyzeTabletsStmt is used to show statistics of tablets info.
+ * ShowTabletsBelongStmt is used to show information of tables which tablets are belonged to
  * syntax:
- *    SHOW ANALYZE TABLETS tablet_ids
+ * SHOW TABLETS BELONG tablet_ids
  */
-public class ShowAnalyzeTabletsStmt extends ShowStmt {
+public class ShowTabletsBelongStmt extends ShowStmt {
     private List<Long> tabletIds;
 
     private static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>()
@@ -44,7 +44,7 @@ public class ShowAnalyzeTabletsStmt extends ShowStmt {
             .add("TabletIds")
             .build();
 
-    public ShowAnalyzeTabletsStmt(List<Long> tabletIds) {
+    public ShowTabletsBelongStmt(List<Long> tabletIds) {
         this.tabletIds = tabletIds;
     }
 
@@ -76,7 +76,7 @@ public class ShowAnalyzeTabletsStmt extends ShowStmt {
     @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        sb.append("SHOW ANALYZE TABLETS ");
+        sb.append("SHOW TABLETS BELONG ");
 
         for (long tabletId : tabletIds) {
             sb.append(tabletId);

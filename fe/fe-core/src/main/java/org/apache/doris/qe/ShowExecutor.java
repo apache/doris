@@ -29,7 +29,6 @@ import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
-import org.apache.doris.analysis.ShowAnalyzeTabletsStmt;
 import org.apache.doris.analysis.ShowAnalyzeTaskStatus;
 import org.apache.doris.analysis.ShowAuthorStmt;
 import org.apache.doris.analysis.ShowBackendsStmt;
@@ -98,6 +97,7 @@ import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
+import org.apache.doris.analysis.ShowTabletsBelongStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowTrashStmt;
@@ -420,7 +420,7 @@ public class ShowExecutor {
             handleShowCreateCatalog();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
-        } else if (stmt instanceof ShowAnalyzeTabletsStmt) {
+        } else if (stmt instanceof ShowTabletsBelongStmt) {
             handleShowAnalyzeTablet();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
@@ -2710,7 +2710,7 @@ public class ShowExecutor {
     }
 
     private void handleShowAnalyzeTablet() {
-        ShowAnalyzeTabletsStmt showStmt = (ShowAnalyzeTabletsStmt) stmt;
+        ShowTabletsBelongStmt showStmt = (ShowTabletsBelongStmt) stmt;
         List<List<String>> rows = new ArrayList<>();
 
         Env env = Env.getCurrentEnv();

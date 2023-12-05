@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW-ANALYZE-TABLETS",
+    "title": "SHOW-TABLETS-BELONG",
     "language": "zh-CN"
 }
 ---
@@ -26,13 +26,13 @@ under the License.
 
 <version since="dev">
 
-## SHOW-ANALYZE-TABLETS
+## SHOW-TABLETS-BELONG
 
 </version>
 
 ### Name
 
-SHOW ANALYZE TABLETS
+SHOW TABLETS BELONG
 
 ### Description
 
@@ -41,12 +41,12 @@ SHOW ANALYZE TABLETS
 语法：
 
 ```sql
-SHOW ANALYZE TABLETS tablet-ids;
+SHOW TABLETS BELONG tablet-ids;
 ```
 
 说明：
 
-1. tablet-ids：指一到多个tablet-id构成的列表。如有多个，使用逗号分隔
+1. tablet-ids：代表一到多个tablet-id构成的列表。如有多个，使用逗号分隔
 2. 结果中 table 相关的信息和 `SHOW-DATA` 语句的口径一致
 
 ### Example
@@ -54,7 +54,7 @@ SHOW ANALYZE TABLETS tablet-ids;
 1. 展示3个tablet-id的相关信息（tablet-id可去重）
 
     ```sql
-    SHOW ANALYZE TABLETS 27028,78880,78382,27028;
+    SHOW TABLETS BELONG 27028,78880,78382,27028;
     ```
 
     ```
@@ -68,7 +68,7 @@ SHOW ANALYZE TABLETS tablet-ids;
 
 ### Keywords
 
-    SHOW, ANALYZE, TABLETS
+    SHOW, TABLETS, BELONG
 
 ### Best Practice
 
