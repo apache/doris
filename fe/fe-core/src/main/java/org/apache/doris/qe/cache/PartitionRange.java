@@ -154,8 +154,6 @@ public class PartitionRange {
             switch (type.getPrimitiveType()) {
                 case DATE:
                 case DATEV2:
-                case DATETIME:
-                case DATETIMEV2:
                     try {
                         date = Date.from(
                                 LocalDate.parse(str, df10).atStartOfDay().atZone(ZoneId.systemDefault()).toInstant());
