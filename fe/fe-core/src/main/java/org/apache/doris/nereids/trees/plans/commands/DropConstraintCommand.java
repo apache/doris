@@ -19,11 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
@@ -34,68 +32,51 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Set;
 
 /**
- * add constraint command
+ * drop constraint command
  */
-public class AddConstraintCommand extends Command implements ForwardWithSync {
+public class DropConstraintCommand extends Command implements ForwardWithSync {
 
-    public static final Logger LOG = LogManager.getLogger(AddConstraintCommand.class);
+    public static final Logger LOG = LogManager.getLogger(DropConstraintCommand.class);
     private final String name;
-    private final Constraint constraint;
+    private final LogicalPlan plan;
 
     /**
      * constructor
      */
-    public AddConstraintCommand(String name, Constraint constraint) {
-        super(PlanType.ADD_CONSTRAINT_COMMAND);
-        this.constraint = constraint;
+    public DropConstraintCommand(String name, LogicalPlan plan) {
+        super(PlanType.DROP_CONSTRAINT_COMMAND);
         this.name = name;
+        this.plan = plan;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        Pair<ImmutableList<String>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
-        if (constraint.isForeignKey()) {
-            Pair<ImmutableList<String>, TableIf> referencedColumnsAndTable
-                    = extractColumnsAndTable(ctx, constraint.toReferenceProject());
-            columnsAndTable.second.addForeignConstraint(name, columnsAndTable.first,
-                    referencedColumnsAndTable.second, referencedColumnsAndTable.first);
-        } else if (constraint.isPrimaryKey()) {
-            columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first);
-        } else if (constraint.isUnique()) {
-            columnsAndTable.second.addUniqueConstraint(name, columnsAndTable.first);
-        }
+        TableIf table = extractTable(ctx, plan);
+        table.dropConstraint(name);
     }
 
-    private Pair<ImmutableList<String>, TableIf> extractColumnsAndTable(ConnectContext ctx, LogicalPlan plan) {
+    private TableIf extractTable(ConnectContext ctx, LogicalPlan plan) {
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         Plan analyzedPlan = planner.plan(plan, PhysicalProperties.ANY, ExplainLevel.ANALYZED_PLAN);
         Set<LogicalCatalogRelation> logicalCatalogRelationSet = analyzedPlan
                 .collect(LogicalCatalogRelation.class::isInstance);
         if (logicalCatalogRelationSet.size() != 1) {
-            throw new AnalysisException("Can not found table in constraint " + constraint.toString());
+            throw new AnalysisException("Can not found table when dropping constraint");
         }
         LogicalCatalogRelation catalogRelation = logicalCatalogRelationSet.iterator().next();
         Preconditions.checkArgument(catalogRelation.getTable() instanceof Table,
-                "We only support table now but we meet ", catalogRelation.getTable());
-        ImmutableList<String> columns = analyzedPlan.getOutput().stream()
-                .map(s -> {
-                    Preconditions.checkArgument(s instanceof SlotReference
-                                    && ((SlotReference) s).getColumn().isPresent(),
-                            "Constraint contains a invalid slot ", s);
-                    return ((SlotReference) s).getColumn().get().getName();
-                }).collect(ImmutableList.toImmutableList());
-        return Pair.of(columns, catalogRelation.getTable());
+                "Don't support table ", catalogRelation.getTable());
+        return catalogRelation.getTable();
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitAddConstraintCommand(this, context);
+        return visitor.visitDropConstraintCommand(this, context);
     }
 }
