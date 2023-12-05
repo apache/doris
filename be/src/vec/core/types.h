@@ -500,13 +500,8 @@ static constexpr int max_decimal_string_length() {
 template <typename T>
 struct Decimal {
     static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
-    template <typename U>
-    static constexpr bool IsCompatible =
-            std::is_same_v<U, Int32> || std::is_same_v<U, Int64> || std::is_same_v<U, Int128> ||
-            std::is_same_v<U, wide::Int256>;
-    template <typename U>
-    static constexpr bool IsConvertible = IsCompatible<U> || std::is_arithmetic_v<U>;
-    static_assert(IsCompatible<T>);
+    static_assert(std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
+                  std::is_same_v<T, Int128> || IsInt256);
 
     using NativeType = T;
 
@@ -514,19 +509,22 @@ struct Decimal {
     Decimal(Decimal<T>&&) = default;
     Decimal(const Decimal<T>&) = default;
 
-    template <class U>
-        requires(IsConvertible<U> && IsInt256)
-    explicit Decimal(U value) : value(value) {
-        if constexpr (std::is_integral_v<T> && std::is_floating_point_v<U>) {
-            this->value = round(value);
+    explicit(IsInt256) Decimal(Int32 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Int64 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Int128 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(wide::Int256 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(UInt64 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(UInt32 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Float32 value) noexcept : value(type_round(value)) {}
+    explicit(IsInt256) Decimal(Float64 value) noexcept : value(type_round(value)) {}
+
+    /// If T is integral, the given value will be rounded to integer.
+    template <std::floating_point U>
+    static constexpr U type_round(U value) noexcept {
+        if constexpr (std::is_integral_v<T>) {
+            return round(value);
         }
-    }
-    template <class U>
-        requires(IsConvertible<U> && !IsInt256)
-    Decimal(U value) : value(value) {
-        if constexpr (std::is_integral_v<T> && std::is_floating_point_v<U>) {
-            this->value = round(value);
-        }
+        return value;
     }
 
     static Decimal double_to_decimal(double value_) {
