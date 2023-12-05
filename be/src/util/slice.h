@@ -168,8 +168,8 @@ public:
     bool trim_quote() {
         int32_t begin = 0;
         bool change = false;
-        if (size > 2 && ((data[begin] == '"' && data[size - 1] == '"') ||
-                         (data[begin] == '\'' && data[size - 1] == '\''))) {
+        if (size >= 2 && ((data[begin] == '"' && data[size - 1] == '"') ||
+                          (data[begin] == '\'' && data[size - 1] == '\''))) {
             data += 1;
             size -= 2;
             change = true;
@@ -188,7 +188,7 @@ public:
     ///   Number of bytes of space that should be dropped from the beginning.
     bool trim_double_quotes() {
         int32_t begin = 0;
-        if (size > 2 && (data[begin] == '"' && data[size - 1] == '"')) {
+        if (size >= 2 && (data[begin] == '"' && data[size - 1] == '"')) {
             data += 1;
             size -= 2;
             return true;
