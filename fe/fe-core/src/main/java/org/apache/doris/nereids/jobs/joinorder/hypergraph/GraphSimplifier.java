@@ -481,9 +481,10 @@ public class GraphSimplifier {
         return newEdge;
     }
 
-    private @Nullable JoinEdge threeRightJoin(long bitmap1, JoinEdge edge1, long bitmap2, JoinEdge edge2, long bitmap3) {
-        Preconditions.checkArgument(
-                cacheStats.containsKey(bitmap1) && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
+    private @Nullable JoinEdge threeRightJoin(long bitmap1, JoinEdge edge1, long bitmap2,
+            JoinEdge edge2, long bitmap3) {
+        Preconditions.checkArgument(cacheStats.containsKey(bitmap1)
+                        && cacheStats.containsKey(bitmap2) && cacheStats.containsKey(bitmap3));
         // plan1 edge1 (plan2 edge2 plan3)
         long newRight = LongBitmap.newBitmapUnion(bitmap2, bitmap3);
         if (LongBitmap.isOverlap(bitmap1, newRight)) {

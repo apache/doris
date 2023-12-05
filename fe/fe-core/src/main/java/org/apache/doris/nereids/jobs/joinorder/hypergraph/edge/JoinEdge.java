@@ -31,9 +31,13 @@ import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
 
+/**
+ * Edge represents a join
+ */
 public class JoinEdge extends Edge {
 
     private final LogicalJoin<? extends Plan, ? extends Plan> join;
+
     public JoinEdge(LogicalJoin<? extends Plan, ? extends Plan> join, int index,
             BitSet leftChildEdges, BitSet rightChildEdges, long subTreeNodes,
             long leftRequireNodes, long rightRequireNodes) {
@@ -45,10 +49,13 @@ public class JoinEdge extends Edge {
         return join.getJoinType();
     }
 
-    public LogicalJoin<?, ?> getJoin() {
+    public LogicalJoin<? extends Plan, ? extends Plan> getJoin() {
         return join;
     }
 
+    /**
+     * extract join type for edges and push them in hash conjuncts and other conjuncts
+     */
     public static @Nullable JoinType extractJoinTypeAndConjuncts(List<JoinEdge> edges,
             List<Expression> hashConjuncts, List<Expression> otherConjuncts) {
         JoinType joinType = null;

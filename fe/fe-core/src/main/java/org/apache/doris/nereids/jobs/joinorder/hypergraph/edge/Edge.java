@@ -29,7 +29,7 @@ import java.util.Set;
 /**
  * Edge in HyperGraph
  */
-public class Edge {
+public abstract class Edge {
     private final int index;
     private final double selectivity;
 
@@ -54,7 +54,7 @@ public class Edge {
     /**
      * Create simple edge.
      */
-    public Edge(int index, BitSet leftChildEdges, BitSet rightChildEdges,
+    Edge(int index, BitSet leftChildEdges, BitSet rightChildEdges,
             long subTreeNodes, long leftRequiredNodes, Long rightRequiredNodes) {
         this.index = index;
         this.selectivity = 1.0;
@@ -145,7 +145,6 @@ public class Edge {
         return curOperatorEdges;
     }
 
-
     public boolean isSub(Edge edge) {
         // When this join reference nodes is a subset of other join, then this join must appear before that join
         long otherBitmap = edge.getReferenceNodes();
@@ -168,13 +167,9 @@ public class Edge {
         return selectivity;
     }
 
-    public Set<Slot> getInputSlots() {
-        throw new RuntimeException("Unimplemented getInputSlots for Edge");
-    }
+    public abstract Set<Slot> getInputSlots();
 
-    public List<? extends Expression> getExpressions() {
-        throw new RuntimeException("Unimplemented getExpressions for Edge");
-    }
+    public abstract List<? extends Expression> getExpressions();
 
     @Override
     public String toString() {

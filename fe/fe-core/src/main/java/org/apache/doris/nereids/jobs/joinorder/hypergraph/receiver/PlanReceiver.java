@@ -20,9 +20,9 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.cascades.CostAndEnforcerJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
@@ -193,7 +193,7 @@ public class PlanReceiver implements AbstractReceiver {
 
         // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
         for (JoinEdge edge : hyperGraph.getJoinEdges()) {
-            long referenceNodes = edge.getReferenceNodes();
+            long referenceNodes = LongBitmap.newBitmapUnion(edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
             if (LongBitmap.isSubset(referenceNodes, allReferenceNodes)
                     && !usedEdgesBitmap.get(edge.getIndex())) {
                 // add the missed edge to edges
@@ -220,8 +220,8 @@ public class PlanReceiver implements AbstractReceiver {
         List<Plan> plans = Lists.newArrayList();
         if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
             plans.add(new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
-                            Optional.empty(), joinProperties,
-                            left, right));
+                    Optional.empty(), joinProperties,
+                    left, right));
             if (joinType.isSwapJoinType()) {
                 plans.add(new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, Optional.empty(),
                         joinProperties,

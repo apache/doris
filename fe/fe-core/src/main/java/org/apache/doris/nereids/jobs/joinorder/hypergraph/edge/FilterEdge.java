@@ -17,9 +17,45 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.edge;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
-public class FilterEdge {
-    LogicalFilter<? extends Plan> filter;
+import java.util.ArrayList;
+import java.util.BitSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * Edge represents a filter
+ */
+public class FilterEdge extends Edge {
+    private final LogicalFilter<? extends Plan> filter;
+    private final List<Integer> rejectEdges;
+
+    public FilterEdge(LogicalFilter<? extends Plan> filter, int index,
+            BitSet childEdges, long subTreeNodes, long childRequireNodes) {
+        super(index, childEdges, new BitSet(), subTreeNodes, childRequireNodes, 0L);
+        this.filter = filter;
+        rejectEdges = new ArrayList<>();
+    }
+
+    public void addRejectJoin(JoinEdge joinEdge) {
+        rejectEdges.add(joinEdge.getIndex());
+    }
+
+    public List<Integer> getRejectEdges() {
+        return rejectEdges;
+    }
+
+    @Override
+    public Set<Slot> getInputSlots() {
+        return filter.getInputSlots();
+    }
+
+    @Override
+    public List<? extends Expression> getExpressions() {
+        return filter.getExpressions();
+    }
 }

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanUtils;
@@ -87,6 +89,10 @@ public class HyperGraph {
 
     public JoinEdge getJoinEdge(int index) {
         return joinEdges.get(index);
+    }
+
+    public FilterEdge getFilterEdge(int index) {
+        return filterEdges.get(index);
     }
 
     public AbstractNode getNode(int index) {
@@ -195,7 +201,8 @@ public class HyperGraph {
      *
      * @param join The join plan
      */
-    public BitSet addEdge(LogicalJoin<?, ?> join, Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
+    private BitSet addJoin(LogicalJoin<?, ?> join,
+            Pair<BitSet, Long> leftEdgeNodes, Pair<BitSet, Long> rightEdgeNodes) {
         HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
         for (Expression expression : join.getHashJoinConjuncts()) {
             // TODO: avoid calling calculateEnds if calNodeMap's results are same
@@ -231,16 +238,40 @@ public class HyperGraph {
             joinEdges.add(edge);
         }
         curJoinEdges.stream().forEach(i -> joinEdges.get(i).addCurJoinEdges(curJoinEdges));
-        curJoinEdges.stream().forEach(i -> joinEdges.get(i).addCurJoinEdges(curJoinEdges));
-        curJoinEdges.stream().forEach(i -> makeConflictRules(joinEdges.get(i)));
+        curJoinEdges.stream().forEach(i -> makeJoinConflictRules(joinEdges.get(i)));
+        curJoinEdges.stream().forEach(i -> makeFilterConflictRules(joinEdges.get(i)));
         return curJoinEdges;
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
         // We don't implement this trick now.
     }
 
+    private BitSet addFilter(LogicalFilter<?> filter, Pair<BitSet, Long> childEdgeNodes) {
+        FilterEdge edge = new FilterEdge(filter, filterEdges.size(), childEdgeNodes.first, childEdgeNodes.second,
+                childEdgeNodes.second);
+        filterEdges.add(edge);
+        BitSet bitSet = new BitSet();
+        bitSet.set(edge.getIndex());
+        return bitSet;
+    }
+
+    private void makeFilterConflictRules(JoinEdge joinEdge) {
+        long leftSubNodes = joinEdge.getLeftSubNodes(joinEdges);
+        long rightSubNodes = joinEdge.getRightSubNodes(joinEdges);
+        filterEdges.forEach(e -> {
+            if (LongBitmap.isSubset(e.getReferenceNodes(), leftSubNodes)
+                    && !PushDownFilterThroughJoin.COULD_PUSH_THROUGH_LEFT.contains(joinEdge.getJoinType())) {
+                e.addRejectJoin(joinEdge);
+            }
+            if (LongBitmap.isSubset(e.getReferenceNodes(), rightSubNodes)
+                    && !PushDownFilterThroughJoin.COULD_PUSH_THROUGH_RIGHT.contains(joinEdge.getJoinType())) {
+                e.addRejectJoin(joinEdge);
+            }
+        });
+    }
+
     // Make edge with CD-C algorithm in
     // On the correct and complete enumeration of the core search
-    private void makeConflictRules(JoinEdge edgeB) {
+    private void makeJoinConflictRules(JoinEdge edgeB) {
         BitSet leftSubTreeEdges = subTreeEdges(edgeB.getLeftChildEdges());
         BitSet rightSubTreeEdges = subTreeEdges(edgeB.getRightChildEdges());
         long leftRequired = edgeB.getLeftRequiredNodes();
@@ -375,12 +406,12 @@ public class HyperGraph {
             return hyperGraphs;
         }
         return hyperGraphs.stream().flatMap(g ->
-            infoNode.getGraphs().stream().map(subGraph -> {
-                HyperGraph hyperGraph = new HyperGraph(g.finalOutputs);
-                hyperGraph.addStructInfo(g);
-                hyperGraph.addStructInfo(subGraph);
-                return hyperGraph;
-            })
+                infoNode.getGraphs().stream().map(subGraph -> {
+                    HyperGraph hyperGraph = new HyperGraph(g.finalOutputs);
+                    hyperGraph.addStructInfo(g);
+                    hyperGraph.addStructInfo(subGraph);
+                    return hyperGraph;
+                })
         ).collect(Collectors.toList());
     }
 
@@ -409,7 +440,7 @@ public class HyperGraph {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) groupExpression.getPlan();
             Pair<BitSet, Long> left = this.buildDPhyperGraph(groupExpression.child(0).getLogicalExpressions().get(0));
             Pair<BitSet, Long> right = this.buildDPhyperGraph(groupExpression.child(1).getLogicalExpressions().get(0));
-            return Pair.of(this.addEdge(join, left, right),
+            return Pair.of(this.addJoin(join, left, right),
                     LongBitmap.or(left.second, right.second));
         }
 
@@ -426,7 +457,7 @@ public class HyperGraph {
         other.getJoinEdges().forEach(this::addEdgeOfInfo);
     }
 
-    // Build Graph for matching mv
+    // Build Graph for matching mv, return join edge set and nodes in this plan
     private Pair<BitSet, Long> buildStructInfo(Plan plan) {
         if (plan instanceof GroupPlan) {
             Group group = ((GroupPlan) plan).getGroup();
@@ -453,12 +484,19 @@ public class HyperGraph {
         }
 
         // process Join
-        if (isValidJoin(plan)) {
+        if (isValidJoinForStructInfo(plan)) {
             LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
             Pair<BitSet, Long> left = this.buildStructInfo(plan.child(0));
             Pair<BitSet, Long> right = this.buildStructInfo(plan.child(1));
-            return Pair.of(this.addEdge(join, left, right),
+            return Pair.of(this.addJoin(join, left, right),
                     LongBitmap.or(left.second, right.second));
+        }
+
+        if (isValidFilter(plan)) {
+            LogicalFilter<?> filter = (LogicalFilter<?>) plan;
+            Pair<BitSet, Long> child = this.buildStructInfo(filter.child());
+            this.addFilter(filter, child);
+            return Pair.of(new BitSet(), child.second);
         }
 
         // process Other Node
@@ -477,6 +515,23 @@ public class HyperGraph {
         return join.getJoinType() == JoinType.INNER_JOIN
                 && !join.isMarkJoin()
                 && !join.getExpressions().isEmpty();
+    }
+
+    /**
+     * inner join group without mark slot
+     */
+    public static boolean isValidJoinForStructInfo(Plan plan) {
+        if (!(plan instanceof LogicalJoin)) {
+            return false;
+        }
+
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) plan;
+        return !join.isMarkJoin()
+                && !join.getExpressions().isEmpty();
+    }
+
+    public static boolean isValidFilter(Plan plan) {
+        return plan instanceof LogicalFilter;
     }
 
     /**
