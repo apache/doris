@@ -17,7 +17,7 @@
 
 package org.apache.doris.resource.workloadgroup;
 
-import org.apache.doris.resource.workloadgroup.QueueOfferToken.TokenState;
+import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -48,7 +48,7 @@ public class QueryQueue {
 
     private long propVersion;
 
-    private PriorityQueue<QueueOfferToken> priorityTokenQueue;
+    private PriorityQueue<QueueToken> priorityTokenQueue;
 
     int getCurrentRunningQueryNum() {
         return currentRunningQueryNum;
@@ -84,7 +84,7 @@ public class QueryQueue {
         this.maxQueueSize = maxQueueSize;
         this.queueTimeout = queueTimeout;
         this.propVersion = propVersion;
-        this.priorityTokenQueue = new PriorityQueue<QueueOfferToken>();
+        this.priorityTokenQueue = new PriorityQueue<QueueToken>();
     }
 
     public String debugString() {
@@ -94,7 +94,7 @@ public class QueryQueue {
                 + ", currentWaitingQueryNum=" + currentWaitingQueryNum;
     }
 
-    public QueueOfferToken getToken() throws InterruptedException {
+    public QueueToken getToken() throws InterruptedException {
         // to prevent hang
         // the lock shouldn't be hold for too long
         // we should catch the case when it happens
@@ -106,17 +106,17 @@ public class QueryQueue {
 
             if (currentRunningQueryNum < maxConcurrency) {
                 currentRunningQueryNum++;
-                return new QueueOfferToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
+                return new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
             }
             // currentRunningQueryNum may bigger than maxRunningQueryNum
             // because maxRunningQueryNum can be altered
             if (currentWaitingQueryNum >= maxQueueSize) {
-                return new QueueOfferToken(TokenState.ENQUEUE_FAILED, queueTimeout,
+                return new QueueToken(TokenState.ENQUEUE_FAILED, queueTimeout,
                         "query waiting queue is full, queue length=" + maxQueueSize);
             }
 
             currentWaitingQueryNum++;
-            QueueOfferToken newQueryToken = new QueueOfferToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
+            QueueToken newQueryToken = new QueueToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
                     "query wait timeout " + queueTimeout + " ms");
             this.priorityTokenQueue.offer(newQueryToken);
             return newQueryToken;
@@ -129,7 +129,7 @@ public class QueryQueue {
     }
 
     // If the token is acquired and do work success, then call this method to release it.
-    public void returnToken(QueueOfferToken token) throws InterruptedException {
+    public void returnToken(QueueToken token) throws InterruptedException {
         queueLock.lock();
         try {
             // If current token is not in the queue, then do nothing, just return.
@@ -146,7 +146,7 @@ public class QueryQueue {
             Preconditions.checkArgument(currentRunningQueryNum >= 0);
             // maybe only when currentWaitingQueryNum != 0 need to signal
             if (currentRunningQueryNum < maxConcurrency) {
-                QueueOfferToken nextToken = this.priorityTokenQueue.poll();
+                QueueToken nextToken = this.priorityTokenQueue.poll();
                 if (nextToken != null) {
                     ++currentRunningQueryNum;
                     nextToken.signal();
