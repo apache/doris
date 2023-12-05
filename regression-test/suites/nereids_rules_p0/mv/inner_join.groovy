@@ -151,7 +151,7 @@ suite("inner_join") {
     order_qt_query1_2 "${query1_2}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
 
-    // because hyper graph node contains group plan, should fix it firstly
+    // select + from + inner join + filter
     def mv1_3 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
             "from orders " +
             "inner join lineitem on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
@@ -159,7 +159,7 @@ suite("inner_join") {
             "from lineitem " +
             "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
             "where lineitem.L_LINENUMBER > 10"
-//    check_rewrite(mv1_3, query1_3, "mv1_3")
+    check_rewrite(mv1_3, query1_3, "mv1_3")
     order_qt_query1_3 "${query1_3}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
 }

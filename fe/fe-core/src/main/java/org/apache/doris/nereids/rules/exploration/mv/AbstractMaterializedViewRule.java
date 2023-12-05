@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -118,11 +119,10 @@ public abstract class AbstractMaterializedViewRule {
                     rewritedPlan = mvScan;
                 } else {
                     // Try to rewrite compensate predicates by using mv scan
-                    List<NamedExpression> rewriteCompensatePredicates = rewriteExpression(
+                    List<Expression> rewriteCompensatePredicates = rewriteExpression(
                             compensatePredicates.toList(),
                             materializationContext.getViewExpressionIndexMapping(),
-                            queryToViewSlotMapping,
-                            mvScan);
+                            queryToViewSlotMapping);
                     if (rewriteCompensatePredicates.isEmpty()) {
                         continue;
                     }
@@ -159,11 +159,10 @@ public abstract class AbstractMaterializedViewRule {
     /**
      * Use target output expression to represent the source expression
      */
-    protected List<NamedExpression> rewriteExpression(
+    protected List<Expression> rewriteExpression(
             List<? extends Expression> sourceExpressions,
             ExpressionMapping expressionMapping,
-            SlotMapping sourceToTargetMapping,
-            Plan targetScanNode) {
+            SlotMapping sourceToTargetMapping) {
         // Firstly, rewrite the target plan output expression using query with inverse mapping
         // then try to use the mv expression to represent the query. if any of source expressions
         // can not be represented by mv, return null
@@ -184,22 +183,23 @@ public abstract class AbstractMaterializedViewRule {
         // view to view scan expression is 1:1 so get first element
         Map<? extends Expression, ? extends Expression> mvSqlToMvScanMappingQueryBased = flattenExpressionMap.get(0);
 
-        List<NamedExpression> rewrittenExpressions = new ArrayList<>();
+        List<Expression> rewrittenExpressions = new ArrayList<>();
         for (Expression expressionToRewrite : sourceExpressions) {
-            if (expressionToRewrite instanceof BooleanLiteral
-                    && ((BooleanLiteral) expressionToRewrite).getValue()) {
+            if (expressionToRewrite instanceof Literal) {
+                rewrittenExpressions.add(expressionToRewrite);
                 continue;
             }
             final Set<Object> slotsToRewrite =
                     expressionToRewrite.collectToSet(expression -> expression instanceof Slot);
+            boolean wiAlias = expressionToRewrite instanceof NamedExpression;
             Expression replacedExpression = ExpressionUtils.replace(expressionToRewrite,
                     mvSqlToMvScanMappingQueryBased,
-                    true);
+                    wiAlias);
             if (replacedExpression.anyMatch(slotsToRewrite::contains)) {
                 // if contains any slot to rewrite, which means can not be rewritten by target, bail out
                 return null;
             }
-            rewrittenExpressions.add((NamedExpression) replacedExpression);
+            rewrittenExpressions.add(replacedExpression);
         }
         return rewrittenExpressions;
     }
@@ -221,6 +221,9 @@ public abstract class AbstractMaterializedViewRule {
         Map<SlotReference, SlotReference> viewToQuerySlotMapping = queryToViewSlotMapping.inverse()
                 .toSlotReferenceMap();
         EquivalenceClass viewEquivalenceClassQueryBased = viewEquivalenceClass.permute(viewToQuerySlotMapping);
+        if (viewEquivalenceClassQueryBased == null) {
+            return SplitPredicate.empty();
+        }
         final List<Expression> equalCompensateConjunctions = new ArrayList<>();
         if (queryEquivalenceClass.isEmpty() && viewEquivalenceClass.isEmpty()) {
             equalCompensateConjunctions.add(BooleanLiteral.of(true));
@@ -278,7 +281,9 @@ public abstract class AbstractMaterializedViewRule {
                 Sets.newHashSet(ExpressionUtils.extractConjunction(queryRangePredicate));
         Set<Expression> viewRangeQueryBasedSet =
                 Sets.newHashSet(ExpressionUtils.extractConjunction(viewRangePredicateQueryBased));
-        if (!queryRangeSet.containsAll(viewRangeQueryBasedSet)) {
+        // query range predicate can not contain all view range predicate when view have range predicate, bail out
+        if (!viewRangePredicateQueryBased.equals(BooleanLiteral.TRUE)
+                && !queryRangeSet.containsAll(viewRangeQueryBasedSet)) {
             return SplitPredicate.empty();
         }
         queryRangeSet.removeAll(viewRangeQueryBasedSet);
@@ -294,7 +299,10 @@ public abstract class AbstractMaterializedViewRule {
                 Sets.newHashSet(ExpressionUtils.extractConjunction(queryResidualPredicate));
         Set<Expression> viewResidualQueryBasedSet =
                 Sets.newHashSet(ExpressionUtils.extractConjunction(viewResidualPredicateQueryBased));
-        if (!queryResidualSet.containsAll(viewResidualQueryBasedSet)) {
+        // query residual predicate can not contain all view residual predicate when view have residual predicate,
+        // bail out
+        if (!viewResidualPredicateQueryBased.equals(BooleanLiteral.TRUE)
+                && !queryResidualSet.containsAll(viewResidualQueryBasedSet)) {
             return SplitPredicate.empty();
         }
         queryResidualSet.removeAll(viewResidualQueryBasedSet);

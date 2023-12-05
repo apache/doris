@@ -33,6 +33,7 @@ import com.google.common.collect.Sets;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * AbstractMaterializedViewJoinRule
@@ -52,21 +53,23 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                 queryStructInfo.getExpressions(),
                 queryStructInfo.getOriginalPlan());
         // Rewrite top projects, represent the query projects by view
-        List<NamedExpression> expressions = rewriteExpression(
+        List<Expression> expressionsRewritten = rewriteExpression(
                 queryShuttleExpression,
                 materializationContext.getViewExpressionIndexMapping(),
-                queryToViewSlotMappings,
-                tempRewritedPlan
+                queryToViewSlotMappings
         );
         // Can not rewrite, bail out
-        if (expressions == null) {
+        if (expressionsRewritten == null
+                || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
             return null;
         }
         if (queryStructInfo.getOriginalPlan().getGroupExpression().isPresent()) {
             materializationContext.addMatchedGroup(
                     queryStructInfo.getOriginalPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
         }
-        return new LogicalProject<>(expressions, tempRewritedPlan);
+        return new LogicalProject<>(
+                expressionsRewritten.stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                tempRewritedPlan);
     }
 
     // Check join is whether valid or not. Support join's input can not contain aggregate
