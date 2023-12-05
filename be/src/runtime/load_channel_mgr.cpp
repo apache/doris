@@ -86,7 +86,7 @@ void LoadChannelMgr::stop() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
+    _last_success_channel = new_lru_cache("LastSuccessChannelCache", 1024);
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }
