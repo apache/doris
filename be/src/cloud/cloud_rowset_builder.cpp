@@ -108,6 +108,7 @@ void CloudRowsetBuilder::update_tablet_stats() {
     tablet->fetch_add_approximate_data_size(_rowset->data_disk_size());
     tablet->fetch_add_approximate_cumu_num_rowsets(1);
     tablet->fetch_add_approximate_cumu_num_deltas(_rowset->num_segments());
+    tablet->write_count.fetch_add(1, std::memory_order_relaxed);
 }
 
 CloudTablet* CloudRowsetBuilder::cloud_tablet() {

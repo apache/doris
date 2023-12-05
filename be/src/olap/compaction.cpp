@@ -22,6 +22,7 @@
 #include <glog/logging.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cstdlib>
 #include <list>
 #include <map>
@@ -386,6 +387,7 @@ Status CompactionMixin::execute_compact() {
     data_dir->disks_compaction_num_increment(1);
 
     Status st = execute_compact_impl(permits);
+    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
 
     data_dir->disks_compaction_score_increment(-permits);
     data_dir->disks_compaction_num_increment(-1);
