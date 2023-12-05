@@ -15,24 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dump_image", "nonConcurrent") {
-    httpTest {
-        endpoint context.config.feHttpAddress
-        uri "/dump"
-        op "get"
-        check { code, body ->
-            logger.debug("code:${code} body:${body}");
-            assertEquals(200, code)
+package org.apache.doris.planner.external;
 
-            def bodyJson = parseJson(body)
-            assertEquals("success", bodyJson["msg"])
-            def dumpFilePath = bodyJson["data"]["dumpFilePath"]
-            logger.debug("dumpFilePath:${dumpFilePath}");
-            assertTrue(dumpFilePath.contains("image."))
+import java.util.Optional;
 
-            File dumpFile = new File(dumpFilePath);
-            dumpFile.delete();
-            logger.info("dumpFile:${dumpFilePath} deleted");
-        }
+public class MaxComputeSplit extends FileSplit {
+    private final Optional<String> partitionSpec;
+
+    public MaxComputeSplit(FileSplit rangeSplit) {
+        super(rangeSplit.path, rangeSplit.start, rangeSplit.length, rangeSplit.fileLength,
+                rangeSplit.hosts, rangeSplit.partitionValues);
+        this.partitionSpec = Optional.empty();
+    }
+
+    public MaxComputeSplit(String partitionSpec, FileSplit rangeSplit) {
+        super(rangeSplit.path, rangeSplit.start, rangeSplit.length, rangeSplit.fileLength,
+                rangeSplit.hosts, rangeSplit.partitionValues);
+        this.partitionSpec = Optional.of(partitionSpec);
+    }
+
+    public Optional<String> getPartitionSpec() {
+        return partitionSpec;
     }
 }

@@ -15,24 +15,32 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dump_image", "nonConcurrent") {
-    httpTest {
-        endpoint context.config.feHttpAddress
-        uri "/dump"
-        op "get"
-        check { code, body ->
-            logger.debug("code:${code} body:${body}");
-            assertEquals(200, code)
+package org.apache.doris.statistics;
 
-            def bodyJson = parseJson(body)
-            assertEquals("success", bodyJson["msg"])
-            def dumpFilePath = bodyJson["data"]["dumpFilePath"]
-            logger.debug("dumpFilePath:${dumpFilePath}");
-            assertTrue(dumpFilePath.contains("image."))
+import org.apache.doris.catalog.OlapTable;
 
-            File dumpFile = new File(dumpFilePath);
-            dumpFile.delete();
-            logger.info("dumpFile:${dumpFilePath} deleted");
-        }
+import mockit.Mock;
+import mockit.MockUp;
+import mockit.Mocked;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+
+class TableStatsMetaTest {
+
+    @Test
+    void update(@Mocked OlapTable table) {
+        new MockUp<OlapTable>() {
+            @Mock
+            public long getRowCount() {
+                return 4;
+            }
+        };
+        TableStatsMeta tableStatsMeta = new TableStatsMeta();
+        AnalysisInfo jobInfo = new AnalysisInfoBuilder().setColToPartitions(new HashMap<>())
+                .setColName("col1").build();
+        tableStatsMeta.update(jobInfo, table);
+        Assertions.assertEquals(4, tableStatsMeta.rowCount);
     }
 }

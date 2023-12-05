@@ -339,6 +339,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
             } else if (fileSplit instanceof HudiSplit) {
                 HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
+            } else if (fileSplit instanceof MaxComputeSplit) {
+                MaxComputeScanNode.setScanParams(rangeDesc, (MaxComputeSplit) fileSplit);
             }
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);

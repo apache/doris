@@ -1963,7 +1963,7 @@ public class Config extends ConfigBase {
      * OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
      */
     @ConfField
-    public static String bdbje_file_logging_level = "ALL";
+    public static String bdbje_file_logging_level = "INFO";
 
     /**
      * When holding lock time exceeds the threshold, need to report it.
@@ -2227,4 +2227,8 @@ public class Config extends ConfigBase {
             "the max package size fe thrift server can receive,avoid accepting error"
             + "or too large package causing OOM,default 20000000(20M),set -1 for unlimited. "})
     public static int fe_thrift_max_pkg_bytes = 20000000;
+
+    @ConfField(description = {"是否开启通过http接口获取log文件的功能",
+            "Whether to enable the function of getting log files through http interface"})
+    public static boolean enable_get_log_file_api = false;
 }

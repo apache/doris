@@ -621,6 +621,10 @@ public class AnalysisManager implements Writable {
             tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
         }
+        jobInfo.colToPartitions.clear();
+        if (jobInfo.partitionNames != null) {
+            jobInfo.partitionNames.clear();
+        }
     }
 
     public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
@@ -715,8 +719,9 @@ public class AnalysisManager implements Writable {
             tableStats.reset();
         } else {
             dropStatsStmt.getColumnNames().forEach(tableStats::removeColumn);
+            StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
             for (String col : cols) {
-                Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
+                statisticsCache.syncInvalidate(tblId, -1L, col);
             }
             tableStats.updatedTime = 0;
         }
@@ -730,9 +735,10 @@ public class AnalysisManager implements Writable {
             return;
         }
         Set<String> cols = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
         for (String col : cols) {
             tableStats.removeColumn(col);
-            Env.getCurrentEnv().getStatisticsCache().invalidate(table.getId(), -1L, col);
+            statisticsCache.syncInvalidate(table.getId(), -1L, col);
         }
         tableStats.updatedTime = 0;
         logCreateTableStats(tableStats);
@@ -800,12 +806,18 @@ public class AnalysisManager implements Writable {
         while (analysisJobInfoMap.size() >= Config.analyze_record_limit) {
             analysisJobInfoMap.remove(analysisJobInfoMap.pollFirstEntry().getKey());
         }
+        if (jobInfo.message != null && jobInfo.message.length() >= StatisticConstants.MSG_LEN_UPPER_BOUND) {
+            jobInfo.message = jobInfo.message.substring(0, StatisticConstants.MSG_LEN_UPPER_BOUND);
+        }
         this.analysisJobInfoMap.put(jobInfo.jobId, jobInfo);
     }
 
     public void replayCreateAnalysisTask(AnalysisInfo taskInfo) {
         while (analysisTaskInfoMap.size() >= Config.analyze_record_limit) {
             analysisTaskInfoMap.remove(analysisTaskInfoMap.pollFirstEntry().getKey());
+        }
+        if (taskInfo.message != null && taskInfo.message.length() >= StatisticConstants.MSG_LEN_UPPER_BOUND) {
+            taskInfo.message = taskInfo.message.substring(0, StatisticConstants.MSG_LEN_UPPER_BOUND);
         }
         this.analysisTaskInfoMap.put(taskInfo.taskId, taskInfo);
     }
@@ -1058,7 +1070,7 @@ public class AnalysisManager implements Writable {
                 a -> {
                     // DO NOTHING
                     return null;
-                }, null);
+                }, collection);
     }
 
     // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
