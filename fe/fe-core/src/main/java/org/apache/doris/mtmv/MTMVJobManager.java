@@ -118,7 +118,7 @@ public class MTMVJobManager implements MTMVHookService {
     @Override
     public void dropMTMV(MTMV mtmv) throws DdlException {
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
+                .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
         if (!CollectionUtils.isEmpty(jobs)) {
             try {
                 Env.getCurrentEnv().getJobManager()
@@ -165,7 +165,7 @@ public class MTMVJobManager implements MTMVHookService {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getMvName().getDb());
         MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
+                .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
         if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
             throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
         }

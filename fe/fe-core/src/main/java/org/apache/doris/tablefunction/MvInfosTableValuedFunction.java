@@ -22,6 +22,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
@@ -37,10 +38,10 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
- * mtmvs("database" = "db1").
+ * mv_infos("database" = "db1").
  */
-public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFunction {
-    public static final String NAME = "mtmvs";
+public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
+    public static final String NAME = "mv_infos";
     private static final String DB = "database";
 
     private static final ImmutableSet<String> PROPERTIES_SET = ImmutableSet.of(DB);
@@ -73,7 +74,7 @@ public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFun
 
     private final String databaseName;
 
-    public MaterializedViewsTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public MvInfosTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -100,13 +101,14 @@ public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFun
         metaScanRange.setMetadataType(TMetadataType.MATERIALIZED_VIEWS);
         TMaterializedViewsMetadataParams mtmvParam = new TMaterializedViewsMetadataParams();
         mtmvParam.setDatabase(databaseName);
+        mtmvParam.setCurrentUserIdent(ConnectContext.get().getCurrentUserIdentity().toThrift());
         metaScanRange.setMaterializedViewsParams(mtmvParam);
         return metaScanRange;
     }
 
     @Override
     public String getTableName() {
-        return "MaterializedViewsTableValuedFunction";
+        return "MvInfosTableValuedFunction";
     }
 
     @Override

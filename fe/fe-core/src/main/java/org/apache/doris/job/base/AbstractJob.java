@@ -30,6 +30,8 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
@@ -216,9 +218,28 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         return commonShowInfo;
     }
 
+    public TRow getCommonTvfInfo() {
+        TRow trow = new TRow();
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(jobId)));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
+        trow.addToColumnValue(new TCell().setStringVal(createUser.getQualifiedUser()));
+        trow.addToColumnValue(new TCell().setStringVal(jobConfig.getExecuteType().name()));
+        trow.addToColumnValue(new TCell().setStringVal(jobConfig.convertRecurringStrategyToString()));
+        trow.addToColumnValue(new TCell().setStringVal(jobStatus.name()));
+        trow.addToColumnValue(new TCell().setStringVal(executeSql));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(createTimeMs)));
+        trow.addToColumnValue(new TCell().setStringVal(comment));
+        return trow;
+    }
+
     @Override
     public List<String> getShowInfo() {
         return getCommonShowInfo();
+    }
+
+    @Override
+    public TRow getTvfInfo() {
+        return getCommonTvfInfo();
     }
 
     @Override

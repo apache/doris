@@ -2602,11 +2602,11 @@ show_job_stmt ::=
     :}
     | KW_SHOW KW_MTMV KW_JOBS
     {:
-        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.MTMV);
+        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.MV);
     :}
     | KW_SHOW KW_MTMV KW_JOB KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
+        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.MV);
     :}
     | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
     {:
@@ -2618,7 +2618,7 @@ show_job_stmt ::=
     :}    
     | KW_SHOW KW_MTMV KW_JOB KW_TASKS KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
+        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.MV);
     :}       
     ;
 pause_job_stmt ::=
