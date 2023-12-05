@@ -105,8 +105,9 @@ suite("inner_join") {
         PROPERTIES ('replication_num' = '1') 
         AS ${mv_sql}
         """
-        // tmp sleep, should read mv status and then decide sleep or not
-        sleep(5000)
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
         explain {
             sql("${query_sql}")
             contains "(${mv_name})"
