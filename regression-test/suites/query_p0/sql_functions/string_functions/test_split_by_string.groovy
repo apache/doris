@@ -143,5 +143,23 @@ suite("test_split_by_string") {
                       split_by_string(chr, ","),
                       split_by_string(txt, ",")
                 FROM test_split_by_string_2 WHERE rid=3 OR rid=4 ORDER BY rid;
-             """    
+             """
+
+    // Empty string
+    qt_sql_3 """
+                SELECT rid, 
+                      split_by_string(str, ""),
+                      split_by_string(vc, ""),
+                      split_by_string(chr, ""),
+                      split_by_string(txt, "")
+                FROM test_split_by_string_2 ORDER BY rid;
+             """
+    qt_sql_4 """
+                SELECT rid, 
+                      split_by_string("", str),
+                      split_by_string("", vc),
+                      split_by_string("", chr),
+                      split_by_string("", txt)
+                FROM test_split_by_string_2 ORDER BY rid;
+             """
 }

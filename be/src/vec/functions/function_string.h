@@ -1747,7 +1747,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) const override {
+                        size_t result, size_t /*input_rows_count*/) const override {
         DCHECK_EQ(arguments.size(), 2);
 
         const auto& [src_column, left_const] =
@@ -1763,8 +1763,8 @@ public:
         IColumn* dest_nested_column = &dest_column_ptr->get_data();
         auto& dest_offsets = dest_column_ptr->get_offsets();
         DCHECK(dest_nested_column != nullptr);
-        dest_nested_column->reserve(input_rows_count);
-        dest_offsets.reserve(input_rows_count);
+        dest_nested_column->reserve(0);
+        dest_offsets.reserve(0);
 
         NullMapType* dest_nested_null_map = nullptr;
         ColumnNullable* dest_nullable_col = reinterpret_cast<ColumnNullable*>(dest_nested_column);
@@ -1940,9 +1940,8 @@ private:
         ColumnArray::Offset64 dest_pos = 0;
         const ColumnArray::Offset64 delimiter_offsets_size = delimiter_col.get_offsets().size();
 
-        // TODO: if src_string_ref.size == 0;
 
-        for (size_t i = 0; i < delimiter_offsets_size; i++) {
+        for (size_t i = 0; i < delimiter_offsets_size; ++i) {
             const StringRef delimiter_ref = delimiter_col.get_data_at(i);
 
             if (delimiter_ref.size == 0) {
