@@ -426,7 +426,7 @@ public:
         service->_output_set = &output_set;
 
         std::vector<TExpr> exprs;
-        VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
+        VOlapTableSink sink(&obj_pool, row_desc, exprs);
         ASSERT_TRUE(st.ok());
 
         // init
@@ -567,7 +567,7 @@ TEST_F(VOlapTableSinkTest, convert) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -694,7 +694,7 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -789,7 +789,7 @@ TEST_F(VOlapTableSinkTest, decimal) {
     service->_output_set = &output_set;
 
     std::vector<TExpr> exprs;
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // init
@@ -885,7 +885,7 @@ TEST_F(VOlapTableSinkTest, group_commit) {
     service->_output_set = &output_set;
 
     std::vector<TExpr> exprs;
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, true);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
 
     // init
     st = sink.init(t_data_sink);
@@ -1016,7 +1016,7 @@ TEST_F(VOlapTableSinkTest, group_commit_with_filter_row) {
     service->_output_set = &output_set;
 
     std::vector<TExpr> exprs;
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, true);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
 
     // init
     st = sink.init(t_data_sink);

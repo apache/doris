@@ -89,17 +89,8 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
     RETURN_IF_ERROR(DataSink::close(state, close_status));
     RETURN_IF_ERROR(close_status);
     // wait to wal
-    int64_t total_rows = 0;
-    int64_t loaded_rows = 0;
-    for (const auto& future_block : _future_blocks) {
-        std::unique_lock<std::mutex> l(*(future_block->lock));
-        if (!future_block->is_handled()) {
-            future_block->cv->wait(l);
-        }
-        RETURN_IF_ERROR(future_block->get_status());
-        loaded_rows += future_block->get_loaded_rows();
-        total_rows += future_block->get_total_rows();
-    }
+    int64_t total_rows = state->num_rows_load_total();
+    int64_t loaded_rows = state->num_rows_load_total();
     state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() + total_rows -
                                          loaded_rows);
     state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
@@ -148,32 +139,26 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
     }
     // add block to queue
-    auto _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+    auto cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
     {
         vectorized::IColumn::Selector selector;
         for (auto i = 0; i < block->rows(); i++) {
             selector.emplace_back(i);
         }
-        block->append_to_block_by_selector(_cur_mutable_block.get(), selector);
+        block->append_to_block_by_selector(cur_mutable_block.get(), selector);
     }
-    std::shared_ptr<vectorized::Block> output_block =
-            std::make_shared<vectorized::Block>(_cur_mutable_block->to_block());
-
-    std::shared_ptr<doris::vectorized::FutureBlock> future_block =
-            std::make_shared<doris::vectorized::FutureBlock>();
-    future_block->swap(*(output_block.get()));
+    std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
+    output_block->swap(cur_mutable_block->to_block());
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
     load_id.__set_lo(_load_id.lo);
-    future_block->set_info(_base_schema_version, load_id);
     if (_load_block_queue == nullptr) {
         RETURN_IF_ERROR(state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
-                _db_id, _table_id, future_block, _load_block_queue));
+                _db_id, _table_id, _base_schema_version, load_id, block, _load_block_queue));
         state->set_import_label(_load_block_queue->label);
         state->set_wal_id(_load_block_queue->txn_id);
     }
-    RETURN_IF_ERROR(_load_block_queue->add_block(future_block));
-    _future_blocks.emplace_back(future_block);
+    RETURN_IF_ERROR(_load_block_queue->add_block(output_block));
     return Status::OK();
 }
 

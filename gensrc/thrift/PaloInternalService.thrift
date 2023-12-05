@@ -335,7 +335,7 @@ struct TPlanFragmentExecParams {
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
-  13: optional bool group_commit
+  13: optional bool group_commit // deprecated
 }
 
 // Global query parameters assigned by the coordinator.

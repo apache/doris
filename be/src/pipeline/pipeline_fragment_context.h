@@ -64,8 +64,7 @@ public:
                             const int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                            const report_status_callback& report_status_cb,
-                            bool group_commit = false);
+                            const report_status_callback& report_status_cb);
 
     virtual ~PipelineFragmentContext();
 
@@ -133,8 +132,6 @@ public:
         return _task_group_entity;
     }
     void trigger_report_if_necessary();
-
-    bool is_group_commit() { return _group_commit; }
     virtual void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(1);
         ins_ids[0] = _fragment_instance_id;
@@ -235,7 +232,6 @@ private:
         return nullptr;
     }
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
-    bool _group_commit;
 
     uint64_t _create_time;
 

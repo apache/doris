@@ -25,7 +25,6 @@
 #include "common/status.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
-#include "vec/core/future_block.h"
 
 namespace doris {
 class ExecEnv;
@@ -49,7 +48,7 @@ public:
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
-    Status add_block(std::shared_ptr<vectorized::FutureBlock> block);
+    Status add_block(std::shared_ptr<vectorized::Block> block);
     Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
     Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);
@@ -72,7 +71,7 @@ private:
     std::condition_variable _get_cond;
     // the set of load ids of all blocks in this queue
     std::set<UniqueId> _load_ids;
-    std::list<std::shared_ptr<vectorized::FutureBlock>> _block_queue;
+    std::list<std::shared_ptr<vectorized::Block>> _block_queue;
 
     Status _status = Status::OK();
     // memory consumption of all tables' load block queues, used for back pressure.
@@ -92,8 +91,9 @@ public:
               _db_id(db_id),
               _table_id(table_id),
               _all_block_queues_bytes(all_block_queue_bytes) {};
-    Status get_first_block_load_queue(int64_t table_id,
-                                      std::shared_ptr<vectorized::FutureBlock> block,
+    Status get_first_block_load_queue(int64_t table_id, int64_t base_schema_version,
+                                      const UniqueId& load_id,
+                                      std::shared_ptr<vectorized::Block> block,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
@@ -131,8 +131,9 @@ public:
     // used when init group_commit_scan_node
     Status get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
-    Status get_first_block_load_queue(int64_t db_id, int64_t table_id,
-                                      std::shared_ptr<vectorized::FutureBlock> block,
+    Status get_first_block_load_queue(int64_t db_id, int64_t table_id, int64_t base_schema_version,
+                                      const UniqueId& load_id,
+                                      std::shared_ptr<vectorized::Block> block,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:

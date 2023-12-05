@@ -37,7 +37,6 @@
 #include "util/thrift_util.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/future_block.h"
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 
@@ -68,6 +67,7 @@ Status VWalWriter::init() {
     RETURN_IF_ERROR(_wal_writer->append_header(_version, col_ids));
     return Status::OK();
 }
+
 Status VWalWriter::write_wal(OlapTableBlockConvertor* block_convertor,
                              OlapTabletFinder* tablet_finder, vectorized::Block* block,
                              RuntimeState* state, int64_t num_rows, int64_t filtered_rows) {
@@ -96,20 +96,14 @@ Status VWalWriter::write_wal(OlapTableBlockConvertor* block_convertor,
     }
     return Status::OK();
 }
+
 Status VWalWriter::append_block(vectorized::Block* input_block, int64_t num_rows,
                                 int64_t filter_rows, vectorized::Block* block,
                                 OlapTableBlockConvertor* block_convertor,
                                 OlapTabletFinder* tablet_finder) {
-    RETURN_IF_ERROR(
-            write_wal(block_convertor, tablet_finder, block, _state, num_rows, filter_rows));
-#ifndef BE_TEST
-    auto* future_block = assert_cast<FutureBlock*>(input_block);
-    std::unique_lock<std::mutex> l(*(future_block->lock));
-    future_block->set_result(Status::OK(), num_rows, num_rows - filter_rows);
-    future_block->cv->notify_all();
-#endif
-    return Status::OK();
+    return write_wal(block_convertor, tablet_finder, block, _state, num_rows, filter_rows);
 }
+
 Status VWalWriter::close() {
     if (_wal_writer != nullptr) {
         RETURN_IF_ERROR(_wal_writer->finalize());
