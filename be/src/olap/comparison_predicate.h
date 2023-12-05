@@ -121,11 +121,13 @@ public:
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
         // keep it after query, since query will try to read null_bitmap and put it to cache
-        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        if (null_bitmap) {
-            *bitmap -= *null_bitmap;
+        if (iterator->has_null()) {
+            InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            if (null_bitmap) {
+                *bitmap -= *null_bitmap;
+            }
         }
 
         if constexpr (PT == PredicateType::NE) {

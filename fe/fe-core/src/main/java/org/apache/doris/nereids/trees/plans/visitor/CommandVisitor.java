@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
@@ -80,6 +81,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAddConstraintCommand(AddConstraintCommand addConstraintCommand, C context) {
         return visitCommand(addConstraintCommand, context);
+    }
+
+    default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
+        return visitCommand(dropConstraintCommand, context);
     }
 
     default R visitRefreshMTMVCommand(RefreshMTMVCommand refreshMTMVCommand, C context) {

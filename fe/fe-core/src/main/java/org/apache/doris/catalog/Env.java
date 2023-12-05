@@ -3979,8 +3979,8 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
-        if (isKeysRequired) {
-            Preconditions.checkArgument(indexColumns.size() > 0);
+        if (isKeysRequired && indexColumns.isEmpty()) {
+            throw new DdlException("The materialized view need key column");
         }
         // sort by cluster keys for mow if set, otherwise by index columns
         List<Column> sortKeyColumns = clusterColumns.isEmpty() ? indexColumns

@@ -347,8 +347,18 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     bool should_stop = false;
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold &&
-           num_rows_in_block < state->batch_size()) {
+    auto should_do_scan = [&, batch_size = state->batch_size(),
+                           time = state->wait_full_block_schedule_times()]() {
+        if (raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold) {
+            return true;
+        } else if (num_rows_in_block < batch_size) {
+            return raw_bytes_read < raw_bytes_threshold * time &&
+                   raw_rows_read < raw_rows_threshold * time;
+        }
+        return false;
+    };
+
+    while (!eos && should_do_scan()) {
         // TODO llj task group should should_yield?
         if (UNLIKELY(ctx->done())) {
             // No need to set status on error here.
@@ -384,10 +394,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             ctx->return_free_block(std::move(block));
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
-                status = vectorized::MutableBlock(blocks.back().get()).merge(*block);
-                if (!status.ok()) {
-                    break;
-                }
+                static_cast<void>(vectorized::MutableBlock(blocks.back().get()).merge(*block));
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));

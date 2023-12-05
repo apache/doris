@@ -146,10 +146,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return dbName;
     }
 
-    public void setMVKeysType(KeysType type) {
-        mvKeysType = type;
-    }
-
     public KeysType getMVKeysType() {
         return mvKeysType;
     }
@@ -209,11 +205,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
         selectStmt.analyze(analyzer);
 
+        analyzeSelectClause(analyzer);
+        analyzeFromClause();
         if (selectStmt.getAggInfo() != null) {
             mvKeysType = KeysType.AGG_KEYS;
         }
-        analyzeSelectClause(analyzer);
-        analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
                 throw new AnalysisException(
@@ -303,6 +299,12 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (!isReplay && tableRefList.get(0).hasExplicitAlias()) {
             throw new AnalysisException("The materialized view not support table with alias.");
         }
+        if (!isReplay && !(tableRefList.get(0).getTable() instanceof OlapTable)) {
+            throw new AnalysisException("The materialized view only support olap table.");
+        }
+        OlapTable olapTable = (OlapTable) tableRefList.get(0).getTable();
+        mvKeysType = olapTable.getKeysType();
+
         TableName tableName = tableRefList.get(0).getName();
         if (tableName == null) {
             throw new AnalysisException("table in from clause is invalid, please check if it's single table "
@@ -412,14 +414,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
          * The keys type of Materialized view is aggregation.
          * All of group by columns are keys of materialized view.
          */
-        if (mvKeysType == KeysType.AGG_KEYS) {
-            for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                if (mvColumnItem.getAggregationType() != null) {
-                    break;
-                }
-                mvColumnItem.setIsKey(true);
-            }
-        } else if (mvKeysType == KeysType.DUP_KEYS) {
+        if (mvKeysType == KeysType.DUP_KEYS) {
             /**
              * There is no aggregation function in materialized view.
              * Supplement key of MV columns
@@ -462,6 +457,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
                 MVColumnItem mvColumnItem = mvColumnItemList.get(theBeginIndexOfValue);
                 mvColumnItem.setAggregationType(AggregateType.NONE, true);
+            }
+        } else {
+            for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                if (mvColumnItem.getAggregationType() != null) {
+                    break;
+                }
+                mvColumnItem.setIsKey(true);
             }
         }
     }

@@ -22,6 +22,7 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.thrift.TRow;
 
 import java.util.List;
 
@@ -116,4 +117,10 @@ public interface Job<T extends AbstractTask> {
      * @return List<String> job common show info
      */
     List<String> getShowInfo();
+
+    /**
+     * get info for tvf `jobs`
+     * @return TRow
+     */
+    TRow getTvfInfo();
 }
