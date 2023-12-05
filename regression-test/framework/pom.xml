@@ -256,7 +256,7 @@ under the License.
         <dependency>
             <groupId>ch.qos.logback</groupId>
             <artifactId>logback-classic</artifactId>
-            <version>1.2.10</version>
+            <version>1.2.13</version>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
