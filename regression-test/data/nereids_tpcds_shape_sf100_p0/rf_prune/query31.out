@@ -43,7 +43,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute
 ----------PhysicalQuickSort[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws3.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DOUBLE) / cast(web_sales as DOUBLE)), NULL) > if((store_sales > 0.00), (cast(store_sales as DOUBLE) / cast(store_sales as DOUBLE)), NULL)))
+--------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws3.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL)))
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------filter((ws3.d_qoy = 3) and (ws3.d_year = 2000))
@@ -54,7 +54,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------PhysicalProject
 ------------------------filter((ss3.d_qoy = 3) and (ss3.d_year = 2000))
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
---------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws2.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DOUBLE) / cast(web_sales as DOUBLE)), NULL) > if((store_sales > 0.00), (cast(store_sales as DOUBLE) / cast(store_sales as DOUBLE)), NULL)))
+--------------------hashJoin[INNER_JOIN] hashCondition=((ws1.ca_county = ws2.ca_county)) otherCondition=((if((web_sales > 0.00), (cast(web_sales as DECIMALV3(38, 8)) / web_sales), NULL) > if((store_sales > 0.00), (cast(store_sales as DECIMALV3(38, 8)) / store_sales), NULL)))
 ----------------------hashJoin[INNER_JOIN] hashCondition=((ss1.ca_county = ws1.ca_county)) otherCondition=()
 ------------------------hashJoin[INNER_JOIN] hashCondition=((ss1.ca_county = ss2.ca_county)) otherCondition=()
 --------------------------PhysicalDistribute
