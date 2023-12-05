@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
@@ -47,6 +48,8 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+
+import java.util.Collections;
 
 class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
@@ -262,6 +265,18 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
+        double ignorableDiffBetweenLeftAndRightThreshold = 10.0;
+        if (Math.abs(leftRowCount - rightRowCount) < ignorableDiffBetweenLeftAndRightThreshold
+                && physicalHashJoin.getGroupExpression().isPresent()
+                && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
+                && !physicalHashJoin.getGroupExpression().get().getOwnerGroup().isStatsReliable()) {
+            int leftConnectivity = computeConnectivity(physicalHashJoin.left(), context);
+            int rightConnectivity = computeConnectivity(physicalHashJoin.right(), context);
+            if (rightConnectivity < leftConnectivity) {
+                leftRowCount += ignorableDiffBetweenLeftAndRightThreshold;
+            }
+        }
+
         /*
         pattern1: L join1 (Agg1() join2 Agg2())
         result number of join2 may much less than Agg1.
@@ -308,6 +323,15 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
                 rightRowCount,
                 0
         );
+    }
+
+    private int computeConnectivity(
+            Plan plan, PlanContext context) {
+        int connectCount = 0;
+        for (Expression expr : context.getStatementContext().getJoinFilters()) {
+            connectCount += Collections.disjoint(expr.getInputSlots(), plan.getOutputSet()) ? 0 : 1;
+        }
+        return connectCount;
     }
 
     @Override
