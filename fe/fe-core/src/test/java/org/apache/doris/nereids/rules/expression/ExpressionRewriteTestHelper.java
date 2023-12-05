@@ -108,7 +108,7 @@ public abstract class ExpressionRewriteTestHelper {
         return FunctionBinder.INSTANCE.rewrite(expression, null);
     }
 
-    private DataType getType(char t) {
+    protected DataType getType(char t) {
         switch (t) {
             case 'T':
                 return TinyIntType.INSTANCE;
