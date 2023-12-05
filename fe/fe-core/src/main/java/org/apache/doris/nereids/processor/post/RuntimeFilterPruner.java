@@ -120,7 +120,6 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         boolean visibleFilter = filter.getExpressions().stream()
                 .flatMap(expression -> expression.getInputSlots().stream())
                 .anyMatch(slot -> isVisibleColumn(slot));
-        
         if (visibleFilter) {
             // skip filters like: __DORIS_DELETE_SIGN__ = 0
             context.getRuntimeFilterContext().addEffectiveSrcNode(filter);
