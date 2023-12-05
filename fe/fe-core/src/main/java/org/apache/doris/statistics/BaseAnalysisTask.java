@@ -58,8 +58,8 @@ public abstract class BaseAnalysisTask {
             + "         COUNT(1) AS `row_count`, "
             + "         NDV(`${colName}`) AS `ndv`, "
             + "         COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
-            + "         CAST(MIN(`${colName}`) AS STRING) AS `min`, "
-            + "         CAST(MAX(`${colName}`) AS STRING) AS `max`, "
+            + "         SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
+            + "         SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
             + "         ${dataSizeFunction} AS `data_size`, "
             + "         NOW() AS `update_time` "
             + " FROM `${catalogName}`.`${dbName}`.`${tblName}`";
@@ -75,8 +75,8 @@ public abstract class BaseAnalysisTask {
             + "${rowCount} AS `row_count`, "
             + "${ndvFunction} as `ndv`, "
             + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
-            + "${min} AS `min`, "
-            + "${max} AS `max`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleHints} ${limit}";
@@ -92,8 +92,8 @@ public abstract class BaseAnalysisTask {
             + "${rowCount} AS `row_count`, "
             + "${ndvFunction} as `ndv`, "
             + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
-            + "${min} AS `min`, "
-            + "${max} AS `max`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM ( "
@@ -115,8 +115,8 @@ public abstract class BaseAnalysisTask {
             + "${row_count} AS `row_count`, "
             + "${ndv} AS `ndv`, "
             + "${null_count} AS `null_count`, "
-            + "${min} AS `min`, "
-            + "${max} AS `max`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${data_size} AS `data_size`, "
             + "NOW() ";
 

@@ -46,8 +46,8 @@ import java.util.stream.Collectors;
 public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private static final String BASIC_STATS_TEMPLATE = "SELECT "
-            + "MIN(`${colName}`) as min, "
-            + "MAX(`${colName}`) as max "
+            + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) as min, "
+            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) as max "
             + "FROM `${dbName}`.`${tblName}`";
 
     @VisibleForTesting
