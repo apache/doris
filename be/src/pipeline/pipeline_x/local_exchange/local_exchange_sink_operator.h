@@ -138,7 +138,7 @@ private:
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
-    const std::map<int, int>& _bucket_seq_to_instance_idx;
+    const std::map<int, int> _bucket_seq_to_instance_idx;
 };
 
 } // namespace doris::pipeline
