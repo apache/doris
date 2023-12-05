@@ -372,7 +372,7 @@ public class Coordinator implements CoordInterface {
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
         this.queryOptions.setQueryTimeout(context.getExecTimeout());
         this.queryOptions.setExecutionTimeout(context.getExecTimeout());
-        if (this.queryOptions.getExecutionTimeout()) {
+        if (this.queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
         this.queryOptions.setEnableScanNodeRunSerial(context.getSessionVariable().isEnableScanRunSerial());
@@ -434,7 +434,7 @@ public class Coordinator implements CoordInterface {
     public void setTimeout(int timeout) {
         this.queryOptions.setQueryTimeout(timeout);
         this.queryOptions.setExecutionTimeout(timeout);
-        if (this.queryOptions.getExecutionTimeout()) {
+        if (this.queryOptions.getExecutionTimeout() < 1) {
             LOG.info("try set timeout less than 1", new RuntimeException(""));
         }
     }
