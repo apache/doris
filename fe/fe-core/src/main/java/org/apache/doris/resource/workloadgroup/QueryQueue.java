@@ -44,6 +44,10 @@ public class QueryQueue {
     public static final String RUNNING_QUERY_NUM = "running_query_num";
     public static final String WAITING_QUERY_NUM = "waiting_query_num";
 
+    private long wgId;
+
+    private long propVersion;
+
     int getCurrentRunningQueryNum() {
         return currentRunningQueryNum;
     }
@@ -52,16 +56,39 @@ public class QueryQueue {
         return currentWaitingQueryNum;
     }
 
-    public QueryQueue(int maxConcurrency, int maxQueueSize, int queueTimeout) {
+    long getPropVersion() {
+        return propVersion;
+    }
+
+    long getWgId() {
+        return wgId;
+    }
+
+    int getMaxConcurrency() {
+        return maxConcurrency;
+    }
+
+    int getMaxQueueSize() {
+        return maxQueueSize;
+    }
+
+    int getQueueTimeout() {
+        return queueTimeout;
+    }
+
+    public QueryQueue(long wgId, int maxConcurrency, int maxQueueSize, int queueTimeout, long propVersion) {
+        this.wgId = wgId;
         this.maxConcurrency = maxConcurrency;
         this.maxQueueSize = maxQueueSize;
         this.queueTimeout = queueTimeout;
+        this.propVersion = propVersion;
     }
 
     public String debugString() {
-        return "maxConcurrency=" + maxConcurrency + ", maxQueueSize=" + maxQueueSize + ", queueTimeout=" + queueTimeout
-                + ", currentRunningQueryNum=" + currentRunningQueryNum + ", currentWaitingQueryNum="
-                + currentWaitingQueryNum;
+        return "wgId= " + wgId + ", version=" + this.propVersion + ",maxConcurrency=" + maxConcurrency
+                + ", maxQueueSize=" + maxQueueSize + ", queueTimeout=" + queueTimeout
+                + ", currentRunningQueryNum=" + currentRunningQueryNum
+                + ", currentWaitingQueryNum=" + currentWaitingQueryNum;
     }
 
     public QueueOfferToken offer() throws InterruptedException {
@@ -122,13 +149,14 @@ public class QueryQueue {
         }
     }
 
-    public void resetQueueProperty(int maxConcurrency, int maxQueueSize, int queryWaitTimeout) {
+    public void resetQueueProperty(int maxConcurrency, int maxQueueSize, int queryWaitTimeout, long version) {
         try {
             queueLock.tryLock(5, TimeUnit.SECONDS);
             try {
                 this.maxConcurrency = maxConcurrency;
                 this.maxQueueSize = maxQueueSize;
                 this.queueTimeout = queryWaitTimeout;
+                this.propVersion = version;
             } finally {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(this.debugString());

@@ -37,6 +37,7 @@ const static uint64_t CPU_SOFT_LIMIT_DEFAULT_VALUE = 1024;
 class CgroupCpuCtl {
 public:
     virtual ~CgroupCpuCtl() = default;
+    CgroupCpuCtl() = default;
     CgroupCpuCtl(uint64_t tg_id) { _tg_id = tg_id; }
 
     virtual Status init();
@@ -48,7 +49,9 @@ public:
     void update_cpu_soft_limit(int cpu_shares);
 
     // for log
-    void get_cgroup_cpu_info(uint64_t* cpu_shares, uint64_t* cpu_hard_limit);
+    void get_cgroup_cpu_info(uint64_t* cpu_shares, int* cpu_hard_limit);
+
+    virtual Status delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) = 0;
 
 protected:
     Status write_cg_sys_file(std::string file_path, int value, std::string msg, bool is_append);
@@ -60,10 +63,10 @@ protected:
     std::string _doris_cgroup_cpu_path;
     uint64_t _cpu_core_num = CpuInfo::num_cores();
     uint64_t _cpu_cfs_period_us = 100000;
-    uint64_t _cpu_hard_limit = 0;
+    int _cpu_hard_limit = 0;
     std::shared_mutex _lock_mutex;
     bool _init_succ = false;
-    uint64_t _tg_id; // workload group id
+    uint64_t _tg_id = -1; // workload group id
     uint64_t _cpu_shares = 0;
 };
 
@@ -96,10 +99,13 @@ protected:
 class CgroupV1CpuCtl : public CgroupCpuCtl {
 public:
     CgroupV1CpuCtl(uint64_t tg_id) : CgroupCpuCtl(tg_id) {}
+    CgroupV1CpuCtl() = default;
     Status init() override;
     Status modify_cg_cpu_hard_limit_no_lock(int cpu_hard_limit) override;
     Status modify_cg_cpu_soft_limit_no_lock(int cpu_shares) override;
     Status add_thread_to_cgroup() override;
+
+    Status delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) override;
 
 private:
     std::string _cgroup_v1_cpu_query_path;

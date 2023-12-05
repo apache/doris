@@ -747,7 +747,9 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 // share delta writers when memtable_on_sink_node = true
 DEFINE_Bool(share_delta_writers, "true");
 // timeout for open load stream rpc in ms
-DEFINE_Int64(open_load_stream_timeout_ms, "500");
+DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
+// timeout for load stream close wait in ms
+DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
 
 // idle timeout for load stream in ms
 DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
@@ -1125,6 +1127,8 @@ DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
 
 DEFINE_Bool(enable_snapshot_action, "false");
+
+DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
 // clang-format off
 #ifdef BE_TEST

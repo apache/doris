@@ -194,6 +194,15 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
     return pipeline;
 }
 
+PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent) {
+    // _prepared、_submitted, _canceled should do not add pipeline
+    PipelineId id = _next_pipeline_id++;
+    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
+    _pipelines.emplace_back(pipeline);
+    parent->set_children(pipeline);
+    return pipeline;
+}
+
 Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
                                         const size_t idx) {
     if (_prepared) {
@@ -696,7 +705,7 @@ Status PipelineFragmentContext::submit() {
     auto* scheduler = _exec_env->pipeline_task_scheduler();
     if (_query_ctx->get_task_scheduler()) {
         scheduler = _query_ctx->get_task_scheduler();
-    } else if (_task_group_entity) {
+    } else if (_task_group_entity && _query_ctx->use_task_group_for_cpu_limit.load()) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {

@@ -155,6 +155,14 @@ public:
                                               ._should_build_hash_table;
     }
 
+    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
+    ExchangeType get_local_exchange_type() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN || _is_broadcast_join) {
+            return ExchangeType::NOOP;
+        }
+        return ExchangeType::SHUFFLE;
+    }
+
 private:
     friend class HashJoinBuildSinkLocalState;
 
@@ -171,6 +179,7 @@ private:
 
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
+    std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

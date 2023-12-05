@@ -809,6 +809,8 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 DECLARE_Bool(share_delta_writers);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
+// timeout for load stream close wait in ms
+DECLARE_Int64(close_load_stream_timeout_ms);
 
 // idle timeout for load stream in ms
 DECLARE_Int64(load_stream_idle_timeout_ms);
@@ -1209,6 +1211,9 @@ DECLARE_mInt32(buffered_reader_read_timeout_ms);
 
 // whether to enable /api/snapshot api
 DECLARE_Bool(enable_snapshot_action);
+
+// The max columns size for a tablet schema
+DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
 #ifdef BE_TEST
 // test s3

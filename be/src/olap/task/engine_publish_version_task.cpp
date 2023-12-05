@@ -87,7 +87,7 @@ void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
     _error_tablet_ids->insert(tablet_id);
 }
 
-Status EnginePublishVersionTask::finish() {
+Status EnginePublishVersionTask::execute() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;

@@ -21,9 +21,7 @@ import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.PartitionNames;
-import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.BrokerTable;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.HiveTable;
@@ -32,14 +30,12 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.thrift.TFileCompressType;
-import org.apache.doris.thrift.TNetworkAddress;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -95,9 +91,6 @@ public class BrokerFileGroup implements Writable {
     private long srcTableId = -1;
     private boolean isLoadFromTable = false;
 
-    // for multi load
-    private TNetworkAddress beAddr;
-    private long backendID;
     private boolean stripOuterArray = false;
     private String jsonPaths = "";
     private String jsonRoot = "";
@@ -113,41 +106,6 @@ public class BrokerFileGroup implements Writable {
 
     // for unit test and edit log persistence
     private BrokerFileGroup() {
-    }
-
-    // Used for broker table, no need to parse
-    public BrokerFileGroup(BrokerTable table) throws AnalysisException {
-        this.tableId = table.getId();
-        this.columnSeparator = Separator.convertSeparator(table.getColumnSeparator());
-        this.lineDelimiter = Separator.convertSeparator(table.getLineDelimiter());
-        this.isNegative = false;
-        this.filePaths = table.getPaths();
-        this.fileFormat = table.getFileFormat();
-    }
-
-    /**
-     * Should used for hive/iceberg/hudi external table.
-     */
-    public BrokerFileGroup(long tableId,
-                           String filePath,
-                           String fileFormat) throws AnalysisException {
-        this(tableId,  "|", "\n", filePath, fileFormat, null, null);
-    }
-
-    /**
-     * Should used for hive/iceberg/hudi external table.
-     */
-    public BrokerFileGroup(long tableId, String columnSeparator, String lineDelimiter, String filePath,
-            String fileFormat, List<String> columnNamesFromPath, List<ImportColumnDesc> columnExprList)
-            throws AnalysisException {
-        this.tableId = tableId;
-        this.columnSeparator = Separator.convertSeparator(columnSeparator);
-        this.lineDelimiter = Separator.convertSeparator(lineDelimiter);
-        this.isNegative = false;
-        this.filePaths = Lists.newArrayList(filePath);
-        this.fileFormat = fileFormat;
-        this.columnNamesFromPath = columnNamesFromPath;
-        this.columnExprList = columnExprList;
     }
 
     public BrokerFileGroup(DataDescription dataDescription) {
@@ -251,8 +209,6 @@ public class BrokerFileGroup implements Writable {
             srcTableId = srcTable.getId();
             isLoadFromTable = true;
         }
-        beAddr = dataDescription.getBeAddr();
-        backendID = dataDescription.getBackendId();
         if (fileFormat != null && fileFormat.equalsIgnoreCase("json")) {
             stripOuterArray = dataDescription.isStripOuterArray();
             jsonPaths = dataDescription.getJsonPaths();
@@ -363,60 +319,28 @@ public class BrokerFileGroup implements Writable {
         this.fileSize = fileSize;
     }
 
-    public TNetworkAddress getBeAddr() {
-        return beAddr;
-    }
-
-    public long getBackendID() {
-        return backendID;
-    }
-
     public boolean isStripOuterArray() {
         return stripOuterArray;
-    }
-
-    public void setStripOuterArray(boolean stripOuterArray) {
-        this.stripOuterArray = stripOuterArray;
     }
 
     public boolean isFuzzyParse() {
         return fuzzyParse;
     }
 
-    public void setFuzzyParse(boolean fuzzyParse) {
-        this.fuzzyParse = fuzzyParse;
-    }
-
     public boolean isReadJsonByLine() {
         return readJsonByLine;
-    }
-
-    public void setReadJsonByLine(boolean readJsonByLine) {
-        this.readJsonByLine = readJsonByLine;
     }
 
     public boolean isNumAsString() {
         return numAsString;
     }
 
-    public void setNumAsString(boolean numAsString) {
-        this.numAsString = numAsString;
-    }
-
     public String getJsonPaths() {
         return jsonPaths;
     }
 
-    public void setJsonPaths(String jsonPaths) {
-        this.jsonPaths = jsonPaths;
-    }
-
     public String getJsonRoot() {
         return jsonRoot;
-    }
-
-    public void setJsonRoot(String jsonRoot) {
-        this.jsonRoot = jsonRoot;
     }
 
     public boolean isBinaryFileFormat() {

@@ -141,8 +141,11 @@ private:
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
-    Status _simdjson_parse_json(bool* is_empty_row, bool* eof);
-    Status _simdjson_parse_json_doc(size_t* size, bool* eof);
+    Status _simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
+                                simdjson::error_code* error);
+    Status _get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
+                           bool* is_empty_row);
+    Status _judge_empty_row(size_t size, bool eof, bool* is_empty_row);
 
     Status _simdjson_handle_simple_json(RuntimeState* state, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
@@ -246,6 +249,8 @@ private:
     /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
     std::vector<UInt8> _seen_columns;
     // simdjson
+    std::unique_ptr<uint8_t[]> _json_str_ptr;
+    const uint8_t* _json_str = nullptr;
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
     size_t _original_doc_size = 0;

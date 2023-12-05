@@ -1186,7 +1186,8 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
 
 const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col) const {
     // TODO use more efficient impl
-    int32_t col_unique_id = col.unique_id();
+    // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
+    int32_t col_unique_id = col.unique_id() < 0 ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
     return get_inverted_index(col_unique_id, suffix_path);

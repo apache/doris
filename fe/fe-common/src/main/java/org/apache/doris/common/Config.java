@@ -126,6 +126,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = false, masterOnly = false,
+            description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
+    public static boolean check_table_lock_leaky = false;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
@@ -1628,6 +1632,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
 
+    @ConfField(mutable = true)
+    public static long query_queue_update_interval_ms = 5000;
+
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
 
@@ -2300,6 +2307,18 @@ public class Config extends ConfigBase {
     @ConfField(description = {"nereids trace文件的存放路径。",
             "The path of the nereids trace file."})
     public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
+            "The max number of upload tasks assigned to each be during the backup process, the default value is 3."
+    })
+    public static int backup_upload_task_num_per_be = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "恢复过程中，分配给每个be的download任务最大个数，默认值为3个。",
+            "The max number of download tasks assigned to each be during the restore process, the default value is 3."
+    })
+    public static int restore_download_task_num_per_be = 3;
 
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})

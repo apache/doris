@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
@@ -28,6 +29,7 @@ import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
@@ -48,7 +50,7 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class UserManager implements Writable {
+public class UserManager implements Writable, GsonPostProcessable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
     // Concurrency control is delegated by Auth, so not concurrentMap
@@ -314,6 +316,21 @@ public class UserManager implements Writable {
 
     public static UserManager read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, UserManager.class);
+        UserManager um = GsonUtils.GSON.fromJson(json, UserManager.class);
+        return um;
+    }
+
+    // should be removed after version 3.0
+    private void removeClusterPrefix() {
+        Map<String, List<User>> newNameToUsers = Maps.newHashMap();
+        for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
+            String user = entry.getKey();
+            newNameToUsers.put(ClusterNamespace.getNameFromFullName(user), entry.getValue());
+        }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
     }
 }

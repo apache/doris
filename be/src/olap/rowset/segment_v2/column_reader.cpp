@@ -552,7 +552,6 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
             try {
                 _inverted_index = FullTextIndexReader::create_shared(
                         _file_reader->fs(), _file_reader->path().native(), index_meta);
-                return Status::OK();
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
@@ -577,7 +576,6 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     } else {
         _inverted_index.reset();
     }
-
     return Status::OK();
 }
 

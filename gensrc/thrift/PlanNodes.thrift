@@ -312,6 +312,9 @@ struct TPaimonFileDesc {
     10: optional i64 last_update_time
 }
 
+struct TMaxComputeFileDesc {
+    1: optional string partition_spec
+}
 
 struct THudiFileDesc {
     1: optional string instant_time;
@@ -342,6 +345,7 @@ struct TTableFormatFileDesc {
     3: optional THudiFileDesc hudi_params
     4: optional TPaimonFileDesc paimon_params
     5: optional TTransactionalHiveDesc transactional_hive_params
+    6: optional TMaxComputeFileDesc max_compute_params
 }
 
 enum TTextSerdeType {
@@ -471,12 +475,25 @@ struct TFrontendsMetadataParams {
 
 struct TMaterializedViewsMetadataParams {
   1: optional string database
+  2: optional Types.TUserIdentity current_user_ident
+}
+
+struct TJobsMetadataParams {
+  1: optional string type
+  2: optional Types.TUserIdentity current_user_ident
+}
+
+struct TTasksMetadataParams {
+  1: optional string type
+  2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TQueriesMetadataParams {
   1: optional string cluster_name
   2: optional bool   relay_to_other_fe
   3: optional TMaterializedViewsMetadataParams materialized_views_params
+  4: optional TJobsMetadataParams jobs_params
+  5: optional TTasksMetadataParams tasks_params
 }
 
 struct TMetaScanRange {
@@ -486,6 +503,8 @@ struct TMetaScanRange {
   4: optional TFrontendsMetadataParams frontends_params
   5: optional TQueriesMetadataParams queries_params
   6: optional TMaterializedViewsMetadataParams materialized_views_params
+  7: optional TJobsMetadataParams jobs_params
+  8: optional TTasksMetadataParams tasks_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -1024,6 +1043,8 @@ struct TExchangeNode {
   2: optional TSortInfo sort_info
   // This is tHe number of rows to skip before returning results
   3: optional i64 offset
+  // Shuffle partition type
+  4: optional Partitions.TPartitionType partition_type
 }
 
 struct TOlapRewriteNode {

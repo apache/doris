@@ -47,8 +47,8 @@ public class DropUserStmtTest {
     public void testNormal() throws UserException, AnalysisException {
         DropUserStmt stmt = new DropUserStmt(new UserIdentity("user", "%"));
         stmt.analyze(analyzer);
-        Assert.assertEquals("DROP USER 'testCluster:user'@'%'", stmt.toString());
-        Assert.assertEquals("testCluster:user", stmt.getUserIdentity().getQualifiedUser());
+        Assert.assertEquals("DROP USER 'user'@'%'", stmt.toString());
+        Assert.assertEquals("user", stmt.getUserIdentity().getQualifiedUser());
     }
 
     @Test(expected = AnalysisException.class)

@@ -67,8 +67,8 @@ TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
     return nullptr;
 }
 
-bool TaskGroupManager::set_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
-    std::lock_guard<std::mutex> lock(_task_scheduler_lock);
+bool TaskGroupManager::set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
+    std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
     if (_tg_sche_map.find(tg_id) != _tg_sche_map.end()) {
         query_ctx_ptr->set_task_scheduler(_tg_sche_map.at(tg_id).get());
     } else {
@@ -83,15 +83,15 @@ bool TaskGroupManager::set_task_sche_for_query_ctx(uint64_t tg_id, QueryContext*
     return true;
 }
 
-Status TaskGroupManager::upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
-                                               ExecEnv* exec_env) {
+Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_info,
+                                                  ExecEnv* exec_env) {
     uint64_t tg_id = tg_info->id;
     std::string tg_name = tg_info->name;
     int cpu_hard_limit = tg_info->cpu_hard_limit;
     uint64_t cpu_shares = tg_info->cpu_share;
     bool enable_cpu_hard_limit = tg_info->enable_cpu_hard_limit;
 
-    std::lock_guard<std::mutex> lock(_task_scheduler_lock);
+    std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
     // step 1: init cgroup cpu controller
     CgroupCpuCtl* cg_cu_ctl_ptr = nullptr;
     if (_cgroup_ctl_map.find(tg_id) == _cgroup_ctl_map.end()) {
@@ -101,7 +101,8 @@ Status TaskGroupManager::upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info
             cg_cu_ctl_ptr = cgroup_cpu_ctl.get();
             _cgroup_ctl_map.emplace(tg_id, std::move(cgroup_cpu_ctl));
         } else {
-            return Status::InternalError<false>("cgroup init failed, gid={}", tg_id);
+            return Status::InternalError<false>("cgroup init failed, gid={}, reason={}", tg_id,
+                                                ret.to_string());
         }
     }
 
@@ -157,12 +158,50 @@ Status TaskGroupManager::upsert_task_scheduler(taskgroup::TaskGroupInfo* tg_info
     return Status::OK();
 }
 
-void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> id_set) {
+void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
+    // stop task sche may cost some time, so it should not be locked
+    std::set<doris::pipeline::TaskScheduler*> task_sche_to_del;
+    std::set<vectorized::SimplifiedScanScheduler*> scan_task_sche_to_del;
+    std::set<uint64_t> deleted_tg_ids;
     {
-        std::lock_guard<std::shared_mutex> w_lock(_group_mutex);
+        std::shared_lock<std::shared_mutex> read_lock(_task_scheduler_lock);
+        for (auto iter = _tg_sche_map.begin(); iter != _tg_sche_map.end(); iter++) {
+            uint64_t tg_id = iter->first;
+            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
+                task_sche_to_del.insert(_tg_sche_map[tg_id].get());
+                deleted_tg_ids.insert(tg_id);
+            }
+        }
+
+        for (auto iter = _tg_scan_sche_map.begin(); iter != _tg_scan_sche_map.end(); iter++) {
+            uint64_t tg_id = iter->first;
+            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
+                scan_task_sche_to_del.insert(_tg_scan_sche_map[tg_id].get());
+            }
+        }
+    }
+    // 1 stop all threads
+    for (auto* ptr1 : task_sche_to_del) {
+        ptr1->stop();
+    }
+    for (auto* ptr2 : scan_task_sche_to_del) {
+        ptr2->stop();
+    }
+    // 2 release resource in memory
+    {
+        std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
+        for (uint64_t tg_id : deleted_tg_ids) {
+            _tg_sche_map.erase(tg_id);
+            _tg_scan_sche_map.erase(tg_id);
+            _cgroup_ctl_map.erase(tg_id);
+        }
+    }
+
+    {
+        std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
         for (auto iter = _task_groups.begin(); iter != _task_groups.end();) {
             uint64_t tg_id = iter->first;
-            if (id_set.find(tg_id) == id_set.end()) {
+            if (used_wg_id.find(tg_id) == used_wg_id.end()) {
                 iter = _task_groups.erase(iter);
             } else {
                 iter++;
@@ -170,41 +209,32 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> id_set) {
         }
     }
 
-    // stop task sche may cost some time, so it should not be locked
-    // task scheduler is stoped in task scheduler's destructor
-    std::set<std::unique_ptr<doris::pipeline::TaskScheduler>> task_sche_to_del;
-    std::set<std::unique_ptr<vectorized::SimplifiedScanScheduler>> scan_task_sche_to_del;
+    // 3 clear cgroup dir
+    // NOTE(wb) currently we use rmdir to delete cgroup path,
+    // this action may be failed until task file is cleared which means all thread are stopped.
+    // So the first time to rmdir a cgroup path may failed.
+    // Using cgdelete has no such issue.
     {
-        std::lock_guard<std::mutex> lock(_task_scheduler_lock);
-        for (auto iter = _tg_sche_map.begin(); iter != _tg_sche_map.end();) {
-            uint64_t tg_id = iter->first;
-            if (id_set.find(tg_id) == id_set.end()) {
-                task_sche_to_del.insert(std::move(_tg_sche_map[tg_id]));
-                iter = _tg_sche_map.erase(iter);
+        std::lock_guard<std::shared_mutex> write_lock(_init_cg_ctl_lock);
+        if (!_cg_cpu_ctl) {
+            _cg_cpu_ctl = std::make_unique<CgroupV1CpuCtl>();
+        }
+        if (!_is_init_succ) {
+            Status ret = _cg_cpu_ctl->init();
+            if (ret.ok()) {
+                _is_init_succ = true;
             } else {
-                iter++;
+                LOG(INFO) << "init task group mgr cpu ctl failed, " << ret.to_string();
             }
         }
-
-        for (auto iter = _tg_scan_sche_map.begin(); iter != _tg_scan_sche_map.end();) {
-            uint64_t tg_id = iter->first;
-            if (id_set.find(tg_id) == id_set.end()) {
-                scan_task_sche_to_del.insert(std::move(_tg_scan_sche_map[tg_id]));
-                iter = _tg_scan_sche_map.erase(iter);
-            } else {
-                iter++;
-            }
-        }
-
-        for (auto iter = _cgroup_ctl_map.begin(); iter != _cgroup_ctl_map.end();) {
-            uint64_t tg_id = iter->first;
-            if (id_set.find(tg_id) == id_set.end()) {
-                iter = _cgroup_ctl_map.erase(iter);
-            } else {
-                iter++;
+        if (_is_init_succ) {
+            Status ret = _cg_cpu_ctl->delete_unused_cgroup_path(used_wg_id);
+            if (!ret.ok()) {
+                LOG(WARNING) << ret.to_string();
             }
         }
     }
+    LOG(INFO) << "finish clear unused cgroup path";
 }
 
 void TaskGroupManager::stop() {

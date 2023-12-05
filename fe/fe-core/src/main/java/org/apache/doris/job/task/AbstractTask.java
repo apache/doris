@@ -18,6 +18,7 @@
 package org.apache.doris.job.task;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
@@ -126,6 +127,11 @@ public abstract class AbstractTask implements Task {
 
     public boolean isCancelled() {
         return status.equals(TaskStatus.CANCELED);
+    }
+
+    public String getJobName() {
+        AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(jobId);
+        return job == null ? "" : job.getJobName();
     }
 
 }

@@ -96,6 +96,19 @@ statement
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
+    | ALTER TABLE table=relation
+        ADD CONSTRAINT constraintName=errorCapturingIdentifier
+        constraint                                                        #addConstraint
+    | ALTER TABLE table=relation
+        DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
+    ;
+
+constraint
+    : PRIMARY KEY slots=identifierList
+    | UNIQUE slots=identifierList
+    | FOREIGN KEY slots=identifierList
+        REFERENCES referenceTable=multipartIdentifier
+        referencedSlots=identifierList
     ;
 
 dataDesc

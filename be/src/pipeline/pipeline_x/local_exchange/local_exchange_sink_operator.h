@@ -30,6 +30,9 @@ public:
     ~LocalExchangeSinkDependency() override = default;
 };
 
+class Exchanger;
+class ShuffleExchanger;
+class PassthroughExchanger;
 class LocalExchangeSinkOperatorX;
 class LocalExchangeSinkLocalState final
         : public PipelineXSinkLocalState<LocalExchangeSinkDependency> {
@@ -43,17 +46,21 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    Status split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                      vectorized::Block* block, SourceState source_state);
-
 private:
     friend class LocalExchangeSinkOperatorX;
+    friend class ShuffleExchanger;
+    friend class PassthroughExchanger;
 
+    Exchanger* _exchanger = nullptr;
+
+    // Used by shuffle exchanger
     RuntimeProfile::Counter* _compute_hash_value_timer = nullptr;
     RuntimeProfile::Counter* _distribute_timer = nullptr;
-    std::vector<RuntimeProfile::Counter*> _num_rows_in_queue {};
     std::unique_ptr<vectorized::PartitionerBase> _partitioner = nullptr;
-    std::vector<size_t> _partition_rows_histogram {};
+    std::vector<size_t> _partition_rows_histogram;
+
+    // Used by random passthrough exchanger
+    int _channel_id = 0;
 };
 
 // A single 32-bit division on a recent x64 processor has a throughput of one instruction every six cycles with a latency of 26 cycles.
@@ -82,21 +89,31 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init() override {
-        _name = "LOCAL_EXCHANGE_SINK_OPERATOR";
-        _partitioner.reset(
-                new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_num_partitions));
-        RETURN_IF_ERROR(_partitioner->init(_texprs));
+    Status init(ExchangeType type) override {
+        _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
+        _type = type;
+        if (_type == ExchangeType::SHUFFLE) {
+            _partitioner.reset(
+                    new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(_num_partitions));
+            RETURN_IF_ERROR(_partitioner->init(_texprs));
+        }
+
         return Status::OK();
     }
 
     Status prepare(RuntimeState* state) override {
-        RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+        if (_type == ExchangeType::SHUFFLE) {
+            RETURN_IF_ERROR(_partitioner->prepare(state, _child_x->row_desc()));
+        }
+
         return Status::OK();
     }
 
     Status open(RuntimeState* state) override {
-        RETURN_IF_ERROR(_partitioner->open(state));
+        if (_type == ExchangeType::SHUFFLE) {
+            RETURN_IF_ERROR(_partitioner->open(state));
+        }
+
         return Status::OK();
     }
 
@@ -105,6 +122,7 @@ public:
 
 private:
     friend class LocalExchangeSinkLocalState;
+    ExchangeType _type;
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;

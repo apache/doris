@@ -135,21 +135,44 @@ public class BindSink implements AnalysisRuleFactory {
                     }
 
                     try {
-                        // in upserts, users must specify the sequence mapping column explictly
-                        // if the target table has sequence mapping column unless the sequence mapping
-                        // column has the a default value of CURRENT_TIMESTAMP
-                        if (table.hasSequenceCol() && table.getSequenceMapCol() != null
-                                    && !sink.getColNames().isEmpty() && !isPartialUpdate) {
-                            Column seqCol = table.getFullSchema().stream()
-                                            .filter(col -> col.getName().equals(table.getSequenceMapCol()))
-                                            .findFirst().get();
-                            Optional<String> foundCol = sink.getColNames().stream()
-                                            .filter(col -> col.equals(table.getSequenceMapCol()))
-                                            .findFirst();
-                            if (!foundCol.isPresent() && (seqCol.getDefaultValue() == null
-                                    || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP))) {
-                                throw new AnalysisException("Table " + table.getName()
-                                    + " has sequence column, need to specify the sequence column");
+                        // For Unique Key table with sequence column (which default value is not CURRENT_TIMESTAMP),
+                        // user MUST specify the sequence column while inserting data
+                        //
+                        // case1: create table by `function_column.sequence_col`
+                        //        a) insert with column list, must include the sequence map column
+                        //        b) insert without column list, already contains the column, don't need to check
+                        // case2: create table by `function_column.sequence_type`
+                        //        a) insert with column list, must include the hidden column __DORIS_SEQUENCE_COL__
+                        //        b) insert without column list, don't include the hidden column __DORIS_SEQUENCE_COL__
+                        //           by default, will fail.
+                        if (table.hasSequenceCol()) {
+                            boolean haveInputSeqCol = false;
+                            Optional<Column> seqColInTable = Optional.empty();
+                            if (table.getSequenceMapCol() != null) {
+                                if (!sink.getColNames().isEmpty()) {
+                                    if (sink.getColNames().contains(table.getSequenceMapCol())) {
+                                        haveInputSeqCol = true; // case1.a
+                                    }
+                                } else {
+                                    haveInputSeqCol = true; // case1.b
+                                }
+                                seqColInTable = table.getFullSchema().stream()
+                                        .filter(col -> col.getName().equals(table.getSequenceMapCol())).findFirst();
+                            } else {
+                                if (!sink.getColNames().isEmpty()) {
+                                    if (sink.getColNames().contains(Column.SEQUENCE_COL)) {
+                                        haveInputSeqCol = true; // case2.a
+                                    } // else case2.b
+                                }
+                            }
+
+                            if (!haveInputSeqCol && !isPartialUpdate) {
+                                if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
+                                        || !seqColInTable.get().getDefaultValue()
+                                        .equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                                    throw new org.apache.doris.common.AnalysisException("Table " + table.getName()
+                                            + " has sequence column, need to specify the sequence column");
+                                }
                             }
                         }
                     } catch (Exception e) {

@@ -51,7 +51,7 @@ namespace ErrorCode {
     TStatusError(TOO_MANY_TASKS, true);                  \
     TStatusError(UNINITIALIZED, false);                  \
     TStatusError(ABORTED, true);                         \
-    TStatusError(DATA_QUALITY_ERROR, true);              \
+    TStatusError(DATA_QUALITY_ERROR, false);             \
     TStatusError(LABEL_ALREADY_EXISTS, true);            \
     TStatusError(NOT_AUTHORIZED, true);                  \
     TStatusError(HTTP_ERROR, true);
@@ -78,6 +78,7 @@ namespace ErrorCode {
     E(COPY_FILE_ERROR, -121, true);                          \
     E(FILE_ALREADY_EXIST, -122, true);                       \
     E(BAD_CAST, -123, true);                                 \
+    E(ARITHMETIC_OVERFLOW_ERRROR, -124, false);              \
     E(CALL_SEQUENCE_ERROR, -202, true);                      \
     E(BUFFER_OVERFLOW, -204, true);                          \
     E(CONFIG_ERROR, -205, true);                             \
@@ -447,6 +448,7 @@ public:
     void to_protobuf(PStatus* status) const;
 
     std::string to_string() const;
+    std::string to_string_no_stack() const;
 
     /// @return A json representation of this status.
     std::string to_json() const;
@@ -516,6 +518,13 @@ inline std::ostream& operator<<(std::ostream& ostr, const Status& status) {
 inline std::string Status::to_string() const {
     std::stringstream ss;
     ss << *this;
+    return ss.str();
+}
+
+inline std::string Status::to_string_no_stack() const {
+    std::stringstream ss;
+    ss << '[' << code_as_string() << ']';
+    ss << msg();
     return ss.str();
 }
 
