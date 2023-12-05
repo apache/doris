@@ -46,6 +46,8 @@ public class QueueToken {
 
     private String offerResultDetail;
 
+    private boolean isTimeout = false;
+
     private final ReentrantLock tokenLock = new ReentrantLock();
     private final Condition tokenCond = tokenLock.newCondition();
 
@@ -71,6 +73,7 @@ public class QueueToken {
             if (tokenState != TokenState.READY_TO_RUN) {
                 LOG.warn("wait in queue timeout, timeout = {}", waitTimeout);
                 this.offerResultDetail = "wait in queue timeout, timeout = " + waitTimeout;
+                isTimeout = true;
                 return false;
             } else {
                 return true;
@@ -80,12 +83,21 @@ public class QueueToken {
         }
     }
 
-    public void signal() {
+    public boolean signal() {
         this.tokenLock.lock();
         try {
+            // If current token is not ENQUEUE_SUCCESS, then it maybe has error
+            // not run it any more.
+            if (this.tokenState != TokenState.ENQUEUE_SUCCESS || isTimeout) {
+                return false;
+            }
             this.tokenState = TokenState.READY_TO_RUN;
             tokenCond.signal();
-        } finally {
+            return true;
+        } catch (Throwable t) {
+            LOG.warn("failed to signal token", t);
+            return false;
+        }finally {
             this.tokenLock.unlock();
         }
     }

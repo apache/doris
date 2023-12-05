@@ -146,8 +146,9 @@ public class QueryQueue {
             if (currentRunningQueryNum < maxConcurrency) {
                 QueueToken nextToken = this.priorityTokenQueue.poll();
                 if (nextToken != null) {
-                    ++currentRunningQueryNum;
-                    nextToken.signal();
+                    if (nextToken.signal()) {
+                        ++currentRunningQueryNum;
+                    }
                 }
             }
         } finally {
