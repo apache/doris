@@ -15,18 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.mv;
+package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
 import org.apache.doris.nereids.trees.expressions.ExprId;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 
-import com.google.common.collect.ArrayListMultimap;
-import com.google.common.collect.Multimap;
-
-import java.util.List;
 import java.util.Objects;
+import javax.annotation.Nullable;
 
 /**
  * Mapping slot from query to view or inversely,
@@ -38,6 +35,7 @@ public abstract class Mapping {
      * The relation for mapping
      */
     public static final class MappedRelation {
+
         public final RelationId relationId;
         public final CatalogRelation belongedRelation;
 
@@ -46,7 +44,7 @@ public abstract class Mapping {
             this.belongedRelation = belongedRelation;
         }
 
-        public MappedRelation of(RelationId relationId, CatalogRelation belongedRelation) {
+        public static MappedRelation of(RelationId relationId, CatalogRelation belongedRelation) {
             return new MappedRelation(relationId, belongedRelation);
         }
 
@@ -82,15 +80,31 @@ public abstract class Mapping {
     public static final class MappedSlot {
 
         public final ExprId exprId;
+        public final Slot slot;
+        @Nullable
         public final CatalogRelation belongedRelation;
 
-        public MappedSlot(ExprId exprId, CatalogRelation belongedRelation) {
+        public MappedSlot(ExprId exprId,
+                Slot slot,
+                CatalogRelation belongedRelation) {
             this.exprId = exprId;
+            this.slot = slot;
             this.belongedRelation = belongedRelation;
         }
 
-        public MappedSlot of(ExprId exprId, CatalogRelation belongedRelation) {
-            return new MappedSlot(exprId, belongedRelation);
+        public static MappedSlot of(ExprId exprId,
+                Slot slot,
+                CatalogRelation belongedRelation) {
+            return new MappedSlot(exprId, slot, belongedRelation);
+        }
+
+        public static MappedSlot of(Slot slot,
+                CatalogRelation belongedRelation) {
+            return new MappedSlot(slot.getExprId(), slot, belongedRelation);
+        }
+
+        public static MappedSlot of(Slot slot) {
+            return new MappedSlot(slot.getExprId(), slot, null);
         }
 
         public ExprId getExprId() {
@@ -99,6 +113,10 @@ public abstract class Mapping {
 
         public CatalogRelation getBelongedRelation() {
             return belongedRelation;
+        }
+
+        public Slot getSlot() {
+            return slot;
         }
 
         @Override
@@ -116,29 +134,6 @@ public abstract class Mapping {
         @Override
         public int hashCode() {
             return Objects.hash(exprId);
-        }
-    }
-
-    /**
-     * Expression and it's index mapping
-     */
-    public static class ExpressionIndexMapping extends Mapping {
-        private final Multimap<Expression, Integer> expressionIndexMapping;
-
-        public ExpressionIndexMapping(Multimap<Expression, Integer> expressionIndexMapping) {
-            this.expressionIndexMapping = expressionIndexMapping;
-        }
-
-        public Multimap<Expression, Integer> getExpressionIndexMapping() {
-            return expressionIndexMapping;
-        }
-
-        public static ExpressionIndexMapping generate(List<? extends Expression> expressions) {
-            Multimap<Expression, Integer> expressionIndexMapping = ArrayListMultimap.create();
-            for (int i = 0; i < expressions.size(); i++) {
-                expressionIndexMapping.put(expressions.get(i), i);
-            }
-            return new ExpressionIndexMapping(expressionIndexMapping);
         }
     }
 }

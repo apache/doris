@@ -52,7 +52,7 @@ public class StructInfo {
         // construct equivalenceClass according to equals predicates
         this.equivalenceClass = new EquivalenceClass();
         SplitPredicate splitPredicate = Predicates.splitPredicates(predicates.composedExpression());
-        for (Expression expression : ExpressionUtils.extractConjunction(splitPredicate.getEqualPredicates())) {
+        for (Expression expression : ExpressionUtils.extractConjunction(splitPredicate.getEqualPredicate())) {
             EqualTo equalTo = (EqualTo) expression;
             equivalenceClass.addEquivalenceClass(
                     (SlotReference) equalTo.getArguments().get(0),
