@@ -1130,6 +1130,11 @@ DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
+// if difference of two disk usage is exceed this value,
+// then the new created tablet will not locate in the high use disk.
+// range: 0 ~ 100
+DEFINE_mInt32(disk_diff_usage_percentage_for_create_tablet, "20");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
