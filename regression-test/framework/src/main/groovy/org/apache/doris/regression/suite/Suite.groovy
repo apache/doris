@@ -842,12 +842,8 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinished(String jobName) {
         Thread.sleep(2000);
-        String showTasks = "SHOW MTMV JOB TASKS FOR ${jobName}"
-        List<List<String>> showTaskMetaResult = sql_meta(showTasks)
-        logger.info("showTaskMetaResult: " + showTaskMetaResult.toString())
-        int index = showTaskMetaResult.indexOf(['Status', 'CHAR'])
-        logger.info("index: " + index)
-        String status = "PENDING"
+        String showTasks = "select Status from tasks('type'='mv') where JobName = '${jobName}'"
+        String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
@@ -855,7 +851,7 @@ class Suite implements GroovyInterceptable {
             result = sql(showTasks)
             logger.info("result: " + result.toString())
             if (!result.isEmpty()) {
-                status = result.last().get(index)
+                status = result.last().get(0)
             }
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
@@ -867,18 +863,14 @@ class Suite implements GroovyInterceptable {
     }
 
     String getJobName(String dbName, String mtmvName) {
-        String showMTMV = "select * from mtmvs('database'='${dbName}') where Name = '${mtmvName}'";
+        String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
 	    logger.info(showMTMV)
-        List<List<String>> showTaskMetaResult = sql_meta(showMTMV)
-        logger.info("showTaskMetaResult: " + showTaskMetaResult.toString())
-        int index = showTaskMetaResult.indexOf(['JobName', 'TINYTEXT'])
-        logger.info("index: " + index)
         List<List<Object>> result = sql(showMTMV)
         logger.info("result: " + result.toString())
         if (result.isEmpty()) {
             Assert.fail();
         }
-        return result.last().get(index);
+        return result.last().get(0);
     }
 }
 
