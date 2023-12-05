@@ -40,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
+import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Exists;
@@ -219,6 +220,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitSlotReference(SlotReference slotReference, C context) {
         return visitSlot(slotReference, context);
+    }
+
+    public R visitDefaultValue(DefaultValueSlot defaultValueSlot, C context) {
+        return visitSlot(defaultValueSlot, context);
     }
 
     public R visitArrayItemSlot(ArrayItemReference.ArrayItemSlot arrayItemSlot, C context) {

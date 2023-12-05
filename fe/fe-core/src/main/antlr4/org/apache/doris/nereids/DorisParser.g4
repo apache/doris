@@ -52,10 +52,10 @@ statement
         (AS query)?                                                    #createTable
     | explain? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
-        (PARTITION partition=identifierList)?  // partition define
+        partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
-        query                                                          #insertIntoQuery
+        (query | inlineTable)                                          #insertTable
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
@@ -109,6 +109,14 @@ constraint
     | FOREIGN KEY slots=identifierList
         REFERENCES referenceTable=multipartIdentifier
         referencedSlots=identifierList
+    ;
+
+partitionSpec
+    : TEMPORARY? (PARTITION | PARTITIONS) partitions=identifierList
+    | TEMPORARY? PARTITION partition=errorCapturingIdentifier
+    // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
+    // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
+    // | PARTITIONS WITH RECENT
     ;
 
 dataDesc
@@ -276,7 +284,6 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
-    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification
@@ -576,7 +583,11 @@ booleanExpression
     ;
 
 rowConstructor
-    : LEFT_PAREN namedExpression (COMMA namedExpression)* RIGHT_PAREN
+    : LEFT_PAREN (rowConstructorItem (COMMA rowConstructorItem)*)? RIGHT_PAREN
+    ;
+
+rowConstructorItem
+    : namedExpression | DEFAULT
     ;
 
 predicate
