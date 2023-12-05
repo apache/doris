@@ -55,7 +55,19 @@ public:
     ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
     ExchangeDataDependency(int id, int node_id, QueryContext* query_ctx,
                            vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, node_id, "DataDependency", query_ctx) {}
+            : Dependency(id, node_id, "DataDependency", query_ctx), _queue(sender_queue) {}
+
+    std::string debug_string(int indentation_level) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "{}, _is_cancelled = {}, _block_queue size = {},_num_remaining_senders = {}",
+                       Dependency::debug_string(indentation_level), _queue->_is_cancelled,
+                       _queue->_block_queue.size(), _queue->_num_remaining_senders);
+        return fmt::to_string(debug_string_buffer);
+    }
+
+private:
+    vectorized::VDataStreamRecvr::SenderQueue* _queue;
 };
 
 class ExchangeSourceOperatorX;
