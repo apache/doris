@@ -50,13 +50,15 @@ public class ExpressionMapping extends Mapping {
      */
     public List<Map<? extends Expression, ? extends Expression>> flattenMap() {
         List<List<Pair<Expression, Expression>>> tmpExpressionPairs = new ArrayList<>(this.expressionMapping.size());
-        Map<? extends Expression, ? extends Collection<? extends Expression>> map = expressionMapping.asMap();
-        for (Map.Entry<? extends Expression, ? extends Collection<? extends Expression>> entry : map.entrySet()) {
-            List<Pair<Expression, Expression>> valueList = new ArrayList<>(entry.getValue().size());
+        Map<? extends Expression, ? extends Collection<? extends Expression>> expressionMappingMap =
+                expressionMapping.asMap();
+        for (Map.Entry<? extends Expression, ? extends Collection<? extends Expression>> entry
+                : expressionMappingMap.entrySet()) {
+            List<Pair<Expression, Expression>> targetExpressionList = new ArrayList<>(entry.getValue().size());
             for (Expression valueExpression : entry.getValue()) {
-                valueList.add(Pair.of(entry.getKey(), valueExpression));
+                targetExpressionList.add(Pair.of(entry.getKey(), valueExpression));
             }
-            tmpExpressionPairs.add(valueList);
+            tmpExpressionPairs.add(targetExpressionList);
         }
         List<List<Pair<Expression, Expression>>> cartesianExpressionMap = Lists.cartesianProduct(tmpExpressionPairs);
 
