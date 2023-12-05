@@ -1458,6 +1458,11 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         }
 
         if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+            // there are too many missing versions, it has been be added to async
+            // publish task, so no need to retry here.
+            if (discontinuous_version_tablets.empty()) {
+                break;
+            }
             LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done, "
                                    << "transaction_id: " << publish_version_req.transaction_id;
 
