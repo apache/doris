@@ -52,7 +52,7 @@ struct S3FileBuffer : public std::enable_shared_from_this<S3FileBuffer> {
 
     // append data into the memory buffer inside
     // or into the file cache if the buffer has no memory buffer
-    void append_data(const Slice& data);
+    Status append_data(const Slice& data);
     // upload to S3 and file cache in async threadpool
     void submit();
     // set the callback to upload to S3 file

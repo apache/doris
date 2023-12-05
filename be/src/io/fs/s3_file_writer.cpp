@@ -240,7 +240,8 @@ Status S3FileWriter::appendv(const Slice* data, size_t data_cnt) {
 
             // if the buffer has memory buf inside, the data would be written into memory first then S3 then file cache
             // it would be written to cache then S3 if the buffer doesn't have memory preserved
-            _pending_buf->append_data(Slice {data[i].get_data() + pos, data_size_to_append});
+            RETURN_IF_ERROR(_pending_buf->append_data(
+                    Slice {data[i].get_data() + pos, data_size_to_append}));
 
             // if it's the last part, it could be less than 5MB, or it must
             // satisfy that the size is larger than or euqal to 5MB

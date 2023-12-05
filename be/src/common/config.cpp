@@ -1105,6 +1105,8 @@ DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 DEFINE_Bool(enable_snapshot_action, "false");
 
+DEFINE_mInt32(s3_writer_buffer_allocation_timeout_second, "60");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
