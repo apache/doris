@@ -97,7 +97,7 @@ public class QueueToken {
         } catch (Throwable t) {
             LOG.warn("failed to signal token", t);
             return false;
-        }finally {
+        } finally {
             this.tokenLock.unlock();
         }
     }
