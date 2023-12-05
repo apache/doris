@@ -17,7 +17,6 @@
 
 package org.apache.doris.resource.workloadgroup;
 
-import java.util.Objects;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -27,13 +26,17 @@ import java.util.concurrent.locks.ReentrantLock;
 // and return failed reason to user client
 public class QueueOfferToken {
 
+    enum TokenState {
+        ENQUEUE_FAILED,
+        ENQUEUE_SUCCESS,
+        READY_TO_RUN
+    }
+
     static AtomicLong tokenIdGenerator = new AtomicLong(0);
 
     private long tokenId = 0;
 
-    private boolean offerResult = false;
-
-    private boolean isReadyToRun = false;
+    private TokenState tokenState;
 
     private long waitTimeout = 0;
 
@@ -44,15 +47,10 @@ public class QueueOfferToken {
     private final ReentrantLock tokenLock = new ReentrantLock();
     private final Condition tokenCond = tokenLock.newCondition();
 
-    public QueueOfferToken(Boolean offerResult) {
-        this.offerResult = offerResult;
-    }
-
-    public QueueOfferToken(Boolean addToQueueSuccess, Boolean isReadyToRun, long waitTimeout,
+    public QueueOfferToken(TokenState tokenState, long waitTimeout,
             String offerResultDetail) {
         this.tokenId = tokenIdGenerator.addAndGet(1);
-        this.offerResult = addToQueueSuccess;
-        this.isReadyToRun = isReadyToRun;
+        this.tokenState = tokenState;
         this.waitTimeout = waitTimeout;
         this.offerResultDetail = offerResultDetail;
         this.enqueueTime = System.currentTimeMillis();
@@ -61,12 +59,15 @@ public class QueueOfferToken {
     public boolean waitSignal() throws InterruptedException {
         this.tokenLock.lock();
         try {
-            if (isReadyToRun) {
+            if (tokenState == TokenState.READY_TO_RUN) {
                 return true;
+            }
+            if (tokenState == TokenState.ENQUEUE_FAILED) {
+                return false;
             }
             tokenCond.wait(waitTimeout);
             // If wait timeout and is steal not ready to run, then return false
-            if (!isReadyToRun) {
+            if (tokenState != TokenState.READY_TO_RUN) {
                 return false;
             } else {
                 return true;
@@ -79,15 +80,15 @@ public class QueueOfferToken {
     public void signal() {
         this.tokenLock.lock();
         try {
-            isReadyToRun = true;
+            this.tokenState = TokenState.READY_TO_RUN;
             tokenCond.signal();
         } finally {
             this.tokenLock.unlock();
         }
     }
 
-    public Boolean isOfferSuccess() {
-        return offerResult;
+    public Boolean enqueueSuccess() {
+        return this.tokenState != TokenState.ENQUEUE_FAILED;
     }
 
     public String getOfferResultDetail() {
@@ -95,7 +96,7 @@ public class QueueOfferToken {
     }
 
     public boolean isReadyToRun() {
-        return isReadyToRun;
+        return this.tokenState == TokenState.READY_TO_RUN;
     }
 
     @Override
@@ -107,10 +108,7 @@ public class QueueOfferToken {
         if (getClass() != obj.getClass())
             return false;
         QueueOfferToken other = (QueueOfferToken) obj;
-        return enqueueTime == other.enqueueTime && isReadyToRun == other.isReadyToRun
-                && offerResult == other.offerResult && Objects.equals(offerResultDetail, other.offerResultDetail)
-                && Objects.equals(tokenCond, other.tokenCond) && tokenId == other.tokenId
-                && Objects.equals(tokenLock, other.tokenLock) && waitTimeout == other.waitTimeout;
+        return tokenId == other.tokenId;
     }
 
 }

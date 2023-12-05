@@ -18,6 +18,8 @@
 package org.apache.doris.resource.workloadgroup;
 
 import com.google.common.base.Preconditions;
+
+import org.apache.doris.resource.workloadgroup.QueueOfferToken.TokenState;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -104,17 +106,17 @@ public class QueryQueue {
 
             if (currentRunningQueryNum < maxConcurrency) {
                 currentRunningQueryNum++;
-                return new QueueOfferToken(true, true, queueTimeout, "offer success");
+                return new QueueOfferToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
             }
             // currentRunningQueryNum may bigger than maxRunningQueryNum
             // because maxRunningQueryNum can be altered
             if (currentWaitingQueryNum >= maxQueueSize) {
-                return new QueueOfferToken(false, false, queueTimeout,
+                return new QueueOfferToken(TokenState.ENQUEUE_FAILED, queueTimeout,
                         "query waiting queue is full, queue length=" + maxQueueSize);
             }
 
             currentWaitingQueryNum++;
-            QueueOfferToken newQueryToken = new QueueOfferToken(true, false, queueTimeout,
+            QueueOfferToken newQueryToken = new QueueOfferToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
                     "query wait timeout " + queueTimeout + " ms");
             this.priorityTokenQueue.offer(newQueryToken);
             return newQueryToken;
@@ -127,9 +129,19 @@ public class QueryQueue {
     }
 
     // If the token is acquired and do work success, then call this method to release it.
-    public void releaseToken(QueueOfferToken token) throws InterruptedException {
+    public void returnToken(QueueOfferToken token) throws InterruptedException {
         queueLock.lock();
         try {
+            // If current token is not in the queue, then do nothing, just return.
+            if (!token.enqueueSuccess()) {
+                return;
+            }
+            // If current token is not in ready to run state, then it is still in the queue
+            // it is not running, just remove it.
+            if (!token.isReadyToRun()) {
+                this.priorityTokenQueue.remove(token);
+                return;
+            }
             currentRunningQueryNum--;
             Preconditions.checkArgument(currentRunningQueryNum >= 0);
             // maybe only when currentWaitingQueryNum != 0 need to signal
@@ -140,24 +152,6 @@ public class QueryQueue {
                     nextToken.signal();
                 }
             }
-        } finally {
-            if (LOG.isDebugEnabled()) {
-                LOG.info(this.debugString());
-            }
-            queueLock.unlock();
-        }
-    }
-
-    // If the token is wait timeout, then should delete the token to release the queue space
-    public void deleteToken(QueueOfferToken token) {
-        queueLock.lock();
-        try {
-            if (token.isReadyToRun()) {
-                currentRunningQueryNum--;
-                Preconditions.checkArgument(currentRunningQueryNum >= 0);
-                return;
-            }
-            this.priorityTokenQueue.remove(token);
         } finally {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());

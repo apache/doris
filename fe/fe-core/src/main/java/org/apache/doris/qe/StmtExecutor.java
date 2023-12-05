@@ -619,7 +619,7 @@ public class StmtExecutor {
                 LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
                 throw new RuntimeException("interrupted Exception happens when queue query");
             }
-            if (offerRet != null && !offerRet.isOfferSuccess()) {
+            if (offerRet != null && !offerRet.enqueueSuccess()) {
                 String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
                 throw new UserException(retMsg);
@@ -627,7 +627,7 @@ public class StmtExecutor {
             if (!offerRet.waitSignal()) {
                 String retMsg = "queue success but wait too long in queue";
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
-                queryQueue.deleteToken(offerRet);
+                queryQueue.returnToken(offerRet);
                 throw new UserException(retMsg);
             }
         }
@@ -666,8 +666,8 @@ public class StmtExecutor {
                 }
             }
         } finally {
-            if (offerRet != null && offerRet.isOfferSuccess()) {
-                queryQueue.releaseToken(offerRet);
+            if (offerRet != null) {
+                queryQueue.returnToken(offerRet);
             }
         }
     }
