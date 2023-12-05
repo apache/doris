@@ -142,7 +142,7 @@ Status BucketShuffleExchanger::_split_rows(RuntimeState* state,
         size_t size = local_state._partition_rows_histogram[i + 1] - start;
         if (size > 0) {
             data_queue[map[i]].enqueue({new_block, {row_idx, start, size}});
-            local_state._shared_state->set_ready_for_read(i);
+            local_state._shared_state->set_ready_for_read(map[i]);
         }
     }
 
