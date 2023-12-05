@@ -25,7 +25,14 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
+import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FloatType;
+import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.SmallIntType;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
@@ -39,10 +46,14 @@ import java.util.List;
 public class IntersectCount extends AggregateFunction
         implements ExplicitlyCastableSignature, AlwaysNotNullable, BitmapIntersectFunction {
 
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE)
-                .varArgs(BitmapType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+    List<DataType> SUPPORTED_TYPES = ImmutableList.of(
+            SmallIntType.INSTANCE, TinyIntType.INSTANCE, IntegerType.INSTANCE, BigIntType.INSTANCE,
+            FloatType.INSTANCE, DoubleType.INSTANCE, StringType.INSTANCE, CharType.SYSTEM_DEFAULT
     );
+
+    List<FunctionSignature> SIGNATURES = SUPPORTED_TYPES.stream()
+            .map(type -> FunctionSignature.ret(BigIntType.INSTANCE).varArgs(BitmapType.INSTANCE, type, type))
+            .collect(ImmutableList.toImmutableList());
 
     /**
      * constructor with 3 or more arguments.

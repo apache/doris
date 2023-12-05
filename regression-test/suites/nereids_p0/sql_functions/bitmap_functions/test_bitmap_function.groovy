@@ -580,20 +580,21 @@ suite("test_bitmap_function") {
     // INTERSECT_COUNT
     def intersectCountTable = "test_intersect_count"
     sql """ DROP TABLE IF EXISTS ${intersectCountTable} """
-    sql """ create table if not exists ${intersectCountTable} (dt int (11),page varchar (10),user_id bitmap BITMAP_UNION ) DISTRIBUTED BY HASH(dt) BUCKETS 2 PROPERTIES("replication_num" = "1") """
+    sql """ create table if not exists ${intersectCountTable} (dt int (11),page varchar (10),insert_date date,user_id bitmap BITMAP_UNION ) DISTRIBUTED BY HASH(dt) BUCKETS 2 PROPERTIES("replication_num" = "1") """
 
 
-    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(1)); """
-    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(2)); """
-    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(3)); """
-    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(4)); """
-    sql """ insert into ${intersectCountTable} values(3,"110001", to_bitmap(5)); """
-    sql """ insert into ${intersectCountTable} values(4,"110001", to_bitmap(1)); """
-    sql """ insert into ${intersectCountTable} values(4,"110001", to_bitmap(2)); """
-    sql """ insert into ${intersectCountTable} values(4,"110001", to_bitmap(3)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", "2022-10-13", to_bitmap(1)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", "2022-10-13", to_bitmap(2)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", "2022-10-13", to_bitmap(3)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", "2022-10-13", to_bitmap(4)); """
+    sql """ insert into ${intersectCountTable} values(3,"110001", "2022-10-13", to_bitmap(5)); """
+    sql """ insert into ${intersectCountTable} values(4,"110001", "2022-10-14", to_bitmap(1)); """
+    sql """ insert into ${intersectCountTable} values(4,"110001", "2022-10-14", to_bitmap(2)); """
+    sql """ insert into ${intersectCountTable} values(4,"110001", "2022-10-14", to_bitmap(3)); """
 
-    qt_sql """ select dt,bitmap_to_string(user_id) from ${intersectCountTable} where dt in (3,4) order by dt desc; """
+    qt_sql """ select dt,insert_date,bitmap_to_string(user_id) from ${intersectCountTable} where dt in (3,4) order by dt desc; """
     qt_sql """ select intersect_count(user_id,dt,3,4) from ${intersectCountTable}; """
+    qt_sql """ select intersect_count(user_id,insert_date,'2022-10-13','2022-10-14') from ${intersectCountTable}; """
 
     // ARTHOGONAL_BITMAP_****
     def arthogonalBitmapTable = "test_arthogonal_bitmap"
