@@ -84,7 +84,8 @@ suite("test_broker_load_with_merge", "load_p0") {
     }
 
     def load_from_hdfs_check_merge_type_1 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-        def result1= sql """
+        test {
+            sql """
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")
                             INTO TABLE ${testTablex}
@@ -99,14 +100,14 @@ suite("test_broker_load_with_merge", "load_p0") {
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
                         """
-
-        assertTrue(result1.size() == 1)
-        assertTrue(result1[0].size() == 1)
-        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
+            exception "not support DELETE ON clause when merge type is not MERGE."
+        }
     }
 
     def load_from_hdfs_check_merge_type_2 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-        def result1= sql """
+
+        test {
+            sql """
                         LOAD LABEL ${label} (
                             MERGE
                             DATA INFILE("${hdfsFilePath}")
@@ -121,14 +122,13 @@ suite("test_broker_load_with_merge", "load_p0") {
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
                         """
-
-        assertTrue(result1.size() == 1)
-        assertTrue(result1[0].size() == 1)
-        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
+            exception "Excepted DELETE ON clause when merge type is MERGE."
+        }
     }
 
     def load_from_hdfs_check_merge_type_3 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-        def result1= sql """
+        test {
+            sql """
                         LOAD LABEL ${label} (
                             DELETE
                             DATA INFILE("${hdfsFilePath}")
@@ -144,14 +144,14 @@ suite("test_broker_load_with_merge", "load_p0") {
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
                         """
+            exception "not support MERGE or DELETE with NEGATIVE."
+        }
 
-        assertTrue(result1.size() == 1)
-        assertTrue(result1[0].size() == 1)
-        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
     }
 
     def load_from_hdfs_check_merge_type_4 = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-        def result1= sql """
+        test {
+            sql """
                         LOAD LABEL ${label} (
                             DELETE
                             DATA INFILE("${hdfsFilePath}")
@@ -166,10 +166,8 @@ suite("test_broker_load_with_merge", "load_p0") {
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
                         """
-
-        assertTrue(result1.size() == 1)
-        assertTrue(result1[0].size() == 1)
-        assertTrue(result1[0][0] == 0, "Query OK, 0 rows affected")
+            exception "load by MERGE or DELETE is only supported in unique tables."
+        }
     }
 
 
@@ -187,13 +185,9 @@ suite("test_broker_load_with_merge", "load_p0") {
             create_test_table.call(testTable)
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-            try {
-                load_from_hdfs_check_merge_type_1.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
-                        brokerName, hdfsUser, hdfsPasswd)
-            }catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("not support DELETE ON clause when merge type is not MERGE."))
-            }
+
+            load_from_hdfs_check_merge_type_1.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                    brokerName, hdfsUser, hdfsPasswd)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -206,13 +200,9 @@ suite("test_broker_load_with_merge", "load_p0") {
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
 
-            try {
-                load_from_hdfs_check_merge_type_2.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
-                        brokerName, hdfsUser, hdfsPasswd)
-            }catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("Excepted DELETE ON clause when merge type is MERGE."))
-            }
+            load_from_hdfs_check_merge_type_2.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                    brokerName, hdfsUser, hdfsPasswd)
+
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
@@ -221,16 +211,9 @@ suite("test_broker_load_with_merge", "load_p0") {
         try {
             sql "DROP TABLE IF EXISTS ${testTable}"
             create_test_table.call(testTable)
-
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
-
-            try {
-                load_from_hdfs_check_merge_type_3.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
-                        brokerName, hdfsUser, hdfsPasswd)
-            }catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("not support MERGE or DELETE with NEGATIVE."))
-            }
+            load_from_hdfs_check_merge_type_3.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                    brokerName, hdfsUser, hdfsPasswd)
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
         }
@@ -243,13 +226,8 @@ suite("test_broker_load_with_merge", "load_p0") {
 
             def test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
 
-            try {
-                load_from_hdfs_check_merge_type_4.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
-                        brokerName, hdfsUser, hdfsPasswd)
-            }catch (Exception e) {
-                log.info(e.getMessage())
-                assertTrue(e.getMessage().contains("load by MERGE or DELETE is only supported in unique tables."))
-            }
+            load_from_hdfs_check_merge_type_4.call(testTable, test_load_label, hdfs_csv_file_path, "csv",
+                    brokerName, hdfsUser, hdfsPasswd)
 
         } finally {
             try_sql("DROP TABLE IF EXISTS ${testTable}")
