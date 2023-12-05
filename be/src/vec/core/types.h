@@ -505,8 +505,7 @@ struct Decimal {
             std::is_same_v<U, Int32> || std::is_same_v<U, Int64> || std::is_same_v<U, Int128> ||
             std::is_same_v<U, wide::Int256>;
     template <typename U>
-    static constexpr bool IsConvertible =
-            IsCompatible<U> || std::is_same_v<U, UInt32> || std::is_same_v<U, UInt64>;
+    static constexpr bool IsConvertible = IsCompatible<U> || std::is_arithmetic_v<U>;
     static_assert(IsCompatible<T>);
 
     using NativeType = T;
@@ -517,19 +516,16 @@ struct Decimal {
 
     template <class U>
         requires(IsConvertible<U> && IsInt256)
-    explicit Decimal(U value) : value(value) {}
-    template <class U>
-        requires(IsConvertible<U> && !IsInt256)
-    Decimal(U value) : value(value) {}
-
-    Decimal(const Float32& value_) : value(value_) {
-        if constexpr (std::is_integral<T>::value) {
-            value = round(value_);
+    explicit Decimal(U value) : value(value) {
+        if constexpr (std::is_integral_v<T> && std::is_floating_point_v<U>) {
+            this->value = round(value);
         }
     }
-    Decimal(const Float64& value_) : value(value_) {
-        if constexpr (std::is_integral<T>::value) {
-            value = round(value_);
+    template <class U>
+        requires(IsConvertible<U> && !IsInt256)
+    Decimal(U value) : value(value) {
+        if constexpr (std::is_integral_v<T> && std::is_floating_point_v<U>) {
+            this->value = round(value);
         }
     }
 
