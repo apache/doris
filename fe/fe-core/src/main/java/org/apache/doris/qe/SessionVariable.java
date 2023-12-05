@@ -423,6 +423,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_UNIQUE_KEY_PARTIAL_UPDATE = "enable_unique_key_partial_update";
 
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
+    public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
@@ -1315,6 +1316,12 @@ public class SessionVariable implements Serializable, Writable {
                     + " is a multiple of the minimum total count of the smallest inverted index,"
                     + " use a skiplist to optimize the intersection."})
     public int invertedIndexConjunctionOptThreshold = 1000;
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_MAX_EXPANSIONS,
+            description = {"这个参数用来限制查询时扩展的词项（terms）的数量，以此来控制查询的性能",
+                    "This parameter is used to limit the number of term expansions during a query,"
+                    + " thereby controlling query performance"})
+    public int invertedIndexMaxExpansions = 50;
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
@@ -2635,6 +2642,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableMemtableOnSinkNode(enableMemtableOnSinkNode);
 
         tResult.setInvertedIndexConjunctionOptThreshold(invertedIndexConjunctionOptThreshold);
+        tResult.setInvertedIndexMaxExpansions(invertedIndexMaxExpansions);
 
         tResult.setFasterFloatConvert(fasterFloatConvert);
 
