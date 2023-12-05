@@ -89,7 +89,7 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
     """
 
@@ -112,7 +112,7 @@ suite("test_backup_restore_diff_repo_same_snapshot", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
     """
 
