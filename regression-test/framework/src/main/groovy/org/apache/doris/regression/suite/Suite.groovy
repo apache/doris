@@ -770,7 +770,7 @@ class Suite implements GroovyInterceptable {
 
     void waitingMTMVTaskFinished(String jobName) {
         Thread.sleep(2000);
-        String showTasks = "select Status from tasks('type'='mtmv') where JobName = '${jobName}'"
+        String showTasks = "select Status from tasks('type'='mv') where JobName = '${jobName}'"
         String status = "NULL"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()

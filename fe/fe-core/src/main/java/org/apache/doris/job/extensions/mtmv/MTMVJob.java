@@ -135,7 +135,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public JobType getJobType() {
-        return JobType.MTMV;
+        return JobType.MV;
     }
 
     @Override

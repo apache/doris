@@ -81,7 +81,7 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
         if (jobType == null) {
             throw new AnalysisException("Invalid task metadata query");
         }
-        if (JobType.MTMV == jobType) {
+        if (JobType.MV == jobType) {
             return MTMVTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
         } else if (JobType.INSERT == jobType) {
             return InsertTask.COLUMN_TO_INDEX.get(columnName.toLowerCase());
@@ -113,7 +113,7 @@ public class TasksTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        if (JobType.MTMV == jobType) {
+        if (JobType.MV == jobType) {
             return MTMVTask.SCHEMA;
         } else if (JobType.INSERT == jobType) {
             return InsertTask.SCHEMA;

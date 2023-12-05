@@ -81,7 +81,7 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
         if (jobType == null) {
             throw new AnalysisException("Invalid job metadata query");
         }
-        if (JobType.MTMV == jobType) {
+        if (JobType.MV == jobType) {
             return MTMVJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
         } else if (JobType.INSERT == jobType) {
             return InsertJob.COLUMN_TO_INDEX.get(columnName.toLowerCase());
@@ -113,7 +113,7 @@ public class JobsTableValuedFunction extends MetadataTableValuedFunction {
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
-        if (JobType.MTMV == jobType) {
+        if (JobType.MV == jobType) {
             return MTMVJob.SCHEMA;
         } else if (JobType.INSERT == jobType) {
             return InsertJob.SCHEMA;
