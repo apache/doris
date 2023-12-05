@@ -241,8 +241,9 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     return Status::OK();
 }
 
-// TODO: Because there are some problems in _profile->to_thrift(),
-// profile is disabled since it's not being processed by the upstream for now
+// TODO: Profile is temporary disabled, because:
+// 1. It's not being processed by the upstream for now
+// 2. There are some problems in _profile->to_thrift()
 LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
         : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
