@@ -23,6 +23,7 @@
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/call_on_type_index.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -93,7 +94,8 @@ private:
     }
 
     template <typename T, typename ReturnType>
-    static bool execute(Block& block, const ColumnVector<T>* col, const size_t result) {
+    static bool execute(Block& block, const ColumnVector<T>* col, UInt32, UInt32,
+                        const size_t result) {
         const auto& src_data = col->get_data();
         const size_t size = src_data.size();
 
@@ -108,7 +110,8 @@ private:
     }
 
     template <typename T, typename ReturnType>
-    static bool execute(Block& block, const ColumnDecimal<T>* col, const size_t result) {
+    static bool execute(Block& block, const ColumnDecimal<T>* col, UInt32 from_precision,
+                        UInt32 from_scale, const size_t result) {
         const auto& src_data = col->get_data();
         const size_t size = src_data.size();
         UInt32 scale = src_data.get_scale();
@@ -117,9 +120,20 @@ private:
         auto& dst_data = dst->get_data();
         dst_data.resize(size);
 
-        for (size_t i = 0; i < size; ++i)
-            dst_data[i] = convert_from_decimal<DataTypeDecimal<T>, DataTypeNumber<ReturnType>>(
-                    src_data[i], scale);
+        UInt32 to_precision = NumberTraits::max_ascii_len<ReturnType>();
+        bool narrow_integral = to_precision < (from_precision - from_scale);
+        auto max_result = type_limit<ReturnType>::max();
+        auto min_result = type_limit<ReturnType>::min();
+
+        std::visit(
+                [&](auto narrow_integral) {
+                    for (size_t i = 0; i < size; ++i)
+                        dst_data[i] =
+                                convert_from_decimal<DataTypeDecimal<T>, DataTypeNumber<ReturnType>,
+                                                     narrow_integral>(src_data[i], scale,
+                                                                      min_result, max_result);
+                },
+                make_bool_variant(narrow_integral));
 
         execute_in_iterations(dst_data.data(), dst_data.data(), size);
 
@@ -138,8 +152,16 @@ private:
             using ColVecType = std::conditional_t<IsDecimalNumber<Type>, ColumnDecimal<Type>,
                                                   ColumnVector<Type>>;
 
+            UInt32 from_precision = 0;
+            UInt32 from_scale = 0;
+            if constexpr (IsDecimalNumber<Type>) {
+                const auto& from_decimal_type =
+                        assert_cast<const DataTypeDecimal<Type>&>(*col.type);
+                from_precision = from_decimal_type.get_precision();
+                from_scale = from_decimal_type.get_scale();
+            }
             const auto col_vec = check_and_get_column<ColVecType>(col.column.get());
-            return execute<Type, ReturnType>(block, col_vec, result);
+            return execute<Type, ReturnType>(block, col_vec, from_precision, from_scale, result);
         };
 
         if (!call_on_basic_type<void, true, true, true, false>(col.type->get_type_id(), call)) {
