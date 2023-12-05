@@ -14,6 +14,8 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 suite("github_event_advance_p2", "variant_type,p2"){
 
@@ -44,6 +46,12 @@ suite("github_event_advance_p2", "variant_type,p2"){
             }
         }
     }
+
+    // Configuration for the number of threads
+    def numberOfThreads = 10 // Set this to your desired number of threads
+
+    // Executor service for managing threads
+    def executorService = Executors.newFixedThreadPool(numberOfThreads)
 
     def create_table = {table_name, buckets="auto" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
@@ -79,7 +87,7 @@ suite("github_event_advance_p2", "variant_type,p2"){
     }
 
     try {
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "1")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
         table_name = "github_events"
         create_table.call(table_name, 10)
         List<Long> daysEveryMonth = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
@@ -99,14 +107,24 @@ suite("github_event_advance_p2", "variant_type,p2"){
                     log.info("current hour: ${hour}")
                     def fileName = year + "-" + month + "-" + day + "-" + hour + ".json"
                     log.info("cuurent fileName: ${fileName}")
-                    load_json_data.call(table_name, """${getS3Url() + '/regression/github_events_dataset/' + fileName}""")
+                    // load_json_data.call(table_name, """${getS3Url() + '/regression/github_events_dataset/' + fileName}""")
+                    def fileUrl = """${getS3Url() + '/regression/github_events_dataset/' + fileName}"""
+                    // Submitting tasks to the executor service
+                    executorService.submit({
+                        log.info("Loading file: ${fileName}")
+                        load_json_data.call(table_name, fileUrl)
+                    } as Runnable)
                 }
             }
         }
+
+        // Shutdown executor service and wait for all tasks to complete
+        executorService.shutdown()
+        executorService.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS)
         
         qt_sql("select count() from github_events")
     } finally {
         // reset flags
-        set_be_config.call("ratio_of_defaults_as_sparse_column", "0.95")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     }
 }
