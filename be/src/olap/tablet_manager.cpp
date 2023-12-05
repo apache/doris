@@ -35,6 +35,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "gutil/strings/strcat.h"
 #include "gutil/strings/substitute.h"
@@ -959,10 +960,15 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
     RETURN_IF_ERROR(tablet_meta->serialize(&meta_binary));
-    RETURN_NOT_OK_STATUS_WITH_WARN(
-            load_tablet_from_meta(store, tablet_id, schema_hash, meta_binary, true, force, restore,
-                                  true),
-            strings::Substitute("fail to load tablet. header_path=$0", header_path));
+    Status load_tablet_from_meta_status = load_tablet_from_meta(
+            store, tablet_id, schema_hash, meta_binary, true, force, restore, true);
+    if (load_tablet_from_meta_status.is<TABLE_ALREADY_DELETED_ERROR>()) {
+        VLOG_NOTICE << load_tablet_from_meta_status;
+    } else {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                load_tablet_from_meta_status,
+                strings::Substitute("fail to load tablet. header_path=$0", header_path));
+    }
 
     return Status::OK();
 }
