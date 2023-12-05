@@ -41,6 +41,7 @@ public:
 
 protected:
     friend struct LocalExchangeSourceDependency;
+    friend struct LocalExchangeSharedState;
     std::atomic<int> _running_sink_operators = 0;
     const int _num_partitions;
 };
