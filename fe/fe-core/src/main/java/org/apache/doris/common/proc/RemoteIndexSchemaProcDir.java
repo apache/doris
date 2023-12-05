@@ -101,7 +101,7 @@ public class RemoteIndexSchemaProcDir implements ProcDirInterface {
                     partitions.add(partition);
                 }
             } else {
-                throw new AnalysisException("Describe table[" + table.getName() + "] failed");
+                throw new AnalysisException(table.getName() + " is not a OLAP table, describe table failed");
             }
         } catch (Throwable t) {
             throw new AnalysisException("Describe table[" + table.getName() + "] failed");

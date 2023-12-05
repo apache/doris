@@ -163,6 +163,7 @@ public class FetchRemoteTabletSchemaUtil {
         int variantColumntIdx = 0;
         for (Column column : tableColumns) {
             variantColumntIdx++;
+            // find the first variant column
             if (column.getType().isVariantType()) {
                 break;
             }
@@ -170,6 +171,7 @@ public class FetchRemoteTabletSchemaUtil {
         if (variantColumntIdx == tableColumns.size()) {
             return;
         }
+        // sort the columns from the first variant column to the last column
         List<Column> subList = tableColumns.subList(variantColumntIdx, tableColumns.size());
         Collections.sort(subList, new Comparator<Column>() {
             @Override
@@ -181,8 +183,8 @@ public class FetchRemoteTabletSchemaUtil {
 
     private Column initColumnFromPB(ColumnPB column) throws AnalysisException {
         try {
-            AggregateType aggType = getAggTypeFromAggName(column.getAggregation());
-            Type type = getTypeFromTypeName(column.getType());
+            AggregateType aggType = AggregateTypeConverter.getAggTypeFromAggName(column.getAggregation());
+            Type type = ColumnTypeConverter.getTypeFromTypeName(column.getType());
             String columnName = column.getName();
             boolean isKey = column.getIsKey();
             boolean isNullable = column.getIsNullable();
@@ -226,109 +228,5 @@ public class FetchRemoteTabletSchemaUtil {
         } catch (Exception e) {
             throw new AnalysisException("default value to string failed");
         }
-    }
-
-    private Type getTypeFromTypeName(String typeName) {
-        Type type;
-        if (typeName.equals("TINYINT")) {
-            type = Type.TINYINT;
-        } else if (typeName.equals("SMALLINT")) {
-            type = Type.SMALLINT;
-        } else if (typeName.equals("INT")) {
-            type = Type.INT;
-        } else if (typeName.equals("BIGINT")) {
-            type = Type.BIGINT;
-        } else if (typeName.equals("LARGEINT")) {
-            type = Type.LARGEINT;
-        } else if (typeName.equals("UNSIGNED_TINYINT")) {
-            type = Type.BIGINT;
-        } else if (typeName.equals("UNSIGNED_SMALLINT")) {
-            type = Type.UNSUPPORTED;
-        } else if (typeName.equals("UNSIGNED_INT")) {
-            type = Type.UNSUPPORTED;
-        } else if (typeName.equals("UNSIGNED_BIGINT")) {
-            type = Type.UNSUPPORTED;
-        } else if (typeName.equals("FLOAT")) {
-            type = Type.FLOAT;
-        } else if (typeName.equals("DISCRETE_DOUBLE")) {
-            type = Type.DOUBLE;
-        } else if (typeName.equals("DOUBLE")) {
-            type = Type.DOUBLE;
-        } else if (typeName.equals("CHAR")) {
-            type = Type.CHAR;
-        } else if (typeName.equals("DATE")) {
-            type = Type.DATE;
-        } else if (typeName.equals("DATEV2")) {
-            type = Type.DATEV2;
-        } else if (typeName.equals("DATETIMEV2")) {
-            type = Type.DATETIMEV2;
-        } else if (typeName.equals("DATETIME")) {
-            type = Type.DATETIME;
-        } else if (typeName.equals("DECIMAL32")) {
-            type = Type.DECIMAL32;
-        } else if (typeName.equals("DECIMAL64")) {
-            type = Type.DECIMAL64;
-        } else if (typeName.equals("DECIMAL128I")) {
-            type = Type.DECIMAL128;
-        } else if (typeName.equals("DECIMAL")) {
-            type = Type.DECIMALV2;
-        } else if (typeName.equals("VARCHAR")) {
-            type = Type.VARCHAR;
-        } else if (typeName.equals("STRING")) {
-            type = Type.STRING;
-        } else if (typeName.equals("JSONB")) {
-            type = Type.JSONB;
-        } else if (typeName.equals("VARIANT")) {
-            type = Type.VARIANT;
-        } else if (typeName.equals("BOOLEAN")) {
-            type = Type.BOOLEAN;
-        } else if (typeName.equals("HLL")) {
-            type = Type.HLL;
-        } else if (typeName.equals("STRUCT")) {
-            type = Type.STRUCT;
-        } else if (typeName.equals("LIST")) {
-            type = Type.UNSUPPORTED;
-        } else if (typeName.equals("MAP")) {
-            type = Type.MAP;
-        } else if (typeName.equals("OBJECT")) {
-            type = Type.UNSUPPORTED;
-        } else if (typeName.equals("ARRAY")) {
-            type = Type.ARRAY;
-        } else if (typeName.equals("QUANTILE_STATE")) {
-            type = Type.QUANTILE_STATE;
-        } else if (typeName.equals("AGG_STATE")) {
-            type = Type.AGG_STATE;
-        } else {
-            type = Type.UNSUPPORTED;
-        }
-        return type;
-    }
-
-    private AggregateType getAggTypeFromAggName(String aggName) {
-        AggregateType aggType;
-        if (aggName.equals("NONE")) {
-            aggType = AggregateType.NONE;
-        } else if (aggName.equals("SUM")) {
-            aggType = AggregateType.SUM;
-        } else if (aggName.equals("MIN")) {
-            aggType = AggregateType.MIN;
-        } else if (aggName.equals("MAX")) {
-            aggType = AggregateType.MAX;
-        } else if (aggName.equals("REPLACE")) {
-            aggType = AggregateType.REPLACE;
-        } else if (aggName.equals("REPLACE_IF_NOT_NULL")) {
-            aggType = AggregateType.REPLACE_IF_NOT_NULL;
-        } else if (aggName.equals("HLL_UNION")) {
-            aggType = AggregateType.HLL_UNION;
-        } else if (aggName.equals("BITMAP_UNION")) {
-            aggType = AggregateType.BITMAP_UNION;
-        } else if (aggName.equals("QUANTILE_UNION")) {
-            aggType = AggregateType.QUANTILE_UNION;
-        } else if (!aggName.isEmpty()) {
-            aggType = AggregateType.GENERIC_AGGREGATION;
-        } else {
-            aggType = AggregateType.NONE;
-        }
-        return aggType;
     }
 }

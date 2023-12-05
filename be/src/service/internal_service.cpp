@@ -913,46 +913,50 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
             }
             if (!schemas.empty() && st.ok()) {
                 // merge all
-                TabletSchemaSPtr merged_schema =
-                        vectorized::schema_util::get_least_common_schema(schemas, nullptr);
+                TabletSchemaSPtr merged_schema;
+                static_cast<void>(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                                   merged_schema));
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
             }
             st.to_protobuf(response->mutable_status());
             return;
-        }
-
-        // This is not a coordinator, get it's tablet and merge schema
-        std::vector<int64_t> target_tablets;
-        for (int i = 0; i < request->tablet_location_size(); ++i) {
-            const auto& location = request->tablet_location(i);
-            auto backend = BackendOptions::get_local_backend();
-            // If this is the target backend
-            if (backend.host == location.host() && config::brpc_port == location.brpc_port()) {
-                target_tablets.assign(location.tablet_id().begin(), location.tablet_id().end());
-                break;
-            }
-        }
-        if (!target_tablets.empty()) {
-            std::vector<TabletSchemaSPtr> tablet_schemas;
-            for (int64_t tablet_id : target_tablets) {
-                TabletSharedPtr tablet =
-                        StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, false);
-                if (tablet == nullptr) {
-                    // just ignore
-                    continue;
+        } else {
+            // This is not a coordinator, get it's tablet and merge schema
+            std::vector<int64_t> target_tablets;
+            for (int i = 0; i < request->tablet_location_size(); ++i) {
+                const auto& location = request->tablet_location(i);
+                auto backend = BackendOptions::get_local_backend();
+                // If this is the target backend
+                if (backend.host == location.host() && config::brpc_port == location.brpc_port()) {
+                    target_tablets.assign(location.tablet_id().begin(), location.tablet_id().end());
+                    break;
                 }
-                tablet_schemas.push_back(tablet->tablet_schema());
             }
-            if (!tablet_schemas.empty()) {
-                // merge all
-                TabletSchemaSPtr merged_schema =
-                        vectorized::schema_util::get_least_common_schema(tablet_schemas, nullptr);
-                merged_schema->to_schema_pb(response->mutable_merged_schema());
-                VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
+            if (!target_tablets.empty()) {
+                std::vector<TabletSchemaSPtr> tablet_schemas;
+                for (int64_t tablet_id : target_tablets) {
+                    TabletSharedPtr tablet =
+                            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id,
+                                                                                    false);
+                    if (tablet == nullptr) {
+                        // just ignore
+                        LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
+                        continue;
+                    }
+                    tablet_schemas.push_back(tablet->tablet_schema());
+                }
+                if (!tablet_schemas.empty()) {
+                    // merge all
+                    TabletSchemaSPtr merged_schema;
+                    static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                            tablet_schemas, nullptr, merged_schema));
+                    merged_schema->to_schema_pb(response->mutable_merged_schema());
+                    VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
+                }
             }
+            st.to_protobuf(response->mutable_status());
         }
-        st.to_protobuf(response->mutable_status());
     });
     if (!ret) {
         offer_failed(response, done, _heavy_work_pool);

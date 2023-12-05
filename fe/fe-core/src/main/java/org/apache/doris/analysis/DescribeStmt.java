@@ -193,7 +193,8 @@ public class DescribeStmt extends ShowStmt {
                     procString += ((OlapTable) table).getBaseIndexId();
                 } else {
                     if (partitionNames != null) {
-                        throw new AnalysisException("Describe table[" + dbTableName.getTbl() + "] failed");
+                        throw new AnalysisException(dbTableName.getTbl()
+                                            + " is not a OLAP table, describe table failed");
                     }
                     procString += table.getId();
                 }
