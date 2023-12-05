@@ -29,6 +29,7 @@ import java.util.concurrent.locks.ReentrantLock;
 // and return failed reason to user client
 public class QueueToken {
     private static final Logger LOG = LogManager.getLogger(QueueToken.class);
+
     enum TokenState {
         ENQUEUE_FAILED,
         ENQUEUE_SUCCESS,
