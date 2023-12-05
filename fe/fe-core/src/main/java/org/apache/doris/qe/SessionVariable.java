@@ -468,6 +468,8 @@ public class SessionVariable implements Serializable, Writable {
     // this session variable is set to true.
     public static final String FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT = "fallback_other_replica_when_fixed_corrupt";
 
+    public static final String WAIT_FULL_BLOCK_SCHEDULE_TIMES = "wait_full_block_schedule_times";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -833,6 +835,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = USE_RF_DEFAULT)
     public boolean useRuntimeFilterDefaultSize = false;
+
+    @VariableMgr.VarAttr(name = WAIT_FULL_BLOCK_SCHEDULE_TIMES)
+    public int waitFullBlockScheduleTimes = 2;
 
     public int getBeNumberForTest() {
         return beNumberForTest;
@@ -2166,6 +2171,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public String getSqlDialect() {
         return sqlDialect;
+    }
+
+    public int getWaitFullBlockScheduleTimes() {
+        return waitFullBlockScheduleTimes;
     }
 
     public ParseDialect.Dialect getSqlParseDialect() {

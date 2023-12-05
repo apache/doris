@@ -257,6 +257,8 @@ struct TQueryOptions {
   90: optional bool skip_missing_version = false;
 
   91: optional bool runtime_filter_wait_infinitely = false;
+
+  92: optional i32 wait_full_block_schedule_times = 1;
 }
 
 
