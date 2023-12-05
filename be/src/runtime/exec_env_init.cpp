@@ -557,8 +557,8 @@ void ExecEnv::destroy() {
     _new_load_stream_mgr.reset();
     _stream_load_executor.reset();
     _memtable_memory_limiter.reset();
-    _load_stream_stub_pool.reset();
     _delta_writer_v2_pool.reset();
+    _load_stream_stub_pool.reset();
     SAFE_STOP(_storage_engine);
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
