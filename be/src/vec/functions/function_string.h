@@ -1940,7 +1940,6 @@ private:
         ColumnArray::Offset64 dest_pos = 0;
         const ColumnArray::Offset64 delimiter_offsets_size = delimiter_col.get_offsets().size();
 
-
         for (size_t i = 0; i < delimiter_offsets_size; ++i) {
             const StringRef delimiter_ref = delimiter_col.get_data_at(i);
 
