@@ -1276,8 +1276,7 @@ public class RestoreJob extends AbstractJob {
                 for (Long beId : beToSnapshots.keySet()) {
                     List<SnapshotInfo> beSnapshotInfos = beToSnapshots.get(beId);
                     int totalNum = beSnapshotInfos.size();
-                    // each backend allot at most 3 tasks
-                    int batchNum = Math.min(totalNum, 3);
+                    int batchNum = Math.min(totalNum, Config.restore_download_task_num_per_be);
                     // each task contains several upload sub tasks
                     int taskNumPerBatch = Math.max(totalNum / batchNum, 1);
                     LOG.debug("backend {} has {} batch, total {} tasks, {}",
