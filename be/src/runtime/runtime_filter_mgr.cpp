@@ -93,14 +93,14 @@ Status RuntimeFilterMgr::get_consume_filter(const int filter_id, const int node_
 }
 
 Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
-                                             std::vector<IRuntimeFilter*>& consumer_filters) {
+                                             std::vector<IRuntimeFilter*>& consumer_filters) const {
     int32_t key = filter_id;
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(key);
     if (iter == _consumer_map.end()) {
         return Status::InvalidArgument("unknown filter: {}, role: CONSUMER", key);
     }
-    for (auto& holder : iter->second) {
+    for (const auto& holder : iter->second) {
         consumer_filters.emplace_back(holder.filter);
     }
     return Status::OK();
@@ -192,7 +192,7 @@ void RuntimeFilterMgr::set_runtime_filter_params(
     this->_has_merge_addr = true;
 }
 
-Status RuntimeFilterMgr::get_merge_addr(TNetworkAddress* addr) {
+Status RuntimeFilterMgr::get_merge_addr(TNetworkAddress* addr) const {
     DCHECK(_has_merge_addr);
     if (_has_merge_addr) {
         *addr = this->_merge_addr;

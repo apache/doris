@@ -298,10 +298,10 @@ public:
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
     // for ut
-    static Status create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
+    static Status create_wrapper(const RuntimeState* state, const MergeRuntimeFilterParams* param,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
+    static Status create_wrapper(const RuntimeState* state, const UpdateRuntimeFilterParams* param,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     static Status create_wrapper(QueryContext* query_ctx, const UpdateRuntimeFilterParamsV2* param,
@@ -324,7 +324,8 @@ public:
     Status join_rpc();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, bool opt_remote_rf);
+    Status push_to_remote(const RuntimeState* state, const TNetworkAddress* addr,
+                          bool opt_remote_rf);
 
     void init_profile(RuntimeProfile* parent_profile);
 
@@ -390,7 +391,7 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
+    static Status _create_wrapper(const RuntimeState* state, const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     void _set_push_down() { _is_push_down = true; }
@@ -418,7 +419,7 @@ protected:
         }
     }
 
-    RuntimeState* _state = nullptr;
+    const RuntimeState* _state = nullptr;
     QueryContext* _query_ctx = nullptr;
     ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper

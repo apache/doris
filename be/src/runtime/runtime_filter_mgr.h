@@ -76,7 +76,8 @@ public:
     Status get_consume_filter(const int filter_id, const int node_id,
                               IRuntimeFilter** consumer_filter);
 
-    Status get_consume_filters(const int filter_id, std::vector<IRuntimeFilter*>& consumer_filters);
+    Status get_consume_filters(const int filter_id,
+                               std::vector<IRuntimeFilter*>& consumer_filters) const;
 
     Status get_producer_filter(const int filter_id, IRuntimeFilter** producer_filter);
 
@@ -92,7 +93,7 @@ public:
 
     void set_runtime_filter_params(const TRuntimeFilterParams& runtime_filter_params);
 
-    Status get_merge_addr(TNetworkAddress* addr);
+    Status get_merge_addr(TNetworkAddress* addr) const;
 
 private:
     struct ConsumerFilterHolder {
@@ -114,7 +115,7 @@ private:
     TNetworkAddress _merge_addr;
 
     bool _has_merge_addr;
-    std::mutex _lock;
+    mutable std::mutex _lock;
 };
 
 // controller -> <query-id, entity>

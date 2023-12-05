@@ -133,6 +133,7 @@ public:
     // should only be called in pipeline engine
     int32_t fragment_id() const { return _fragment_id; }
     ExecEnv* exec_env() { return _exec_env; }
+    const ExecEnv* exec_env() const { return _exec_env; }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() const;
 
     // Returns runtime state profile
@@ -438,6 +439,8 @@ public:
     int64_t get_load_mem_limit();
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+
+    const RuntimeFilterMgr* runtime_filter_mgr() const { return _runtime_filter_mgr.get(); }
 
     void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
