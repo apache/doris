@@ -25,6 +25,7 @@ import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVJobInfo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
@@ -61,6 +62,8 @@ public class MTMV extends OlapTable {
     private Map<String, String> mvProperties;
     @SerializedName("r")
     private MTMVRelation relation;
+    @SerializedName("mpi")
+    private MTMVPartitionInfo mvPartitionInfo;
 
     // For deserialization
     public MTMV() {
@@ -84,6 +87,7 @@ public class MTMV extends OlapTable {
         this.status = new MTMVStatus();
         this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
         this.mvProperties = params.mvProperties;
+        this.mvPartitionInfo = params.mvPartitionInfo;
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 
@@ -196,6 +200,7 @@ public class MTMV extends OlapTable {
         jobInfo = materializedView.jobInfo;
         mvProperties = materializedView.mvProperties;
         relation = materializedView.relation;
+        mvPartitionInfo = materializedView.mvPartitionInfo;
     }
 
 }

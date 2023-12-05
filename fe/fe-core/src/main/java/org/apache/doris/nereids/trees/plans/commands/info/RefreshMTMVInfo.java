@@ -21,8 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -30,9 +32,11 @@ import java.util.Objects;
  */
 public class RefreshMTMVInfo {
     private final TableNameInfo mvName;
+    private List<String> partitions;
 
-    public RefreshMTMVInfo(TableNameInfo mvName) {
+    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
+        this.partitions = Utils.copyRequiredList(partitions);
     }
 
     /**
@@ -56,5 +60,13 @@ public class RefreshMTMVInfo {
      */
     public TableNameInfo getMvName() {
         return mvName;
+    }
+
+    /**
+     * getPartitions
+     * @return List<String>
+     */
+    public List<String> getPartitions() {
+        return partitions;
     }
 }

@@ -86,7 +86,9 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public List<MTMVTask> createTasks(TaskType taskType) {
-        MTMVTask task = new MTMVTask(dbId, mtmvId);
+        // TODO: 2023/12/5
+        MTMVTaskContext taskContext = new MTMVTaskContext(Lists.newArrayList());
+        MTMVTask task = new MTMVTask(dbId, mtmvId, taskContext);
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
         tasks.add(task);
@@ -96,6 +98,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
 
     @Override
     public boolean isReadyForScheduling() {
+        // TODO: 2023/12/5 task context
         return CollectionUtils.isEmpty(getRunningTasks());
     }
 

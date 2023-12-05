@@ -30,6 +30,8 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.job.common.IntervalUnit;
 import org.apache.doris.load.loadv2.LoadTask;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
@@ -87,6 +89,7 @@ import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
+import org.apache.doris.nereids.DorisParser.IdentifierContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
@@ -505,8 +508,17 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 comment,
                 desc, properties, logicalPlan, querySql,
                 new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
-                ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols)
+                ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols),
+                visitMTMVPartitionInfo(ctx.partitionKey)
         ));
+    }
+
+    public MTMVPartitionInfo visitMTMVPartitionInfo(IdentifierContext ctx) {
+        if (ctx == null) {
+            return new MTMVPartitionInfo(MTMVPartitionType.SELF_MANAGE);
+        } else {
+            return new MTMVPartitionInfo(MTMVPartitionType.FOLLOW_BASE_TABLE, ctx.getText());
+        }
     }
 
     @Override
@@ -568,7 +580,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public RefreshMethod visitRefreshMethod(RefreshMethodContext ctx) {
         if (ctx == null) {
-            return RefreshMethod.COMPLETE;
+            return RefreshMethod.AUTO;
         }
         return RefreshMethod.valueOf(ctx.getText().toUpperCase());
     }
@@ -586,7 +598,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public RefreshMTMVCommand visitRefreshMTMV(RefreshMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
-        return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts)));
+        return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
+                ctx.partitions != null ? visitIdentifierList(ctx.partitions) : ImmutableList.of()));
     }
 
     @Override

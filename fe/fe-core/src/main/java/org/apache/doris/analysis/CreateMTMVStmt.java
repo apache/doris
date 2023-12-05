@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.mtmv.EnvInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 
 import java.util.ArrayList;
@@ -31,17 +32,19 @@ public class CreateMTMVStmt extends CreateTableStmt {
     private final String querySql;
     private final EnvInfo envInfo;
     private Map<String, String> mvProperties;
+    private MTMVPartitionInfo mvPartitionInfo;
 
     public CreateMTMVStmt(boolean ifNotExists, TableName mvName, List<Column> columns,
             MTMVRefreshInfo refreshInfo, KeysDesc keyDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, Map<String, String> mvProperties, String querySql, String comment,
-            EnvInfo envInfo) {
-        super(ifNotExists, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc, null,
+            EnvInfo envInfo, PartitionDesc partitionDesc, MTMVPartitionInfo mvPartitionInfo) {
+        super(ifNotExists, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc, partitionDesc,
                 distributionDesc, properties, null, comment, null, null);
         this.refreshInfo = refreshInfo;
         this.querySql = querySql;
         this.envInfo = envInfo;
         this.mvProperties = mvProperties;
+        this.mvPartitionInfo = mvPartitionInfo;
     }
 
     public MTMVRefreshInfo getRefreshInfo() {
@@ -58,5 +61,9 @@ public class CreateMTMVStmt extends CreateTableStmt {
 
     public Map<String, String> getMvProperties() {
         return mvProperties;
+    }
+
+    public MTMVPartitionInfo getMvPartitionInfo() {
+        return mvPartitionInfo;
     }
 }

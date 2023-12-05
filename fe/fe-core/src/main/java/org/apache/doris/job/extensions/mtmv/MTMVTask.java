@@ -56,14 +56,17 @@ public class MTMVTask extends AbstractTask {
     private long mtmvId;
     @SerializedName("sql")
     private String sql;
+    @SerializedName("tc")
+    private MTMVTaskContext taskContext;
 
     private MTMV mtmv;
     private MTMVRelation relation;
     private StmtExecutor executor;
 
-    public MTMVTask(long dbId, long mtmvId) {
+    public MTMVTask(long dbId, long mtmvId, MTMVTaskContext taskContext) {
         this.dbId = dbId;
         this.mtmvId = mtmvId;
+        this.taskContext = taskContext;
     }
 
     @Override
@@ -75,6 +78,7 @@ public class MTMVTask extends AbstractTask {
             // such as deleting a table and creating a view with the same name
             relation = MTMVCacheManager.generateMTMVRelation(mtmv, ctx);
             executor = new StmtExecutor(ctx, sql);
+            // new StmtExecutor(ctx,new LogicalPlanAdapter(null,null)).execute(queryId);
             executor.execute(queryId);
         } catch (Throwable e) {
             LOG.warn(e);

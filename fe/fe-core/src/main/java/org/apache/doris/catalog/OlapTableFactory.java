@@ -22,6 +22,7 @@ import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.mtmv.EnvInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 
 import com.google.common.base.Preconditions;
@@ -49,6 +50,7 @@ public class OlapTableFactory {
         public EnvInfo envInfo;
         public String querySql;
         public Map<String, String> mvProperties;
+        public MTMVPartitionInfo mvPartitionInfo;
     }
 
     private BuildParams params;
@@ -158,6 +160,14 @@ public class OlapTableFactory {
         return this;
     }
 
+    private OlapTableFactory withMvPartitionInfo(MTMVPartitionInfo mvPartitionInfo) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.mvPartitionInfo = mvPartitionInfo;
+        return this;
+    }
+
     public OlapTableFactory withExtraParams(DdlStmt stmt) {
         boolean isMaterializedView = stmt instanceof CreateMTMVStmt;
         if (!isMaterializedView) {
@@ -168,6 +178,7 @@ public class OlapTableFactory {
             return withRefreshInfo(createMTMVStmt.getRefreshInfo())
                     .withQuerySql(createMTMVStmt.getQuerySql())
                     .withMvProperties(createMTMVStmt.getMvProperties())
+                    .withMvPartitionInfo(createMTMVStmt.getMvPartitionInfo())
                     .withEnvInfo(createMTMVStmt.getEnvInfo());
         }
     }
