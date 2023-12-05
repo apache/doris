@@ -80,7 +80,7 @@ suite("double_write_schema_change_with_variant") {
                 if (result == "RUNNING") {
                     sql insert_sql
                 }
-                sleep(100)
+                sleep(200)
                 if (max_try_time < 1){
                     assertEquals(1,2)
                 }
