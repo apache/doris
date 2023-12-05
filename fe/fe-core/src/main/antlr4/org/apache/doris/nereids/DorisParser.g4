@@ -104,11 +104,11 @@ statement
     ;
 
 constraint
-    : PRIMARY KEY LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
-    | UNIQUE LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
-    | FOREIGN KEY LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
+    : PRIMARY KEY slots=identifierList
+    | UNIQUE slots=identifierList
+    | FOREIGN KEY slots=identifierList
         REFERENCES referenceTable=multipartIdentifier
-        LEFT_PAREN referenceSlots+=errorCapturingIdentifier (COMMA referenceSlots+=errorCapturingIdentifier)* RIGHT_PAREN
+        referencedSlots=identifierList
     ;
 
 dataDesc
