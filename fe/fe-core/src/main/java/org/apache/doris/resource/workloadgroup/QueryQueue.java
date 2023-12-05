@@ -95,9 +95,7 @@ public class QueryQueue {
     }
 
     public QueueToken getToken() throws InterruptedException {
-        // to prevent hang
-        // the lock shouldn't be hold for too long
-        // we should catch the case when it happens
+
         queueLock.lock();
         try {
             if (LOG.isDebugEnabled()) {

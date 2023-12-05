@@ -607,28 +607,27 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         syncJournalIfNeeded();
-        QueueToken offerRet = null;
+        QueueToken queueToken = null;
         QueryQueue queryQueue = null;
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
                 && context.getSessionVariable().getEnablePipelineEngine()) {
             queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             try {
-                offerRet = queryQueue.getToken();
+                queueToken = queryQueue.getToken();
             } catch (InterruptedException e) {
                 // this Exception means try lock/await failed, so no need to handle offer result
                 LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
                 throw new RuntimeException("interrupted Exception happens when queue query");
             }
-            if (offerRet != null && !offerRet.enqueueSuccess()) {
-                String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
+            if (queueToken != null && !queueToken.enqueueSuccess()) {
+                String retMsg = "queue failed, reason=" + queueToken.getOfferResultDetail();
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
                 throw new UserException(retMsg);
             }
-            if (!offerRet.waitSignal()) {
-                String retMsg = "queue success but wait too long in queue";
-                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
-                queryQueue.returnToken(offerRet);
-                throw new UserException(retMsg);
+            if (!queueToken.waitSignal()) {
+                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
+                queryQueue.returnToken(queueToken);
+                throw new UserException(queueToken.getOfferResultDetail());
             }
         }
 
@@ -666,8 +665,8 @@ public class StmtExecutor {
                 }
             }
         } finally {
-            if (offerRet != null) {
-                queryQueue.returnToken(offerRet);
+            if (queueToken != null) {
+                queryQueue.returnToken(queueToken);
             }
         }
     }

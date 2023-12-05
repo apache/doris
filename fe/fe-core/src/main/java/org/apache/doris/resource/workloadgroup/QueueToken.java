@@ -21,11 +21,14 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 // used to mark QueryQueue offer result
 // if offer failed, then need to cancel query
 // and return failed reason to user client
 public class QueueToken {
-
+    private static final Logger LOG = LogManager.getLogger(QueueToken.class);
     enum TokenState {
         ENQUEUE_FAILED,
         ENQUEUE_SUCCESS,
@@ -40,8 +43,6 @@ public class QueueToken {
 
     private long waitTimeout = 0;
 
-    private long enqueueTime = 0;
-
     private String offerResultDetail;
 
     private final ReentrantLock tokenLock = new ReentrantLock();
@@ -53,7 +54,6 @@ public class QueueToken {
         this.tokenState = tokenState;
         this.waitTimeout = waitTimeout;
         this.offerResultDetail = offerResultDetail;
-        this.enqueueTime = System.currentTimeMillis();
     }
 
     public boolean waitSignal() throws InterruptedException {
@@ -68,6 +68,8 @@ public class QueueToken {
             tokenCond.wait(waitTimeout);
             // If wait timeout and is steal not ready to run, then return false
             if (tokenState != TokenState.READY_TO_RUN) {
+                LOG.warn("wait in queue timeout, timeout = {}", waitTimeout);
+                this.offerResultDetail = "wait in queue timeout, timeout = " + waitTimeout;
                 return false;
             } else {
                 return true;
