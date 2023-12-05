@@ -39,7 +39,6 @@ public class QueryQueue {
     private int queueTimeout; // ms
     // running property
     private volatile int currentRunningQueryNum;
-    private volatile int currentWaitingQueryNum;
 
     public static final String RUNNING_QUERY_NUM = "running_query_num";
     public static final String WAITING_QUERY_NUM = "waiting_query_num";
@@ -55,7 +54,12 @@ public class QueryQueue {
     }
 
     int getCurrentWaitingQueryNum() {
-        return currentWaitingQueryNum;
+        try {
+            queueLock.lock();
+            return priorityTokenQueue.size();
+        } finally {
+            queueLock.unlock();
+        }
     }
 
     long getPropVersion() {
@@ -91,7 +95,7 @@ public class QueryQueue {
         return "wgId= " + wgId + ", version=" + this.propVersion + ",maxConcurrency=" + maxConcurrency
                 + ", maxQueueSize=" + maxQueueSize + ", queueTimeout=" + queueTimeout
                 + ", currentRunningQueryNum=" + currentRunningQueryNum
-                + ", currentWaitingQueryNum=" + currentWaitingQueryNum;
+                + ", currentWaitingQueryNum=" + priorityTokenQueue.size();
     }
 
     public QueueToken getToken() throws InterruptedException {
@@ -106,14 +110,10 @@ public class QueryQueue {
                 currentRunningQueryNum++;
                 return new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
             }
-            // currentRunningQueryNum may bigger than maxRunningQueryNum
-            // because maxRunningQueryNum can be altered
-            if (currentWaitingQueryNum >= maxQueueSize) {
+            if (priorityTokenQueue.size() >= maxQueueSize) {
                 return new QueueToken(TokenState.ENQUEUE_FAILED, queueTimeout,
                         "query waiting queue is full, queue length=" + maxQueueSize);
             }
-
-            currentWaitingQueryNum++;
             QueueToken newQueryToken = new QueueToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
                     "query wait timeout " + queueTimeout + " ms");
             this.priorityTokenQueue.offer(newQueryToken);
