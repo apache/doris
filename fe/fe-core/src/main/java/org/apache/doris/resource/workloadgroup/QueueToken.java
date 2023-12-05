@@ -20,6 +20,7 @@ package org.apache.doris.resource.workloadgroup;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Condition;
 import java.util.concurrent.locks.ReentrantLock;
@@ -68,7 +69,7 @@ public class QueueToken {
             if (tokenState == TokenState.ENQUEUE_FAILED) {
                 return false;
             }
-            tokenCond.wait(waitTimeout);
+            tokenCond.await(waitTimeout, TimeUnit.MILLISECONDS);
             // If wait timeout and is steal not ready to run, then return false
             if (tokenState != TokenState.READY_TO_RUN) {
                 LOG.warn("wait in queue timeout, timeout = {}", waitTimeout);
