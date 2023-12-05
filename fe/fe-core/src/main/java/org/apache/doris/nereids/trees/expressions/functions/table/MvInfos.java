@@ -22,17 +22,17 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
-import org.apache.doris.tablefunction.MaterializedViewsTableValuedFunction;
+import org.apache.doris.tablefunction.MvInfosTableValuedFunction;
 import org.apache.doris.tablefunction.TableValuedFunctionIf;
 
 import java.util.Map;
 
 /**
- * mtmvs
+ * mv_infos
  */
-public class Mtmvs extends TableValuedFunction {
-    public Mtmvs(Properties properties) {
-        super("mtmvs", properties);
+public class MvInfos extends TableValuedFunction {
+    public MvInfos(Properties properties) {
+        super("mv_infos", properties);
     }
 
     @Override
@@ -44,15 +44,15 @@ public class Mtmvs extends TableValuedFunction {
     protected TableValuedFunctionIf toCatalogFunction() {
         try {
             Map<String, String> arguments = getTVFProperties().getMap();
-            return new MaterializedViewsTableValuedFunction(arguments);
+            return new MvInfosTableValuedFunction(arguments);
         } catch (Throwable t) {
-            throw new AnalysisException("Can not build MaterializedViewsTableValuedFunction by "
+            throw new AnalysisException("Can not build MvInfosTableValuedFunction by "
                     + this + ": " + t.getMessage(), t);
         }
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitMtmvs(this, context);
+        return visitor.visitMvInfos(this, context);
     }
 }

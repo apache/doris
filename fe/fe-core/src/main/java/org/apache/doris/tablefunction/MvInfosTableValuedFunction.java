@@ -38,9 +38,9 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
- * mtmvs("database" = "db1").
+ * mv_infos("database" = "db1").
  */
-public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFunction {
+public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "mv_infos";
     private static final String DB = "database";
 
@@ -74,7 +74,7 @@ public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFun
 
     private final String databaseName;
 
-    public MaterializedViewsTableValuedFunction(Map<String, String> params) throws AnalysisException {
+    public MvInfosTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = Maps.newHashMap();
         for (String key : params.keySet()) {
             if (!PROPERTIES_SET.contains(key.toLowerCase())) {
@@ -108,7 +108,7 @@ public class MaterializedViewsTableValuedFunction extends MetadataTableValuedFun
 
     @Override
     public String getTableName() {
-        return "MaterializedViewsTableValuedFunction";
+        return "MvInfosTableValuedFunction";
     }
 
     @Override

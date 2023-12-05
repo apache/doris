@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
-import org.apache.doris.nereids.trees.expressions.functions.table.Mtmvs;
+import org.apache.doris.nereids.trees.expressions.functions.table.MvInfos;
 import org.apache.doris.nereids.trees.expressions.functions.table.Numbers;
 import org.apache.doris.nereids.trees.expressions.functions.table.Queries;
 import org.apache.doris.nereids.trees.expressions.functions.table.S3;
@@ -50,8 +50,8 @@ public interface TableValuedFunctionVisitor<R, C> {
         return visitTableValuedFunction(frontends, context);
     }
 
-    default R visitMtmvs(Mtmvs mtmvs, C context) {
-        return visitTableValuedFunction(mtmvs, context);
+    default R visitMvInfos(MvInfos mvInfos, C context) {
+        return visitTableValuedFunction(mvInfos, context);
     }
 
     default R visitJobs(Jobs jobs, C context) {
