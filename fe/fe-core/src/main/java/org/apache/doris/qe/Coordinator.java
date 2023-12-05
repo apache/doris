@@ -45,6 +45,7 @@ import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.MultiCastDataSink;
 import org.apache.doris.planner.MultiCastPlanFragment;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNode;
@@ -300,6 +301,9 @@ public class Coordinator implements CoordInterface {
                 && (fragments.size() > 0);
 
         initQueryOptions(context);
+        if (planner instanceof OriginalPlanner) {
+            queryOptions.setEnableLocalShuffle(false);
+        }
 
         setFromUserProperty(context);
 

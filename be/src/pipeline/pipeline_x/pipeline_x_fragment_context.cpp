@@ -254,6 +254,17 @@ Status PipelineXFragmentContext::_plan_local_shuffle(
         int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx) {
     for (int pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
         _pipelines[pip_idx]->init_need_to_local_shuffle_by_source();
+        // Set property if child pipeline is not join operator's child.
+        if (!_pipelines[pip_idx]->children().empty()) {
+            for (auto& child : _pipelines[pip_idx]->children()) {
+                if (child->sink_x()->node_id() ==
+                    _pipelines[pip_idx]->operator_xs().front()->node_id()) {
+                    _pipelines[pip_idx]->set_need_to_local_shuffle(
+                            _pipelines[pip_idx]->need_to_local_shuffle() &&
+                            child->need_to_local_shuffle());
+                }
+            }
+        }
 
         RETURN_IF_ERROR(_plan_local_shuffle(num_buckets, pip_idx, _pipelines[pip_idx],
                                             bucket_seq_to_instance_idx));
