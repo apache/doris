@@ -127,7 +127,8 @@ private:
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
     Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
                                PipelinePtr cur_pipe, const std::vector<TExpr>& texprs,
-                               ExchangeType exchange_type, bool* do_local_exchange);
+                               ExchangeType exchange_type, bool* do_local_exchange, int num_buckets,
+                               const std::map<int, int>& bucket_seq_to_instance_idx);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -153,8 +154,10 @@ private:
                              const TPipelineFragmentParams& params, const RowDescriptor& row_desc,
                              RuntimeState* state, DescriptorTbl& desc_tbl,
                              PipelineId cur_pipeline_id);
-    Status _plan_local_shuffle();
-    Status _plan_local_shuffle(int pip_idx, PipelinePtr pip);
+    Status _plan_local_shuffle(int num_buckets,
+                               const std::map<int, int>& bucket_seq_to_instance_idx);
+    Status _plan_local_shuffle(int num_buckets, int pip_idx, PipelinePtr pip,
+                               const std::map<int, int>& bucket_seq_to_instance_idx);
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 

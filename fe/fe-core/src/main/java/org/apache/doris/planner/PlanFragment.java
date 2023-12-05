@@ -144,6 +144,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // The runtime filter id that is expected to be used
     private Set<RuntimeFilterId> targetRuntimeFilterIds;
 
+    private int bucketNum;
+
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
 
@@ -459,5 +461,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setFragmentSequenceNum(int seq) {
         fragmentSequenceNum = seq;
+    }
+
+    public int getBucketNum() {
+        return bucketNum;
+    }
+
+    public void setBucketNum(int bucketNum) {
+        this.bucketNum = bucketNum;
     }
 }

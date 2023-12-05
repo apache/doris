@@ -112,6 +112,43 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
     return Status::OK();
 }
 
+Status BucketShuffleExchanger::_split_rows(RuntimeState* state,
+                                           const uint32_t* __restrict channel_ids,
+                                           vectorized::Block* block, SourceState source_state,
+                                           LocalExchangeSinkLocalState& local_state) {
+    auto& data_queue = _data_queue;
+    const auto rows = block->rows();
+    auto row_idx = std::make_shared<std::vector<int>>(rows);
+    {
+        local_state._partition_rows_histogram.assign(_num_buckets + 1, 0);
+        for (size_t i = 0; i < rows; ++i) {
+            local_state._partition_rows_histogram[channel_ids[i]]++;
+        }
+        for (int32_t i = 1; i <= _num_buckets; ++i) {
+            local_state._partition_rows_histogram[i] +=
+                    local_state._partition_rows_histogram[i - 1];
+        }
+
+        for (int32_t i = rows - 1; i >= 0; --i) {
+            (*row_idx)[local_state._partition_rows_histogram[channel_ids[i]] - 1] = i;
+            local_state._partition_rows_histogram[channel_ids[i]]--;
+        }
+    }
+    auto new_block = vectorized::Block::create_shared(block->clone_empty());
+    new_block->swap(*block);
+    auto map = local_state._parent->cast<LocalExchangeSinkOperatorX>()._bucket_seq_to_instance_idx;
+    for (size_t i = 0; i < _num_buckets; i++) {
+        size_t start = local_state._partition_rows_histogram[i];
+        size_t size = local_state._partition_rows_histogram[i + 1] - start;
+        if (size > 0) {
+            data_queue[map[i]].enqueue({new_block, {row_idx, start, size}});
+            local_state._shared_state->set_ready_for_read(i);
+        }
+    }
+
+    return Status::OK();
+}
+
 Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_block,
                                   SourceState source_state,
                                   LocalExchangeSinkLocalState& local_state) {

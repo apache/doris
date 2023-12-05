@@ -46,7 +46,7 @@ protected:
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 
-class ShuffleExchanger final : public Exchanger {
+class ShuffleExchanger : public Exchanger {
     using PartitionedBlock =
             std::pair<std::shared_ptr<vectorized::Block>,
                       std::tuple<std::shared_ptr<std::vector<int>>, size_t, size_t>>;
@@ -62,14 +62,27 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block, SourceState& source_state,
                      LocalExchangeSourceLocalState& local_state) override;
-    ExchangeType get_type() const override { return ExchangeType::SHUFFLE; }
+    ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
+
+protected:
+    virtual Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
+                               vectorized::Block* block, SourceState source_state,
+                               LocalExchangeSinkLocalState& local_state);
+
+    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> _data_queue;
+};
+
+class BucketShuffleExchanger : public ShuffleExchanger {
+    BucketShuffleExchanger(int num_instances, int num_buckets)
+            : ShuffleExchanger(num_instances), _num_buckets(num_buckets) {}
+    ~BucketShuffleExchanger() override = default;
+    ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 
 private:
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, SourceState source_state,
-                       LocalExchangeSinkLocalState& local_state);
-
-    std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> _data_queue;
+                       LocalExchangeSinkLocalState& local_state) override;
+    const int _num_buckets;
 };
 
 class PassthroughExchanger final : public Exchanger {

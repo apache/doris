@@ -2234,6 +2234,15 @@ public class Coordinator implements CoordInterface {
         if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
             fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
             fragmentIdTobucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
+
+            // Same as bucket shuffle.
+            int bucketNum = 0;
+            if (scanNode.getOlapTable().isColocateTable()) {
+                bucketNum = scanNode.getOlapTable().getDefaultDistributionInfo().getBucketNum();
+            } else {
+                bucketNum = (int) (scanNode.getTotalTabletsNum());
+            }
+            scanNode.getFragment().setBucketNum(bucketNum);
         }
         Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
         BucketSeqToScanRange bucketSeqToScanRange = fragmentIdTobucketSeqToScanRangeMap.get(scanNode.getFragmentId());
@@ -2761,6 +2770,7 @@ public class Coordinator implements CoordInterface {
                 fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
                 fragmentIdBucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
                 fragmentIdToBuckendIdBucketCountMap.put(scanNode.getFragmentId(), new HashMap<>());
+                scanNode.getFragment().setBucketNum(bucketNum);
             }
             Map<Integer, TNetworkAddress> bucketSeqToAddress
                     = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
@@ -3548,7 +3558,12 @@ public class Coordinator implements CoordInterface {
                     }
 
                     params.setFileScanParams(fileScanRangeParamsMap);
+                    params.setNumBuckets(fragment.getBucketNum());
                     res.put(instanceExecParam.host, params);
+                    res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
+                }
+                for (int bucket : instanceExecParam.bucketSeqSet) {
+                    res.get(instanceExecParam.host).getBucketSeqToInstanceIdx().put(bucket, i);
                 }
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);
                 TPipelineInstanceParams localParams = new TPipelineInstanceParams();

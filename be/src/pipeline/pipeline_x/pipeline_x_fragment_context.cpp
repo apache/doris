@@ -231,7 +231,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
     static_cast<void>(root_pipeline->set_sink(_sink));
 
-    RETURN_IF_ERROR(_plan_local_shuffle());
+    RETURN_IF_ERROR(_plan_local_shuffle(request.num_buckets, request.bucket_seq_to_instance_idx));
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
@@ -250,16 +250,20 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     return Status::OK();
 }
 
-Status PipelineXFragmentContext::_plan_local_shuffle() {
+Status PipelineXFragmentContext::_plan_local_shuffle(
+        int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx) {
     for (int pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
         _pipelines[pip_idx]->init_need_to_local_shuffle_by_source();
 
-        RETURN_IF_ERROR(_plan_local_shuffle(pip_idx, _pipelines[pip_idx]));
+        RETURN_IF_ERROR(_plan_local_shuffle(num_buckets, pip_idx, _pipelines[pip_idx],
+                                            bucket_seq_to_instance_idx));
     }
     return Status::OK();
 }
 
-Status PipelineXFragmentContext::_plan_local_shuffle(int pip_idx, PipelinePtr pip) {
+Status PipelineXFragmentContext::_plan_local_shuffle(
+        int num_buckets, int pip_idx, PipelinePtr pip,
+        const std::map<int, int>& bucket_seq_to_instance_idx) {
     int idx = 0;
     bool do_local_exchange = false;
     do {
@@ -270,7 +274,7 @@ Status PipelineXFragmentContext::_plan_local_shuffle(int pip_idx, PipelinePtr pi
                 RETURN_IF_ERROR(_add_local_exchange(
                         pip_idx, idx, ops[idx]->node_id(), _runtime_state->obj_pool(), pip,
                         ops[idx]->get_local_shuffle_exprs(), ops[idx]->get_local_exchange_type(),
-                        &do_local_exchange));
+                        &do_local_exchange, num_buckets, bucket_seq_to_instance_idx));
             }
             if (do_local_exchange) {
                 idx = 2;
@@ -283,7 +287,7 @@ Status PipelineXFragmentContext::_plan_local_shuffle(int pip_idx, PipelinePtr pi
         RETURN_IF_ERROR(_add_local_exchange(
                 pip_idx, idx, pip->sink_x()->node_id(), _runtime_state->obj_pool(), pip,
                 pip->sink_x()->get_local_shuffle_exprs(), pip->sink_x()->get_local_exchange_type(),
-                &do_local_exchange));
+                &do_local_exchange, num_buckets, bucket_seq_to_instance_idx));
     }
     return Status::OK();
 }
@@ -635,16 +639,17 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
     return Status::OK();
 }
 
-Status PipelineXFragmentContext::_add_local_exchange(int pip_idx, int idx, int node_id,
-                                                     ObjectPool* pool, PipelinePtr cur_pipe,
-                                                     const std::vector<TExpr>& texprs,
-                                                     ExchangeType exchange_type,
-                                                     bool* do_local_exchange) {
+Status PipelineXFragmentContext::_add_local_exchange(
+        int pip_idx, int idx, int node_id, ObjectPool* pool, PipelinePtr cur_pipe,
+        const std::vector<TExpr>& texprs, ExchangeType exchange_type, bool* do_local_exchange,
+        int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx) {
     if (!_runtime_state->enable_local_shuffle() || _num_instances <= 1) {
         return Status::OK();
     }
 
-    if (!cur_pipe->need_to_local_shuffle() && exchange_type == ExchangeType::SHUFFLE) {
+    if (!cur_pipe->need_to_local_shuffle() &&
+        (exchange_type == ExchangeType::HASH_SHUFFLE ||
+         exchange_type == ExchangeType::BUCKET_HASH_SHUFFLE)) {
         return Status::OK();
     }
     *do_local_exchange = true;
@@ -658,14 +663,19 @@ Status PipelineXFragmentContext::_add_local_exchange(int pip_idx, int idx, int n
 
     DataSinkOperatorXPtr sink;
     sink.reset(new LocalExchangeSinkOperatorX(next_sink_operator_id(), local_exchange_id,
-                                              _num_instances, texprs));
+                                              _num_instances, texprs, bucket_seq_to_instance_idx));
     RETURN_IF_ERROR(new_pip->set_sink(sink));
 
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->source_dependencies.resize(_num_instances, nullptr);
     switch (exchange_type) {
-    case ExchangeType::SHUFFLE:
+    case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(_num_instances);
+        new_pip->set_need_to_local_shuffle(false);
+        cur_pipe->set_need_to_local_shuffle(false);
+        break;
+    case ExchangeType::BUCKET_HASH_SHUFFLE:
+        shared_state->exchanger = BucketShuffleExchanger::create_unique(num_buckets);
         new_pip->set_need_to_local_shuffle(false);
         cur_pipe->set_need_to_local_shuffle(false);
         break;
