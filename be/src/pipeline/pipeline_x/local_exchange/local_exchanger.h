@@ -73,6 +73,7 @@ protected:
 };
 
 class BucketShuffleExchanger : public ShuffleExchanger {
+    ENABLE_FACTORY_CREATOR(BucketShuffleExchanger);
     BucketShuffleExchanger(int num_buckets) : ShuffleExchanger(num_buckets) {}
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
