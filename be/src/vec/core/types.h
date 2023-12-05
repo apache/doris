@@ -499,25 +499,29 @@ static constexpr int max_decimal_string_length() {
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
 template <typename T>
 struct Decimal {
-    static_assert(std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
-                  std::is_same_v<T, Int128>);
+    static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
+    template <typename U>
+    static constexpr bool IsCompatible =
+            std::is_same_v<U, Int32> || std::is_same_v<U, Int64> || std::is_same_v<U, Int128> ||
+            std::is_same_v<U, wide::Int256>;
+    template <typename U>
+    static constexpr bool IsConvertible =
+            IsCompatible<U> || std::is_same_v<U, UInt32> || std::is_same_v<U, UInt64>;
+    static_assert(IsCompatible<T>);
+
     using NativeType = T;
 
     Decimal() = default;
     Decimal(Decimal<T>&&) = default;
     Decimal(const Decimal<T>&) = default;
 
-#define DECLARE_NUMERIC_CTOR(TYPE) \
-    Decimal(const TYPE& value_) : value(value_) {}
+    template <class U>
+        requires(IsConvertible<U> && IsInt256)
+    explicit Decimal(U value) : value(value) {}
+    template <class U>
+        requires(IsConvertible<U> && !IsInt256)
+    Decimal(U value) : value(value) {}
 
-    DECLARE_NUMERIC_CTOR(wide::Int256)
-    DECLARE_NUMERIC_CTOR(Int128)
-    DECLARE_NUMERIC_CTOR(Int32)
-    DECLARE_NUMERIC_CTOR(Int64)
-    DECLARE_NUMERIC_CTOR(UInt32)
-    DECLARE_NUMERIC_CTOR(UInt64)
-
-#undef DECLARE_NUMERIC_CTOR
     Decimal(const Float32& value_) : value(value_) {
         if constexpr (std::is_integral<T>::value) {
             value = round(value_);
@@ -541,7 +545,11 @@ struct Decimal {
 
     template <typename U>
     Decimal(const Decimal<U>& x) {
-        value = x;
+        if constexpr (IsInt256) {
+            value = x.value;
+        } else {
+            value = x;
+        }
     }
 
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
@@ -549,10 +557,18 @@ struct Decimal {
 
     operator T() const { return value; }
 
-    operator wide::Int256() const {
+    operator wide::Int256() const
+        requires(!IsInt256)
+    {
         wide::Int256 result;
         wide::Int256::_impl::wide_integer_from_builtin(result, value);
         return result;
+    }
+
+    operator Int128() const
+        requires(IsInt256)
+    {
+        return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64);
     }
 
     const Decimal<T>& operator++() {
@@ -585,7 +601,13 @@ struct Decimal {
         return *this;
     }
 
-    auto operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
+    auto operator<=>(const Decimal<T>& x) const
+        requires(!Decimal<T>::IsInt256)
+    {
+        return value <=> x.value;
+    }
+
+    auto operator==(const Decimal<T>& x) const { return value == x.value; }
 
     static constexpr int max_string_length() { return max_decimal_string_length<T>(); }
 
@@ -605,6 +627,32 @@ struct Decimal {
 
     T value;
 };
+
+template <typename T>
+inline Decimal<T> operator-(const Decimal<T>& x) {
+    return Decimal<T>(-x.value);
+}
+
+template <typename T>
+inline Decimal<T> operator+(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value + y.value);
+}
+template <typename T>
+inline Decimal<T> operator-(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value - y.value);
+}
+template <typename T>
+inline Decimal<T> operator*(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value * y.value);
+}
+template <typename T>
+inline Decimal<T> operator/(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value / y.value);
+}
+template <typename T>
+inline Decimal<T> operator%(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value % y.value);
+}
 
 struct Decimal128I : public Decimal<Int128> {
     Decimal128I() = default;
@@ -628,141 +676,19 @@ struct Decimal128I : public Decimal<Int128> {
     }
 };
 
-template <>
-struct Decimal<wide::Int256> {
-    using T = wide::Int256;
-    using NativeType = wide::Int256;
-
-    Decimal() = default;
-    Decimal(Decimal<T>&&) = default;
-    Decimal(const Decimal<T>&) = default;
-
-#define DECLARE_NUMERIC_CTOR(TYPE) \
-    explicit Decimal(const TYPE& value_) : value(value_) {}
-
-    DECLARE_NUMERIC_CTOR(wide::Int256)
-    DECLARE_NUMERIC_CTOR(Int128)
-    DECLARE_NUMERIC_CTOR(Int32)
-    DECLARE_NUMERIC_CTOR(Int64)
-    DECLARE_NUMERIC_CTOR(UInt32)
-    DECLARE_NUMERIC_CTOR(UInt64)
-    DECLARE_NUMERIC_CTOR(Float32)
-    DECLARE_NUMERIC_CTOR(Float64)
-
-#undef DECLARE_NUMERIC_CTOR
-
-    static Decimal double_to_decimal(double value_) {
-        DecimalV2Value decimal_value;
-        decimal_value.assign_from_double(value_);
-        return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
-    }
-
-    template <typename U>
-    explicit Decimal(const Decimal<U>& x) {
-        value = x.value;
-    }
-
-    constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
-    constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
-
-    operator T() const { return value; }
-
-    operator Int128() const { return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64); }
-
-    const Decimal<T>& operator++() {
-        value++;
-        return *this;
-    }
-    const Decimal<T>& operator--() {
-        value--;
-        return *this;
-    }
-
-    const Decimal<T>& operator+=(const T& x) {
-        value += x;
-        return *this;
-    }
-    const Decimal<T>& operator-=(const T& x) {
-        value -= x;
-        return *this;
-    }
-    const Decimal<T>& operator*=(const T& x) {
-        value *= x;
-        return *this;
-    }
-    const Decimal<T>& operator/=(const T& x) {
-        value /= x;
-        return *this;
-    }
-    const Decimal<T>& operator%=(const T& x) {
-        value %= x;
-        return *this;
-    }
-
-    static constexpr int max_string_length() { return max_decimal_string_length<T>(); }
-
-    std::string to_string(UInt32 scale) const { return decimal_to_string(value, scale); }
-
-    /**
-     * Got the string representation of a decimal.
-     * @param dst Store the result, should be pre-allocated.
-     * @param scale Decimal's scale.
-     * @param scale_multiplier Decimal's scale multiplier.
-     * @return The length of string.
-     */
-    __attribute__((always_inline)) size_t to_string(char* dst, UInt32 scale,
-                                                    const T& scale_multiplier) const {
-        return decimal_to_string(value, dst, scale, scale_multiplier);
-    }
-
-    T value;
-};
-
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
 using Decimal128 = Decimal<Int128>;
 using Decimal256 = Decimal<wide::Int256>;
-template <typename T>
-inline Decimal<T> operator-(const Decimal<T>& x) {
-    return -x.value;
-}
 
-inline Decimal256 operator+(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value + y.value);
-}
-inline Decimal256 operator-(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value - y.value);
-}
-inline Decimal256 operator*(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value * y.value);
-}
-inline Decimal256 operator/(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value / y.value);
-}
-inline Decimal256 operator%(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value % y.value);
-}
-inline Decimal256 operator-(const Decimal256& x) {
-    return Decimal256(-x.value);
-}
-
-inline bool operator<(const Decimal256& x, const Decimal256& y) {
-    return x.value < y.value;
-}
-inline bool operator>(const Decimal256& x, const Decimal256& y) {
-    return x.value > y.value;
-}
-inline bool operator<=(const Decimal256& x, const Decimal256& y) {
-    return x.value <= y.value;
-}
-inline bool operator>=(const Decimal256& x, const Decimal256& y) {
-    return x.value >= y.value;
-}
-inline bool operator==(const Decimal256& x, const Decimal256& y) {
-    return x.value == y.value;
-}
-inline bool operator!=(const Decimal256& x, const Decimal256& y) {
-    return x.value != y.value;
+inline std::strong_ordering operator<=>(const Decimal256& a, const Decimal256& b) {
+    if (a.value < b.value) {
+        return std::strong_ordering::less;
+    }
+    if (a.value > b.value) {
+        return std::strong_ordering::greater;
+    }
+    return std::strong_ordering::equal;
 }
 
 template <>
