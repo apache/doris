@@ -79,8 +79,6 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
     Base::_shared_state->init_spill_partition_helper(p._spill_partition_count_bits);
     for (auto& evaluator : p._aggregate_evaluators) {
         Base::_shared_state->aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
-        Base::_shared_state->aggregate_evaluators.back()->set_timer(_exec_timer, _merge_timer,
-                                                                    _expr_timer);
     }
     if (p._is_streaming) {
         Base::_shared_state->data_queue->set_sink_dependency(Base::_dependency, 0);
@@ -109,6 +107,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(Base::profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
+
+    for (auto& evaluator : Base::_shared_state->aggregate_evaluators) {
+        evaluator->set_timer(_merge_timer, _expr_timer);
+    }
 
     Base::_shared_state->agg_profile_arena = std::make_unique<vectorized::Arena>();
 

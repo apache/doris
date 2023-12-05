@@ -188,7 +188,6 @@ Status PipelineXTask::_open() {
                 _blocked_dep = _filter_dependency->is_blocked_by(this);
                 if (_blocked_dep) {
                     set_state(PipelineTaskState::BLOCKED_FOR_RF);
-                    set_use_blocking_queue();
                     RETURN_IF_ERROR(st);
                 } else if (i == 1) {
                     CHECK(false) << debug_string();
@@ -340,10 +339,10 @@ std::string PipelineXTask::debug_string() {
 
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}, elapse time "
-                   "= {}ns], block dependency = {}, _use_blocking_queue = {}\noperators: ",
+                   "= {}ns], block dependency = {}, \noperators: ",
                    (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run,
                    MonotonicNanos() - _fragment_context->create_time(),
-                   _blocked_dep ? _blocked_dep->debug_string() : "NULL", _use_blocking_queue);
+                   _blocked_dep ? _blocked_dep->debug_string() : "NULL");
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(
                 debug_string_buffer, "\n{}",

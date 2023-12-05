@@ -23,9 +23,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
@@ -403,12 +403,12 @@ public class CascadesContext implements ScheduleContext {
                 tableNames.addAll(extractTableNamesFromOneRowRelation((UnboundOneRowRelation) p));
             } else {
                 Set<LogicalPlan> logicalPlans = p.collect(
-                        n -> (n instanceof UnboundRelation || n instanceof UnboundOlapTableSink));
+                        n -> (n instanceof UnboundRelation || n instanceof UnboundTableSink));
                 for (LogicalPlan plan : logicalPlans) {
                     if (plan instanceof UnboundRelation) {
                         tableNames.add(((UnboundRelation) plan).getNameParts());
-                    } else if (plan instanceof UnboundOlapTableSink) {
-                        tableNames.add(((UnboundOlapTableSink<?>) plan).getNameParts());
+                    } else if (plan instanceof UnboundTableSink) {
+                        tableNames.add(((UnboundTableSink<?>) plan).getNameParts());
                     } else {
                         throw new AnalysisException("get tables from plan failed. meet unknown type node " + plan);
                     }
