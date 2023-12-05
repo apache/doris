@@ -15,24 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
+package org.apache.doris.nereids.jobs.joinorder.hypergraph.edge;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
-import org.apache.doris.nereids.memo.Group;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
-import java.util.List;
-
-/**
- * A interface of receiver
- */
-public interface AbstractReceiver {
-    boolean emitCsgCmp(long csg, long cmp, List<JoinEdge> edges);
-
-    void addGroup(long bitSet, Group group);
-
-    boolean contain(long bitSet);
-
-    void reset();
-
-    Group getBestPlan(long bitSet);
+public class FilterEdge {
+    LogicalFilter<? extends Plan> filter;
 }
