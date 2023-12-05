@@ -1248,7 +1248,6 @@ PARTITION `p599` VALUES IN (599)
 
     assert all_finished(show_result)
 
-
     // unique table update rows
     sql """
         CREATE TABLE unique_tbl_update_rows_test (col1 varchar(11451) not null,
@@ -1275,4 +1274,15 @@ PARTITION `p599` VALUES IN (599)
         return false
     }
     check_update_rows(unique_table_update_rows_result)
+
+    // Test truncate table will drop table stats too.
+    sql """ANALYZE TABLE ${tbl} WITH SYNC"""
+    def result_before_truncate = sql """show column stats ${tbl}"""
+    assertEquals(14, result_before_truncate.size())
+    sql """TRUNCATE TABLE ${tbl}"""
+    def result_after_truncate = sql """show column stats ${tbl}"""
+    assertEquals(0, result_after_truncate.size())
+    result_after_truncate = sql """show column cached stats ${tbl}"""
+    assertEquals(0, result_after_truncate.size())
+
 }
