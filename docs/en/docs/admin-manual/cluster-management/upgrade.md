@@ -245,8 +245,8 @@ In order to ensure the safety of your data, please use 3 copies to store your da
 3. Copy the new version of `/bin`, `/lib` directory to the original BE directory
 
     ```shell
-    cp ${DORIS_NEW_HOME}/be/bin ${DORIS_OLD_HOME}/be/bin
-    cp ${DORIS_NEW_HOME}/be/lib ${DORIS_OLD_HOME}/be/lib
+    cp -r ${DORIS_NEW_HOME}/be/bin ${DORIS_OLD_HOME}/be/bin
+    cp -r ${DORIS_NEW_HOME}/be/lib ${DORIS_OLD_HOME}/be/lib
     ```
 
 4. Start the BE node
@@ -279,18 +279,20 @@ Upgrade the non-Master nodes first, and then upgrade the Master nodes.
     sh ${DORIS_OLD_HOME}/fe/bin/stop_fe.sh
     ```
 
-2. Rename the `/bin`, `/lib` directories under the FE directory
+2. Rename the `/bin`, `/lib`, `/mysql_ssl_default_certificate` directories under the FE directory
 
     ```shell
     mv ${DORIS_OLD_HOME}/fe/bin ${DORIS_OLD_HOME}/fe/bin_back
     mv ${DORIS_OLD_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib_back
+    mv ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate_back
     ```
 
-3. Copy the new version of `/bin`, `/lib` directory to the original FE directory
+3. Copy the new version of `/bin`, `/lib`, `/mysql_ssl_default_certificate` directory to the original FE directory
 
     ```shell
-    cp ${DORIS_NEW_HOME}/fe/bin ${DORIS_OLD_HOME}/fe/bin
-    cp ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
+    cp -r ${DORIS_NEW_HOME}/fe/bin ${DORIS_OLD_HOME}/fe/bin
+    cp -r ${DORIS_NEW_HOME}/fe/lib ${DORIS_OLD_HOME}/fe/lib
+    cp -r ${DORIS_NEW_HOME}/fe/mysql_ssl_default_certificate ${DORIS_OLD_HOME}/fe/mysql_ssl_default_certificate
     ```
 
 4. Start the FE node
