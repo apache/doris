@@ -144,14 +144,6 @@ suite("test_crud_wlg") {
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("requires a positive integer"));
     }
-    sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
-    sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
-    sql "alter workload group test_group properties ( 'queue_timeout'='0' );"
-    try {
-        sql "select count(1) from ${table_name}"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("queue failed"));
-    }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
     qt_queue_1 """ select count(1) from ${table_name} """

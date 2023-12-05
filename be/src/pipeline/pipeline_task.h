@@ -164,7 +164,6 @@ public:
     }
 
     virtual bool source_can_read() { return _source->can_read() || _pipeline->_always_can_read; }
-    virtual bool push_blocked_task_to_queue() const { return true; }
 
     virtual bool runtime_filters_are_ready_or_timeout() {
         return _source->runtime_filters_are_ready_or_timeout();
