@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitors.PredicatesSpliter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -55,8 +54,7 @@ public class Predicates {
      * Split the expression to equal, range and residual predicate.
      * */
     public static SplitPredicate splitPredicates(Expression expression) {
-        PredicatesSpliter predicatesSplit = new PredicatesSpliter(expression);
-        expression.accept(predicatesSplit, null);
+        PredicatesSplitter predicatesSplit = new PredicatesSplitter(expression);
         return predicatesSplit.getSplitPredicate();
     }
 
@@ -64,26 +62,26 @@ public class Predicates {
      * The split different representation for predicate expression, such as equal, range and residual predicate.
      * */
     public static final class SplitPredicate {
-        private final Expression equalPredicates;
-        private final Expression rangePredicates;
-        private final Expression residualPredicates;
+        private final Expression equalPredicate;
+        private final Expression rangePredicate;
+        private final Expression residualPredicate;
 
-        public SplitPredicate(Expression equalPredicates, Expression rangePredicates, Expression residualPredicates) {
-            this.equalPredicates = equalPredicates;
-            this.rangePredicates = rangePredicates;
-            this.residualPredicates = residualPredicates;
+        public SplitPredicate(Expression equalPredicate, Expression rangePredicate, Expression residualPredicate) {
+            this.equalPredicate = equalPredicate;
+            this.rangePredicate = rangePredicate;
+            this.residualPredicate = residualPredicate;
         }
 
-        public Expression getEqualPredicates() {
-            return equalPredicates;
+        public Expression getEqualPredicate() {
+            return equalPredicate;
         }
 
-        public Expression getRangePredicates() {
-            return rangePredicates;
+        public Expression getRangePredicate() {
+            return rangePredicate;
         }
 
-        public Expression getResidualPredicates() {
-            return residualPredicates;
+        public Expression getResidualPredicate() {
+            return residualPredicate;
         }
 
         public static SplitPredicate empty() {
@@ -103,29 +101,25 @@ public class Predicates {
          * isEmpty
          * */
         public boolean isEmpty() {
-            return equalPredicates == null
-                    && rangePredicates == null
-                    && residualPredicates == null;
-        }
-
-        public Expression composedExpression() {
-            return ExpressionUtils.and(equalPredicates, rangePredicates, residualPredicates);
+            return equalPredicate == null
+                    && rangePredicate == null
+                    && residualPredicate == null;
         }
 
         public List<Expression> toList() {
-            return ImmutableList.of(equalPredicates, rangePredicates, residualPredicates);
+            return ImmutableList.of(equalPredicate, rangePredicate, residualPredicate);
         }
 
         /**
          * Check the predicates in SplitPredicate is whether all true or not
          */
         public boolean isAlwaysTrue() {
-            return equalPredicates instanceof BooleanLiteral
-                    && rangePredicates instanceof BooleanLiteral
-                    && residualPredicates instanceof BooleanLiteral
-                    && ((BooleanLiteral) equalPredicates).getValue()
-                    && ((BooleanLiteral) rangePredicates).getValue()
-                    && ((BooleanLiteral) residualPredicates).getValue();
+            return equalPredicate instanceof BooleanLiteral
+                    && rangePredicate instanceof BooleanLiteral
+                    && residualPredicate instanceof BooleanLiteral
+                    && ((BooleanLiteral) equalPredicate).getValue()
+                    && ((BooleanLiteral) rangePredicate).getValue()
+                    && ((BooleanLiteral) residualPredicate).getValue();
         }
     }
 }
