@@ -117,12 +117,10 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
     @Override
     public PhysicalFilter visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         filter.child().accept(this, context);
-        for (Expression expression : filter.getExpressions()) {
-
-        }
         boolean visibleFilter = filter.getExpressions().stream()
                 .flatMap(expression -> expression.getInputSlots().stream())
-                .allMatch(slot -> isVisibleColumn(slot));
+                .anyMatch(slot -> isVisibleColumn(slot));
+        
         if (visibleFilter) {
             // skip filters like: __DORIS_DELETE_SIGN__ = 0
             context.getRuntimeFilterContext().addEffectiveSrcNode(filter);
