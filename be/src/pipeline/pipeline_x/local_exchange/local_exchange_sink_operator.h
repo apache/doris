@@ -96,7 +96,7 @@ public:
         return Status::InternalError("{} should not init with TPlanNode", Base::_name);
     }
 
-    Status init(ExchangeType type) override {
+    Status init(ExchangeType type, int num_buckets) override {
         _name = "LOCAL_EXCHANGE_SINK_OPERATOR (" + get_exchange_type_name(type) + ")";
         _type = type;
         if (_type == ExchangeType::HASH_SHUFFLE) {
@@ -105,7 +105,7 @@ public:
             RETURN_IF_ERROR(_partitioner->init(_texprs));
         } else if (_type == ExchangeType::BUCKET_HASH_SHUFFLE) {
             _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
-                    _num_partitions));
+                    num_buckets));
             RETURN_IF_ERROR(_partitioner->init(_texprs));
         }
 

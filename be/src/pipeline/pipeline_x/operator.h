@@ -439,7 +439,7 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    virtual Status init(ExchangeType type) {
+    virtual Status init(ExchangeType type, int num_buckets) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 

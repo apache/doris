@@ -675,7 +675,8 @@ Status PipelineXFragmentContext::_add_local_exchange(
         cur_pipe->set_need_to_local_shuffle(false);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
-        shared_state->exchanger = BucketShuffleExchanger::create_unique(num_buckets);
+        shared_state->exchanger =
+                BucketShuffleExchanger::create_unique(_num_instances, num_buckets);
         new_pip->set_need_to_local_shuffle(false);
         cur_pipe->set_need_to_local_shuffle(false);
         break;
@@ -688,7 +689,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)exchange_type));
     }
-    RETURN_IF_ERROR(new_pip->sink_x()->init(exchange_type));
+    RETURN_IF_ERROR(new_pip->sink_x()->init(exchange_type, num_buckets));
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
 
     // 2. Initialize operators list.

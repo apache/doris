@@ -55,7 +55,7 @@ Status ShuffleExchanger::get_block(RuntimeState* state, vectorized::Block* block
                  _data_queue[local_state._channel_id].try_dequeue(partitioned_block));
         *result_block = mutable_block->to_block();
     };
-    if (running_sink_operators == 0) {
+    if (_running_sink_operators == 0) {
         if (_data_queue[local_state._channel_id].try_dequeue(partitioned_block)) {
             SCOPED_TIMER(local_state._copy_data_timer);
             mutable_block =
@@ -141,7 +141,7 @@ Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* b
                                        SourceState& source_state,
                                        LocalExchangeSourceLocalState& local_state) {
     vectorized::Block next_block;
-    if (running_sink_operators == 0) {
+    if (_running_sink_operators == 0) {
         if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
             *block = std::move(next_block);
         } else {

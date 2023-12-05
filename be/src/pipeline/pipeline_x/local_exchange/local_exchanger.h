@@ -27,8 +27,10 @@ class LocalExchangeSinkLocalState;
 
 class Exchanger {
 public:
-    Exchanger(int num_instances)
-            : running_sink_operators(num_instances), _num_partitions(num_instances) {}
+    Exchanger(int num_partitions)
+            : _running_sink_operators(num_partitions), _num_partitions(num_partitions) {}
+    Exchanger(int running_sink_operators, int num_partitions)
+            : _running_sink_operators(running_sink_operators), _num_partitions(num_partitions) {}
     virtual ~Exchanger() = default;
     virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                              SourceState& source_state,
@@ -37,9 +39,9 @@ public:
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
 
-    std::atomic<int> running_sink_operators = 0;
-
 protected:
+    friend struct LocalExchangeSourceDependency;
+    std::atomic<int> _running_sink_operators = 0;
     const int _num_partitions;
 };
 
@@ -53,8 +55,12 @@ class ShuffleExchanger : public Exchanger {
 
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
-    ShuffleExchanger(int num_instances) : Exchanger(num_instances) {
-        _data_queue.resize(num_instances);
+    ShuffleExchanger(int num_partitions) : Exchanger(num_partitions) {
+        _data_queue.resize(num_partitions);
+    }
+    ShuffleExchanger(int running_sink_operators, int num_partitions)
+            : Exchanger(running_sink_operators, num_partitions) {
+        _data_queue.resize(num_partitions);
     }
     ~ShuffleExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
@@ -74,7 +80,8 @@ protected:
 
 class BucketShuffleExchanger : public ShuffleExchanger {
     ENABLE_FACTORY_CREATOR(BucketShuffleExchanger);
-    BucketShuffleExchanger(int num_buckets) : ShuffleExchanger(num_buckets) {}
+    BucketShuffleExchanger(int running_sink_operators, int num_buckets)
+            : ShuffleExchanger(running_sink_operators, num_buckets) {}
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };
