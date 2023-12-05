@@ -52,9 +52,9 @@ suite("test_alter_table_property") {
         """
     sql """sync"""
 
-    def showResult2 = sql """show create table ${tableName}"""
-    logger.info("${showResult2}")
-    assertTrue(showResult2.toString().containsIgnoreCase('"disable_auto_compaction" = "true"'))
+    def showResult3 = sql """show create table ${tableName}"""
+    logger.info("${showResult3}")
+    assertTrue(showResult3.toString().containsIgnoreCase('"disable_auto_compaction" = "true"'))
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """sync"""
