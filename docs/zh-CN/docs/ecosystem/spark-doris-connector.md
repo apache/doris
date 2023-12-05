@@ -37,11 +37,12 @@ Spark Doris Connector 可以支持通过 Spark 读取 Doris 中存储的数据�
 
 ## 版本兼容
 
-| Connector | Spark         | Doris       | Java | Scala      |
-|-----------|---------------|-------------|------|------------|
-| 1.2.0     | 3.2, 3.1, 2.3 | 1.0 +       | 8    | 2.12, 2.11 |
-| 1.1.0     | 3.2, 3.1, 2.3 | 1.0 +       | 8    | 2.12, 2.11 |
-| 1.0.1     | 3.1, 2.3      | 0.12 - 0.15 | 8    | 2.12, 2.11 |
+| Connector | Spark           | Doris       | Java | Scala      |
+|-----------|-----------------|-------------|------|------------|
+| 1.3.0     | 3.1 - 3.4, 2.3  | 1.0 +       | 8    | 2.12, 2.11 |
+| 1.2.0     | 3.2, 3.1,  2.3  | 1.0 +       | 8    | 2.12, 2.11 |
+| 1.1.0     | 3.2, 3.1,  2.3  | 1.0 +       | 8    | 2.12, 2.11 |
+| 1.0.1     | 3.1, 2.3        | 0.12 - 0.15 | 8    | 2.12, 2.11 |
 
 ## 编译与安装
 
@@ -79,8 +80,8 @@ spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.2_2.12-1.2.0-SNAPSHOT
 ```
 <dependency>
     <groupId>org.apache.doris</groupId>
-    <artifactId>spark-doris-connector-3.2_2.12</artifactId>
-    <version>1.2.0</version>
+    <artifactId>spark-doris-connector-3.4_2.12</artifactId>
+    <version>1.3.0-SNAPSHOT</version>
 </dependency>
 ```
 
