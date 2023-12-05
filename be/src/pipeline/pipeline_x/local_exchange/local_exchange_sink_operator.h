@@ -133,7 +133,7 @@ public:
 
 private:
     friend class LocalExchangeSinkLocalState;
-    friend class BucketShuffleExchanger;
+    friend class ShuffleExchanger;
     ExchangeType _type;
     const int _num_partitions;
     const std::vector<TExpr>& _texprs;

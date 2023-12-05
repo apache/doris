@@ -28,7 +28,7 @@ class LocalExchangeSinkLocalState;
 class Exchanger {
 public:
     Exchanger(int num_instances)
-            : running_sink_operators(num_instances), _num_instances(num_instances) {}
+            : running_sink_operators(num_instances), _num_partitions(num_instances) {}
     virtual ~Exchanger() = default;
     virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                              SourceState& source_state,
@@ -40,7 +40,7 @@ public:
     std::atomic<int> running_sink_operators = 0;
 
 protected:
-    const int _num_instances;
+    const int _num_partitions;
 };
 
 class LocalExchangeSourceLocalState;
@@ -65,24 +65,17 @@ public:
     ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
 protected:
-    virtual Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                               vectorized::Block* block, SourceState source_state,
-                               LocalExchangeSinkLocalState& local_state);
+    Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
+                       vectorized::Block* block, SourceState source_state,
+                       LocalExchangeSinkLocalState& local_state);
 
     std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> _data_queue;
 };
 
 class BucketShuffleExchanger : public ShuffleExchanger {
-    BucketShuffleExchanger(int num_instances, int num_buckets)
-            : ShuffleExchanger(num_instances), _num_buckets(num_buckets) {}
+    BucketShuffleExchanger(int num_buckets) : ShuffleExchanger(num_buckets) {}
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
-
-private:
-    Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
-                       vectorized::Block* block, SourceState source_state,
-                       LocalExchangeSinkLocalState& local_state) override;
-    const int _num_buckets;
 };
 
 class PassthroughExchanger final : public Exchanger {
