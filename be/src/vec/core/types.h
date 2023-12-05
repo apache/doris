@@ -681,14 +681,17 @@ using Decimal64 = Decimal<Int64>;
 using Decimal128 = Decimal<Int128>;
 using Decimal256 = Decimal<wide::Int256>;
 
-inline std::strong_ordering operator<=>(const Decimal256& a, const Decimal256& b) {
-    if (a.value < b.value) {
-        return std::strong_ordering::less;
-    }
-    if (a.value > b.value) {
-        return std::strong_ordering::greater;
-    }
-    return std::strong_ordering::equal;
+inline bool operator<(const Decimal256& x, const Decimal256& y) {
+    return x.value < y.value;
+}
+inline bool operator>(const Decimal256& x, const Decimal256& y) {
+    return x.value > y.value;
+}
+inline bool operator<=(const Decimal256& x, const Decimal256& y) {
+    return x.value <= y.value;
+}
+inline bool operator>=(const Decimal256& x, const Decimal256& y) {
+    return x.value >= y.value;
 }
 
 template <>
