@@ -4152,6 +4152,10 @@ show_param ::=
     {:
         RESULT = new ShowAnalyzeTaskStatus(jobId);
     :}
+    | KW_ANALYZE KW_TABLETS integer_list:tabletIds
+    {:
+        RESULT = new ShowAnalyzeTabletsStmt(tabletIds);
+    :}
     | KW_CATALOG KW_RECYCLE KW_BIN opt_wild_where
     {:
         RESULT = new ShowCatalogRecycleBinStmt(parser.where);
