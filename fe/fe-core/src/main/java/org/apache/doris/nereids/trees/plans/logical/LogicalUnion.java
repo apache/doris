@@ -56,6 +56,12 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         this.constantExprsList = ImmutableList.of();
     }
 
+    public LogicalUnion(Qualifier qualifier, List<List<NamedExpression>> constantExprsList, List<Plan> children) {
+        super(PlanType.LOGICAL_UNION, qualifier, children);
+        this.hasPushedFilter = false;
+        this.constantExprsList = constantExprsList;
+    }
+
     public LogicalUnion(Qualifier qualifier, List<NamedExpression> outputs, List<List<SlotReference>> childrenOutputs,
             List<List<NamedExpression>> constantExprsList, boolean hasPushedFilter, List<Plan> children) {
         super(PlanType.LOGICAL_UNION, qualifier, outputs, childrenOutputs, children);
