@@ -1360,7 +1360,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         String txt = ctx.STRING_LITERAL().getText();
         String s = txt.substring(1, txt.length() - 1);
-        s = s.replace("''", "'").replace("\"\"", "\"");
+        if (txt.charAt(0) == '\'') {
+            // for single quote string, '' should be converted to '
+            s = s.replace("''", "'");
+        } else if (txt.charAt(0) == '"') {
+            // for double quote string, "" should be converted to "
+            s = s.replace("\"\"", "\"");
+        }
         if (!SqlModeHelper.hasNoBackSlashEscapes()) {
             s = escapeBackSlash(s);
         }
