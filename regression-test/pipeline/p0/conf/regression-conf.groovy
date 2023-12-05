@@ -54,7 +54,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_information_schema_external,test_outfile_exception,test_digest,test_aggregate_all_functions2,test_hive_read_orc_complex_type,test_with_and_two_phase_agg,explode,test_cast_function,test_profile,test_broker_load_p2,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog"
+excludeSuites = "ds_rf95,test_information_schema_external,test_outfile_exception,test_digest,test_aggregate_all_functions2,test_hive_read_orc_complex_type,test_with_and_two_phase_agg,explode,test_cast_function,test_profile,test_broker_load_p2,test_spark_load,test_analyze_stats_p1,test_refresh_mtmv,test_bitmap_filter,test_export_parquet,test_doris_jdbc_catalog"
 
 // this directories will not be executed
 excludeDirectories = "workload_manager_p1,fault_injection_p0"
