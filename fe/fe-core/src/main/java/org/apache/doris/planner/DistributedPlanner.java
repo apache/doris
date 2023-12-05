@@ -939,12 +939,6 @@ public class DistributedPlanner {
                 childFragment.addPlanRoot(node);
                 childFragment.setHasColocatePlanNode(false);
                 return childFragment;
-            } else if (SessionVariable.enablePipelineEngineX()
-                    && childFragment.getPlanRoot() instanceof OlapScanNode) {
-                childFragment.getPlanRoot().setShouldColoScan();
-                childFragment.addPlanRoot(node);
-                childFragment.setHasColocatePlanNode(false);
-                return childFragment;
             } else {
                 return createMergeAggregationFragment(node, childFragment);
             }
