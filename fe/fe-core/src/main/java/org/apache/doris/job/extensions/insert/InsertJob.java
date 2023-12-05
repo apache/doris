@@ -34,6 +34,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -50,6 +52,27 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 @Data
 @Slf4j
 public class InsertJob extends AbstractJob<InsertTask> {
+
+    public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
+            new Column("Id", ScalarType.createStringType()),
+            new Column("Name", ScalarType.createStringType()),
+            new Column("Definer", ScalarType.createStringType()),
+            new Column("ExecuteType", ScalarType.createStringType()),
+            new Column("RecurringStrategy", ScalarType.createStringType()),
+            new Column("Status", ScalarType.createStringType()),
+            new Column("ExecuteSql", ScalarType.createStringType()),
+            new Column("CreateTime", ScalarType.createStringType()),
+            new Column("Comment", ScalarType.createStringType()));
+
+    public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        for (int i = 0; i < SCHEMA.size(); i++) {
+            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        COLUMN_TO_INDEX = builder.build();
+    }
 
     @SerializedName(value = "lp")
     String labelPrefix;

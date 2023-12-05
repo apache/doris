@@ -18,9 +18,11 @@
 package org.apache.doris.job.extensions.mtmv;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
@@ -36,8 +38,12 @@ import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TUniqueId;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -49,6 +55,27 @@ import java.util.UUID;
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
     public static final Long MAX_HISTORY_TASKS_NUM = 100L;
+
+    public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
+            new Column("TaskId", ScalarType.createStringType()),
+            new Column("JobId", ScalarType.createStringType()),
+            new Column("JobName", ScalarType.createStringType()),
+            new Column("Status", ScalarType.createStringType()),
+            new Column("CreateTime", ScalarType.createStringType()),
+            new Column("StartTime", ScalarType.createStringType()),
+            new Column("FinishTime", ScalarType.createStringType()),
+            new Column("DurationMs", ScalarType.createStringType()),
+            new Column("ExecuteSql", ScalarType.createStringType()));
+
+    public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        for (int i = 0; i < SCHEMA.size(); i++) {
+            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        COLUMN_TO_INDEX = builder.build();
+    }
 
     @SerializedName(value = "di")
     private long dbId;
@@ -128,6 +155,22 @@ public class MTMVTask extends AbstractTask {
         data.add(String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs()));
         data.add(sql);
         return data;
+    }
+
+    @Override
+    public TRow getTvfInfo() {
+        TRow trow = new TRow();
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
+        trow.addToColumnValue(new TCell().setStringVal(super.getStatus().toString()));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getStartTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getFinishTimeMs())));
+        trow.addToColumnValue(
+                new TCell().setStringVal(String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(sql));
+        return trow;
     }
 
     private static String generateSql(MTMV mtmv) {
