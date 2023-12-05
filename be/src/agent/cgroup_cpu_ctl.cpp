@@ -18,6 +18,9 @@
 #include "agent/cgroup_cpu_ctl.h"
 
 #include <fmt/format.h>
+#include <sys/stat.h>
+
+#include <filesystem>
 
 namespace doris {
 
