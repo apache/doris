@@ -249,6 +249,8 @@ struct TQueryOptions {
   86: optional i32 analyze_timeout = 43200;
 
   87: optional bool faster_float_convert = false;
+
+  92: optional i32 wait_full_block_schedule_times = 1;
 }
 
 
