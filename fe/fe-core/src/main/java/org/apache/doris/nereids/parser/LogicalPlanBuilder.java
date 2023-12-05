@@ -321,6 +321,7 @@ import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.Command.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
@@ -494,7 +495,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 temporaryPartition,
                 partitions,
                 ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                true,
+                DMLCommandType.INSERT,
                 plan);
         LogicalPlan command;
         if (isOverwrite) {

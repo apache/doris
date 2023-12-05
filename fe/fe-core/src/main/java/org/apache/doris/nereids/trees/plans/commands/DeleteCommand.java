@@ -121,7 +121,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundTableSink<>(nameParts, cols, ImmutableList.of(),
-                partitions, isPartialUpdate, logicalQuery);
+                false, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {

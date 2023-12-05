@@ -137,7 +137,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), isPartialUpdate, logicalQuery);
+                false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
     }
 
     private void checkTable(ConnectContext ctx) throws AnalysisException {

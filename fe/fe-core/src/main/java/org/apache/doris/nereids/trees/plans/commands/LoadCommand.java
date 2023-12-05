@@ -226,7 +226,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
         return new UnboundTableSink<>(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                dataDesc.getPartitionNames(), isPartialUpdate, tvfLogicalPlan);
+                false, dataDesc.getPartitionNames(), isPartialUpdate, DMLCommandType.LOAD, tvfLogicalPlan);
     }
 
     private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,

@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -100,7 +101,7 @@ public class BindSink implements AnalysisRuleFactory {
                                     .map(NamedExpression.class::cast)
                                     .collect(ImmutableList.toImmutableList()),
                             isPartialUpdate,
-                            sink.isFromNativeInsertStmt(),
+                            sink.getDMLCommandType(),
                             child);
 
                     if (isPartialUpdate) {
@@ -109,7 +110,7 @@ public class BindSink implements AnalysisRuleFactory {
                             throw new AnalysisException("Partial update is only allowed in"
                                     + "unique table with merge-on-write enabled.");
                         }
-                        if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()) {
+                        if (sink.getColNames().isEmpty() && sink.getDMLCommandType() == DMLCommandType.INSERT) {
                             throw new AnalysisException("You must explicitly specify the columns to be updated when "
                                     + "updating partial columns using the INSERT statement.");
                         }
@@ -167,7 +168,9 @@ public class BindSink implements AnalysisRuleFactory {
                                 }
                             }
 
-                            if (!haveInputSeqCol && !isPartialUpdate) {
+                            if (!haveInputSeqCol && !isPartialUpdate && (
+                                    boundSink.getDmlCommandType() != DMLCommandType.UPDATE
+                                            && boundSink.getDmlCommandType() != DMLCommandType.DELETE)) {
                                 if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                                         || !seqColInTable.get().getDefaultValue()
                                         .equals(DefaultValue.CURRENT_TIMESTAMP)) {
