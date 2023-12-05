@@ -37,7 +37,7 @@ import java.util.Map;
 
 /**
  * The Implement of table valued function
- * tasks("type" = "mtmv").
+ * tasks("type" = "mv").
  */
 public class TasksTableValuedFunction extends MetadataTableValuedFunction {
     public static final String NAME = "tasks";

@@ -28,7 +28,7 @@ import org.apache.doris.tablefunction.TasksTableValuedFunction;
 import java.util.Map;
 
 /**
- * mtmvs
+ * tasks
  */
 public class Tasks extends TableValuedFunction {
     public Tasks(Properties properties) {

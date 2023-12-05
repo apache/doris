@@ -28,7 +28,7 @@ import org.apache.doris.tablefunction.TableValuedFunctionIf;
 import java.util.Map;
 
 /**
- * mtmvs
+ * jobs
  */
 public class Jobs extends TableValuedFunction {
     public Jobs(Properties properties) {
