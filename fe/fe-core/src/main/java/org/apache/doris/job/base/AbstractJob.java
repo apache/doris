@@ -114,6 +114,9 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
                 .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
+        if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
+            updateJobStatus(JobStatus.FINISHED);
+        }
     }
 
     public List<T> queryAllTasks() {

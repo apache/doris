@@ -137,11 +137,11 @@ public class CreateJobStmt extends DdlStmt {
         if (null != intervalTimeUnit) {
             IntervalUnit intervalUnit = IntervalUnit.fromString(intervalTimeUnit.toUpperCase());
             if (null == intervalUnit) {
-                throw new AnalysisException("invalid interval time unit " + intervalTimeUnit);
+                throw new AnalysisException("interval time unit can not be " + intervalTimeUnit);
             }
             if (intervalUnit.equals(IntervalUnit.SECOND)
                     && !Config.enable_job_schedule_second_for_test) {
-                throw new AnalysisException("interval time unit can not be week");
+                throw new AnalysisException("interval time unit can not be second");
             }
             timerDefinition.setIntervalUnit(intervalUnit);
         }
