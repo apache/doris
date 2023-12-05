@@ -16,10 +16,10 @@
 // under the License.
 
 package org.apache.doris.resource.workloadgroup;
+
 import org.apache.doris.resource.workloadgroup.QueueOfferToken.TokenState;
 
 import com.google.common.base.Preconditions;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
