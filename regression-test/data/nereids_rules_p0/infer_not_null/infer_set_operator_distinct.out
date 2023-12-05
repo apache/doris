@@ -315,15 +315,20 @@ PhysicalResultSink
 ------------PhysicalOlapScan[t2]
 
 -- !agg_not_output_groupby --
-LogicalResultSink[124] ( outputExprs=[sum(score)#8] )
-+--LogicalAggregate[122] ( groupByExpr=[sum(score)#8], outputExpr=[sum(score)#8], hasRepeat=false )
-   +--LogicalUnion ( qualifier=ALL, outputs=[sum(score)#8], regularChildrenOutputs=[[sum(score)#3], [sum(score)#7]], constantExprsList=[], hasPushedFilter=false )
-      |--LogicalProject[111] ( distinct=false, projects=[sum(score)#3], excepts=[] )
-      |  +--LogicalAggregate[109] ( groupByExpr=[id#0], outputExpr=[id#0, sum(score#1) AS `sum(score)`#3], hasRepeat=false )
-      |     +--LogicalProject[107] ( distinct=false, projects=[id#0, score#1], excepts=[] )
-      |        +--LogicalOlapScan ( qualified=default_cluster:regression_test_nereids_rules_p0_infer_not_null.t1, indexName=t1, selectedIndexId=11333, preAgg=ON )
-      +--LogicalProject[116] ( distinct=false, projects=[sum(score)#7], excepts=[] )
-         +--LogicalAggregate[114] ( groupByExpr=[id#4], outputExpr=[id#4, sum(score#5) AS `sum(score)`#7], hasRepeat=false )
-            +--LogicalProject[112] ( distinct=false, projects=[id#4, score#5], excepts=[] )
-               +--LogicalOlapScan ( qualified=default_cluster:regression_test_nereids_rules_p0_infer_not_null.t2, indexName=t2, selectedIndexId=11344, preAgg=ON )
+PhysicalResultSink
+--PhysicalDistribute
+----hashAgg[GLOBAL]
+------PhysicalDistribute
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
+------------PhysicalDistribute
+--------------PhysicalProject
+----------------hashAgg[LOCAL]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t2]
 

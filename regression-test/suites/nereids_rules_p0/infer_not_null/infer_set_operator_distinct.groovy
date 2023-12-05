@@ -166,6 +166,6 @@ suite("test_infer_set_operator_distinct") {
     """
 
     qt_agg_not_output_groupby """
-        explain rewritten plan select sum(t1.score) from t1 group by t1.id union select sum(t2.score) from t2 group by t2.id
+        explain shape plan select sum(t1.score) from t1 group by t1.id union select sum(t2.score) from t2 group by t2.id
     """
 }
