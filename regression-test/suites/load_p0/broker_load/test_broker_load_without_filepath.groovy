@@ -19,6 +19,8 @@ suite("test_broker_load_without_filepath", "load_p0") {
     // define a sql table
     def testTable = "tbl_test_broker_load_without_filepath"
 
+    def a = 0;
+
     def create_test_table = {testTablex ->
         def result1 = sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
@@ -52,7 +54,8 @@ suite("test_broker_load_without_filepath", "load_p0") {
     }
 
     def load_from_hdfs_norm = {testTablex, label, hdfsFilePath, format, brokerName, hdfsUser, hdfsPasswd ->
-        try {
+
+        test {
             sql """
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")
@@ -67,10 +70,9 @@ suite("test_broker_load_without_filepath", "load_p0") {
                         "timeout"="1200",
                         "max_filter_ratio"="0.1");
                         """
-        }catch (Exception e) {
-            log.info(e.getMessage())
-            assertTrue(e.getMessage().contains("DATA INFILE must be specified."))
+            exception "DATA INFILE must be specified."
         }
+
     }
 
     // if 'enableHdfs' in regression-conf.groovy has been set to true,
