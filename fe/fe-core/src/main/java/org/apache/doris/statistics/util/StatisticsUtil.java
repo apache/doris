@@ -789,8 +789,7 @@ public class StatisticsUtil {
             return null;
         }
         return str.replace("'", "''")
-                .replace("\\", "\\\\")
-                .replace("\"", "\"\"");
+                .replace("\\", "\\\\");
     }
 
     public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
