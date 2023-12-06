@@ -186,6 +186,7 @@ static void set_default_create_tablet_request(TCreateTabletReq* request) {
 
 static void set_create_duplicate_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10009;
+    request->partition_id = 10010;
     request->__set_version(1);
     request->tablet_schema.schema_hash = 270068376;
     request->tablet_schema.short_key_column_count = 2;
