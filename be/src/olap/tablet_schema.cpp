@@ -841,7 +841,7 @@ void TabletSchema::clear_columns() {
     _cols.clear();
 }
 
-void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
+void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns) {
     SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _keys_type = schema.keys_type();
     _num_columns = 0;
@@ -859,7 +859,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
-        if (_ignore_extracted_column && column.is_extracted_column()) {
+        if (ignore_extracted_columns && column.is_extracted_column()) {
             continue;
         }
         if (column.is_key()) {
@@ -1014,9 +1014,10 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
 }
 
 TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
-    bool ignore_extracted_columns = true;
-    TabletSchemaSPtr copy = std::make_shared<TabletSchema>(ignore_extracted_columns);
-    copy->copy_from(*this);
+    TabletSchemaSPtr copy = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    this->to_schema_pb(&tablet_schema_pb);
+    copy->init_from_pb(tablet_schema_pb, true /*ignore extracted_columns*/);
     return copy;
 }
 

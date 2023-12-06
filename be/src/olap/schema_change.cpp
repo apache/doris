@@ -875,7 +875,10 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                 DescriptorTbl::create(&sc_params.pool, request.desc_tbl, &sc_params.desc_tbl));
         sc_params.base_tablet = base_tablet;
         sc_params.new_tablet = new_tablet;
-        // todo: Add comment
+        // During a schema change, the extracted columns of a variant should not be included in the tablet schema.
+        // This is because the schema change for a variant needs to ignore the extracted columns.
+        // Otherwise, the schema types in different rowsets might be inconsistent. When performing a schema change,
+        // the complete variant is constructed by reading all the sub-columns of the variant.
         sc_params.new_tablet_schema = new_tablet->tablet_schema()->copy_without_extracted_columns();
         sc_params.ref_rowset_readers.reserve(rs_splits.size());
         for (RowSetSplits& split : rs_splits) {
