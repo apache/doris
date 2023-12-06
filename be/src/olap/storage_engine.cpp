@@ -1428,7 +1428,7 @@ Status StorageEngine::_persist_broken_paths() {
 
 bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
     if (!config::enable_compaction_priority_scheduling) {
-        return false;
+        return true;
     }
     std::lock_guard l(_low_priority_task_nums_mutex);
     if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
