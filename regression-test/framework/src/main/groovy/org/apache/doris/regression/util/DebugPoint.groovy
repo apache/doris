@@ -18,6 +18,8 @@ package org.apache.doris.regression.util
 import org.apache.doris.regression.util.Http
 import org.codehaus.groovy.runtime.IOGroovyMethods
 import org.apache.doris.regression.suite.Suite
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 
 enum NodeType {
     FE,
@@ -25,6 +27,8 @@ enum NodeType {
 }
 
 class DebugPoint {
+    final static Logger logger = LoggerFactory.getLogger(this.class)
+
     Suite suite
 
     DebugPoint(Suite suite) {
@@ -95,7 +99,7 @@ class DebugPoint {
     /* Enable specific debug point for all BE node in cluster */
     def enableDebugPointForAllBEs(String name, Map<String, String> params = null) {
         operateDebugPointForAllBEs({ host, port ->
-            println "enable debug point $name for BE $host:$port"
+            logger.info("enable debug point ${name} with params ${params} for BE $host:$port")
             enableDebugPoint(host, port, NodeType.BE, name, params)
         })
     }
@@ -103,6 +107,7 @@ class DebugPoint {
     /* Disable specific debug point for all BE node in cluster */
     def disableDebugPointForAllBEs(String name) {
         operateDebugPointForAllBEs { host, port ->
+            logger.info("disable debug point ${name} for BE $host:$port")
             disableDebugPoint(host, port, NodeType.BE, name)
         }
     }
@@ -110,6 +115,7 @@ class DebugPoint {
     /* Disable all debug points for all BE node in cluster */
     def clearDebugPointsForAllBEs() {
         operateDebugPointForAllBEs { host, port ->
+            logger.info("clear debug point for BE $host:$port")
             clearDebugPoints(host, port, NodeType.BE)
         }
     }
@@ -127,19 +133,21 @@ class DebugPoint {
 
     def enableDebugPointForAllFEs(String name, Map<String, String> params = null) {
         operateDebugPointForAllFEs({ host, port ->
-            println "enable debug point $name for FE $host:$port"
+            logger.info("enable debug point ${name} with params ${params} for FE $host:$port")
             enableDebugPoint(host, port, NodeType.FE, name, params)
         })
     }
 
     def disableDebugPointForAllFEs(String name) {
         operateDebugPointForAllFEs { host, port ->
+            logger.info("disable debug point ${name} for FE $host:$port")
             disableDebugPoint(host, port, NodeType.FE, name)
         }
     }
 
     def clearDebugPointsForAllFEs() {
         operateDebugPointForAllFEs { host, port ->
+            logger.info("clear debug point for FE $host:$port")
             clearDebugPoints(host, port, NodeType.FE)
         }
     }
