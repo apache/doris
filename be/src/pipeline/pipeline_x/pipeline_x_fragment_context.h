@@ -154,10 +154,10 @@ private:
                              const TPipelineFragmentParams& params, const RowDescriptor& row_desc,
                              RuntimeState* state, DescriptorTbl& desc_tbl,
                              PipelineId cur_pipeline_id);
-    Status _plan_local_shuffle(int num_buckets,
-                               const std::map<int, int>& bucket_seq_to_instance_idx);
-    Status _plan_local_shuffle(int num_buckets, int pip_idx, PipelinePtr pip,
-                               const std::map<int, int>& bucket_seq_to_instance_idx);
+    Status _plan_local_exchange(int num_buckets,
+                                const std::map<int, int>& bucket_seq_to_instance_idx);
+    Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
+                                const std::map<int, int>& bucket_seq_to_instance_idx);
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
