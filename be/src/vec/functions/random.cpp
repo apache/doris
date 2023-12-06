@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <fmt/core.h>
+#include <fmt/format.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -123,7 +123,7 @@ private:
                             ->get_element(0);
         if (min >= max) {
             return Status::InvalidArgument(fmt::format(
-                    "random's lower bound should less than upper bound, but got [%d, %d)", min,
+                    "random's lower bound should less than upper bound, but got [{}, {})", min,
                     max));
         }
 
