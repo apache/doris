@@ -26,7 +26,6 @@
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/olap_file.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/encodings.h>
 #include <rapidjson/prettywriter.h>
@@ -3152,22 +3151,10 @@ Status Tablet::calc_delete_bitmap(RowsetSharedPtr rowset,
 std::vector<RowsetSharedPtr> Tablet::get_rowset_by_ids(
         const RowsetIdUnorderedSet* specified_rowset_ids) {
     std::vector<RowsetSharedPtr> rowsets;
-    if (!specified_rowset_ids) {
-        for (const auto& [_, rs] : _rs_version_map) {
-            rowsets.push_back(rs);
-        }
-    } else {
-        for (const auto& [_, rs] : _rs_version_map) {
-            if (specified_rowset_ids->find(rs->rowset_id()) != specified_rowset_ids->end()) {
-                rowsets.push_back(rs);
-            }
-        }
-        if (rowsets.size() != specified_rowset_ids->size()) {
-            for (const auto& [_, rs] : _stale_rs_version_map) {
-                if (specified_rowset_ids->find(rs->rowset_id()) != specified_rowset_ids->end()) {
-                    rowsets.push_back(rs);
-                }
-            }
+    for (auto& rs : _rs_version_map) {
+        if (!specified_rowset_ids ||
+            specified_rowset_ids->find(rs.second->rowset_id()) != specified_rowset_ids->end()) {
+            rowsets.push_back(rs.second);
         }
     }
     std::sort(rowsets.begin(), rowsets.end(), [](RowsetSharedPtr& lhs, RowsetSharedPtr& rhs) {
