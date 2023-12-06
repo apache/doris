@@ -33,6 +33,7 @@ import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.job.extensions.mtmv.MTMVTaskContext;
 import org.apache.doris.mtmv.MTMVRefreshEnum.BuildMode;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshTrigger;
@@ -172,7 +173,7 @@ public class MTMVJobManager implements MTMVHookService {
         }
         try {
             // TODO: 2023/12/5 triggerJob need mtmvTaskContext
-            MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(info.getPartitions());
+            MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, info.getPartitions());
             Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId());
         } catch (JobException e) {
             e.printStackTrace();

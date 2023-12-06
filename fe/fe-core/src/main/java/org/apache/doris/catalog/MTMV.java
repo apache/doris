@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -41,6 +42,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 
@@ -163,8 +165,20 @@ public class MTMV extends OlapTable {
         }
     }
 
+    public Set<String> getExcludedTriggerTables() {
+        if (!mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
+            return Sets.newHashSet();
+        }
+        String[] split = mvProperties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES).split(",");
+        return Sets.newHashSet(split);
+    }
+
     public Map<String, String> getMvProperties() {
         return mvProperties;
+    }
+
+    public MTMVPartitionInfo getMvPartitionInfo() {
+        return mvPartitionInfo;
     }
 
     public void readMvLock() {

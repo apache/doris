@@ -17,20 +17,34 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
+
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
 
 public class MTMVTaskContext {
 
+    @SerializedName(value = "sm")
+    private MTMVTaskTriggerMode triggerMode;
+
     @SerializedName(value = "ps")
     private List<String> partitions;
 
-    public MTMVTaskContext(List<String> partitions) {
+    public MTMVTaskContext(MTMVTaskTriggerMode triggerMode) {
+        this.triggerMode = triggerMode;
+    }
+
+    public MTMVTaskContext(MTMVTaskTriggerMode triggerMode, List<String> partitions) {
+        this.triggerMode = triggerMode;
         this.partitions = partitions;
     }
 
     public List<String> getPartitions() {
         return partitions;
+    }
+
+    public MTMVTaskTriggerMode getTriggerMode() {
+        return triggerMode;
     }
 }

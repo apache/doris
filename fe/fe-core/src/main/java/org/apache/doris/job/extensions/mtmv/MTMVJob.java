@@ -30,6 +30,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TCell;
@@ -111,7 +112,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     @Override
     public List<MTMVTask> createTasks(TaskType taskType) {
         // TODO: 2023/12/5
-        MTMVTaskContext taskContext = new MTMVTaskContext(Lists.newArrayList());
+        MTMVTaskContext taskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         MTMVTask task = new MTMVTask(dbId, mtmvId, taskContext);
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
