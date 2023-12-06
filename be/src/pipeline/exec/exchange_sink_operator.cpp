@@ -213,7 +213,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     if (p._part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
         _partitioner.reset(
-                new vectorized::XXHashPartitioner<LocalExchangeChannelIds>(channels.size()));
+                new vectorized::Crc32HashPartitioner<LocalExchangeChannelIds>(channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
