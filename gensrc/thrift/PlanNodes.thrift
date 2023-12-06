@@ -854,6 +854,7 @@ struct TAggregationNode {
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
+  9: optional bool is_colocate
   // 9: optional bool use_fixed_length_serialization_opt
 }
 

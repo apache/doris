@@ -396,7 +396,7 @@ protected:
 
     bool _needs_finalize;
     bool _is_merge;
-    bool _is_first_phase;
+    const bool _is_first_phase;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
@@ -415,6 +415,7 @@ protected:
     const bool _is_streaming;
 
     const std::vector<TExpr> _partition_exprs;
+    const bool _is_colocate;
 };
 
 } // namespace pipeline
