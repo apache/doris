@@ -109,6 +109,21 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         return literalExpr;
     }
 
+
+    public static String getStringLiteralForComplexType(Expr v) {
+        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
+                && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
+                || v.getType() == Type.BOOLEAN)) {
+            return v.getStringValueInFe();
+        } else if (v.getType().isComplexType()) {
+            // these type should also call getStringValueInFe which should handle special case for itself
+            return v.getStringValueInFe();
+        } else {
+            return v.getStringValueForArray();
+        }
+    }
+
+
     /**
      * Init LiteralExpr's Type information
      * only use in rewrite alias function
