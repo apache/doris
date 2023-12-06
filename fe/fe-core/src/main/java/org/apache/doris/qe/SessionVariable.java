@@ -680,7 +680,7 @@ public class SessionVariable implements Serializable, Writable {
      * 1 means disable this feature
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true)
-    public int parallelExecInstanceNum = 1;
+    public int parallelExecInstanceNum = 0;
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
     public int parallelPipelineTaskNum = 0;
@@ -1894,13 +1894,19 @@ public class SessionVariable implements Serializable, Writable {
         this.enableFoldConstantByBe = foldConstantByBe;
     }
 
+    public int getInstancesByCPUHalfSize() {
+        int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
+        int autoInstance = (size + 1) / 2;
+        return Math.min(autoInstance, maxInstanceNum);
+    }
+
     public int getParallelExecInstanceNum() {
         if (getEnablePipelineEngine() && parallelPipelineTaskNum == 0) {
-            int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
-            int autoInstance = (size + 1) / 2;
-            return Math.min(autoInstance, maxInstanceNum);
+            return getInstancesByCPUHalfSize();
         } else if (getEnablePipelineEngine()) {
             return parallelPipelineTaskNum;
+        } else if (parallelExecInstanceNum == 0) { // not pipeline mode
+            return getInstancesByCPUHalfSize();
         } else {
             return parallelExecInstanceNum;
         }
