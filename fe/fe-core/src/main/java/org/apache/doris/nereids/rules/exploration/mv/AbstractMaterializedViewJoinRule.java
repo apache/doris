@@ -40,6 +40,8 @@ import java.util.stream.Collectors;
  * This is responsible for common join rewriting
  */
 public abstract class AbstractMaterializedViewJoinRule extends AbstractMaterializedViewRule {
+    private static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET =
+            Sets.newHashSet(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN);
 
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
@@ -72,21 +74,22 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                 tempRewritedPlan);
     }
 
-    // Check join is whether valid or not. Support join's input can not contain aggregate
-    // Only support project, filter, join, logical relation node and
-    // join condition should be slot reference equals currently
+    /**
+     * Check join is whether valid or not. Support join's input can not contain aggregate
+     * Only support project, filter, join, logical relation node and
+     * join condition should be slot reference equals currently
+     */
     @Override
     protected boolean checkPattern(StructInfo structInfo) {
         HyperGraph hyperGraph = structInfo.getHyperGraph();
-        HashSet<JoinType> requiredJoinType = Sets.newHashSet(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN);
         for (AbstractNode node : hyperGraph.getNodes()) {
             StructInfoNode structInfoNode = (StructInfoNode) node;
             if (!structInfoNode.getPlan().accept(StructInfo.JOIN_PATTERN_CHECKER,
-                    requiredJoinType)) {
+                    SUPPORTED_JOIN_TYPE_SET)) {
                 return false;
             }
             for (Edge edge : hyperGraph.getEdges()) {
-                if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER, requiredJoinType)) {
+                if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER, SUPPORTED_JOIN_TYPE_SET)) {
                     return false;
                 }
             }

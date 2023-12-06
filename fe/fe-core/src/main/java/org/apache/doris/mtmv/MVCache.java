@@ -33,7 +33,9 @@ import org.apache.doris.qe.OriginStatement;
 import java.util.List;
 import java.util.stream.Collectors;
 
-/**The cache for materialized view cache */
+/**
+ * The cache for materialized view cache
+ */
 public class MVCache {
 
     // the materialized view plan which should be optimized by the same rules to query
@@ -67,12 +69,13 @@ public class MVCache {
                 new OriginStatement(mtmv.getQuerySql(), 0));
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);
 
-        planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
-        Plan mvAnalyzedPlan = planner.getAnalyzedPlan();
-        Plan mvRewrittenPlan = planner.getRewrittenPlan();
+        Plan mvRewrittenPlan =
+                planner.plan(unboundMvPlan, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
         Plan mvPlan = mvRewrittenPlan instanceof LogicalResultSink
                 ? (Plan) ((LogicalResultSink) mvRewrittenPlan).child() : mvRewrittenPlan;
-        List<NamedExpression> mvOutputExpressions = mvAnalyzedPlan.getExpressions().stream()
+        // use rewritten plan output expression currently, if expression rewrite fail,
+        // consider to use the analyzed plan for output expressions only
+        List<NamedExpression> mvOutputExpressions = mvRewrittenPlan.getExpressions().stream()
                 .map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
         return new MVCache(mvPlan, mvOutputExpressions);

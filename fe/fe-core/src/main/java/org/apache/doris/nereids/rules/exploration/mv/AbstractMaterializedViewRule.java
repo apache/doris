@@ -160,8 +160,8 @@ public abstract class AbstractMaterializedViewRule {
      * Use target output expression to represent the source expression
      */
     protected List<Expression> rewriteExpression(
-            List<? extends Expression> sourceExpressions,
-            ExpressionMapping expressionMapping,
+            List<? extends Expression> sourceExpressionsToWrite,
+            ExpressionMapping mvExpressionToMvScanExpressionMapping,
             SlotMapping sourceToTargetMapping) {
         // Firstly, rewrite the target plan output expression using query with inverse mapping
         // then try to use the mv expression to represent the query. if any of source expressions
@@ -175,16 +175,16 @@ public abstract class AbstractMaterializedViewRule {
         //     transform source to:
         //        project(slot 2, 1)
         //            target
-        // generate mvSql to mvScan expressionMapping, and change mv sql expression to query based
+        // generate mvSql to mvScan mvExpressionToMvScanExpressionMapping, and change mv sql expression to query based
         ExpressionMapping expressionMappingKeySourceBased =
-                expressionMapping.keyPermute(sourceToTargetMapping.inverse());
+                mvExpressionToMvScanExpressionMapping.keyPermute(sourceToTargetMapping.inverse());
         List<Map<? extends Expression, ? extends Expression>> flattenExpressionMap =
                 expressionMappingKeySourceBased.flattenMap();
         // view to view scan expression is 1:1 so get first element
         Map<? extends Expression, ? extends Expression> mvSqlToMvScanMappingQueryBased = flattenExpressionMap.get(0);
 
         List<Expression> rewrittenExpressions = new ArrayList<>();
-        for (Expression expressionToRewrite : sourceExpressions) {
+        for (Expression expressionToRewrite : sourceExpressionsToWrite) {
             if (expressionToRewrite instanceof Literal) {
                 rewrittenExpressions.add(expressionToRewrite);
                 continue;
