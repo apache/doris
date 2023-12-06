@@ -66,17 +66,25 @@ public class Numbers extends TableValuedFunction {
     public Statistics computeStats(List<Slot> slots) {
         Preconditions.checkArgument(slots.size() == 1);
         try {
-            NumbersTableValuedFunction catalogFunction = (NumbersTableValuedFunction) getCatalogFunction();
-            long rowNum = catalogFunction.getTotalNumbers();
+            NumbersTableValuedFunction numberTvf = (NumbersTableValuedFunction) getCatalogFunction();
+            long rowNum = numberTvf.getTotalNumbers();
+            String tvfType = numberTvf.getType();
 
             Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
-            ColumnStatistic columnStat = new ColumnStatisticBuilder()
-                    .setCount(rowNum).setNdv(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8).setMinValue(0)
-                    .setMaxValue(rowNum - 1)
-                    .setMinExpr(new IntLiteral(0, Type.BIGINT))
-                    .setMaxExpr(new IntLiteral(rowNum - 1, Type.BIGINT))
-                    .build();
-            columnToStatistics.put(slots.get(0), columnStat);
+            ColumnStatisticBuilder statBuilder = new ColumnStatisticBuilder()
+                    .setCount(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8).setMinValue(0);
+            if (tvfType.equals(NumbersTableValuedFunction.NUMBER)) {
+                statBuilder = statBuilder.setNdv(rowNum).setMaxValue(rowNum - 1)
+                        .setMinExpr(new IntLiteral(0, Type.BIGINT))
+                        .setMaxExpr(new IntLiteral(rowNum - 1, Type.BIGINT));
+            } else if (tvfType.equals(NumbersTableValuedFunction.ZERO)) {
+                statBuilder = statBuilder.setNdv(1).setMaxValue(0)
+                        .setMinExpr(new IntLiteral(0, Type.BIGINT))
+                        .setMaxExpr(new IntLiteral(0, Type.BIGINT));
+            } else {
+                throw new InternalError("Unhandled type NumbersTvf type: " + tvfType);
+            }
+            columnToStatistics.put(slots.get(0), statBuilder.build());
             return new Statistics(rowNum, columnToStatistics);
         } catch (Exception t) {
             throw new NereidsException(t.getMessage(), t);

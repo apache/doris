@@ -450,7 +450,8 @@ enum TDataGenFunctionName {
 // Every table valued function should have a scan range definition to save its
 // running parameters
 struct TTVFNumbersScanRange {
-	1: optional i64 totalNumbers
+  1: optional i64 totalNumbers
+  2: optional string type
 }
 
 struct TDataGenScanRange {
