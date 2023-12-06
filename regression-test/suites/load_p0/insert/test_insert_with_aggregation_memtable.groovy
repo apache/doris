@@ -61,22 +61,17 @@ suite("test_insert_with_aggregation_memtable") {
         (10004,"2017-10-01","深圳",35,0,"2017-10-01 10:00:15",100,3,3),
         (10004,"2017-10-03","深圳",35,0,"2017-10-03 10:20:22",11,6,6);
     """
-    sql """ set enable_memtable_on_sink_node=true """
-    sql """ set experimental_enable_pipeline_x_engine=false """
     sql testTableDDL
     sql "sync"
     sql insert_sql
     sql "sync"
     qt_sql "select * from ${testTable} order by id asc"
-    sql """ set enable_memtable_on_sink_node=false"""
     
-    // change enable shrink memory update_config
-    sql """ set enable_memtable_on_sink_node=true """
+    // the original value is false
     set_be_param("enable_shrink_memory", "true")
+    // the original value is 400MB
     set_be_param("write_buffer_size_for_agg", "512") // change it to 0.5KB
     sql """ DROP TABLE IF EXISTS ${testTable}"""
-    sql """ set enable_memtable_on_sink_node=true """
-    sql """ set experimental_enable_pipeline_x_engine=false """
     sql testTableDDL
     sql "sync"
     sql insert_sql
