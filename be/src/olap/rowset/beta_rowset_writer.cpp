@@ -150,7 +150,6 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     {
         std::shared_lock meta_rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
-        _context.mow_context->rowset_ids.clear();
         if (specified_rowsets.size() != _context.mow_context->rowset_ids.size()) {
             int64_t cur_max_version = tablet->max_version_unlocked().second;
             _context.mow_context->rowset_ids.clear();
