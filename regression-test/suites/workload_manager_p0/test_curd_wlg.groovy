@@ -17,8 +17,8 @@
 
 suite("test_crud_wlg") {
     def table_name = "wlg_test_table"
-    def table_name2 = "wlg_test_table"
-    def table_name3 = "wlg_test_table"
+    def table_name2 = "wlg_test_table2"
+    def table_name3 = "wlg_test_table3"
 
     sql "drop table if exists ${table_name}"
     sql "drop table if exists ${table_name2}"
