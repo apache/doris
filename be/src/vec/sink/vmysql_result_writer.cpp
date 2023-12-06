@@ -112,17 +112,20 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         return status;
     }
 
+    if (UNLIKELY(input_block.columns() != _output_vexpr_ctxs.size())) {
+        return Status::InternalError("Requiring {} output columns, but just have {} real columns",
+                                     _output_vexpr_ctxs.size(), input_block.columns());
+    }
+
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
-
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
     auto num_rows = block.rows();
     result->result_batch.rows.resize(num_rows);
-
     uint64_t bytes_sent = 0;
     {
         SCOPED_TIMER(_convert_tuple_timer);
@@ -170,8 +173,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
                 if (argument.column->size() < num_rows) {
                     return Status::InternalError(
                             "Required row size is out of range, need {} rows, column {} has {} "
-                            "rows in "
-                            "fact.",
+                            "rows in fact.",
                             num_rows, argument.column->get_name(), argument.column->size());
                 }
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
