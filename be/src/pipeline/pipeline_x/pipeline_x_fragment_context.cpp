@@ -495,12 +495,12 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             runtime_state->set_load_stream_per_node(request.load_stream_per_node);
             runtime_state->set_total_load_streams(request.total_load_streams);
             runtime_state->set_num_local_sink(request.num_local_sink);
-            DCHECK(runtime_filter_mgr);
-            runtime_state->set_pipeline_x_runtime_filter_mgr(runtime_filter_mgr.get());
+            // DCHECK(runtime_filter_mgr);
+            // runtime_state->set_pipeline_x_runtime_filter_mgr(runtime_filter_mgr.get());
         };
         // build instance runtime state
         _runtime_states[i] = RuntimeState::create_unique(
-                this, local_params.fragment_instance_id, request.query_id, request.fragment_id,
+                local_params.fragment_instance_id, request.query_id, request.fragment_id,
                 request.query_options, _query_ctx->query_globals, _exec_env);
         // build runtime_filter_mgr for each instance
         runtime_filter_mgr =
@@ -533,7 +533,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             auto& task_runtime_state = _task_runtime_states.back();
             set_runtime_state(task_runtime_state);
             auto task = std::make_unique<PipelineXTask>(pipeline, _total_tasks++,
-                                                        task_runtime_state.get(), this, nullptr,
+                                                        _runtime_states[i].get(), this, nullptr,
                                                         get_local_exchange_state(pipeline), i);
             DCHECK(_task_runtime_states[task->task_id()]);
             pipeline_id_to_task.insert({pipeline->id(), task.get()});
@@ -563,8 +563,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         auto prepare_and_set_parent_profile = [&](PipelineXTask* task, size_t pip_idx) {
             DCHECK(pipeline_id_to_profile[pip_idx]);
             task->set_parent_profile(pipeline_id_to_profile[pip_idx].get());
-            auto& task_runtime_state = _task_runtime_states[task->task_id()];
-            RETURN_IF_ERROR(task->prepare(task_runtime_state.get(), local_params,
+            RETURN_IF_ERROR(task->prepare(_runtime_states[i].get(), local_params,
                                           request.fragment.output_sink));
             return Status::OK();
         };
