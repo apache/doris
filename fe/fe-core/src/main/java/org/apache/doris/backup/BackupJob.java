@@ -368,8 +368,14 @@ public class BackupJob extends AbstractJob {
             switch (tbl.getType()) {
                 case OLAP:
                     checkOlapTable((OlapTable) tbl, tableRef);
+                    if (!status.ok()) {
+                        return;
+                    }
                     if (getContent() == BackupContent.ALL) {
                         prepareSnapshotTaskForOlapTable((OlapTable) tbl, tableRef, batchTask);
+                        if (!status.ok()) {
+                            return;
+                        }
                     }
                     break;
                 case VIEW:
@@ -396,6 +402,9 @@ public class BackupJob extends AbstractJob {
 
         // copy all related schema at this moment
         prepareBackupMeta(db);
+        if (!status.ok()) {
+            return;
+        }
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
