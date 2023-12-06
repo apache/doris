@@ -561,7 +561,7 @@ set(COMMON_THIRDPARTY
     simdjson
 )
 
-if (not ARCH_AARCH64)
+if (ARCH_AMD64)
     set(COMMON_THIRDPARTY
         ${COMMON_THIRDPARTY}
         deflate
