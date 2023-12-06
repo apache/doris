@@ -1526,12 +1526,12 @@ Status VTabletWriter::close(Status exec_status) {
             _state->update_num_rows_load_filtered(
                     _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() +
                     _state->num_rows_filtered_in_strict_mode_partial_update());
-            _state->update_num_rows_load_unselected(
-                    _tablet_finder->num_immutable_partition_filtered_rows());
             // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
             int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
                                           _state->num_rows_load_unselected();
             _state->set_num_rows_load_total(num_rows_load_total);
+            _state->update_num_rows_load_unselected(
+                    _tablet_finder->num_immutable_partition_filtered_rows());
 
             // print log of add batch time of all node, for tracing load performance easily
             std::stringstream ss;
