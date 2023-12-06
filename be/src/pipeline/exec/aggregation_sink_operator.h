@@ -371,7 +371,7 @@ public:
         if (_probe_expr_ctxs.empty()) {
             return _needs_finalize ? ExchangeType::PASSTHROUGH : ExchangeType::NOOP;
         }
-        return ExchangeType::HASH_SHUFFLE;
+        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
     }
 
     using DataSinkOperatorX<LocalStateType>::id;
