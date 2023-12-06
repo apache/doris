@@ -112,16 +112,13 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         return status;
     }
 
+    DCHECK(_output_vexpr_ctxs.empty() != true);
+
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
-
-    if (UNLIKELY(block.columns() != _output_vexpr_ctxs.size())) {
-        return Status::InternalError("Requiring {} output columns, but just have {} real columns",
-                                     _output_vexpr_ctxs.size(), input_block.columns());
-    }
 
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
@@ -142,8 +139,10 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             DataTypeSerDeSPtr serde;
         };
 
-        std::vector<Arguments> arguments;
         const size_t num_cols = _output_vexpr_ctxs.size();
+        std::vector<Arguments> arguments;
+        arguments.reserve(num_cols);
+
         for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
             const auto& [column_ptr, col_const] =
                     unpack_if_const(block.get_by_position(col_idx).column);
