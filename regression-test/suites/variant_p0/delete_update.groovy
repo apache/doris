@@ -26,7 +26,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
-        properties("replication_num" = "1");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
     """
 
     sql """insert into ${table_name} values (1, '{"a" : 1, "b" : [1], "c": 1.0}')"""

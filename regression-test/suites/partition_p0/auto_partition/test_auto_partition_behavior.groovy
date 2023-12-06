@@ -30,7 +30,8 @@ suite("test_auto_partition_behavior") {
         )
         DISTRIBUTED BY HASH(`str`) BUCKETS 10
         PROPERTIES (
-            "replication_allocation" = "tag.location.default: 1"
+            "replication_allocation" = "tag.location.default: 1",
+            "enable_unique_key_merge_on_write" = "false"
         );
         """
     // special characters

@@ -54,7 +54,8 @@ suite("test_create_table") {
             CLUSTER BY (`c_name`, `c_address`)
             DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
             PROPERTIES (
-                    "replication_num" = "1"
+                    "replication_num" = "1",
+                    "enable_unique_key_merge_on_write" = "false"
              );
         """
         exception "Cluster keys only support unique keys table which enabled enable_unique_key_merge_on_write"
