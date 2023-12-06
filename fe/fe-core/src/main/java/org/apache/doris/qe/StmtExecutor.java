@@ -144,7 +144,7 @@ import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
-import org.apache.doris.resource.workloadgroup.QueueOfferToken;
+import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -618,22 +618,16 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         syncJournalIfNeeded();
-        QueueOfferToken offerRet = null;
+        QueueToken queueToken = null;
         QueryQueue queryQueue = null;
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
                 && context.getSessionVariable().getEnablePipelineEngine()) {
             queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
-            try {
-                offerRet = queryQueue.offer();
-            } catch (InterruptedException e) {
-                // this Exception means try lock/await failed, so no need to handle offer result
-                LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
-                throw new RuntimeException("interrupted Exception happens when queue query");
-            }
-            if (offerRet != null && !offerRet.isOfferSuccess()) {
-                String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
-                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
-                throw new UserException(retMsg);
+            queueToken = queryQueue.getToken();
+            if (!queueToken.waitSignal()) {
+                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
+                queryQueue.returnToken(queueToken);
+                throw new UserException(queueToken.getOfferResultDetail());
             }
         }
 
@@ -671,8 +665,8 @@ public class StmtExecutor {
                 }
             }
         } finally {
-            if (offerRet != null && offerRet.isOfferSuccess()) {
-                queryQueue.poll();
+            if (queueToken != null) {
+                queryQueue.returnToken(queueToken);
             }
         }
     }
