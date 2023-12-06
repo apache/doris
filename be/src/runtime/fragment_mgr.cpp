@@ -698,7 +698,12 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
             }
         }
     }
-    fragments_ctx->fragment_ids.push_back(fragment_instance_id);
+    {
+        // Need lock to protect fragment_ids vector, beacuse push_back may reallocate it.
+        // And it will be visited when the query is cancelled.
+        std::lock_guard<std::mutex> lock(_lock);
+        fragments_ctx->fragment_ids.push_back(fragment_instance_id);
+    }
 
     exec_state.reset(new FragmentExecState(fragments_ctx->query_id,
                                            params.params.fragment_instance_id, params.backend_num,
