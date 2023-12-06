@@ -44,18 +44,23 @@ import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import java.util.List;
 import java.util.Map;
 
-public class IMetaStoreClientCachedClient extends CachedClient implements AutoCloseable {
+public class IMetaStoreClientCachedClient implements CachedClient {
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = t -> null;
 
     // -1 means no limit on the partitions returned.
     private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
 
+    private PooledHiveMetaStoreClient pooledHiveMetaStoreClient;
+
+    private volatile Throwable throwable;
+
     private final IMetaStoreClient client;
 
     public IMetaStoreClientCachedClient(HiveConf hiveConf, PooledHiveMetaStoreClient pooledHiveMetaStoreClient)
             throws MetaException {
-        super(pooledHiveMetaStoreClient);
         Preconditions.checkNotNull(hiveConf);
+        Preconditions.checkNotNull(pooledHiveMetaStoreClient);
+        this.pooledHiveMetaStoreClient = pooledHiveMetaStoreClient;
         String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
         if (HMSProperties.DLF_TYPE.equalsIgnoreCase(type)) {
             client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
@@ -70,8 +75,21 @@ public class IMetaStoreClientCachedClient extends CachedClient implements AutoCl
     }
 
     @Override
-    protected void closeRealClient() {
-        client.close();
+    public void setThrowable(Throwable throwable) {
+        this.throwable = throwable;
+    }
+
+
+    @Override
+    public void close() throws Exception {
+        synchronized (pooledHiveMetaStoreClient.getClientPool()) {
+            if (throwable != null
+                    || pooledHiveMetaStoreClient.getClientPool().size() > pooledHiveMetaStoreClient.getPoolSize()) {
+                client.close();
+            } else {
+                pooledHiveMetaStoreClient.getClientPool().offer(this);
+            }
+        }
     }
 
     @Override

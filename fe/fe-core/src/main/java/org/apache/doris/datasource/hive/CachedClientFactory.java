@@ -39,7 +39,7 @@ public class CachedClientFactory {
         String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
         switch (dbType) {
             case JdbcResource.POSTGRESQL:
-                return new JdbcPostgreSQLClientCachedClient(pooledHiveMetaStoreClient, jdbcClientConfig);
+                return new HivePostgreSQLCachedClient(pooledHiveMetaStoreClient, jdbcClientConfig);
             default:
                 throw new IllegalArgumentException("Unsupported DB type: " + dbType);
         }

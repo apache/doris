@@ -18,6 +18,7 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.thrift.TOdbcTableType;
 
@@ -37,7 +38,6 @@ import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.PrincipalType;
 import org.apache.hadoop.hive.metastore.api.SerDeInfo;
-import org.apache.hadoop.hive.metastore.api.SerdeType;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
@@ -52,10 +52,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class JdbcPostgreSQLClientCachedClient extends JdbcClientCachedClient {
-    private static final Logger LOG = LogManager.getLogger(JdbcPostgreSQLClientCachedClient.class);
+public class HivePostgreSQLCachedClient extends HiveJdbcCachedClient {
+    private static final Logger LOG = LogManager.getLogger(HivePostgreSQLCachedClient.class);
 
-    public JdbcPostgreSQLClientCachedClient(PooledHiveMetaStoreClient pooledHiveMetaStoreClient,
+    public HivePostgreSQLCachedClient(PooledHiveMetaStoreClient pooledHiveMetaStoreClient,
             JdbcClientConfig jdbcClientConfig) {
         super(pooledHiveMetaStoreClient, jdbcClientConfig);
     }
@@ -239,7 +239,8 @@ public class JdbcPostgreSQLClientCachedClient extends JdbcClientCachedClient {
                 sd.setSerdeInfo(getSerdeInfo(rs.getInt("SERDE_ID")));
                 sd.setInputFormat(rs.getString("INPUT_FORMAT"));
                 // for gauss
-                sd.setCompressed(Boolean.valueOf(rs.getInt("IS_COMPRESSED") != 0));
+                // sd.setCompressed(Boolean.valueOf(rs.getInt("IS_COMPRESSED") != 0));
+                sd.setCompressed(rs.getBoolean("IS_COMPRESSED"));
                 sd.setLocation(rs.getString("LOCATION"));
                 sd.setNumBuckets(rs.getInt("NUM_BUCKETS"));
                 sd.setOutputFormat(rs.getString("OUTPUT_FORMAT"));
@@ -265,12 +266,12 @@ public class JdbcPostgreSQLClientCachedClient extends JdbcClientCachedClient {
                 serDeInfo.setSerializationLib(rs.getString("SLIB"));
 
                 // for gauss
-                serDeInfo.setDescription(rs.getString("DESCRIPTION"));
-                serDeInfo.setSerializerClass(rs.getString("SERIALIZER_CLASS"));
-                serDeInfo.setDeserializerClass(rs.getString("DESERIALIZER_CLASS"));
-                int serdeType = rs.getInt("SERDE_TYPE");
-                LOG.debug("SERDE_TYPE = " + serdeType);
-                serDeInfo.setSerdeType(SerdeType.findByValue(serdeType));
+                // serDeInfo.setDescription(rs.getString("DESCRIPTION"));
+                // serDeInfo.setSerializerClass(rs.getString("SERIALIZER_CLASS"));
+                // serDeInfo.setDeserializerClass(rs.getString("DESERIALIZER_CLASS"));
+                // int serdeType = rs.getInt("SERDE_TYPE");
+                // LOG.debug("SERDE_TYPE = " + serdeType);
+                // serDeInfo.setSerdeType(SerdeType.findByValue(serdeType));
                 return serDeInfo;
             }
             throw new Exception("Can not get SerDeInfo from PG databases, serdeId = " + serdeId + ".");
@@ -448,5 +449,15 @@ public class JdbcPostgreSQLClientCachedClient extends JdbcClientCachedClient {
     @Override
     public LockResponse lock(LockRequest lockRequest) throws Exception {
         throw new Exception("Do not support in JdbcPostgreSQLClientCachedClient.");
+    }
+
+    @Override
+    protected String getDatabaseQuery() {
+        return null;
+    }
+
+    @Override
+    protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
+        return null;
     }
 }

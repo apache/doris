@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.hive;
 
-import com.google.common.base.Preconditions;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -33,76 +32,51 @@ import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import java.util.List;
 import java.util.Map;
 
-public abstract class CachedClient implements AutoCloseable {
-    private PooledHiveMetaStoreClient pooledHiveMetaStoreClient;
+public interface CachedClient extends AutoCloseable {
+    void setThrowable(Throwable throwable);
 
-    private volatile Throwable throwable;
+    List<String> getAllDatabases() throws Exception;
 
-    public CachedClient(PooledHiveMetaStoreClient pooledHiveMetaStoreClient) {
-        Preconditions.checkNotNull(pooledHiveMetaStoreClient);
-        this.pooledHiveMetaStoreClient = pooledHiveMetaStoreClient;
-    }
+    List<String> getAllTables(String dbName) throws Exception;
 
-    public void setThrowable(Throwable throwable) {
-        this.throwable = throwable;
-    }
+    boolean tableExists(String dbName, String tblName) throws Exception;
 
-    @Override
-    public void close() throws Exception {
-        synchronized (pooledHiveMetaStoreClient.getClientPool()) {
-            if (throwable != null
-                    || pooledHiveMetaStoreClient.getClientPool().size() > pooledHiveMetaStoreClient.getPoolSize()) {
-                closeRealClient();
-            } else {
-                pooledHiveMetaStoreClient.getClientPool().offer(this);
-            }
-        }
-    }
-
-    protected abstract void closeRealClient();
-
-    public abstract List<String> getAllDatabases() throws Exception;
-
-    public abstract List<String> getAllTables(String dbName) throws Exception;
-
-    public abstract boolean tableExists(String dbName, String tblName) throws Exception;
-
-    public abstract List<String> listPartitionNames(String dbName, String tblName, short maxListPartitionNum)
+    List<String> listPartitionNames(String dbName, String tblName, short maxListPartitionNum)
             throws Exception;
 
-    public abstract Partition getPartition(String dbName, String tblName, List<String> partitionValues)
+    Partition getPartition(String dbName, String tblName, List<String> partitionValues)
             throws Exception;
 
-    public abstract List<Partition> getPartitionsByNames(String dbName, String tblName, List<String> partitionNames)
+    List<Partition> getPartitionsByNames(String dbName, String tblName, List<String> partitionNames)
             throws Exception;
 
-    public abstract Table getTable(String dbName, String tblName) throws Exception;
+    Table getTable(String dbName, String tblName) throws Exception;
 
-    public abstract List<FieldSchema> getSchema(String dbName, String tblName) throws Exception;
+    List<FieldSchema> getSchema(String dbName, String tblName) throws Exception;
 
-    public abstract List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName,
+    List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName,
             List<String> columns) throws Exception;
 
-    public abstract Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(
+    Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(
             String dbName, String tblName, List<String> partNames, List<String> columns) throws Exception;
 
-    public abstract CurrentNotificationEventId getCurrentNotificationEventId() throws Exception;
+    CurrentNotificationEventId getCurrentNotificationEventId() throws Exception;
 
-    public abstract NotificationEventResponse getNextNotification(long lastEventId,
+    NotificationEventResponse getNextNotification(long lastEventId,
             int maxEvents,
             IMetaStoreClient.NotificationFilter filter)
             throws Exception;
 
-    public abstract long openTxn(String user) throws Exception;
+    long openTxn(String user) throws Exception;
 
-    public abstract void commitTxn(long txnId) throws Exception;
+    void commitTxn(long txnId) throws Exception;
 
-    public abstract ValidTxnList getValidTxns() throws Exception;
+    ValidTxnList getValidTxns() throws Exception;
 
-    public abstract List<TableValidWriteIds> getValidWriteIds(List<String> fullTableName,
+    List<TableValidWriteIds> getValidWriteIds(List<String> fullTableName,
             String validTransactions) throws Exception;
 
-    public abstract LockResponse checkLock(long lockId) throws Exception;
+    LockResponse checkLock(long lockId) throws Exception;
 
-    public abstract LockResponse lock(LockRequest lockRequest) throws Exception;
+    LockResponse lock(LockRequest lockRequest) throws Exception;
 }

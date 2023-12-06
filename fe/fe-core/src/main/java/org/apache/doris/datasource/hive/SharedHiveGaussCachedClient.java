@@ -47,10 +47,10 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 
-public class SharedHiveGaussCachedClient extends JdbcPostgreSQLClientCachedClient {
+public class SharedHiveGaussCachedClient extends HivePostgreSQLCachedClient {
     private static final Logger LOG = LogManager.getLogger(SharedHiveGaussCachedClient.class);
 
-    private Map<String, JdbcPostgreSQLClientCachedClient> allClients = Maps.newHashMap();
+    private Map<String, HivePostgreSQLCachedClient> allClients = Maps.newHashMap();
 
     private String catalogName = "hive";
 
@@ -82,9 +82,9 @@ public class SharedHiveGaussCachedClient extends JdbcPostgreSQLClientCachedClien
             LOG.debug("sharedJdbcUrl key = " + split[0] + ", value = " + split[1]);
             JdbcClientConfig sharedJdbcClientConfig = jdbcClientConfig.clone();
             sharedJdbcClientConfig.setJdbcUrl(split[1]);
-            JdbcPostgreSQLClientCachedClient jdbcPostgreSQLClientCachedClient = new JdbcPostgreSQLClientCachedClient(
+            HivePostgreSQLCachedClient hivePostgreSQLCachedClient = new HivePostgreSQLCachedClient(
                     pooledHiveMetaStoreClient, sharedJdbcClientConfig);
-            allClients.put(split[0], jdbcPostgreSQLClientCachedClient);
+            allClients.put(split[0], hivePostgreSQLCachedClient);
         });
     }
 
