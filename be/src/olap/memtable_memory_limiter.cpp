@@ -86,10 +86,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
         while (_should_wait_flush) {
             _wait_flush_cond.wait(l);
         }
-        LOG(INFO) << "Reached the one tenth of load hard limit " << _load_hard_mem_limit / 10
-                  << "and process remaining allocator cache " << proc_mem_no_allocator_cache
-                  << "reached process soft memory limit " << process_soft_mem_limit
-                  << ", waited for flush, time_ns:" << timer.elapsed_time();
+
 #ifndef BE_TEST
         bool hard_limit_reached = _mem_tracker->consumption() >= _load_hard_mem_limit ||
                                   proc_mem_no_allocator_cache >= process_soft_mem_limit;
@@ -99,6 +96,12 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             return;
         }
 #endif
+
+        LOG(INFO) << "mem_tracker consumption" << _mem_tracker->consumption()
+                  << " reached the one tenth of load hard limit " << _load_hard_mem_limit / 10
+                  << " or process remaining allocator cache " << proc_mem_no_allocator_cache
+                  << " reached process soft memory limit " << process_soft_mem_limit
+                  << ", waited for flush, wait time(ns):" << timer.elapsed_time();
 
         auto cmp = [](WriterMemItem& lhs, WriterMemItem& rhs) {
             return lhs.mem_size < rhs.mem_size;
