@@ -476,7 +476,12 @@ struct ConvertImpl {
             // TODO: support boolean cast more reasonable
             if constexpr (std::is_same_v<uint8_t, ToFieldType>) {
                 for (int i = 0; i < size; ++i) {
-                    vec_to[i] = static_cast<bool>(vec_to[i]);
+                    if (!(vec_to[i] == 0 || vec_to[i] == 1)) {
+                        // here should return error keep same with streamload behavior
+                        // static_cast<bool>() will cast any number to true
+                        return Status::InvalidArgument(
+                                "Wrong expression! bool only be true|false or 0|1");
+                    }
                 }
             }
 
