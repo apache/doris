@@ -302,6 +302,7 @@ public class Coordinator implements CoordInterface {
 
         initQueryOptions(context);
         if (planner instanceof OriginalPlanner) {
+            // Enable local shuffle on pipelineX engine only if Nereids planner is applied.
             queryOptions.setEnableLocalShuffle(false);
         }
 

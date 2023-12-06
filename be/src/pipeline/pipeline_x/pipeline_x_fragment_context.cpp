@@ -165,8 +165,6 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     }
     _num_instances = request.local_params.size();
     _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
-    _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
-    COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
     _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
     SCOPED_TIMER(_prepare_timer);
 
@@ -231,7 +229,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
     static_cast<void>(root_pipeline->set_sink(_sink));
 
-    RETURN_IF_ERROR(_plan_local_shuffle(request.num_buckets, request.bucket_seq_to_instance_idx));
+    RETURN_IF_ERROR(_plan_local_exchange(request.num_buckets, request.bucket_seq_to_instance_idx));
 
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
@@ -250,7 +248,7 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     return Status::OK();
 }
 
-Status PipelineXFragmentContext::_plan_local_shuffle(
+Status PipelineXFragmentContext::_plan_local_exchange(
         int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx) {
     for (int pip_idx = _pipelines.size() - 1; pip_idx >= 0; pip_idx--) {
         _pipelines[pip_idx]->init_need_to_local_shuffle_by_source();
@@ -266,13 +264,13 @@ Status PipelineXFragmentContext::_plan_local_shuffle(
             }
         }
 
-        RETURN_IF_ERROR(_plan_local_shuffle(num_buckets, pip_idx, _pipelines[pip_idx],
-                                            bucket_seq_to_instance_idx));
+        RETURN_IF_ERROR(_plan_local_exchange(num_buckets, pip_idx, _pipelines[pip_idx],
+                                             bucket_seq_to_instance_idx));
     }
     return Status::OK();
 }
 
-Status PipelineXFragmentContext::_plan_local_shuffle(
+Status PipelineXFragmentContext::_plan_local_exchange(
         int num_buckets, int pip_idx, PipelinePtr pip,
         const std::map<int, int>& bucket_seq_to_instance_idx) {
     int idx = 0;
@@ -280,6 +278,7 @@ Status PipelineXFragmentContext::_plan_local_shuffle(
     do {
         auto& ops = pip->operator_xs();
         do_local_exchange = false;
+        // Plan local exchange for each operator.
         for (; idx < ops.size();) {
             if (ops[idx]->get_local_exchange_type() != ExchangeType::NOOP) {
                 RETURN_IF_ERROR(_add_local_exchange(
@@ -288,6 +287,10 @@ Status PipelineXFragmentContext::_plan_local_shuffle(
                         &do_local_exchange, num_buckets, bucket_seq_to_instance_idx));
             }
             if (do_local_exchange) {
+                // If local exchange is needed for current operator, we will split this pipeline to
+                // two pipelines by local exchange sink/source. And then we need to process remaining
+                // operators in this pipeline so we set idx to 2 (0 is local exchange source and 1
+                // is current operator was already processed) and continue to plan local exchange.
                 idx = 2;
                 break;
             }
@@ -682,16 +685,21 @@ Status PipelineXFragmentContext::_add_local_exchange(
     switch (exchange_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger = ShuffleExchanger::create_unique(_num_instances);
+        // If HASH_SHUFFLE local exchanger is planned, data will be always HASH distribution so we
+        // do not need to plan another shuffle local exchange in the rest of current pipeline.
         new_pip->set_need_to_local_shuffle(false);
         cur_pipe->set_need_to_local_shuffle(false);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger =
                 BucketShuffleExchanger::create_unique(_num_instances, num_buckets);
+        // Same as ExchangeType::HASH_SHUFFLE.
         new_pip->set_need_to_local_shuffle(false);
         cur_pipe->set_need_to_local_shuffle(false);
         break;
     case ExchangeType::PASSTHROUGH:
+        // If PASSTHROUGH local exchanger is planned, data will be split randomly. So we should make
+        // sure remaining operators should use local shuffle to make data distribution right.
         shared_state->exchanger = PassthroughExchanger::create_unique(_num_instances);
         new_pip->set_need_to_local_shuffle(cur_pipe->need_to_local_shuffle());
         cur_pipe->set_need_to_local_shuffle(true);
