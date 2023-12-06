@@ -1429,7 +1429,7 @@ public class ShowExecutor {
             return;
         }
         org.apache.doris.job.base.AbstractJob job = jobs.get(0);
-        List<AbstractTask> jobTasks = job.queryTasks();
+        List<AbstractTask> jobTasks = job.queryAllTasks();
         if (CollectionUtils.isEmpty(jobTasks)) {
             resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
             return;
