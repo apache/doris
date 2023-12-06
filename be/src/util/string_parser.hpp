@@ -47,7 +47,7 @@
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <DecimalNativeTypeConcept T>
 struct Decimal;
 } // namespace vectorized
 

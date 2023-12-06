@@ -495,15 +495,17 @@ static constexpr int max_decimal_string_length() {
            + 1;          // Add a space for negative sign
 }
 
+template <typename T>
+concept DecimalNativeTypeConcept = std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
+                                   std::is_same_v<T, Int128> || std::is_same_v<T, wide::Int256>;
+
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
-template <typename T>
+template <DecimalNativeTypeConcept T>
 struct Decimal {
-    static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
-    static_assert(std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
-                  std::is_same_v<T, Int128> || IsInt256);
-
     using NativeType = T;
+
+    static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
 
     Decimal() = default;
     Decimal(Decimal<T>&&) = default;
@@ -518,10 +520,14 @@ struct Decimal {
     explicit(IsInt256) Decimal(Float32 value) noexcept : value(type_round(value)) {}
     explicit(IsInt256) Decimal(Float64 value) noexcept : value(type_round(value)) {}
 
-    /// If T is integral, the given value will be rounded to integer.
+    /// If T is integral and non wide::Int256, the given value will be rounded to integer.
     template <std::floating_point U>
     static constexpr U type_round(U value) noexcept {
-        if constexpr (std::is_integral_v<T>) {
+        // When T is wide::Int256 will not round the value, according to the old implementation.
+        // Is it right?
+        // std::is_integral_v<wide::Int256> == false currently.
+        // But I add a directly judgement here for safety (!IsInt256).
+        if constexpr (std::is_integral_v<T> && !IsInt256) {
             return round(value);
         }
         return value;
