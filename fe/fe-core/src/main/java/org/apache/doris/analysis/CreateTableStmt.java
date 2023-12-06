@@ -423,6 +423,7 @@ public class CreateTableStmt extends DdlStmt {
             if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
                 enableUniqueKeyMergeOnWrite = false;
                 if (properties != null) {
+                    properties = PropertyAnalyzer.enableUniqueKeyMergeOnWriteIfNotExists(properties);
                     // `analyzeXXX` would modify `properties`, which will be used later,
                     // so we just clone a properties map here.
                     enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(

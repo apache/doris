@@ -383,6 +383,12 @@ Set table properties. The following attributes are currently supported:
 
    `"compression"="zstd"`
 
+* `enable_unique_key_merge_on_write`
+
+    <version since="1.2" type="inline"> Wheather the unique table use merge-on-write implementation. </version>
+
+    The property is disabled by default before version 2.1 and is enabled by default since version 2.1.
+
 * `light_schema_change`
 
    Whether to use the Light Schema Change optimization.

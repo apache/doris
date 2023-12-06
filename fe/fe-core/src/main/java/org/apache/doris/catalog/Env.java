@@ -3215,8 +3215,8 @@ public class Env {
                 sb.append(olapTable.getEstimatePartitionSize()).append("\"");
             }
 
-            // unique key table with merge on write
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            // unique key table with merge on write, always print this property for unique table
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
                 sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
             }

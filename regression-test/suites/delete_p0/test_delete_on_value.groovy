@@ -127,6 +127,7 @@ suite("test_delete_on_value") {
             DISTRIBUTED BY HASH(`x`) BUCKETS 4
             PROPERTIES (
                 "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "false",
                 "function_column.sequence_col" = "z"
             );"""
     sql "insert into ${tableName4} values(1,1,10);"
