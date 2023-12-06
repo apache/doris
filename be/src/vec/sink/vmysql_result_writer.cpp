@@ -112,16 +112,17 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         return status;
     }
 
-    if (UNLIKELY(input_block.columns() != _output_vexpr_ctxs.size())) {
-        return Status::InternalError("Requiring {} output columns, but just have {} real columns",
-                                     _output_vexpr_ctxs.size(), input_block.columns());
-    }
-
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
+
+    if (UNLIKELY(block.columns() != _output_vexpr_ctxs.size())) {
+        return Status::InternalError("Requiring {} output columns, but just have {} real columns",
+                                     _output_vexpr_ctxs.size(), input_block.columns());
+    }
+
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
     auto num_rows = block.rows();
@@ -167,15 +168,18 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             arguments.emplace_back(column_ptr.get(), col_const, serde);
         }
 
-        for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
-            for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
-                const auto& argument = arguments[col_idx];
-                if (argument.column->size() < num_rows) {
-                    return Status::InternalError(
+        for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+            const auto& argument = arguments[col_idx];
+            if (argument.column->size() < num_rows) {
+                return Status::InternalError(
                             "Required row size is out of range, need {} rows, column {} has {} "
                             "rows in fact.",
                             num_rows, argument.column->get_name(), argument.column->size());
-                }
+            }
+        }
+
+        for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
+            for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
                 RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
                         *(arguments[col_idx].column), row_buffer, row_idx,
                         arguments[col_idx].is_const));
