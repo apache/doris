@@ -35,7 +35,6 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"
 #include "gutil/integral_types.h"
 #include "gutil/strings/strcat.h"
 #include "gutil/strings/substitute.h"
@@ -965,9 +964,9 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     if (load_tablet_from_meta_status.is<TABLE_ALREADY_DELETED_ERROR>()) {
         VLOG_NOTICE << load_tablet_from_meta_status;
     } else {
-        RETURN_NOT_OK_STATUS_WITH_WARN(
-                load_tablet_from_meta_status,
-                strings::Substitute("fail to load tablet. header_path=$0", header_path));
+        LOG(WARNING) << fmt::format("fail to load tablet. header_path=$0", header_path)
+                     << ", error: " << load_tablet_from_meta_status;
+        return load_tablet_from_meta_status;
     }
 
     return Status::OK();
