@@ -348,32 +348,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             _mow_context->rowset_ids.clear();
             RETURN_IF_ERROR(tablet->all_rs_id(cur_max_version, &_mow_context->rowset_ids));
             specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
-            if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
-                std::string s =
-                        fmt::format("[VerticalSegmentWriter::_append_block_with_partial_content] ");
-                for (auto rowset : specified_rowsets) {
-                    s += fmt::format("[rowset_id: {}, version:{}, is_segments_overlapping: {}]",
-                                     rowset->rowset_id().to_string(), rowset->version().to_string(),
-                                     rowset->is_segments_overlapping());
-                }
-                s += "\n_mow_context->rowset_ids: ";
-                for (auto id : _mow_context->rowset_ids) {
-                    s += fmt::format("{}, ", id.to_string());
-                }
-                s += "\n_rs_version_map:";
-                for (const auto& [_, rs] : tablet->rowset_map()) {
-                    s += fmt::format("[rowset_id:{}, version:{}]", rs->rowset_id().to_string(),
-                                     rs->version().to_string());
-                }
-                s += "\nstale_rs_version_map:";
-                for (const auto& [_, rs] : tablet->stale_rowset_map()) {
-                    s += fmt::format("[rowset_id:{}, version:{}]", rs->rowset_id().to_string(),
-                                     rs->version().to_string());
-                }
-                LOG(WARNING) << s;
-                assert(false);
-            }
-            // DCHECK(specified_rowsets.size() == _mow_context->rowset_ids.size());
+            DCHECK(specified_rowsets.size() == _mow_context->rowset_ids.size());
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
@@ -420,31 +395,6 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
             }
 
             if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
-                std::string s = fmt::format(
-                        "[VerticalSegmentWriter::_append_block_with_partial_content] block_pos:{}, "
-                        "data.row_pos:{}, segment_start_pos:{}\n",
-                        block_pos, data.row_pos, segment_start_pos);
-                for (auto rowset : specified_rowsets) {
-                    s += fmt::format("[rowset_id: {}, is_segments_overlapping: {}]",
-                                     rowset->rowset_id().to_string(),
-                                     rowset->is_segments_overlapping());
-                }
-                s += "\n_mow_context->rowset_ids: ";
-                for (auto id : _mow_context->rowset_ids) {
-                    s += fmt::format("{}, ", id.to_string());
-                }
-                s += "\n_rs_version_map:";
-                for (const auto& [_, rs] : tablet->rowset_map()) {
-                    s += fmt::format("[rowset_id:{}, version:{}]", rs->rowset_id().to_string(),
-                                     rs->version().to_string());
-                }
-                s += "\nstale_rs_version_map:";
-                for (const auto& [_, rs] : tablet->stale_rowset_map()) {
-                    s += fmt::format("[rowset_id:{}, version:{}]", rs->rowset_id().to_string(),
-                                     rs->version().to_string());
-                }
-                LOG(WARNING) << s;
-                assert(false);
                 return Status::InternalError(
                         "the unmentioned columns should have default value or be nullable for "
                         "newly inserted rows in non-strict mode partial update");
