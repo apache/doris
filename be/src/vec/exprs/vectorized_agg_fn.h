@@ -56,8 +56,7 @@ public:
                    const SlotDescriptor* intermediate_slot_desc,
                    const SlotDescriptor* output_slot_desc);
 
-    void set_timer(RuntimeProfile::Counter* merge_timer,
-                   RuntimeProfile::Counter* expr_timer) {
+    void set_timer(RuntimeProfile::Counter* merge_timer, RuntimeProfile::Counter* expr_timer) {
         _merge_timer = merge_timer;
         _expr_timer = expr_timer;
     }
