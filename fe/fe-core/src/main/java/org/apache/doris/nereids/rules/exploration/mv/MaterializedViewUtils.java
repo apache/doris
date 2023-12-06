@@ -51,8 +51,8 @@ import java.util.Set;
 public class MaterializedViewUtils {
 
     /**
-     * Get related table info which materialized view plan column reference,
-     * materializedViewPlan should be rewritten plan that sub query should be eliminated
+     * Get related base table info which materialized view plan column reference,
+     * input param plan should be rewritten plan that sub query should be eliminated
      *
      * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
      * @param column ref column name.
