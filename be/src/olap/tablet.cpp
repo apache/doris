@@ -243,8 +243,8 @@ void WriteCooldownMetaExecutors::WriteCooldownMetaExecutors::submit(TabletShared
 TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
                                                 DataDir* data_dir) {
     if (tablet_meta->partition_id() <= 0) {
-        LOG(WARNING) << "unexpected partition id " << tablet_meta->partition_id()
-                     << ", tablet " << tablet_meta->tablet_id();
+        LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
+                     << tablet_meta->tablet_id();
         return nullptr;
     }
     return std::make_shared<Tablet>(tablet_meta, data_dir);
