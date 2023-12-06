@@ -292,7 +292,7 @@ suite("test_crud_wlg") {
 
     // test create table as select will go to queue
     try {
-        sql "create table ${table_name3} as select * from ${table_name};"
+        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select * from ${table_name};"
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("query waiting queue is full"));
     }
@@ -301,7 +301,7 @@ suite("test_crud_wlg") {
     sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
     Thread.sleep(3000);
     try {
-        sql "select 1;"
+        sql "select * from ${table_name};"
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("query wait timeout"));
     }
