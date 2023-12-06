@@ -16,7 +16,7 @@
 // under the License.
 
 suite("test_date_function_const") {
-    sql 'set enable_nereids_planner=false'
+    // sql 'set enable_nereids_planner=false'
 
     qt_select1 """
         select hours_add('2023-03-30 22:23:45.23452',8)
