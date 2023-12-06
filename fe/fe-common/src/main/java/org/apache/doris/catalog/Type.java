@@ -212,6 +212,7 @@ public abstract class Type {
         arraySubTypes.add(DECIMAL32);
         arraySubTypes.add(DECIMAL64);
         arraySubTypes.add(DECIMAL128);
+        arraySubTypes.add(DECIMAL256);
         arraySubTypes.add(NULL);
         arraySubTypes.add(ARRAY);
         arraySubTypes.add(MAP);
@@ -226,6 +227,7 @@ public abstract class Type {
         mapSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
         mapSubTypes.add(DECIMAL64);
         mapSubTypes.add(DECIMAL128);
+        mapSubTypes.add(DECIMAL256);
         mapSubTypes.add(TIME);
         mapSubTypes.add(TIMEV2);
         mapSubTypes.add(DATE);
@@ -251,6 +253,7 @@ public abstract class Type {
         structSubTypes.add(DECIMAL32); // same DEFAULT_DECIMALV3
         structSubTypes.add(DECIMAL64);
         structSubTypes.add(DECIMAL128);
+        structSubTypes.add(DECIMAL256);
         structSubTypes.add(TIME);
         structSubTypes.add(TIMEV2);
         structSubTypes.add(DATE);

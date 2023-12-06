@@ -68,7 +68,7 @@ public class MapLiteral extends LiteralExpr {
                 throw new AnalysisException("Invalid key type in Map, not support " + exprs[idx].getType());
             }
             if (!MapType.MAP.supportSubType(exprs[idx + 1].getType())) {
-                throw new AnalysisException("Invalid value type in Map, not support " + exprs[idx].getType());
+                throw new AnalysisException("Invalid value type in Map, not support " + exprs[idx + 1].getType());
             }
             boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
             keyType = Type.getAssignmentCompatibleType(keyType, exprs[idx].getType(), true, enableDecimal256);
