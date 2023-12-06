@@ -59,7 +59,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     for (auto column : columns) {
         auto pos = _column_index[index];
         vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
-        if (column.column->is_nullable()) {
+        if (column.column->is_nullable() && column_ptr != nullptr) {
             column_ptr = make_nullable(column_ptr);
         }
         dst_block.insert(index, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
