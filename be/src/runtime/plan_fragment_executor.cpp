@@ -368,35 +368,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
             std::lock_guard<std::mutex> l(_status_lock);
             status = _status;
         }
-#ifndef BE_TEST
-        if (config::wait_relay_wal_finish && !_runtime_state->relay_wal() &&
-            _runtime_state->txn_id() > 0) {
-            std::string wal_path;
-            auto st = _runtime_state->exec_env()->wal_mgr()->get_wal_path(_runtime_state->txn_id(),
-                                                                          wal_path);
-            if (st.ok()) {
-                LOG(INFO) << "add recover wal " << wal_path;
-                std::vector<std::string> res;
-                std::string splits = "/";
-                std::string strs = wal_path + splits;
-                size_t pos = strs.find(splits);
-                int step = splits.size();
-                while (pos != strs.npos) {
-                    std::string temp = strs.substr(0, pos);
-                    res.push_back(temp);
-                    strs = strs.substr(pos + step, strs.size());
-                    pos = strs.find(splits);
-                }
-                auto tb_id = res[res.size() - 2];
-                auto db_id = res[res.size() - 3];
-                LOG(INFO) << "tb_id:" << tb_id << ",db_id:" << db_id;
-                RETURN_IF_ERROR(_runtime_state->exec_env()->wal_mgr()->add_recover_wal(
-                        db_id, tb_id, std::vector<std::string> {wal_path}));
-                RETURN_IF_ERROR(_runtime_state->exec_env()->wal_mgr()->wait_relay_wal_finish(
-                        _runtime_state->txn_id()));
-            }
-        }
-#endif
         status = _sink->close(runtime_state(), status);
         RETURN_IF_ERROR(status);
     }

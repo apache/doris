@@ -151,6 +151,32 @@ Status VWalWriter::close() {
     if (_wal_writer != nullptr) {
         RETURN_IF_ERROR(_wal_writer->finalize());
     }
+    LOG(INFO) << "label " << _state->import_label();
+    auto label_pos = _state->import_label().find("test_wait");
+    if (config::wait_relay_wal_finish && label_pos == _state->import_label().npos) {
+        std::string wal_path;
+        auto st = _state->exec_env()->wal_mgr()->get_wal_path(_wal_id, wal_path);
+        if (st.ok()) {
+            LOG(INFO) << "add recover wal " << wal_path;
+            std::vector<std::string> res;
+            std::string splits = "/";
+            std::string strs = wal_path + splits;
+            size_t pos = strs.find(splits);
+            int step = splits.size();
+            while (pos != strs.npos) {
+                std::string temp = strs.substr(0, pos);
+                res.push_back(temp);
+                strs = strs.substr(pos + step, strs.size());
+                pos = strs.find(splits);
+            }
+            auto tb_id = res[res.size() - 2];
+            auto db_id = res[res.size() - 3];
+            LOG(INFO) << "tb_id:" << tb_id << ",db_id:" << db_id;
+            RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->add_recover_wal(
+                    db_id, tb_id, std::vector<std::string> {wal_path}));
+            RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->wait_relay_wal_finish(_wal_id));
+        }
+    }
     return Status::OK();
 }
 } // namespace vectorized

@@ -247,6 +247,7 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -3537,9 +3538,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setStatus(errorStatus);
             return result;
         }
-
-        Table table = db.getTable(tableId).get();
-        if (table == null) {
+        Table table;
+        try {
+            table = db.getTable(tableId).get();
+        } catch (NoSuchElementException e) {
+            LOG.info("getColumnInfo catch exception:" + e);
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
             result.setStatus(errorStatus);

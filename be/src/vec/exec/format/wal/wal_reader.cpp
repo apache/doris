@@ -51,57 +51,24 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     }
     vectorized::Block src_block;
     RETURN_IF_ERROR(src_block.deserialize(pblock));
-    LOG(INFO) << "src block:" << src_block.dump_data();
+    LOG(INFO) << "src block:" << src_block.dump_data(0, 2);
     //convert to dst block
     vectorized::Block dst_block;
-    vectorized::Block block2;
     int index = 0;
     auto columns = block->get_columns_with_type_and_name();
     for (auto column : columns) {
         auto pos = _column_index[index];
-        LOG(INFO) << "pos:" << pos;
         vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
         if (column.column->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
-        vectorized::MutableColumnPtr column1 = vectorized::ColumnString::create();
-        vectorized::IColumn* col_ptr = column1.get();
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-        col_ptr = &nullable_column->get_nested_column();
-        LOG(INFO) << "size:" << column_ptr->size();
-        for (int i = 0; i < column_ptr->size(); i++) {
-            auto s = src_block.get_by_position(pos).to_string(i);
-            LOG(INFO) << "i:" << i << ",s:" << s << ",size:" << s.size();
-            column1->insert_data(s.c_str(), s.size());
-            //reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(s.c_str(), s.size());
-        }
-
-        block2.insert(index, vectorized::ColumnWithTypeAndName(
-                                     std::move(column1),
-                                     std::make_shared<vectorized::DataTypeString>(), column.name));
         dst_block.insert(index, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
                                                                   column.type, column.name));
         index++;
     }
-//    block->clear();
-//    for (auto column : block2.get_columns_with_type_and_name()) {
-//        auto column_ptr = column.column;
-//        column_ptr = make_nullable(column_ptr);
-//        block->insert(
-//                vectorized::ColumnWithTypeAndName(std::move(column_ptr), column.type, column.name));
-//    }
-    LOG(INFO) << "read block2:" << block2.dump_data();
-    //block->swap(dst_block);
-    //block = &block2;
-    block->swap(std::move(block2));
-//    for (auto column : block->get_columns_with_type_and_name()) {
-////        auto column_ptr = column.column;
-//        column.column = make_nullable(column.column);
-//    }
+    block->swap(dst_block);
     *read_rows = block->rows();
     LOG(INFO) << "read block rows:" << *read_rows;
-    LOG(INFO) << "read block:" << block->dump_data();
-    LOG(INFO) << "read block2:" << block2.dump_data();
     return Status::OK();
 }
 

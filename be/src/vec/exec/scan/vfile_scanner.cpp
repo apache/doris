@@ -348,10 +348,10 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
                 // Apply _pre_conjunct_ctxs to filter src block.
                 RETURN_IF_ERROR(_pre_filter_src_block());
                 // Convert src block to output block (dest block), string to dest data type and apply filters.
-                LOG(INFO) << "src block " << _src_block.dump_data();
-                LOG(INFO) << "before convert:" << block->dump_data();
+//                LOG(INFO) << "src block " << _src_block.dump_data(0, 2);
+//                LOG(INFO) << "before convert:" << block->dump_data(0, 2);
                 RETURN_IF_ERROR(_convert_to_output_block(block));
-                LOG(INFO) << "after convert:" << block->dump_data();
+//                LOG(INFO) << "after convert:" << block->dump_data(0, 2);
                 // Truncate char columns or varchar columns if size is smaller than file columns
                 // or not found in the file column schema.
                 RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
@@ -552,9 +552,6 @@ Status VFileScanner::_pre_filter_src_block() {
 }
 
 Status VFileScanner::_convert_to_output_block(Block* block) {
-    for (auto column : block->get_columns_with_type_and_name()) {
-        column.column = make_nullable(column.column);
-    }
     if (!_is_load) {
         return Status::OK();
     }
@@ -579,8 +576,6 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
     // for (auto slot_desc : _output_tuple_desc->slots()) {
     for (int i = 0; i < mutable_output_columns.size(); ++i) {
         auto slot_desc = _output_tuple_desc->slots()[i];
-        auto cid = slot_desc->col_unique_id();
-        LOG(INFO) << "name:" << slot_desc->col_name() << ",cid:" << cid;
         if (!slot_desc->is_materialized()) {
             continue;
         }
