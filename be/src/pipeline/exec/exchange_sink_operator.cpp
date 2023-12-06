@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "exchange_sink_buffer.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchange_sink_operator.h"
 #include "vec/columns/column_const.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/sink/vdata_stream_sender.h"
@@ -212,7 +213,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     if (p._part_type == TPartitionType::HASH_PARTITIONED) {
         _partition_count = channels.size();
         _partitioner.reset(
-                new vectorized::XXHashPartitioner<vectorized::ShuffleChannelIds>(channels.size()));
+                new vectorized::XXHashPartitioner<LocalExchangeChannelIds>(channels.size()));
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",

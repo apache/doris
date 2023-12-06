@@ -162,6 +162,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         insertExecutor.finalizeSink(sink, physicalOlapTableSink.isPartialUpdate(),
                 physicalOlapTableSink.isFromNativeInsertStmt());
         executor.setProfileType(ProfileType.LOAD);
+        // We exposed @StmtExecutor#cancel as a unified entry point for statement interruption
+        // so we need to set this here
+        executor.setCoord(insertExecutor.getCoordinator());
         insertExecutor.executeSingleInsertTransaction(executor, jobId);
     }
 

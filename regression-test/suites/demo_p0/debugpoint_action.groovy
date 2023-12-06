@@ -15,32 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadgroup;
-
-// used to mark QueryQueue offer result
-// if offer failed, then need to cancel query
-// and return failed reason to user client
-public class QueueOfferToken {
-
-    private Boolean offerResult;
-
-    private String offerResultDetail;
-
-    public QueueOfferToken(Boolean offerResult) {
-        this.offerResult = offerResult;
+suite('debugpoint_action', 'nonConcurrent') {
+    try {
+        GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
+        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss',
+                [tablet_id:'12345', version_miss:true, timeout:1])
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
+        GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
     }
-
-    public QueueOfferToken(Boolean offerResult, String offerResultDetail) {
-        this.offerResult = offerResult;
-        this.offerResultDetail = offerResultDetail;
-    }
-
-    public Boolean isOfferSuccess() {
-        return offerResult;
-    }
-
-    public String getOfferResultDetail() {
-        return offerResultDetail;
-    }
-
 }
