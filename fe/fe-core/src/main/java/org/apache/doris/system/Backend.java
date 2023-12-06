@@ -93,6 +93,8 @@ public class Backend implements Writable {
     @SerializedName("disksRef")
     private volatile ImmutableMap<String, DiskInfo> disksRef;
 
+    private AtomicBoolean isPublishTaskLastTimeAccumulated = new AtomicBoolean(false);
+
     private String heartbeatErrMsg = "";
 
     // This is used for the first time we init pathHashToDishInfo in SystemInfoService.
@@ -929,6 +931,14 @@ public class Backend implements Writable {
 
     public String getTagMapString() {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
+    }
+
+    public void setPublishTaskLastTimeAccumulated(boolean isAccumulated) {
+        this.isPublishTaskLastTimeAccumulated.set(isAccumulated);
+    }
+
+    public boolean getPublishTaskLastTimeAccumulated() {
+        return this.isPublishTaskLastTimeAccumulated.get();
     }
 
 }

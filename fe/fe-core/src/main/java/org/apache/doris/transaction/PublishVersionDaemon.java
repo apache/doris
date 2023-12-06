@@ -50,6 +50,8 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class PublishVersionDaemon extends MasterDaemon {
 
@@ -156,27 +158,41 @@ public class PublishVersionDaemon extends MasterDaemon {
         Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
-            Stream<PublishVersionTask> publishVersionTaskStream = transactionState
-                    .getPublishVersionTasks()
-                    .values()
-                    .stream()
-                    .peek(task -> {
-                        if (task.isFinished() && CollectionUtils.isEmpty(task.getErrorTablets())) {
-                            Map<Long, Long> tableIdToDeltaNumRows =
-                                    task.getTableIdToDeltaNumRows();
-                            tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
-                                tableIdToTotalDeltaNumRows
-                                        .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
-                                tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
-                            });
-                        }
-                    });
-            boolean hasBackendAliveAndUnfinishedTask = publishVersionTaskStream
-                    .anyMatch(task -> !task.isFinished() && infoService.checkBackendAlive(task.getBackendId()));
+            AtomicReference<Long> finishNum = new AtomicReference<>(0L);
+            AtomicBoolean hasBackendAliveAndUnfinishedTask = new AtomicBoolean(false);
+            transactionState.getPublishVersionTasks().forEach((beId, task) -> {
+                if (task.isFinished()) {
+                    finishNum.getAndSet(finishNum.get() + 1);
+                    if (CollectionUtils.isEmpty(task.getErrorTablets())) {
+                        Map<Long, Long> tableIdToDeltaNumRows = task.getTableIdToDeltaNumRows();
+                        tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
+                            tableIdToTotalDeltaNumRows
+                                .computeIfPresent(tableId, (id, orgNumRows) -> orgNumRows + numRows);
+                            tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
+                        });
+                    }
+                } else if (infoService.checkBackendAlive(task.getBackendId())) {
+                    hasBackendAliveAndUnfinishedTask.set(true);
+                }
+            });
+
             transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
 
-            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask || transactionState.isPublishTimeout()
+            boolean unFinishTaskBeIsAliveOrPublishSlow = false;
+            if (finishNum.get() > transactionState.getPublishVersionTasks().keySet().size() / 2) {
+                LOG.info("finishNum {}, txn publish tasks {}",
+                        finishNum, transactionState.getPublishVersionTasks().keySet().size());
+                unFinishTaskBeIsAliveOrPublishSlow = true;
+            }
+
+            boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask.get() || transactionState.isPublishTimeout()
+                    || unFinishTaskBeIsAliveOrPublishSlow
                     || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
+            LOG.debug("hasBackendAliveAndUnfinishedTask {}, txn isPublishTimeout {}, "
+                    + "unFinishTaskBeIsAliveOrPublishSlow {} DebugPoint enable {}",
+                    hasBackendAliveAndUnfinishedTask, transactionState.isPublishTimeout(),
+                    unFinishTaskBeIsAliveOrPublishSlow,
+                    DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks"));
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction

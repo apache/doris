@@ -550,7 +550,7 @@ public class ReportHandler extends Daemon {
                 }
             }
         }
-
+        AgentTaskQueue.updateControlPublishVersion(backendId, runningTasks);
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
         AgentBatchTask batchTask = new AgentBatchTask();
