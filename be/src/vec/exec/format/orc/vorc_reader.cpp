@@ -1032,7 +1032,8 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     auto* data = dynamic_cast<orc::EncodedStringVectorBatch*>(cvb);
     if (data == nullptr) {
-        return Status::InternalError("Wrong data type for colum '{}'", col_name);
+        return Status::InternalError(
+                "Wrong data type for column '{}', expected EncodedStringVectorBatch", col_name);
     }
     if (data->isEncoded) {
         return _decode_string_dict_encoded_column<is_filter>(col_name, data_column, type_kind, data,
@@ -1201,9 +1202,6 @@ Status OrcReader::_decode_int32_column(const std::string& col_name,
                                                                 num_values);
     } else if (dynamic_cast<orc::EncodedStringVectorBatch*>(cvb) != nullptr) {
         auto* data = static_cast<orc::EncodedStringVectorBatch*>(cvb);
-        if (data == nullptr) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
-        }
         auto* cvb_data = data->index.data();
         auto& column_data = static_cast<ColumnVector<Int32>&>(*data_column).get_data();
         auto origin_size = column_data.size();
@@ -1311,7 +1309,9 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
                                                 cvb, num_values);
     case TypeIndex::Array: {
         if (orc_column_type->getKind() != orc::TypeKind::LIST) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError(
+                    "Wrong data type for column '{}', expected list, actual {}", col_name,
+                    orc_column_type->getKind());
         }
         auto* orc_list = dynamic_cast<orc::ListVectorBatch*>(cvb);
         auto& doris_offsets = static_cast<ColumnArray&>(*data_column).get_offsets();
@@ -1329,7 +1329,8 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     }
     case TypeIndex::Map: {
         if (orc_column_type->getKind() != orc::TypeKind::MAP) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError("Wrong data type for column '{}', expected map, actual {}",
+                                         col_name, orc_column_type->getKind());
         }
         auto* orc_map = dynamic_cast<orc::MapVectorBatch*>(cvb);
         auto& doris_map = static_cast<ColumnMap&>(*data_column);
@@ -1355,7 +1356,9 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     }
     case TypeIndex::Struct: {
         if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
-            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+            return Status::InternalError(
+                    "Wrong data type for column '{}', expected struct, actual {}", col_name,
+                    orc_column_type->getKind());
         }
         auto* orc_struct = dynamic_cast<orc::StructVectorBatch*>(cvb);
         auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
