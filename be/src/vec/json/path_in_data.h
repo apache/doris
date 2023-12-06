@@ -76,6 +76,7 @@ public:
     std::string to_jsonpath() const;
 
     PathInData pop_front() const;
+    PathInData pop_nfront(size_t n) const;
     void to_protobuf(segment_v2::ColumnPathInfo* pb, int32_t parent_col_unique_id) const;
     void from_protobuf(const segment_v2::ColumnPathInfo& pb);
 

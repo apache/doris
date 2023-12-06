@@ -93,7 +93,7 @@ suite("regression_test_variant", "variant_type"){
             sql """insert into ${table_name} values (10,  '1000000'),(1,  '{"a" : 1, "b" : {"c" : [{"a" : 1}]}}');"""
             sql """insert into ${table_name} values (11,  '[123.0]'),(1999,  '{"a" : 1, "b" : {"c" : 1}}'),(19921,  '{"a" : 1, "b" : 10}');"""
             sql """insert into ${table_name} values (12,  '[123.2]'),(1022,  '{"a" : 1, "b" : 10}'),(1029,  '{"a" : 1, "b" : {"c" : 1}}');"""
-            qt_sql "select k, cast(v:a as array<int>) from  ${table_name} where  size(cast(v:a as array<int>)) > 0 order by k, cast(v as string);"
+            qt_sql "select k, cast(v:a as array<int>) from  ${table_name} where  size(cast(v:a as array<int>)) > 0 order by k, cast(v:a as string) asc"
             // cast v:b as int should be correct
             // FIXME: unstable, todo use qt_sql
             sql "select k, v, cast(v:b as string) from  ${table_name} where  length(cast(v:b as string)) > 4 order  by k, cast(v as string)"
@@ -292,23 +292,23 @@ suite("regression_test_variant", "variant_type"){
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
-        qt_sql_32_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
+        qt_sql_32_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // 0.95 default ratio    
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
-        qt_sql_33_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
+        qt_sql_33_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // always sparse column
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.85")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         sql "truncate table ${table_name}"
         qt_sql_35 """select json_extract(v,"\$.json.parseFailed")  from logdata where k = 162 and  json_extract(v,"\$.json.parseFailed") != 'null';"""
-        qt_sql_35_1 """select v:json.parseFailed from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
+        qt_sql_35_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
 
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
         // unique table
