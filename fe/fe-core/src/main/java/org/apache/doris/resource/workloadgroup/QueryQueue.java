@@ -126,7 +126,7 @@ public class QueryQueue {
     }
 
     // If the token is acquired and do work success, then call this method to release it.
-    public void returnToken(QueueToken token) throws InterruptedException {
+    public void returnToken(QueueToken token) {
         queueLock.lock();
         try {
             // If current token is not in ready to run state, then it is still in the queue
