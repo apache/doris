@@ -71,7 +71,7 @@ public:
 
     PipelinePtr add_pipeline();
 
-    PipelinePtr add_pipeline(PipelinePtr parent);
+    PipelinePtr add_pipeline(PipelinePtr parent, int idx = -1);
 
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 

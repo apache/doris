@@ -2569,7 +2569,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setEnablePipelineXEngine(enablePipelineXEngine);
-        tResult.setEnableLocalShuffle(enableLocalShuffle);
+        tResult.setEnableLocalShuffle(enableLocalShuffle && enableNereidsPlanner);
         tResult.setParallelInstance(getParallelExecInstanceNum());
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
@@ -2974,6 +2974,14 @@ public class SessionVariable implements Serializable, Writable {
         }
         return connectContext.getSessionVariable().enablePipelineEngine
                 || connectContext.getSessionVariable().enablePipelineXEngine;
+    }
+
+    public static boolean enablePipelineEngineX() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        return connectContext.getSessionVariable().enablePipelineXEngine;
     }
 
     public static boolean enableAggState() {

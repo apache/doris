@@ -31,7 +31,8 @@ Status LocalExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
 
-    if (_exchanger->get_type() == ExchangeType::SHUFFLE) {
+    if (_exchanger->get_type() == ExchangeType::HASH_SHUFFLE ||
+        _exchanger->get_type() == ExchangeType::BUCKET_HASH_SHUFFLE) {
         auto& p = _parent->cast<LocalExchangeSinkOperatorX>();
         RETURN_IF_ERROR(p._partitioner->clone(state, _partitioner));
     }

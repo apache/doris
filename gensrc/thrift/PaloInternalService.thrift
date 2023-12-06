@@ -687,6 +687,8 @@ struct TPipelineFragmentParams {
   31: optional i32 load_stream_per_node // num load stream for each sink backend
   32: optional i32 total_load_streams // total num of load streams the downstream backend will see
   33: optional i32 num_local_sink
+  34: optional i32 num_buckets
+  35: optional map<i32, i32> bucket_seq_to_instance_idx
 }
 
 struct TPipelineFragmentParamsList {

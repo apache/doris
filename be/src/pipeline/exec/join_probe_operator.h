@@ -98,7 +98,7 @@ protected:
     template <typename DependencyType, typename Derived>
     friend class JoinProbeLocalState;
 
-    TJoinOp::type _join_op;
+    const TJoinOp::type _join_op;
     const bool _have_other_join_conjunct;
     const bool _match_all_probe; // output all rows coming from the probe input. Full/Left Join
     const bool _match_all_build; // output all rows coming from the build input. Full/Right Join
