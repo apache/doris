@@ -303,7 +303,7 @@ suite("regression_test_variant", "variant_type"){
         sql "truncate table ${table_name}"
 
         // always sparse column
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
+        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         sql "truncate table ${table_name}"
