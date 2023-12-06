@@ -172,9 +172,9 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             const auto& argument = arguments[col_idx];
             if (argument.column->size() < num_rows) {
                 return Status::InternalError(
-                            "Required row size is out of range, need {} rows, column {} has {} "
-                            "rows in fact.",
-                            num_rows, argument.column->get_name(), argument.column->size());
+                        "Required row size is out of range, need {} rows, column {} has {} "
+                        "rows in fact.",
+                        num_rows, argument.column->get_name(), argument.column->size());
             }
         }
 
