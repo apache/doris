@@ -47,6 +47,7 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _db_id = table_sink.db_id;
     _table_id = table_sink.table_id;
     _base_schema_version = table_sink.base_schema_version;
+    _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
     return Status::OK();
 }
@@ -95,11 +96,16 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
                                          loaded_rows);
     state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
                                    state->num_rows_load_filtered());
-    if (_load_block_queue && _load_block_queue->wait_internal_group_commit_finish) {
+    auto st = Status::OK();
+    if (_load_block_queue && (_load_block_queue->wait_internal_group_commit_finish ||
+                              _group_commit_mode == TGroupCommitMode::SYNC_MODE)) {
         std::unique_lock l(_load_block_queue->mutex);
-        _load_block_queue->internal_group_commit_finish_cv.wait(l);
+        if (!_load_block_queue->process_finish) {
+            _load_block_queue->internal_group_commit_finish_cv.wait(l);
+        }
+        st = _load_block_queue->status;
     }
-    return Status::OK();
+    return st;
 }
 
 Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_block, bool eos) {
