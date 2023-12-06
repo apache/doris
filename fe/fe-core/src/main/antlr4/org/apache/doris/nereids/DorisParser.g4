@@ -62,9 +62,9 @@ statement
         SET updateAssignmentSeq
         fromClause?
         whereClause                                                    #update
-    | explain? cte? DELETE FROM tableName=multipartIdentifier tableAlias
-        (PARTITION partition=identifierList)?
-        (USING relation (COMMA relation)*)
+    | explain? cte? DELETE FROM tableName=multipartIdentifier
+        partitionSpec? tableAlias
+        (USING relation (COMMA relation)*)?
         whereClause                                                    #delete
     | LOAD LABEL lableName=identifier
         LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
