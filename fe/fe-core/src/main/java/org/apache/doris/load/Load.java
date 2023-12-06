@@ -512,7 +512,7 @@ public class Load {
                             + ", reference=" + slot.getColumnName());
                 }
                 smap.getLhs().add(slot);
-                smap.getRhs().add(getExprFromDesc(analyzer, slotDesc, slot));
+                smap.getRhs().add(new SlotRef(slotDesc));
             }
             Expr expr = entry.getValue().clone(smap);
             expr.analyze(analyzer);
