@@ -54,6 +54,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     /**
      * create MTMVJob
+     *
      * @param mtmv
      * @throws DdlException
      */
@@ -114,6 +115,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     /**
      * drop MTMVJob
+     *
      * @param mtmv
      * @throws DdlException
      */
@@ -144,6 +146,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     /**
      * drop MTMVJob and then create MTMVJob
+     *
      * @param mtmv
      * @param alterMTMV
      * @throws DdlException
@@ -158,6 +161,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     /**
      * trigger MTMVJob
+     *
      * @param info
      * @throws DdlException
      * @throws MetaNotFoundException
@@ -172,9 +176,9 @@ public class MTMVJobManager implements MTMVHookService {
             throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
         }
         try {
-            // TODO: 2023/12/5 triggerJob need mtmvTaskContext
             MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, info.getPartitions());
-            Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId());
+            Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId(), mtmvTaskContext);
+
         } catch (JobException e) {
             e.printStackTrace();
             throw new DdlException(e.getMessage());

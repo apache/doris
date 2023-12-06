@@ -122,6 +122,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
@@ -142,8 +143,6 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
-import org.apache.doris.resource.workloadgroup.QueryQueue;
-import org.apache.doris.resource.workloadgroup.QueueOfferToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -176,6 +175,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -213,6 +213,8 @@ public class StmtExecutor {
     private StatementBase parsedStmt;
     private Analyzer analyzer;
     private ProfileType profileType = ProfileType.QUERY;
+
+    @Setter
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
@@ -518,6 +520,13 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        // when we in transaction mode, we only support insert into command and transaction command
+        if (context.isTxnModel()) {
+            if (!(logicalPlan instanceof BatchInsertIntoTableCommand)) {
+                String errMsg = "This is in a transaction, only insert, commit, rollback is acceptable.";
+                throw new NereidsException(errMsg, new AnalysisException(errMsg));
+            }
+        }
         if (logicalPlan instanceof Command) {
             if (logicalPlan instanceof Forward) {
                 redirectStatus = ((Forward) logicalPlan).toRedirectStatus();
@@ -607,61 +616,37 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         syncJournalIfNeeded();
-        QueueOfferToken offerRet = null;
-        QueryQueue queryQueue = null;
-        if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
-                && context.getSessionVariable().getEnablePipelineEngine()) {
-            queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
-            try {
-                offerRet = queryQueue.offer();
-            } catch (InterruptedException e) {
-                // this Exception means try lock/await failed, so no need to handle offer result
-                LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
-                throw new RuntimeException("interrupted Exception happens when queue query");
-            }
-            if (offerRet != null && !offerRet.isOfferSuccess()) {
-                String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
-                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
-                throw new UserException(retMsg);
-            }
-        }
 
         int retryTime = Config.max_query_retry_time;
-        try {
-            for (int i = 0; i < retryTime; i++) {
-                try {
-                    // reset query id for each retry
-                    if (i > 0) {
-                        UUID uuid = UUID.randomUUID();
-                        TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
-                                uuid.getLeastSignificantBits());
-                        AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
-                                DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
-                        context.setQueryId(newQueryId);
-                    }
-                    if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
-                        context.setReturnResultFromLocal(false);
-                    }
-                    handleQueryStmt();
-                    break;
-                } catch (RpcException e) {
-                    if (i == retryTime - 1) {
-                        throw e;
-                    }
-                    if (context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
-                        LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
-                    } else {
-                        throw e;
-                    }
-                } finally {
-                    if (context.isReturnResultFromLocal()) {
-                        finalizeQuery();
-                    }
+        for (int i = 0; i < retryTime; i++) {
+            try {
+                // reset query id for each retry
+                if (i > 0) {
+                    UUID uuid = UUID.randomUUID();
+                    TUniqueId newQueryId = new TUniqueId(uuid.getMostSignificantBits(),
+                            uuid.getLeastSignificantBits());
+                    AuditLog.getQueryAudit().log("Query {} {} times with new query id: {}",
+                            DebugUtil.printId(queryId), i, DebugUtil.printId(newQueryId));
+                    context.setQueryId(newQueryId);
                 }
-            }
-        } finally {
-            if (offerRet != null && offerRet.isOfferSuccess()) {
-                queryQueue.poll();
+                if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
+                    context.setReturnResultFromLocal(false);
+                }
+                handleQueryStmt();
+                break;
+            } catch (RpcException e) {
+                if (i == retryTime - 1) {
+                    throw e;
+                }
+                if (context.getConnectType().equals(ConnectType.MYSQL) && !context.getMysqlChannel().isSend()) {
+                    LOG.warn("retry {} times. stmt: {}", (i + 1), parsedStmt.getOrigStmt().originStmt);
+                } else {
+                    throw e;
+                }
+            } finally {
+                if (context.isReturnResultFromLocal()) {
+                    finalizeQuery();
+                }
             }
         }
     }
@@ -1492,27 +1477,13 @@ public class StmtExecutor {
             coordBase = coord;
         }
 
-        coordBase.exec();
-
-        profile.getSummaryProfile().setQueryScheduleFinishTime();
-        updateProfile(false);
-        if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
-            try {
-                LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
-                        context.getQualifiedUser(), context.getDatabase(),
-                        parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
-                        coordBase.getInstanceTotalNum());
-            } catch (Exception e) {
-                LOG.warn("Fail to print fragment concurrency for Query.", e);
-            }
-        }
-
-        if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
-            Preconditions.checkState(!context.isReturnResultFromLocal());
-            profile.getSummaryProfile().setTempStartTime();
+        try {
+            coordBase.exec();
+            profile.getSummaryProfile().setQueryScheduleFinishTime();
+            updateProfile(false);
             if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
-                    LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
+                    LOG.debug("Start to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
                             context.getQualifiedUser(), context.getDatabase(),
                             parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
                             coordBase.getInstanceTotalNum());
@@ -1520,10 +1491,22 @@ public class StmtExecutor {
                     LOG.warn("Fail to print fragment concurrency for Query.", e);
                 }
             }
-            return;
-        }
 
-        try {
+            if (context.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
+                Preconditions.checkState(!context.isReturnResultFromLocal());
+                profile.getSummaryProfile().setTempStartTime();
+                if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
+                    try {
+                        LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
+                                context.getQualifiedUser(), context.getDatabase(),
+                                parsedStmt.getOrigStmt().originStmt.replace("\n", " "),
+                                coordBase.getInstanceTotalNum());
+                    } catch (Exception e) {
+                        LOG.warn("Fail to print fragment concurrency for Query.", e);
+                    }
+                }
+                return;
+            }
             while (true) {
                 // register the fetch result time.
                 profile.getSummaryProfile().setTempStartTime();
@@ -1598,6 +1581,7 @@ public class StmtExecutor {
             coordBase.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
             throw e;
         } finally {
+            coordBase.close();
             if (coordBase.getInstanceTotalNum() > 1 && LOG.isDebugEnabled()) {
                 try {
                     LOG.debug("Finish to execute fragment. user: {}, db: {}, sql: {}, fragment instance num: {}",
@@ -2033,6 +2017,7 @@ public class StmtExecutor {
                  */
                 throwable = t;
             } finally {
+                coord.close();
                 finalizeQuery();
             }
 
@@ -2736,6 +2721,7 @@ public class StmtExecutor {
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             }
         } finally {
+            coord.close();
             AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());

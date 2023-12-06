@@ -728,6 +728,14 @@ enum TJoinOp {
   NULL_AWARE_LEFT_ANTI_JOIN
 }
 
+enum TJoinDistributionType {
+  NONE,
+  BROADCAST,
+  PARTITIONED,
+  BUCKET_SHUFFLE,
+  COLOCATE,
+}
+
 struct THashJoinNode {
   1: required TJoinOp join_op
 
@@ -759,6 +767,7 @@ struct THashJoinNode {
   10: optional bool is_broadcast_join
 
   11: optional bool is_mark
+  12: optional TJoinDistributionType dist_type
 }
 
 struct TNestedLoopJoinNode {
@@ -845,6 +854,7 @@ struct TAggregationNode {
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
+  9: optional bool is_colocate
   // 9: optional bool use_fixed_length_serialization_opt
 }
 

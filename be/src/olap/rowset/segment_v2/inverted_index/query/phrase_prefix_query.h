@@ -15,32 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.resource.workloadgroup;
+#pragma once
 
-// used to mark QueryQueue offer result
-// if offer failed, then need to cancel query
-// and return failed reason to user client
-public class QueueOfferToken {
+#include <CLucene.h>
+#include <CLucene/index/IndexReader.h>
 
-    private Boolean offerResult;
+#include <memory>
 
-    private String offerResultDetail;
+#include "CLucene/search/MultiPhraseQuery.h"
+#include "roaring/roaring.hh"
 
-    public QueueOfferToken(Boolean offerResult) {
-        this.offerResult = offerResult;
-    }
+CL_NS_USE(index)
+CL_NS_USE(search)
 
-    public QueueOfferToken(Boolean offerResult, String offerResultDetail) {
-        this.offerResult = offerResult;
-        this.offerResultDetail = offerResultDetail;
-    }
+namespace doris {
 
-    public Boolean isOfferSuccess() {
-        return offerResult;
-    }
+namespace segment_v2 {
 
-    public String getOfferResultDetail() {
-        return offerResultDetail;
-    }
+class PhrasePrefixQuery {
+public:
+    PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher);
+    ~PhrasePrefixQuery() = default;
 
-}
+    void set_max_expansions(int32_t max_expansions) { _max_expansions = max_expansions; }
+
+    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
+    void search(roaring::Roaring& roaring);
+
+private:
+    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    MultiPhraseQuery _query;
+
+    int32_t _max_expansions = 50;
+};
+
+} // namespace segment_v2
+
+} // namespace doris

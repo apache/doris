@@ -339,7 +339,7 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
-    std::unique_ptr<DataQueue> data_queue;
+    std::unique_ptr<DataQueue> data_queue = std::make_unique<DataQueue>(1);
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -576,18 +576,21 @@ public:
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
-    SHUFFLE = 1,
+    HASH_SHUFFLE = 1,
     PASSTHROUGH = 2,
+    BUCKET_HASH_SHUFFLE = 3,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
     switch (idx) {
     case ExchangeType::NOOP:
         return "NOOP";
-    case ExchangeType::SHUFFLE:
-        return "SHUFFLE";
+    case ExchangeType::HASH_SHUFFLE:
+        return "HASH_SHUFFLE";
     case ExchangeType::PASSTHROUGH:
         return "PASSTHROUGH";
+    case ExchangeType::BUCKET_HASH_SHUFFLE:
+        return "BUCKET_HASH_SHUFFLE";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();

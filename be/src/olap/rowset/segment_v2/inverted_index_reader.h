@@ -166,6 +166,12 @@ private:
                                   const FulltextIndexSearcherPtr& index_searcher,
                                   const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 
+    Status match_phrase_prefix_index_search(
+            OlapReaderStatistics* stats, RuntimeState* runtime_state, const std::wstring& field_ws,
+            const std::vector<std::string>& analyse_result,
+            const FulltextIndexSearcherPtr& index_searcher,
+            const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
+
     void check_null_bitmap(const FulltextIndexSearcherPtr& index_searcher,
                            bool& null_bitmap_already_read);
 };

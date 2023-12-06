@@ -61,6 +61,16 @@ public class ArrayLiteralTest  {
 
         ArrayLiteral arrayLiteral9 = new ArrayLiteral();
         Assert.assertEquals("[]", arrayLiteral9.getStringValueForArray());
+
+        ArrayLiteral arrayLiteral = new ArrayLiteral(intLiteral1, floatLiteral);
+        MapLiteral mapLiteral = new MapLiteral(intLiteral1, floatLiteral);
+        StructLiteral structLiteral = new StructLiteral(intLiteral1, floatLiteral, dateLiteral);
+        ArrayLiteral arrayLiteral10 = new ArrayLiteral(arrayLiteral, arrayLiteral);
+        Assert.assertEquals("[[\"1\", \"2.15\"], [\"1\", \"2.15\"]]", arrayLiteral10.getStringValueForArray());
+        ArrayLiteral arrayLiteral11 = new ArrayLiteral(mapLiteral);
+        Assert.assertEquals("[{\"1\":\"2.15\"}]", arrayLiteral11.getStringValueForArray());
+        ArrayLiteral arrayLiteral12 = new ArrayLiteral(structLiteral);
+        Assert.assertEquals("[{\"1\", \"2.15\", \"2022-10-10\"}]", arrayLiteral12.getStringValueForArray());
     }
 
 
@@ -89,7 +99,8 @@ public class ArrayLiteralTest  {
         Assert.assertEquals("[\"shortstring\", \"shortstring\"]", arrayLiteral3.getStringValueInFe());
 
         ArrayLiteral arrayLiteral4 = new ArrayLiteral(largeIntLiteral, largeIntLiteral);
-        Assert.assertEquals("[1000000000000000000000, 1000000000000000000000]", arrayLiteral4.getStringValueInFe());
+        Assert.assertEquals("[1000000000000000000000, 1000000000000000000000]",
+                arrayLiteral4.getStringValueInFe());
 
         ArrayLiteral arrayLiteral5 = new ArrayLiteral(nullLiteral, nullLiteral);
         Assert.assertEquals("[null, null]", arrayLiteral5.getStringValueInFe());
@@ -98,7 +109,8 @@ public class ArrayLiteralTest  {
         Assert.assertEquals("[\"2022-10-10\", \"2022-10-10\"]", arrayLiteral6.getStringValueInFe());
 
         ArrayLiteral arrayLiteral7 = new ArrayLiteral(datetimeLiteral, datetimeLiteral);
-        Assert.assertEquals("[\"2022-10-10 12:10:10\", \"2022-10-10 12:10:10\"]", arrayLiteral7.getStringValueInFe());
+        Assert.assertEquals("[\"2022-10-10 12:10:10\", \"2022-10-10 12:10:10\"]",
+                arrayLiteral7.getStringValueInFe());
 
         ArrayLiteral arrayLiteral8 = new ArrayLiteral(arrayLiteral7, arrayLiteral7);
         Assert.assertEquals("[[\"2022-10-10 12:10:10\", \"2022-10-10 12:10:10\"], [\"2022-10-10 12:10:10\", \"2022-10-10 12:10:10\"]]",
@@ -119,6 +131,16 @@ public class ArrayLiteralTest  {
         //array(null, 1)
         ArrayLiteral arrayLiteral12 = new ArrayLiteral(nullLiteral, intLiteralWithNull);
         Assert.assertEquals("[null, 1]", arrayLiteral12.getStringValueInFe());
+
+        ArrayLiteral arrayLiteral = new ArrayLiteral(intLiteral1, floatLiteral);
+        MapLiteral mapLiteral = new MapLiteral(intLiteral1, floatLiteral);
+        StructLiteral structLiteral = new StructLiteral(intLiteral1, floatLiteral, dateLiteral);
+        ArrayLiteral arrayLiteral13 = new ArrayLiteral(arrayLiteral, arrayLiteral);
+        Assert.assertEquals("[[\"1\", \"2.15\"], [\"1\", \"2.15\"]]", arrayLiteral13.getStringValueForArray());
+        ArrayLiteral arrayLiteral14 = new ArrayLiteral(mapLiteral);
+        Assert.assertEquals("[{\"1\":\"2.15\"}]", arrayLiteral14.getStringValueForArray());
+        ArrayLiteral arrayLiteral15 = new ArrayLiteral(structLiteral);
+        Assert.assertEquals("[{\"1\", \"2.15\", \"2022-10-10\"}]", arrayLiteral15.getStringValueForArray());
 
     }
 }

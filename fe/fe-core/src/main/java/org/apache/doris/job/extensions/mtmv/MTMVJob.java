@@ -30,7 +30,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
-import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TCell;
@@ -49,7 +48,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-public class MTMVJob extends AbstractJob<MTMVTask> {
+public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
     private static final ShowResultSetMetaData JOB_META_DATA =
             ShowResultSetMetaData.builder()
@@ -110,9 +109,7 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     }
 
     @Override
-    public List<MTMVTask> createTasks(TaskType taskType) {
-        // TODO: 2023/12/5
-        MTMVTaskContext taskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+    public List<MTMVTask> createTasks(TaskType taskType, MTMVTaskContext taskContext) {
         MTMVTask task = new MTMVTask(dbId, mtmvId, taskContext);
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
@@ -122,8 +119,8 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     }
 
     @Override
-    public boolean isReadyForScheduling() {
-        // TODO: 2023/12/5 task context
+    public boolean isReadyForScheduling(MTMVTaskContext taskContext) {
+        // TODO: 2023/12/6 zd
         return CollectionUtils.isEmpty(getRunningTasks());
     }
 

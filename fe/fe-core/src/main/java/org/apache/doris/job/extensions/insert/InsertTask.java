@@ -41,7 +41,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,7 +52,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 /**
  * todo implement this later
  */
-@Slf4j
+@Log4j2
 public class InsertTask extends AbstractTask {
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
@@ -144,8 +144,14 @@ public class InsertTask extends AbstractTask {
     @Override
     public void run() throws JobException {
         try {
+            if (isCanceled.get()) {
+                log.info("task has been canceled, task id is {}", getTaskId());
+                return;
+            }
             command.run(ctx, stmtExecutor);
         } catch (Exception e) {
+            log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
+                    getTaskId(), sql, e);
             throw new JobException(e);
         }
     }
@@ -177,7 +183,7 @@ public class InsertTask extends AbstractTask {
     @Override
     public List<String> getShowInfo() {
         if (null == loadJob) {
-            return new ArrayList<>();
+            return getPendingTaskShowInfo();
         }
         List<String> jobInfo = Lists.newArrayList();
         // jobId
@@ -256,6 +262,24 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
         trow.addToColumnValue(new TCell().setStringVal(loadJob.getUserInfo().getQualifiedUser()));
         return trow;
+    }
+
+    // if task not start, load job is null,return pending task show info
+    private List<String> getPendingTaskShowInfo() {
+        List<String> datas = new ArrayList<>();
+
+        datas.add(String.valueOf(getTaskId()));
+        datas.add(getJobId() + "_" + getTaskId());
+        datas.add(getStatus().name());
+        datas.add(FeConstants.null_string);
+        datas.add(FeConstants.null_string);
+        datas.add(FeConstants.null_string);
+        datas.add(TimeUtils.longToTimeString(getCreateTimeMs()));
+        datas.add(FeConstants.null_string);
+        datas.add(FeConstants.null_string);
+        datas.add(FeConstants.null_string);
+        datas.add(userIdentity.getQualifiedUser());
+        return datas;
     }
 
 }

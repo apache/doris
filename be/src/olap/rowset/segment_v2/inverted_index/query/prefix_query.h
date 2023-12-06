@@ -15,35 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.analysis;
+#pragma once
 
-import org.apache.doris.common.UserException;
+#include <CLucene.h>
+#include <CLucene/index/IndexReader.h>
 
-/**
- * syntax:
- * STOP JOB FOR [database.]name
- * only run job can be stopped, and stopped job can't be resumed
- */
-public class StopJobStmt extends DdlStmt {
+#include <cstdint>
 
-    private final LabelName labelName;
+CL_NS_USE(index)
 
-    public StopJobStmt(LabelName labelName) {
-        this.labelName = labelName;
-    }
+namespace doris {
 
-    public String getName() {
-        return labelName.getLabelName();
-    }
+class PrefixQuery {
+public:
+    PrefixQuery() = default;
+    ~PrefixQuery() = default;
 
-    public String getDbFullName() {
-        return labelName.getDbName();
-    }
+    static void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
+                                 const std::string& prefix,
+                                 std::vector<CL_NS(index)::Term*>& prefix_terms,
+                                 int32_t max_expansions = 50);
+};
 
-    @Override
-    public void analyze(Analyzer analyzer) throws UserException {
-        super.analyze(analyzer);
-        CreateJobStmt.checkAuth();
-        labelName.analyze(analyzer);
-    }
-}
+} // namespace doris

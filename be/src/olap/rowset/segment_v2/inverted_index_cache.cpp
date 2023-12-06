@@ -46,7 +46,8 @@ Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
     auto closeDirectory = true;
     auto reader = lucene::index::IndexReader::open(
             directory, config::inverted_index_read_buffer_size, closeDirectory);
-    auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader);
+    bool close_reader = true;
+    auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, close_reader);
     if (!index_searcher) {
         _CLDECDELETE(directory)
         output_searcher = std::nullopt;

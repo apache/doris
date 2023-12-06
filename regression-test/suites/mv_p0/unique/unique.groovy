@@ -30,7 +30,7 @@ suite ("unique") {
             )
             unique key (k1,k2,k3)
             distributed BY hash(k1) buckets 3
-            properties("replication_num" = "1");
+            properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
         """
 
     sql "insert into u_table select 1,1,1,'a';"

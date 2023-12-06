@@ -123,21 +123,6 @@ public:
 
     OperatorXs operatorXs() { return _operators; }
 
-    bool push_blocked_task_to_queue() const override {
-        /**
-         * Push task into blocking queue if:
-         * 1. `_use_blocking_queue` is true.
-         * 2. Or this task is blocked by FE two phase execution (BLOCKED_FOR_DEPENDENCY).
-         */
-        return _use_blocking_queue;
-    }
-    void set_use_blocking_queue() {
-        if (_blocked_dep->push_to_blocking_queue()) {
-            _use_blocking_queue = true;
-            return;
-        }
-        _use_blocking_queue = false;
-    }
     void clear_blocking_state() {
         if (!is_final_state(get_state()) && get_state() != PipelineTaskState::PENDING_FINISH &&
             _blocked_dep) {
@@ -149,7 +134,6 @@ public:
     bool has_dependency() override {
         _blocked_dep = _execution_dep->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
-            set_use_blocking_queue();
             static_cast<Dependency*>(_blocked_dep)->start_watcher();
             return true;
         }
@@ -160,7 +144,6 @@ private:
     Dependency* _write_blocked_dependency() {
         _blocked_dep = _write_dependencies->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
-            set_use_blocking_queue();
             static_cast<Dependency*>(_blocked_dep)->start_watcher();
             return _blocked_dep;
         }
@@ -171,7 +154,6 @@ private:
         for (auto* fin_dep : _finish_dependencies) {
             _blocked_dep = fin_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
-                set_use_blocking_queue();
                 _blocked_dep->start_watcher();
                 return _blocked_dep;
             }
@@ -183,7 +165,6 @@ private:
         for (auto* op_dep : _read_dependencies) {
             _blocked_dep = op_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
-                set_use_blocking_queue();
                 _blocked_dep->start_watcher();
                 return _blocked_dep;
             }
@@ -218,7 +199,6 @@ private:
 
     Dependency* _execution_dep = nullptr;
 
-    std::atomic<bool> _use_blocking_queue {true};
     std::atomic<bool> _finished {false};
     std::mutex _release_lock;
 };

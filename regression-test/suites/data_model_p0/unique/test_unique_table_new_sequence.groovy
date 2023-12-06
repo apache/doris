@@ -31,7 +31,8 @@ suite("test_unique_table_new_sequence") {
     PROPERTIES (
     "function_column.sequence_col" = "v2",
     "replication_allocation" = "tag.location.default: 1",
-    "light_schema_change" = "true"
+    "light_schema_change" = "true",
+    "enable_unique_key_merge_on_write" = "false"
     );
     """
     // test streamload with seq col
@@ -145,7 +146,8 @@ suite("test_unique_table_new_sequence") {
     PROPERTIES (
     "function_column.sequence_col" = "v4",
     "replication_allocation" = "tag.location.default: 1",
-    "light_schema_change" = "true"
+    "light_schema_change" = "true",
+    "enable_unique_key_merge_on_write" = "false"
     );
     """
 
