@@ -62,6 +62,9 @@ public class QueueToken {
     public boolean waitSignal() throws InterruptedException {
         this.tokenLock.lock();
         try {
+            if (isTimeout) {
+                return false;
+            }
             if (tokenState == TokenState.READY_TO_RUN) {
                 return true;
             }
@@ -81,7 +84,7 @@ public class QueueToken {
             offerResultDetail = "meet exeption when wait for signal";
             isTimeout = true;
             return false;
-        }finally {
+        } finally {
             this.tokenLock.unlock();
         }
     }
@@ -98,6 +101,8 @@ public class QueueToken {
             tokenCond.signal();
             return true;
         } catch (Throwable t) {
+            isTimeout = true;
+            offerResultDetail = "meet exception when signal";
             LOG.warn("failed to signal token", t);
             return false;
         } finally {
