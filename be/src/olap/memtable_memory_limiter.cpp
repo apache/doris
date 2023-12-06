@@ -17,6 +17,9 @@
 
 #include "olap/memtable_memory_limiter.h"
 
+#include <bvar/bvar.h>
+#include <bvar/latency_recorder.h>
+
 #include "common/config.h"
 #include "olap/memtable_writer.h"
 #include "util/doris_metrics.h"
@@ -27,6 +30,27 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memtable_memory_limiter_mem_consumption, MetricUnit::BYTES, "",
                                    memtable_memory_limiter_mem_consumption,
                                    Labels({{"type", "load"}}));
+
+static void _sys_mem_avail(std::ostream& out, void*) {
+    out << MemInfo::sys_mem_available_str();
+}
+
+static void _proc_mem_used(std::ostream& out, void*) {
+    out << PrettyPrinter::print_bytes(MemInfo::proc_mem_no_allocator_cache());
+}
+
+bvar::LatencyRecorder g_memtable_memory_limit_latency_ms("mm_limiter", "limit_time_ms");
+bvar::Adder<int> g_memtable_memory_limit_waiting_threads("mm_limiter", "waiting_threads");
+bvar::Status<std::string> g_memtable_active_memory("mm_limiter_mem_active", nullptr);
+bvar::Status<std::string> g_memtable_write_memory("mm_limiter_mem_write", nullptr);
+bvar::Status<std::string> g_memtable_flush_memory("mm_limiter_mem_flush", nullptr);
+bvar::Status<std::string> g_memtable_load_memory("mm_limiter_mem_load", nullptr);
+bvar::Status<std::string> g_load_hard_mem_limit("mm_limiter_limit_hard", nullptr);
+bvar::Status<std::string> g_load_soft_mem_limit("mm_limiter_limit_soft", nullptr);
+bvar::PassiveStatus<std::string> g_sys_mem_avail("mm_limiter", "m_sys_avail", _sys_mem_avail,
+                                                 nullptr);
+bvar::PassiveStatus<std::string> g_proc_mem_used("mm_limiter", "m_proc_used", _proc_mem_used,
+                                                 nullptr);
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -47,6 +71,8 @@ MemTableMemoryLimiter::~MemTableMemoryLimiter() {
 Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
+    g_load_hard_mem_limit.set_value(PrettyPrinter::print_bytes(_load_hard_mem_limit));
+    g_load_soft_mem_limit.set_value(PrettyPrinter::print_bytes(_load_soft_mem_limit));
     _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
                                                        "MemTableMemoryLimiter");
     REGISTER_HOOK_METRIC(memtable_memory_limiter_mem_consumption,
@@ -89,38 +115,39 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
     if (!_soft_limit_reached()) {
         return;
     }
-    {
-        MonotonicStopWatch timer;
-        timer.start();
-        std::unique_lock<std::mutex> l(_lock);
-        while (_hard_limit_reached()) {
-            LOG(INFO) << "reached memtable memory hard limit"
-                      << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-                      << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
-                      << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-            if (_active_mem_usage >=
-                _write_mem_usage * config::memtable_hard_limit_active_percent / 100) {
-                _flush_active_memtables();
-            }
-            auto st = _hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(1000));
-            if (st == std::cv_status::timeout) {
-                LOG(INFO) << "timeout when waiting for memory hard limit end, try again";
-            }
+    MonotonicStopWatch timer;
+    timer.start();
+    std::unique_lock<std::mutex> l(_lock);
+    g_memtable_memory_limit_waiting_threads << 1;
+    while (_hard_limit_reached()) {
+        LOG(INFO) << "reached memtable memory hard limit"
+                  << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+                  << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
+                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+        if (_active_mem_usage >=
+            _write_mem_usage * config::memtable_hard_limit_active_percent / 100) {
+            _flush_active_memtables();
         }
-        if (_soft_limit_reached()) {
-            LOG(INFO) << "reached memtable memory soft limit"
-                      << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-                      << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
-                      << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-            if (_active_mem_usage >=
-                _write_mem_usage * config::memtable_soft_limit_active_percent / 100) {
-                _flush_active_memtables();
-            }
+        auto st = _hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(1000));
+        if (st == std::cv_status::timeout) {
+            LOG(INFO) << "timeout when waiting for memory hard limit end, try again";
         }
-        timer.stop();
-        int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
-        LOG(INFO) << "waited " << time_ms << " ms for memtable memory limit";
     }
+    g_memtable_memory_limit_waiting_threads << -1;
+    if (_soft_limit_reached()) {
+        LOG(INFO) << "reached memtable memory soft limit"
+                  << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+                  << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
+                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+        if (_active_mem_usage >=
+            _write_mem_usage * config::memtable_soft_limit_active_percent / 100) {
+            _flush_active_memtables();
+        }
+    }
+    timer.stop();
+    int64_t time_ms = timer.elapsed_time() / 1000 / 1000;
+    g_memtable_memory_limit_latency_ms << time_ms;
+    LOG(INFO) << "waited " << time_ms << " ms for memtable memory limit";
 }
 
 void MemTableMemoryLimiter::_flush_active_memtables() {
@@ -168,6 +195,10 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
         }
     }
     _mem_usage = _flush_mem_usage + _write_mem_usage;
+    g_memtable_active_memory.set_value(PrettyPrinter::print_bytes(_active_mem_usage));
+    g_memtable_write_memory.set_value(PrettyPrinter::print_bytes(_write_mem_usage));
+    g_memtable_flush_memory.set_value(PrettyPrinter::print_bytes(_flush_mem_usage));
+    g_memtable_load_memory.set_value(PrettyPrinter::print_bytes(_mem_usage));
     VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
     THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
     if (_soft_limit_reached()) {
