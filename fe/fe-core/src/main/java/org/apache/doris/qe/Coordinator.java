@@ -594,8 +594,7 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
-        if (Config.enable_workload_group && Config.enable_query_queue
-                && context.getSessionVariable().getEnablePipelineEngine()) {
+        if (Config.enable_workload_group && Config.enable_query_queue) {
             queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             if (queryQueue == null) {
                 // This logic is actually useless, because when could not find query queue, it will
