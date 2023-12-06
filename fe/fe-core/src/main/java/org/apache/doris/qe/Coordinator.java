@@ -614,7 +614,9 @@ public class Coordinator implements CoordInterface {
 
     @Override
     public void close() {
-        queryQueue.returnToken(queueToken);
+        if (queryQueue != null && queueToken != null) {
+            queryQueue.returnToken(queueToken);
+        }
     }
 
     private void execInternal() throws Exception {
