@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -57,7 +58,7 @@ public class MaterializedViewUtils {
      * @param materializedViewPlan this should be rewritten or analyzed plan, should not be physical plan.
      * @param column ref column name.
      */
-    public static RelatedTableInfo getRelatedTableInfo(String column, Plan materializedViewPlan) {
+    public static Optional<RelatedTableInfo> getRelatedTableInfo(String column, Plan materializedViewPlan) {
         List<Slot> outputExpressions = materializedViewPlan.getOutput();
         Slot columnExpr = null;
         // get column slot
@@ -68,14 +69,14 @@ public class MaterializedViewUtils {
             }
         }
         if (columnExpr == null) {
-            return null;
+            return Optional.empty();
         }
         if (!(columnExpr instanceof SlotReference)) {
-            return null;
+            return Optional.empty();
         }
         SlotReference columnSlot = (SlotReference) columnExpr;
         if (!columnSlot.isColumnFromTable()) {
-            return null;
+            return Optional.empty();
         }
         // check sql pattern
         IncrementCheckerContext context = new IncrementCheckerContext(columnSlot);
@@ -83,11 +84,11 @@ public class MaterializedViewUtils {
         if (context.getRelatedTable() == null
                 || context.getRelatedTableColumn() == null
                 || !context.isPctPossible()) {
-            return null;
+            return Optional.empty();
         }
-        return new RelatedTableInfo(new BaseTableInfo(context.getRelatedTable()),
+        return Optional.of(new RelatedTableInfo(new BaseTableInfo(context.getRelatedTable()),
                 context.isPctPossible(),
-                context.getRelatedTableColumn().getName());
+                context.getRelatedTableColumn().getName()));
     }
 
     /**
@@ -163,42 +164,42 @@ public class MaterializedViewUtils {
 
         @Override
         public Void visitLogicalProject(LogicalProject<? extends Plan> project, IncrementCheckerContext context) {
-            return super.visitLogicalProject(project, context);
+            return visit(project, context);
         }
 
         @Override
         public Void visitLogicalFilter(LogicalFilter<? extends Plan> filter, IncrementCheckerContext context) {
-            return super.visitLogicalFilter(filter, context);
+            return visit(filter, context);
         }
 
         @Override
         public Void visitLogicalJoin(LogicalJoin<? extends Plan, ? extends Plan> join,
                 IncrementCheckerContext context) {
-            return super.visitLogicalJoin(join, context);
+            return visit(join, context);
         }
 
         @Override
         public Void visitLogicalRelation(LogicalRelation relation, IncrementCheckerContext context) {
             if (!(relation instanceof LogicalCatalogRelation) || context.getRelatedTable() != null) {
-                return super.visit(relation, context);
+                return visit(relation, context);
             }
             LogicalCatalogRelation logicalCatalogRelation = (LogicalCatalogRelation) relation;
             TableIf table = logicalCatalogRelation.getTable();
             if (!(table instanceof OlapTable)) {
-                return super.visit(relation, context);
+                return visit(relation, context);
             }
             OlapTable olapTable = (OlapTable) table;
             PartitionInfo partitionInfo = olapTable.getPartitionInfo();
             Set<Column> partitionColumnSet = new HashSet<>(partitionInfo.getPartitionColumns());
             if (PartitionType.UNPARTITIONED.equals(partitionInfo.getType())) {
-                return super.visit(relation, context);
+                return visit(relation, context);
             }
             Column mvReferenceColumn = context.getMvPartitionColumn().getColumn().get();
             if (partitionColumnSet.contains(mvReferenceColumn)) {
                 context.setRelatedTable(table);
                 context.setRelatedTableColumn(mvReferenceColumn);
             }
-            return super.visit(relation, context);
+            return visit(relation, context);
         }
 
         @Override
@@ -206,7 +207,7 @@ public class MaterializedViewUtils {
                 IncrementCheckerContext context) {
             Set<Expression> groupByExprSet = new HashSet<>(aggregate.getGroupByExpressions());
             if (groupByExprSet.isEmpty()) {
-                return super.visit(aggregate, context);
+                return visit(aggregate, context);
             }
             Set<Column> originalGroupbyExprSet = new HashSet<>();
             groupByExprSet.forEach(groupExpr -> {
@@ -217,14 +218,14 @@ public class MaterializedViewUtils {
             if (!originalGroupbyExprSet.contains(context.getMvPartitionColumn().getColumn().get())) {
                 context.setPctPossible(false);
             }
-            return super.visit(aggregate, context);
+            return visit(aggregate, context);
         }
 
         @Override
         public Void visitLogicalWindow(LogicalWindow<? extends Plan> window, IncrementCheckerContext context) {
             List<NamedExpression> windowExpressions = window.getWindowExpressions();
             if (windowExpressions.isEmpty()) {
-                return super.visit(window, context);
+                return visit(window, context);
             }
             windowExpressions.forEach(expr -> checkWindowPartition(expr, context));
             return super.visitLogicalWindow(window, context);

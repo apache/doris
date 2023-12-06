@@ -28,6 +28,8 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.Optional;
+
 /**
  * Test for materialized view util
  */
@@ -110,7 +112,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            RelatedTableInfo relatedTableInfo =
+                            Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", rewrittenPlan);
                             checkRelatedTableInfo(relatedTableInfo,
                                     "lineitem",
@@ -136,7 +138,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "GROUP BY l.L_SHIPDATE, o.O_ORDERDATE ",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            RelatedTableInfo relatedTableInfo =
+                            Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("ship_data_alias", rewrittenPlan);
                             checkRelatedTableInfo(relatedTableInfo,
                                     "lineitem",
@@ -156,9 +158,9 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON ps_1.PS_PARTKEY = ps_2.PS_SUPPKEY ",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            RelatedTableInfo relatedTableInfo =
+                            Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("PS_SUPPLYCOST", rewrittenPlan);
-                            Assertions.assertNull(relatedTableInfo);
+                            Assertions.assertFalse(relatedTableInfo.isPresent());
                         });
     }
 
@@ -179,7 +181,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            RelatedTableInfo relatedTableInfo =
+                            Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", rewrittenPlan);
                             checkRelatedTableInfo(relatedTableInfo,
                                     "lineitem",
@@ -205,9 +207,9 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
-                            RelatedTableInfo relatedTableInfo =
+                            Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", rewrittenPlan);
-                            Assertions.assertNull(relatedTableInfo);
+                            Assertions.assertFalse(relatedTableInfo.isPresent());
                         });
     }
 
@@ -251,12 +253,12 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         });
     }
 
-    private void checkRelatedTableInfo(RelatedTableInfo relatedTableInfo,
+    private void checkRelatedTableInfo(Optional<RelatedTableInfo> relatedTableInfo,
             String expectTableName,
             String expectColumnName,
             boolean pctPossible) {
-        Assertions.assertNotNull(relatedTableInfo);
-        BaseTableInfo relatedBaseTableInfo = relatedTableInfo.getTableInfo();
+        Assertions.assertTrue(relatedTableInfo.isPresent());
+        BaseTableInfo relatedBaseTableInfo = relatedTableInfo.get().getTableInfo();
         try {
             TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
                     .getCatalogOrAnalysisException(relatedBaseTableInfo.getCtlId())
@@ -266,7 +268,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         } catch (Exception exception) {
             Assertions.fail();
         }
-        Assertions.assertEquals(relatedTableInfo.getColumn(), expectColumnName);
+        Assertions.assertEquals(relatedTableInfo.get().getColumn(), expectColumnName);
         Assertions.assertTrue(pctPossible);
     }
 }
