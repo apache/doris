@@ -95,7 +95,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ArrowPipInputStream::Read(int64_t 
     ARROW_ASSIGN_OR_RAISE(int64_t bytes_read, Read(nbytes, buffer->mutable_data()));
     ARROW_RETURN_NOT_OK(buffer->Resize(bytes_read, false));
     buffer->ZeroPadding();
-    return std::move(buffer);
+    return buffer;
 }
 
 } // namespace doris::vectorized
