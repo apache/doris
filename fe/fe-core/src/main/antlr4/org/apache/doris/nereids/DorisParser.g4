@@ -40,15 +40,17 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
-        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN))
+    | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
+        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? RIGHT_PAREN))
         (ENGINE EQ engine=identifier)?
-        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
+        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList (CLUSTER BY clusterKeys=identifierList)?)?
         (COMMENT STRING_LITERAL)?
-        (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
-        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS INTEGER_VALUE | AUTO)?)?
+        ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST) (partitionKeys=identifierList | partitionExpr=functionCallExpression)
+          LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
-        propertyClause?
+        properties=propertyClause?
+        (BROKER extProperties=propertyClause)?
         (AS query)?                                                    #createTable
     | explain? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
@@ -482,7 +484,7 @@ columnDefs
     
 columnDef
     : colName=identifier type=dataType
-        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
+        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)? (AUTO_INCREMENT)?
         (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
             | CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
@@ -494,7 +496,7 @@ indexDefs
     ;
     
 indexDef
-    : INDEX indexName=identifier cols=identifierList (USING BITMAP)? (comment=STRING_LITERAL)?
+    : INDEX indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
     ;
     
 partitionsDef
@@ -518,8 +520,8 @@ stepPartitionDef
     ;
 
 inPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
-        (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq)
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
+        (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq))?
     ;
     
 constantSeq
@@ -668,13 +670,7 @@ primaryExpression
           RIGHT_PAREN                                                                         #charFunction
     | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN       #convertCharSet
     | CONVERT LEFT_PAREN argument=expression COMMA type=dataType RIGHT_PAREN                  #convertType
-    | functionIdentifier 
-        LEFT_PAREN (
-            (DISTINCT|ALL)? 
-            arguments+=expression (COMMA arguments+=expression)*
-            (ORDER BY sortItem (COMMA sortItem)*)?
-        )? RIGHT_PAREN
-      (OVER windowSpec)?                                                                       #functionCall
+    | functionCallExpression                                                                   #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
       COLON (end=valueExpression)? RIGHT_BRACKET                                               #arraySlice
@@ -688,6 +684,16 @@ primaryExpression
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
+    ;
+
+functionCallExpression
+    : functionIdentifier
+              LEFT_PAREN (
+                  (DISTINCT|ALL)?
+                  arguments+=expression (COMMA arguments+=expression)*
+                  (ORDER BY sortItem (COMMA sortItem)*)?
+              )? RIGHT_PAREN
+            (OVER windowSpec)?
     ;
 
 functionIdentifier 
