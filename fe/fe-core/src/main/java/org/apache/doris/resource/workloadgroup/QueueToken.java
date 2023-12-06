@@ -74,7 +74,13 @@ public class QueueToken {
             } else {
                 return true;
             }
-        } finally {
+        } catch (Throwable t) {
+            LOG.warn("meet execption when wait for signal", t);
+            // If any exception happens, set isTimeout to true and return false
+            // Then the caller will call returnToken to queue normally.
+            isTimeout = true;
+            return false;
+        }finally {
             this.tokenLock.unlock();
         }
     }

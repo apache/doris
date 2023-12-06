@@ -137,13 +137,16 @@ public class QueryQueue {
             }
             currentRunningQueryNum--;
             Preconditions.checkArgument(currentRunningQueryNum >= 0);
-            // maybe only when currentWaitingQueryNum != 0 need to signal
-            if (currentRunningQueryNum < maxConcurrency) {
+            // If return token and find user changed concurrency num,  then maybe need signal
+            // more tokens.
+            while (currentRunningQueryNum < maxConcurrency) {
                 QueueToken nextToken = this.priorityTokenQueue.poll();
                 if (nextToken != null) {
                     if (nextToken.signal()) {
                         ++currentRunningQueryNum;
                     }
+                } else {
+                    break;
                 }
             }
         } finally {
