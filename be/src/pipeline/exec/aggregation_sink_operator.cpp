@@ -729,13 +729,13 @@ AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operato
           _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_merge(false),
+          _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _pool(pool),
           _limit(tnode.limit),
           _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
           _is_streaming(is_streaming),
-          _partition_exprs(tnode.agg_node.grouping_exprs) {
-    _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
-}
+          _partition_exprs(tnode.agg_node.grouping_exprs),
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {}
 
 template <typename LocalStateType>
 Status AggSinkOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {

@@ -770,8 +770,11 @@ public class SessionVariable implements Serializable, Writable {
             needForward = true)
     private boolean enableSharedScan = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
-    private boolean enableLocalShuffle = false;
+    @VariableMgr.VarAttr(
+            name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否在pipelineX引擎上开启local shuffle优化",
+                    "Whether to enable local shuffle on pipelineX engine."})
+    private boolean enableLocalShuffle = true;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableAggState = false;
