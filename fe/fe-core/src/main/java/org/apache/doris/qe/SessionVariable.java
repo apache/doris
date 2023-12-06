@@ -771,7 +771,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean enableSharedScan = false;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
-    private boolean enableLocalShuffle = false;
+    private boolean enableLocalShuffle = true;
 
     @VariableMgr.VarAttr(name = ENABLE_AGG_STATE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL)
     public boolean enableAggState = false;
