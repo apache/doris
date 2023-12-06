@@ -594,7 +594,8 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
-        if (Config.enable_workload_group && Config.enable_query_queue) {
+        // LoadTask does not have context, not controlled by queue now
+        if (Config.enable_workload_group && Config.enable_query_queue && context != null) {
             queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             if (queryQueue == null) {
                 // This logic is actually useless, because when could not find query queue, it will
