@@ -167,17 +167,27 @@ int HttpStreamAction::on_header(HttpRequest* req) {
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
+    Status st = Status::OK();
     if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
         config::wait_internal_group_commit_finish) {
         ctx->group_commit = load_size_smaller_than_wal_limit(req);
+        if (!ctx->group_commit) {
+            LOG(WARNING) << "The data size for this http load("
+                         << std::stol(req->header(HttpHeaders::CONTENT_LENGTH))
+                         << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                         << config::wal_max_disk_size * 0.8
+                         << " Bytes). Please set this load to \"group commit\"=false.";
+            st = Status::InternalError("Http load size too large.");
+        }
     }
 
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
               << " sql : " << req->header(HTTP_SQL);
-
-    auto st = _on_header(req, ctx);
+    if (st.ok()) {
+        st = _on_header(req, ctx);
+    }
     if (!st.ok()) {
         ctx->status = std::move(st);
         if (ctx->body_sink != nullptr) {
