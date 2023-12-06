@@ -32,7 +32,6 @@ public class QueueToken {
     private static final Logger LOG = LogManager.getLogger(QueueToken.class);
 
     enum TokenState {
-        ENQUEUE_FAILED,
         ENQUEUE_SUCCESS,
         READY_TO_RUN
     }
@@ -66,9 +65,6 @@ public class QueueToken {
             if (tokenState == TokenState.READY_TO_RUN) {
                 return true;
             }
-            if (tokenState == TokenState.ENQUEUE_FAILED) {
-                return false;
-            }
             tokenCond.await(waitTimeout, TimeUnit.MILLISECONDS);
             // If wait timeout and is steal not ready to run, then return false
             if (tokenState != TokenState.READY_TO_RUN) {
@@ -100,10 +96,6 @@ public class QueueToken {
         } finally {
             this.tokenLock.unlock();
         }
-    }
-
-    public Boolean enqueueSuccess() {
-        return this.tokenState != TokenState.ENQUEUE_FAILED;
     }
 
     public String getOfferResultDetail() {

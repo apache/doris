@@ -106,7 +106,6 @@ public class QueryQueue {
             if (LOG.isDebugEnabled()) {
                 LOG.info(this.debugString());
             }
-
             if (currentRunningQueryNum < maxConcurrency) {
                 currentRunningQueryNum++;
                 return new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
@@ -130,10 +129,6 @@ public class QueryQueue {
     public void returnToken(QueueToken token) throws InterruptedException {
         queueLock.lock();
         try {
-            // If current token is not in the queue, then do nothing, just return.
-            if (!token.enqueueSuccess()) {
-                return;
-            }
             // If current token is not in ready to run state, then it is still in the queue
             // it is not running, just remove it.
             if (!token.isReadyToRun()) {

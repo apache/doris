@@ -613,11 +613,6 @@ public class StmtExecutor {
                 && context.getSessionVariable().getEnablePipelineEngine()) {
             queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
             queueToken = queryQueue.getToken();
-            if (!queueToken.enqueueSuccess()) {
-                String retMsg = "queue failed, reason=" + queueToken.getOfferResultDetail();
-                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
-                throw new UserException(retMsg);
-            }
             if (!queueToken.waitSignal()) {
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
                 queryQueue.returnToken(queueToken);
