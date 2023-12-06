@@ -70,11 +70,11 @@ public class QueueToken {
             }
             // If query timeout is less than queue wait timeout, then should use
             // query timeout as wait timeout
-            tokenCond.await(queryTimeoutMillis > queueWaitTimeout ? queueWaitTimeout : queryTimeoutMillis,
-                    TimeUnit.MILLISECONDS);
+            long waitTimeout = queryTimeoutMillis > queueWaitTimeout ? queueWaitTimeout : queryTimeoutMillis;
+            tokenCond.await(waitTimeout, TimeUnit.MILLISECONDS);
             // If wait timeout and is steal not ready to run, then return false
             if (tokenState != TokenState.READY_TO_RUN) {
-                LOG.warn("wait in queue timeout, timeout = {}", queueWaitTimeout);
+                LOG.warn("wait in queue timeout, timeout = {}", waitTimeout);
                 isTimeout = true;
                 return false;
             } else {
