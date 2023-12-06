@@ -257,9 +257,10 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                               const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
                               bool is_recovery) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
-        LOG(FATAL) << "invalid commit req "
-                   << " partition_id=" << partition_id << " transaction_id=" << transaction_id
-                   << " tablet_id=" << tablet_id;
+        LOG(WARNING) << "invalid commit req "
+                     << " partition_id=" << partition_id << " transaction_id=" << transaction_id
+                     << " tablet_id=" << tablet_id;
+        return Status::InternalError("invalid partition id");
     }
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
