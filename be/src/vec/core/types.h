@@ -520,14 +520,10 @@ struct Decimal {
     explicit(IsInt256) Decimal(Float32 value) noexcept : value(type_round(value)) {}
     explicit(IsInt256) Decimal(Float64 value) noexcept : value(type_round(value)) {}
 
-    /// If T is integral and non wide::Int256, the given value will be rounded to integer.
+    /// If T is integral, the given value will be rounded to integer.
     template <std::floating_point U>
     static constexpr U type_round(U value) noexcept {
-        // When T is wide::Int256 will not round the value, according to the old implementation.
-        // Is it right?
-        // std::is_integral_v<wide::Int256> == false currently.
-        // But I add a directly judgement here for safety (!IsInt256).
-        if constexpr (std::is_integral_v<T> && !IsInt256) {
+        if constexpr (wide::IntegralConcept<T>()) {
             return round(value);
         }
         return value;
