@@ -219,7 +219,7 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
-        auto *date_value = reinterpret_cast<VecDateTimeValue*>(src);
+        auto* date_value = reinterpret_cast<VecDateTimeValue*>(src);
         char str[MAX_DTVALUE_STR_LEN];
         date_value->to_string(str);
         result = std::string(str);
