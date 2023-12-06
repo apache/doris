@@ -194,10 +194,17 @@ int StreamLoadAction::on_header(HttpRequest* req) {
             st = Status::InternalError("label and group_commit can't be set at the same time");
         }
         ctx->group_commit = load_size_smaller_than_wal_limit(req);
-    } else {
-        if (ctx->label.empty()) {
-            ctx->label = generate_uuid_string();
+        if (!ctx->group_commit) {
+            LOG(WARNING) << "The data size for this stream load("
+                         << std::stol(req->header(HttpHeaders::CONTENT_LENGTH))
+                         << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                         << config::wal_max_disk_size * 0.8
+                         << " Bytes). Please set this load to \"group commit\"=false.";
+            st = Status::InternalError("Stream load size too large.");
         }
+    }
+    if (!ctx->group_commit && ctx->label.empty()) {
+        ctx->label = generate_uuid_string();
     }
 
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
