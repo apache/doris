@@ -78,6 +78,7 @@ public class QueueToken {
             LOG.warn("meet execption when wait for signal", t);
             // If any exception happens, set isTimeout to true and return false
             // Then the caller will call returnToken to queue normally.
+            offerResultDetail = "meet exeption when wait for signal";
             isTimeout = true;
             return false;
         }finally {
