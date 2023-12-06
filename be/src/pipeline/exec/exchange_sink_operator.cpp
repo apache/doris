@@ -217,7 +217,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         RETURN_IF_ERROR(_partitioner->init(p._texprs));
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         _profile->add_info_string("Partitioner",
-                                  fmt::format("XXHashPartitioner({})", _partition_count));
+                                  fmt::format("Crc32HashPartitioner({})", _partition_count));
     } else if (p._part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
         _partition_count = channel_shared_ptrs.size();
         _partitioner.reset(new vectorized::Crc32HashPartitioner<vectorized::ShuffleChannelIds>(
@@ -410,7 +410,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
         if (_part_type == TPartitionType::HASH_PARTITIONED) {
             RETURN_IF_ERROR(channel_add_rows(state, local_state.channels,
                                              local_state._partition_count,
-                                             (uint64_t*)local_state._partitioner->get_channel_ids(),
+                                             (uint32_t*)local_state._partitioner->get_channel_ids(),
                                              rows, block, source_state == SourceState::FINISHED));
         } else {
             RETURN_IF_ERROR(channel_add_rows(state, local_state.channel_shared_ptrs,
