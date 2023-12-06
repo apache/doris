@@ -196,6 +196,7 @@ Status RowsetBuilder::init() {
     context.tablet_schema = _tablet_schema;
     context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
+    context.partition_id = _req.partition_id; 
     context.tablet_id = _tablet->tablet_id();
     context.tablet = _tablet;
     context.write_type = DataWriteType::TYPE_DIRECT;
