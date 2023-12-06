@@ -506,7 +506,7 @@ Status DataDir::load() {
                     _meta, rowset_meta->partition_id(), rowset_meta->txn_id(),
                     rowset_meta->tablet_id(), rowset_meta->tablet_schema_hash(),
                     rowset_meta->tablet_uid(), rowset_meta->load_id(), rowset, true);
-            if (commit_txn_status ||commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
+            if (commit_txn_status || commit_txn_status.is<PUSH_TRANSACTION_ALREADY_EXIST>()) {
                 LOG(INFO) << "successfully to add committed rowset: " << rowset_meta->rowset_id()
                           << " to tablet: " << rowset_meta->tablet_id()
                           << " schema hash: " << rowset_meta->tablet_schema_hash()
