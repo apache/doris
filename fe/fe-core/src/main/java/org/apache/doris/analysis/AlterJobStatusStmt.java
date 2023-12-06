@@ -17,47 +17,47 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.job.common.JobStatus;
 
 import com.google.common.base.Strings;
+import lombok.Getter;
 
-public class ResumeJobStmt extends DdlStmt {
+public class AlterJobStatusStmt extends DdlStmt {
 
-    private final LabelName labelName;
+    private Expr expr;
 
-    private String db;
+    private static final String columnName = "jobName";
 
-    public ResumeJobStmt(LabelName labelName) {
-        this.labelName = labelName;
-    }
+    @Getter
+    private String jobName;
 
-    public boolean isAll() {
-        return labelName == null;
-    }
+    @Getter
+    private JobStatus jobStatus;
 
-    public String getName() {
-        return labelName.getLabelName();
-    }
-
-    public String getDbFullName() {
-        return db;
+    public AlterJobStatusStmt(Expr whereClause, JobStatus jobStatus) {
+        this.expr = whereClause;
+        this.jobStatus = jobStatus;
     }
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         CreateJobStmt.checkAuth();
-        if (labelName != null) {
-            labelName.analyze(analyzer);
-            db = labelName.getDbName();
-        } else {
-            if (Strings.isNullOrEmpty(analyzer.getDefaultDb())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
-            }
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), analyzer.getDefaultDb());
+        String inputCol = ((SlotRef) expr.getChild(0)).getColumnName();
+        if (!inputCol.equalsIgnoreCase(columnName)) {
+            throw new AnalysisException("Current not support " + inputCol);
         }
+        if (!(expr.getChild(1) instanceof StringLiteral)) {
+            throw new AnalysisException("Value must is string");
+        }
+
+        String inputValue = expr.getChild(1).getStringValue();
+        if (Strings.isNullOrEmpty(inputValue)) {
+            throw new AnalysisException("Value can't is null");
+        }
+        this.jobName = inputValue;
+
     }
 }
