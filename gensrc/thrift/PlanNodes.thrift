@@ -451,7 +451,8 @@ enum TDataGenFunctionName {
 // running parameters
 struct TTVFNumbersScanRange {
   1: optional i64 totalNumbers
-  2: optional string type
+  2: optional bool useConst
+  3: optional i64 constValue
 }
 
 struct TDataGenScanRange {

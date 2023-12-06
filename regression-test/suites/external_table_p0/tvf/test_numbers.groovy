@@ -23,10 +23,10 @@
     qt_basic3 """ select * from numbers("number" = "100"); """
     qt_basic4_limit """ select * from numbers("number" = "10") limit 5; """
 
-    qt_zero1 """ select * from numbers("zero" = "10"); """
-    qt_zero1 """ select * from numbers("zero" = "-1"); """
-    qt_zero1 """ select * from numbers("zero" = "0"); """
-    qt_zero1 """ select avg(number) from numbers("zero" = "10"); """
+    qt_const1 """ select * from numbers("number" = "5", "const_value" = "1"); """
+    qt_const2 """ select * from numbers("number" = "5", "const_value" = "-123"); """
+    qt_const3 """ select * from numbers("number" = "-10", "const_value" = "1"); """
+    qt_const4 """ select avg(number) from numbers("number" = "100", "const_value" = "123"); """
 
     // Test aggregate function withh numbers("number" = N)
     qt_agg_sum """ select sum(number) from numbers("number" = "100"); """
@@ -141,6 +141,6 @@
         sql """ select * from numbers(); """
 
         // check exception
-        exception """should have 1 valid properties but got 0"""
+        exception """number not set"""
     }
  }

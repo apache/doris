@@ -68,21 +68,19 @@ public class Numbers extends TableValuedFunction {
         try {
             NumbersTableValuedFunction numberTvf = (NumbersTableValuedFunction) getCatalogFunction();
             long rowNum = numberTvf.getTotalNumbers();
-            String tvfType = numberTvf.getType();
 
             Map<Expression, ColumnStatistic> columnToStatistics = Maps.newHashMap();
             ColumnStatisticBuilder statBuilder = new ColumnStatisticBuilder()
-                    .setCount(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8).setMinValue(0);
-            if (tvfType.equals(NumbersTableValuedFunction.NUMBER)) {
-                statBuilder = statBuilder.setNdv(rowNum).setMaxValue(rowNum - 1)
+                    .setCount(rowNum).setAvgSizeByte(8).setNumNulls(0).setDataSize(8);
+            if (numberTvf.getUseConst()) { // a column of const value
+                long value = numberTvf.getConstValue();
+                statBuilder = statBuilder.setNdv(1).setMinValue(value).setMaxValue(value)
+                        .setMinExpr(new IntLiteral(value, Type.BIGINT))
+                        .setMaxExpr(new IntLiteral(value, Type.BIGINT));
+            } else { // a column of increasing value
+                statBuilder = statBuilder.setNdv(rowNum).setMinValue(0).setMaxValue(rowNum - 1)
                         .setMinExpr(new IntLiteral(0, Type.BIGINT))
                         .setMaxExpr(new IntLiteral(rowNum - 1, Type.BIGINT));
-            } else if (tvfType.equals(NumbersTableValuedFunction.ZERO)) {
-                statBuilder = statBuilder.setNdv(1).setMaxValue(0)
-                        .setMinExpr(new IntLiteral(0, Type.BIGINT))
-                        .setMaxExpr(new IntLiteral(0, Type.BIGINT));
-            } else {
-                throw new InternalError("Unhandled type NumbersTvf type: " + tvfType);
             }
             columnToStatistics.put(slots.get(0), statBuilder.build());
             return new Statistics(rowNum, columnToStatistics);

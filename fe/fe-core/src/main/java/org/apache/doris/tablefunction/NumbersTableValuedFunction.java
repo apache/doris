@@ -44,14 +44,15 @@ import java.util.Map;
 public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     public static final String NAME = "numbers";
     public static final String NUMBER = "number";
-    public static final String ZERO = "zero";
+    public static final String CONST_VALUE = "const_value";
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(NUMBER)
-            .add(ZERO)
+            .add(CONST_VALUE)
             .build();
     // The total numbers will be generated.
     private long totalNumbers;
-    String type;
+    private boolean useConst = false;
+    private long constValue;
 
     /**
      * Constructor.
@@ -59,20 +60,19 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
      * @throws AnalysisException exception
      */
     public NumbersTableValuedFunction(Map<String, String> params) throws AnalysisException {
-        int count = 0;
-
+        if (!params.containsKey(NUMBER)) {
+            throw new AnalysisException("number not set");
+        }
         for (String key : params.keySet()) {
             if (PROPERTIES_SET.contains(key)) {
-                count++;
                 try {
                     switch (key) {
-                        case "number":
-                            type = NUMBER;
+                        case NUMBER:
                             totalNumbers = Long.parseLong(params.get(key));
                             break;
-                        case "zero":
-                            type = ZERO;
-                            totalNumbers = Long.parseLong(params.get(key));
+                        case CONST_VALUE:
+                            useConst = true;
+                            constValue = Long.parseLong(params.get(key));
                             break;
                         default:
                             break;
@@ -82,13 +82,18 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
                 }
             }
         }
-        if (count != 1) {
-            throw new AnalysisException("should have 1 valid properties but got " + count);
-        }
     }
 
     public long getTotalNumbers() {
         return totalNumbers;
+    }
+
+    public boolean getUseConst() {
+        return useConst;
+    }
+
+    public long getConstValue() {
+        return constValue;
     }
 
     @Override
@@ -99,10 +104,6 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
     @Override
     public String getTableName() {
         return "NumbersTableValuedFunction";
-    }
-
-    public String getType() {
-        return type;
     }
 
     @Override
@@ -128,9 +129,8 @@ public class NumbersTableValuedFunction extends DataGenTableValuedFunction {
         List<TableValuedFunctionTask> res = Lists.newArrayList();
         TScanRange scanRange = new TScanRange();
         TDataGenScanRange dataGenScanRange = new TDataGenScanRange();
-        TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange();
-        tvfNumbersScanRange.setTotalNumbers(totalNumbers);
-        tvfNumbersScanRange.setType(type);
+        TTVFNumbersScanRange tvfNumbersScanRange = new TTVFNumbersScanRange().setTotalNumbers(totalNumbers)
+                .setUseConst(useConst).setConstValue(constValue);
         dataGenScanRange.setNumbersParams(tvfNumbersScanRange);
         scanRange.setDataGenScanRange(dataGenScanRange);
         res.add(new TableValuedFunctionTask(backendList.get(0), scanRange));
