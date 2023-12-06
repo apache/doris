@@ -65,7 +65,8 @@ suite("test_base_insert_job") {
             "replication_allocation" = "tag.location.default: 1"
         );
         """
-    def currentMs=System.currentTimeMillis()+1000;
+    // Enlarge this parameter to avoid other factors that cause time verification to fail when submitting.
+    def currentMs=System.currentTimeMillis()+20000;
     def   dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(currentMs), ZoneId.systemDefault());
 
     def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -73,35 +74,34 @@ suite("test_base_insert_job") {
     def dataCount = sql """select count(*) from ${tableName}"""
     assert dataCount.get(0).get(0) == 0
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(1000), 1001);
+          CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10000), 1001);
      """
 
-    Thread.sleep(3000)
-    
+    Thread.sleep(25000)
+    def onceJob = sql """select id from jobs("type"="insert") where Name='${jobName}'"""
+    assert onceJob.size() == 1
+    def onceJobId= onceJob.get(0).get(0);
     // test cancel task
-    def datas = sql """show job tasks for ${jobName}"""
+    def datas = sql """select status,taskid from tasks("type"="insert") where jobid= ${onceJobId}"""
     println datas
     assert datas.size() == 1
-    println datas.get(0).get(2)
-    assert datas.get(0).get(2) == "RUNNING"
-    def taskId = datas.get(0).get(0)
+    assert datas.get(0).get(0) == "RUNNING"
+    def taskId = datas.get(0).get(1)
     sql """cancel  task where jobName='${jobName}' and taskId= ${taskId}"""
-    def cancelTask = sql """ show job tasks for ${jobName}""" 
+    def cancelTask = sql """ select status from tasks("type"="insert") where jobid= ${onceJobId}""" 
     println cancelTask
     //check task status
     assert cancelTask.size() == 1
-    assert cancelTask.get(0).get(2) == "CANCELED"
+    assert cancelTask.get(0).get(0) == "CANCELED"
     // check table data
-    def dataCount1 = sql """select count(*) from ${tableName}"""
+    def dataCount1 = sql """select count(1) from ${tableName}"""
     assert dataCount1.get(0).get(0) == 0
     // check job status
-    def oncejob=sql """show job for  ${jobName} """
+    def oncejob=sql """select status,comment from jobs("type"="insert") where Name='${jobName}' """
     println oncejob
-    assert oncejob.get(0).get(5) == "FINISHED"
+    assert oncejob.get(0).get(0) == "FINISHED"
     //assert comment
-    println oncejob.get(0).get(8)
-    //check comment
-    assert oncejob.get(0).get(8) == "test for test&68686781jbjbhj//ncsa"
+    assert oncejob.get(0).get(1) == "test for test&68686781jbjbhj//ncsa"
  
     try{
         sql """
