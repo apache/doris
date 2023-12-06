@@ -465,21 +465,22 @@ PhysicalResultSink
 
 -- !infer5 --
 PhysicalResultSink
---PhysicalProject
-----hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
-------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
---------filter((t1.id = 1))
-----------PhysicalLimit[GLOBAL]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1] apply RFs: RF0 RF1
---------PhysicalDistribute
+--PhysicalDistribute
+----PhysicalProject
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
 ----------filter((t2.id = 1))
-------------PhysicalOlapScan[t2]
-------PhysicalDistribute
---------filter((t3.id = 1))
-----------PhysicalOlapScan[t]
+------------PhysicalOlapScan[t2] apply RFs: RF0
+----------PhysicalDistribute
+------------filter((t1.id = 1))
+--------------PhysicalLimit[GLOBAL]
+----------------PhysicalDistribute
+------------------PhysicalLimit[LOCAL]
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[t1] apply RFs: RF1
+--------PhysicalDistribute
+----------filter((t3.id = 1))
+------------PhysicalOlapScan[t]
 
 -- !infer6 --
 PhysicalResultSink
