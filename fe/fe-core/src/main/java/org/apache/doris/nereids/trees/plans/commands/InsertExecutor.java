@@ -588,4 +588,8 @@ public class InsertExecutor {
             throw new AnalysisException(e.getMessage(), e);
         }
     }
+
+    public Coordinator getCoordinator() {
+        return coordinator;
+    }
 }

@@ -42,6 +42,7 @@ import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
+import org.apache.doris.thrift.TJoinDistributionType;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
 
@@ -730,6 +731,7 @@ public class HashJoinNode extends JoinNodeBase {
                 msg.hash_join_node.addToVintermediateTupleIdList(tupleDescriptor.getId().asInt());
             }
         }
+        msg.hash_join_node.setDistType(isColocate ? TJoinDistributionType.COLOCATE : distrMode.toThrift());
     }
 
     @Override
@@ -811,6 +813,22 @@ public class HashJoinNode extends JoinNodeBase {
         @Override
         public String toString() {
             return description;
+        }
+
+        public TJoinDistributionType toThrift() {
+            switch (this) {
+                case NONE:
+                    return TJoinDistributionType.NONE;
+                case BROADCAST:
+                    return TJoinDistributionType.BROADCAST;
+                case PARTITIONED:
+                    return TJoinDistributionType.PARTITIONED;
+                case BUCKET_SHUFFLE:
+                    return TJoinDistributionType.BUCKET_SHUFFLE;
+                default:
+                    Preconditions.checkArgument(false, "Unknown DistributionMode: " + toString());
+            }
+            return TJoinDistributionType.NONE;
         }
     }
 

@@ -47,11 +47,12 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Data
 @Slf4j
-public class InsertJob extends AbstractJob<InsertTask> {
+public class InsertJob extends AbstractJob<InsertTask, Map> {
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createStringType()),
@@ -87,11 +88,11 @@ public class InsertJob extends AbstractJob<InsertTask> {
     ConcurrentLinkedQueue<Long> taskIdList;
 
     // max save task num, do we need to config it?
-    private static final int MAX_SAVE_TASK_NUM = 50;
-
+    private static final int MAX_SAVE_TASK_NUM = 100;
 
     @Override
-    public List<InsertTask> createTasks(TaskType taskType) {
+    public List<InsertTask> createTasks(TaskType taskType, Map taskContext) {
+        //nothing need to do in insert job
         InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql(), getCreateUser());
         task.setJobId(getJobId());
         task.setTaskType(taskType);
@@ -123,15 +124,15 @@ public class InsertJob extends AbstractJob<InsertTask> {
         super.cancelTaskById(taskId);
     }
 
+    @Override
+    public boolean isReadyForScheduling(Map taskContext) {
+        return CollectionUtils.isEmpty(getRunningTasks());
+    }
+
 
     @Override
     public void cancelAllTasks() throws JobException {
         super.cancelAllTasks();
-    }
-
-    @Override
-    public boolean isReadyForScheduling() {
-        return true;
     }
 
 
@@ -162,8 +163,9 @@ public class InsertJob extends AbstractJob<InsertTask> {
             InsertTask task;
             try {
                 task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
+                task.setCreateTimeMs(loadJob.getCreateTimestamp());
             } catch (MetaNotFoundException e) {
-                log.warn("load job not found,job id is {}", loadJob.getId());
+                log.warn("load job not found, job id is {}", loadJob.getId());
                 return;
             }
             task.setJobId(getJobId());
@@ -195,7 +197,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
     }
 
     @Override
-    public void onTaskSuccess(InsertTask task) {
+    public void onTaskSuccess(InsertTask task) throws JobException {
         super.onTaskSuccess(task);
     }
 

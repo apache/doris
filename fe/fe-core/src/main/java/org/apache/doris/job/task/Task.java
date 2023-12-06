@@ -54,7 +54,7 @@ public interface Task {
      *
      * @param msg The error message associated with the failure.
      */
-    void onFail(String msg);
+    void onFail(String msg) throws JobException;
 
     /**
      * This method is called when the task executes successfully.

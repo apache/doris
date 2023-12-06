@@ -187,6 +187,7 @@ public:
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
 
     [[nodiscard]] virtual bool need_to_local_shuffle() const { return true; }
+    [[nodiscard]] virtual bool is_bucket_shuffle_scan() const { return false; }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -438,7 +439,7 @@ public:
     virtual Status init(const TPlanNode& tnode, RuntimeState* state);
 
     Status init(const TDataSink& tsink) override;
-    virtual Status init(ExchangeType type) {
+    virtual Status init(ExchangeType type, int num_buckets) {
         return Status::InternalError("init() is only implemented in local exchange!");
     }
 

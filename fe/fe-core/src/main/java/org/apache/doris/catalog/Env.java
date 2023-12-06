@@ -360,7 +360,7 @@ public class Env {
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private ExportTaskRegister exportTaskRegister;
-    private JobManager<? extends AbstractJob> jobManager;
+    private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
     private TransientTaskManager transientTaskManager;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
