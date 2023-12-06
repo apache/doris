@@ -421,7 +421,7 @@ public class ShowExecutor {
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
         } else if (stmt instanceof ShowTabletsBelongStmt) {
-            handleShowAnalyzeTablet();
+            handleShowTabletsBelong();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
         } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
@@ -2709,7 +2709,7 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }
 
-    private void handleShowAnalyzeTablet() {
+    private void handleShowTabletsBelong() {
         ShowTabletsBelongStmt showStmt = (ShowTabletsBelongStmt) stmt;
         List<List<String>> rows = new ArrayList<>();
 
