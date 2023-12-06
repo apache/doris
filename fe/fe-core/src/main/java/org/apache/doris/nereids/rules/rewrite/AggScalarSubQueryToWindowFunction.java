@@ -67,7 +67,7 @@ import java.util.stream.Collectors;
  * change the plan:
  * logicalFilter(logicalApply(any(), logicalAggregate()))
  * to
- * logicalProject((logicalFilter(logicalWindow(logicalFilter(any())))))
+ * logicalProject(logicalFilter(logicalWindow(logicalFilter(any()))))
  * <p>
  * refer paper: WinMagic - Subquery Elimination Using Window Aggregation
  * <p>
