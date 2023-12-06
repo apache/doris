@@ -728,6 +728,14 @@ enum TJoinOp {
   NULL_AWARE_LEFT_ANTI_JOIN
 }
 
+enum TJoinDistributionType {
+  NONE,
+  BROADCAST,
+  PARTITIONED,
+  BUCKET_SHUFFLE,
+  COLOCATE,
+}
+
 struct THashJoinNode {
   1: required TJoinOp join_op
 
@@ -759,6 +767,7 @@ struct THashJoinNode {
   10: optional bool is_broadcast_join
 
   11: optional bool is_mark
+  12: optional TJoinDistributionType dist_type
 }
 
 struct TNestedLoopJoinNode {

@@ -110,7 +110,6 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    ExchangeType get_local_exchange_type() const override { return ExchangeType::PASSTHROUGH; }
 };
 
 } // namespace pipeline
