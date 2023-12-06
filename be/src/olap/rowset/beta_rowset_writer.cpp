@@ -742,6 +742,10 @@ Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistic
             _num_segment++;
         }
     }
+    // tablet schema updated
+    if (segstat.flush_schema != nullptr) {
+        update_rowset_schema(segstat.flush_schema);
+    }
     if (_context.mow_context != nullptr) {
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));
     }

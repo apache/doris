@@ -21,6 +21,7 @@
 #include <gen_cpp/types.pb.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 
 #include "common/factory_creator.h"
@@ -29,6 +30,7 @@
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
@@ -39,6 +41,7 @@ struct SegmentStatistics {
     int64_t data_size;
     int64_t index_size;
     KeyBoundsPB key_bounds;
+    TabletSchemaSPtr flush_schema;
 
     SegmentStatistics() = default;
 
@@ -46,13 +49,21 @@ struct SegmentStatistics {
             : row_num(pb.row_num()),
               data_size(pb.data_size()),
               index_size(pb.index_size()),
-              key_bounds(pb.key_bounds()) {}
+              key_bounds(pb.key_bounds()) {
+        if (pb.has_flush_schema()) {
+            flush_schema = std::make_shared<TabletSchema>();
+            flush_schema->init_from_pb(pb.flush_schema());
+        }
+    }
 
     void to_pb(SegmentStatisticsPB* segstat_pb) const {
         segstat_pb->set_row_num(row_num);
         segstat_pb->set_data_size(data_size);
         segstat_pb->set_index_size(index_size);
         segstat_pb->mutable_key_bounds()->CopyFrom(key_bounds);
+        if (flush_schema != nullptr) {
+            flush_schema->to_schema_pb(segstat_pb->mutable_flush_schema());
+        }
     }
 
     std::string to_string() {

@@ -26,6 +26,7 @@
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_fwd.h"
 #include "util/spinlock.h"
 #include "vec/core/block.h"
 
@@ -128,7 +129,7 @@ public:
     bool need_buffering();
 
 private:
-    Status _expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
+    Status _expand_variant_to_subcolumns(vectorized::Block& block);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
@@ -153,6 +154,9 @@ private:
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
+
+    // Variant schema on the fly
+    TabletSchemaSPtr _flush_schema;
 };
 
 class SegmentCreator {
@@ -195,7 +199,6 @@ private:
     std::atomic<int32_t> _next_segment_id = 0;
     SegmentFlusher _segment_flusher;
     std::unique_ptr<SegmentFlusher::Writer> _flush_writer;
-
     // Buffer block to num bytes before flushing
     vectorized::MutableBlock _buffer_block;
 };

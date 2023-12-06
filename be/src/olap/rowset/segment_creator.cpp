@@ -59,31 +59,29 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
     if (block->rows() == 0) {
         return Status::OK();
     }
-    TabletSchemaSPtr flush_schema = nullptr;
     // Expand variant columns
     vectorized::Block flush_block(*block);
     if (_context->write_type != DataWriteType::TYPE_COMPACTION &&
         _context->tablet_schema->num_variant_columns() > 0) {
-        RETURN_IF_ERROR(_expand_variant_to_subcolumns(flush_block, flush_schema));
+        RETURN_IF_ERROR(_expand_variant_to_subcolumns(flush_block));
     }
     bool no_compression = flush_block.bytes() <= config::segment_compression_threshold_kb * 1024;
     if (config::enable_vertical_segment_writer &&
         _context->tablet_schema->cluster_key_idxes().empty()) {
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
-        RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression, flush_schema));
+        RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression, _flush_schema));
         RETURN_IF_ERROR(_add_rows(writer, &flush_block, 0, flush_block.rows()));
         RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     } else {
         std::unique_ptr<segment_v2::SegmentWriter> writer;
-        RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression, flush_schema));
+        RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression, _flush_schema));
         RETURN_IF_ERROR(_add_rows(writer, &flush_block, 0, flush_block.rows()));
         RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
     }
     return Status::OK();
 }
 
-Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
-                                                     TabletSchemaSPtr& flush_schema) {
+Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block) {
     size_t num_rows = block.rows();
     if (num_rows == 0) {
         return Status::OK();
@@ -118,8 +116,8 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     //     static     extracted
     // | --------- | ----------- |
     // The static ones are original _tablet_schame columns
-    flush_schema = std::make_shared<TabletSchema>();
-    flush_schema->copy_from(*_context->original_tablet_schema);
+    _flush_schema = std::make_shared<TabletSchema>();
+    _flush_schema->copy_from(*_context->original_tablet_schema);
 
     vectorized::Block flush_block(std::move(block));
     // If column already exist in original tablet schema, then we pick common type
@@ -139,7 +137,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
                 vectorized::schema_util::ExtraInfo {.unique_id = -1,
                                                     .parent_unique_id = parent_variant.unique_id(),
                                                     .path_info = full_path});
-        flush_schema->append_column(std::move(tablet_column));
+        _flush_schema->append_column(std::move(tablet_column));
 
         flush_block.insert({column_entry_from_object->data.get_finalized_column_ptr()->get_ptr(),
                             final_data_type_from_object, column_name});
@@ -182,11 +180,11 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         vectorized::PathInDataBuilder full_root_path_builder;
         auto full_root_path =
                 full_root_path_builder.append(parent_column.name_lower_case(), false).build();
-        flush_schema->mutable_columns()[variant_pos].set_path_info(full_root_path);
+        _flush_schema->mutable_columns()[variant_pos].set_path_info(full_root_path);
         VLOG_DEBUG << "set root_path : " << full_root_path.get_path();
     }
 
-    vectorized::schema_util::inherit_tablet_index(flush_schema);
+    vectorized::schema_util::inherit_tablet_index(_flush_schema);
 
     {
         // Update rowset schema, tablet's tablet schema will be updated when build Rowset
@@ -196,19 +194,19 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         std::lock_guard<std::mutex> lock(*(_context->schema_lock));
         TabletSchemaSPtr update_schema;
         static_cast<void>(vectorized::schema_util::get_least_common_schema(
-                {_context->tablet_schema, flush_schema}, nullptr, update_schema));
-        CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
+                {_context->tablet_schema, _flush_schema}, nullptr, update_schema));
+        CHECK_GE(update_schema->num_columns(), _flush_schema->num_columns())
                 << "Rowset merge schema columns count is " << update_schema->num_columns()
-                << ", but flush_schema is larger " << flush_schema->num_columns()
+                << ", but flush_schema is larger " << _flush_schema->num_columns()
                 << " update_schema: " << update_schema->dump_structure()
-                << " flush_schema: " << flush_schema->dump_structure();
+                << " flush_schema: " << _flush_schema->dump_structure();
         _context->tablet_schema.swap(update_schema);
         VLOG_DEBUG << "dump rs schema: " << _context->tablet_schema->dump_structure();
     }
 
     block.swap(flush_block);
     VLOG_DEBUG << "dump block: " << block.dump_data();
-    VLOG_DEBUG << "dump flush schema: " << flush_schema->dump_structure();
+    VLOG_DEBUG << "dump flush schema: " << _flush_schema->dump_structure();
     return Status::OK();
 }
 
@@ -341,6 +339,7 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.data_size = segment_size + writer->inverted_index_file_size();
     segstat.index_size = index_size + writer->inverted_index_file_size();
     segstat.key_bounds = key_bounds;
+    segstat.flush_schema = _flush_schema;
 
     writer.reset();
 

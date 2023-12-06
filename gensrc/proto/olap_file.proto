@@ -120,6 +120,7 @@ message SegmentStatisticsPB {
     optional int64 data_size = 2;
     optional int64 index_size = 3;
     optional KeyBoundsPB key_bounds = 4;
+    optional TabletSchemaPB flush_schema = 5; 
 }
 
 // kv value for reclaiming remote rowset
