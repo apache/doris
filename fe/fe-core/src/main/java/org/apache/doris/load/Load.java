@@ -232,8 +232,9 @@ public class Load {
                      * ->
                      * (A, B, C) SET (__doris_shadow_B = B)
                      */
-                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
-                            new SlotRef(null, originCol));
+                    SlotRef slot = new SlotRef(null, originCol);
+                    slot.setType(column.getType());
+                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), slot);
                     shadowColumnDescs.add(importColumnDesc);
                 }
             } else {
@@ -470,6 +471,12 @@ public class Load {
         newSlot.setType(slotDesc.getType());
         Expr rhs = newSlot;
         rhs = rhs.castTo(slot.getType());
+
+        if (slot.getDesc() == null) {
+            // shadow column
+            return rhs;
+        }
+
         if (newSlot.isNullable() && !slot.isNullable()) {
             rhs = new FunctionCallExpr("non_nullable", Lists.newArrayList(rhs));
             rhs.setType(slotDesc.getType());
@@ -504,6 +511,7 @@ public class Load {
                     throw new UserException("unknown reference column, column=" + entry.getKey()
                             + ", reference=" + slot.getColumnName());
                 }
+                smap.getLhs().add(slot);
                 smap.getRhs().add(getExprFromDesc(analyzer, slotDesc, slot));
             }
             Expr expr = entry.getValue().clone(smap);
