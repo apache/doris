@@ -222,6 +222,8 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
 HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
         : JoinProbeOperatorX<HashJoinProbeLocalState>(pool, tnode, operator_id, descs),
+          _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
+                                                                    : TJoinDistributionType::NONE),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
                              tnode.hash_join_node.is_broadcast_join),
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids

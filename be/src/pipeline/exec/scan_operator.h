@@ -427,6 +427,13 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
+    bool need_to_local_shuffle() const override {
+        // If _col_distribute_ids is not empty, we prefer to not do local shuffle.
+        return _col_distribute_ids.empty();
+    }
+
+    bool is_bucket_shuffle_scan() const override { return !_col_distribute_ids.empty(); }
+
     int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
     using OperatorX<LocalStateType>::operator_id;
