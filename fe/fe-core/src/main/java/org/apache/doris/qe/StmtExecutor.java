@@ -612,14 +612,8 @@ public class StmtExecutor {
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
                 && context.getSessionVariable().getEnablePipelineEngine()) {
             queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
-            try {
-                queueToken = queryQueue.getToken();
-            } catch (InterruptedException e) {
-                // this Exception means try lock/await failed, so no need to handle offer result
-                LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
-                throw new RuntimeException("interrupted Exception happens when queue query");
-            }
-            if (queueToken != null && !queueToken.enqueueSuccess()) {
+            queueToken = queryQueue.getToken();
+            if (!queueToken.enqueueSuccess()) {
                 String retMsg = "queue failed, reason=" + queueToken.getOfferResultDetail();
                 LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
                 throw new UserException(retMsg);

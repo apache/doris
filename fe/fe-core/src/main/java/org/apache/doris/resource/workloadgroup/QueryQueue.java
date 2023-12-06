@@ -17,6 +17,7 @@
 
 package org.apache.doris.resource.workloadgroup;
 
+import org.apache.doris.common.UserException;
 import org.apache.doris.resource.workloadgroup.QueueToken.TokenState;
 
 import com.google.common.base.Preconditions;
@@ -98,7 +99,7 @@ public class QueryQueue {
                 + ", currentWaitingQueryNum=" + priorityTokenQueue.size();
     }
 
-    public QueueToken getToken() throws InterruptedException {
+    public QueueToken getToken() throws UserException {
 
         queueLock.lock();
         try {
@@ -111,8 +112,7 @@ public class QueryQueue {
                 return new QueueToken(TokenState.READY_TO_RUN, queueTimeout, "offer success");
             }
             if (priorityTokenQueue.size() >= maxQueueSize) {
-                return new QueueToken(TokenState.ENQUEUE_FAILED, queueTimeout,
-                        "query waiting queue is full, queue length=" + maxQueueSize);
+                throw new UserException("query waiting queue is full, queue length=" + maxQueueSize);
             }
             QueueToken newQueryToken = new QueueToken(TokenState.ENQUEUE_SUCCESS, queueTimeout,
                     "query wait timeout " + queueTimeout + " ms");
