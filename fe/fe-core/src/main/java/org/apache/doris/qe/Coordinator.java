@@ -68,6 +68,8 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.qe.QueryStatisticsItem.FragmentInstanceInfo;
+import org.apache.doris.resource.workloadgroup.QueryQueue;
+import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.ExecuteEnv;
@@ -268,6 +270,9 @@ public class Coordinator implements CoordInterface {
     private List<TPipelineWorkloadGroup> tWorkloadGroups = Lists.newArrayList();
 
     private final ExecutionProfile executionProfile;
+
+    private QueueToken queueToken = null;
+    private QueryQueue queryQueue = null;
 
     public ExecutionProfile getExecutionProfile() {
         return executionProfile;
@@ -590,6 +595,32 @@ public class Coordinator implements CoordInterface {
     // A call to Exec() must precede all other member function calls.
     @Override
     public void exec() throws Exception {
+        // LoadTask does not have context, not controlled by queue now
+        if (Config.enable_workload_group && Config.enable_query_queue && context != null) {
+            queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
+            if (queryQueue == null) {
+                // This logic is actually useless, because when could not find query queue, it will
+                // throw exception during workload group manager.
+                throw new UserException("could not find query queue");
+            }
+            queueToken = queryQueue.getToken();
+            if (!queueToken.waitSignal(this.queryOptions.getExecutionTimeout() * 1000)) {
+                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
+                queryQueue.returnToken(queueToken);
+                throw new UserException(queueToken.getOfferResultDetail());
+            }
+        }
+        execInternal();
+    }
+
+    @Override
+    public void close() {
+        if (queryQueue != null && queueToken != null) {
+            queryQueue.returnToken(queueToken);
+        }
+    }
+
+    private void execInternal() throws Exception {
         if (LOG.isDebugEnabled() && !scanNodes.isEmpty()) {
             LOG.debug("debug: in Coordinator::exec. query id: {}, planNode: {}",
                     DebugUtil.printId(queryId), scanNodes.get(0).treeToThrift());
