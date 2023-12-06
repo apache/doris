@@ -157,7 +157,7 @@ public:
                                  int be_version = BeExecVersionManager::get_newest_version()) {
         std::string key_str = name;
 
-        if (function_alias.count(name)) {
+        if (function_alias.contains(name)) {
             key_str = function_alias[name];
         }
 
@@ -165,7 +165,7 @@ public:
 
         // if function is variadic, added types_str as key
         if (function_variadic_set.count(key_str)) {
-            for (auto& arg : arguments) {
+            for (const auto& arg : arguments) {
                 key_str.append(arg.type->is_nullable()
                                        ? reinterpret_cast<const DataTypeNullable*>(arg.type.get())
                                                  ->get_nested_type()
