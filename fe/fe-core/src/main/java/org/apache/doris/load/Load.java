@@ -344,10 +344,12 @@ public class Load {
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
+        HashMap<String, Type> colToType = new HashMap<>();
 
         // check default value and auto-increment column
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
+            colToType.put(columnName, column.getType());
             if (columnExprMap.containsKey(columnName)) {
                 continue;
             }
@@ -427,9 +429,15 @@ public class Load {
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                // columns default be varchar type
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+
+                if (formatType == TFileFormatType.FORMAT_ARROW) {
+                    slotDesc.setColumn(new Column(realColName, colToType.get(realColName)));
+                } else {
+                    // columns default be varchar type
+                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                }
+
                 // ISSUE A: src slot should be nullable even if the column is not nullable.
                 // because src slot is what we read from file, not represent to real column value.
                 // If column is not nullable, error will be thrown when filling the dest slot,
