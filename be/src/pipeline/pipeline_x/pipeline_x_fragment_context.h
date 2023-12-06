@@ -165,9 +165,6 @@ private:
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
 
-    // Local runtime states for each pipeline task.
-    std::vector<std::unique_ptr<RuntimeState>> _runtime_states;
-
     // It is used to manage the lifecycle of RuntimeFilterMergeController
     std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
 
@@ -219,6 +216,21 @@ private:
     int _sink_operator_id = 0;
     int _num_instances = 0;
     std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
+
+    // _per_fragment_instance_idx -> runtime mgr
+    std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
+
+    //Here are three types of runtime states:
+    //    - _runtime state is at the Fragment level.
+    //    - _runtime_states[] is at the instance level, shared by all tasks within this instance.
+    //        To handle runtime filters, etc., messages are transmitted among different tasks within the instance.
+    //    - _task_runtime_states is at the task level, unique to each task.
+
+    // Local runtime states for each instance
+    std::vector<std::unique_ptr<RuntimeState>> _runtime_states;
+
+    // Local runtime states for each task
+    std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
 };
 
 } // namespace pipeline

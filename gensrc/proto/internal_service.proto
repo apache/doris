@@ -229,6 +229,8 @@ message PExecPlanFragmentResult {
 message PCancelPlanFragmentRequest {
     required PUniqueId finst_id = 1;
     optional PPlanFragmentCancelReason cancel_reason = 2;
+    optional PUniqueId query_id = 3;
+    optional int32 fragment_id = 4;
 };
 
 message PCancelPlanFragmentResult {

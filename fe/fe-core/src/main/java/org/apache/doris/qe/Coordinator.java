@@ -146,6 +146,7 @@ import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 public class Coordinator implements CoordInterface {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
@@ -646,7 +647,12 @@ public class Coordinator implements CoordInterface {
             Env.getCurrentEnv().getProgressManager().addTotalScanNums(String.valueOf(jobId), scanRangeNum);
             LOG.info("dispatch load job: {} to {}", DebugUtil.printId(queryId), addressToBackendID.keySet());
         }
-        executionProfile.markInstances(instanceIds);
+        if (enablePipelineXEngine) {
+            executionProfile.markFragments(fragments.size());
+        } else {
+            executionProfile.markInstances(instanceIds);
+        }
+
         if (enablePipelineEngine) {
             sendPipelineCtx();
         } else {
@@ -863,7 +869,8 @@ public class Coordinator implements CoordInterface {
                     Long backendId = this.addressToBackendID.get(entry.getKey());
                     PipelineExecContext pipelineExecContext = new PipelineExecContext(fragment.getFragmentId(),
                             profileFragmentId, entry.getValue(), backendId, fragmentInstancesMap,
-                            executionProfile.getLoadChannelProfile());
+                            executionProfile.getLoadChannelProfile(), this.enablePipelineXEngine,
+                            this.executionProfile);
                     // Each tParam will set the total number of Fragments that need to be executed on the same BE,
                     // and the BE will determine whether all Fragments have been executed based on this information.
                     // Notice. load fragment has a small probability that FragmentNumOnHost is 0, for unknown reasons.
@@ -2409,7 +2416,7 @@ public class Coordinator implements CoordInterface {
     public void updateFragmentExecStatus(TReportExecStatusParams params) {
         if (enablePipelineXEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-            if (!ctx.updateProfile(params, true)) {
+            if (!ctx.updateProfile(params)) {
                 return;
             }
 
@@ -2453,16 +2460,14 @@ public class Coordinator implements CoordInterface {
             }
 
             Preconditions.checkArgument(params.isSetDetailedReport());
-            for (TDetailedReportParams param : params.detailed_report) {
-                if (ctx.fragmentInstancesMap.get(param.fragment_instance_id).getIsDone()) {
-                    LOG.debug("Query {} instance {} is marked done",
-                            DebugUtil.printId(queryId), DebugUtil.printId(params.getFragmentInstanceId()));
-                    executionProfile.markOneInstanceDone(param.getFragmentInstanceId());
-                }
+            if (ctx.done) {
+                LOG.debug("Query {} fragment {} is marked done",
+                        DebugUtil.printId(queryId), ctx.profileFragmentId);
+                executionProfile.markOneFragmentDone(ctx.profileFragmentId);
             }
         } else if (enablePipelineEngine) {
             PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
-            if (!ctx.updateProfile(params, false)) {
+            if (!ctx.updateProfile(params)) {
                 return;
             }
 
@@ -2607,7 +2612,11 @@ public class Coordinator implements CoordInterface {
             long waitTime = Math.min(leftTimeoutS, fixedMaxWaitTime);
             boolean awaitRes = false;
             try {
-                awaitRes = executionProfile.awaitAllInstancesDone(waitTime);
+                if (enablePipelineXEngine) {
+                    awaitRes = executionProfile.awaitAllFragmentsDone(waitTime);
+                } else {
+                    awaitRes = executionProfile.awaitAllInstancesDone(waitTime);
+                }
             } catch (InterruptedException e) {
                 // Do nothing
             }
@@ -2650,7 +2659,11 @@ public class Coordinator implements CoordInterface {
     }
 
     public boolean isDone() {
-        return executionProfile.isAllInstancesDone();
+        if (enablePipelineXEngine) {
+            return executionProfile.isAllFragmentsDone();
+        } else {
+            return executionProfile.isAllInstancesDone();
+        }
     }
 
     // map from a BE host address to the per-node assigned scan ranges;
@@ -3042,9 +3055,13 @@ public class Coordinator implements CoordInterface {
         boolean initiated;
         volatile boolean done;
         boolean hasCanceled;
+        // use for pipeline
         Map<TUniqueId, RuntimeProfile> fragmentInstancesMap;
+        // use for pipelineX
+        List<RuntimeProfile> taskProfile;
+
+        boolean enablePipelineX;
         RuntimeProfile loadChannelProfile;
-        int cancelProgress = 0;
         int profileFragmentId;
         TNetworkAddress brpcAddress;
         TNetworkAddress address;
@@ -3053,16 +3070,18 @@ public class Coordinator implements CoordInterface {
         long profileReportProgress = 0;
         long beProcessEpoch = 0;
         private final int numInstances;
+        final ExecutionProfile executionProfile;
 
         public PipelineExecContext(PlanFragmentId fragmentId, int profileFragmentId,
                 TPipelineFragmentParams rpcParams, Long backendId,
                 Map<TUniqueId, RuntimeProfile> fragmentInstancesMap,
-                RuntimeProfile loadChannelProfile) {
+                RuntimeProfile loadChannelProfile, boolean enablePipelineX, final ExecutionProfile executionProfile) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
             this.numInstances = rpcParams.local_params.size();
             this.fragmentInstancesMap = fragmentInstancesMap;
+            this.taskProfile = new ArrayList<RuntimeProfile>();
             this.loadChannelProfile = loadChannelProfile;
 
             this.initiated = false;
@@ -3075,12 +3094,27 @@ public class Coordinator implements CoordInterface {
 
             this.hasCanceled = false;
             this.lastMissingHeartbeatTime = backend.getLastMissingHeartbeatTime();
+            this.enablePipelineX = enablePipelineX;
+            this.executionProfile = executionProfile;
+        }
+
+        public Stream<RuntimeProfile> profileStream() {
+            if (enablePipelineX) {
+                return taskProfile.stream();
+            }
+            return fragmentInstancesMap.values().stream();
+        }
+
+        private void attachInstanceProfileToFragmentProfile() {
+            profileStream()
+                    .forEach(p -> executionProfile.addInstanceProfile(this.profileFragmentId, p));
         }
 
         /**
          * Some information common to all Fragments does not need to be sent repeatedly.
          * Therefore, when we confirm that a certain BE has accepted the information,
-         * we will delete the information in the subsequent Fragment to avoid repeated sending.
+         * we will delete the information in the subsequent Fragment to avoid repeated
+         * sending.
          * This information can be obtained from the cache of BE.
          */
         public void unsetFields() {
@@ -3094,29 +3128,31 @@ public class Coordinator implements CoordInterface {
 
         // update profile.
         // return true if profile is updated. Otherwise, return false.
-        public synchronized boolean updateProfile(TReportExecStatusParams params, boolean isPipelineX) {
-            if (isPipelineX) {
+        public synchronized boolean updateProfile(TReportExecStatusParams params) {
+            if (enablePipelineX) {
+                taskProfile.clear();
+                int pipelineIdx = 0;
                 for (TDetailedReportParams param : params.detailed_report) {
-                    RuntimeProfile profile = fragmentInstancesMap.get(param.fragment_instance_id);
-                    if (params.done && profile.getIsDone()) {
-                        continue;
-                    }
-
+                    String name = "Pipeline :" + pipelineIdx + " "
+                            + " (host=" + address + ")";
+                    RuntimeProfile profile = new RuntimeProfile(name);
+                    taskProfile.add(profile);
                     if (param.isSetProfile()) {
                         profile.update(param.profile);
                     }
-                    if (params.isSetLoadChannelProfile()) {
-                        loadChannelProfile.update(params.loadChannelProfile);
-                    }
                     if (params.done) {
                         profile.setIsDone(true);
-                        profileReportProgress++;
                     }
+                    pipelineIdx++;
                 }
-                if (profileReportProgress == numInstances) {
-                    this.done = true;
+                if (params.isSetLoadChannelProfile()) {
+                    loadChannelProfile.update(params.loadChannelProfile);
                 }
-                return true;
+                this.done = params.done;
+                if (this.done) {
+                    attachInstanceProfileToFragmentProfile();
+                }
+                return this.done;
             } else {
                 RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);
                 if (params.done && profile.getIsDone()) {
@@ -3142,7 +3178,7 @@ public class Coordinator implements CoordInterface {
         }
 
         public synchronized void printProfile(StringBuilder builder) {
-            this.fragmentInstancesMap.values().stream().forEach(p -> {
+            this.profileStream().forEach(p -> {
                 p.computeTimeInProfile();
                 p.prettyPrint(builder, "");
             });
@@ -3150,23 +3186,41 @@ public class Coordinator implements CoordInterface {
 
         // cancel all fragment instances.
         // return true if cancel success. Otherwise, return false
-        public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
-            if (!this.initiated) {
-                LOG.warn("Query {}, ccancel before initiated", DebugUtil.printId(queryId));
+
+        private synchronized boolean cancelFragment(Types.PPlanFragmentCancelReason cancelReason) {
+            if (!this.hasCanceled) {
                 return false;
             }
-            // don't cancel if it is already finished
-            if (this.done) {
-                LOG.warn("Query {}, cancel after finished", DebugUtil.printId(queryId));
+            for (RuntimeProfile profile : taskProfile) {
+                profile.setIsCancel(true);
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {},"
+                        + " fragment id={} query={}, reason: {}",
+                        this.initiated, this.done, this.hasCanceled, backend.getId(),
+                        this.profileFragmentId,
+                        DebugUtil.printId(queryId), cancelReason.name());
+            }
+            try {
+                try {
+                    BackendServiceProxy.getInstance().cancelPipelineXPlanFragmentAsync(brpcAddress,
+                            this.profileFragmentId, queryId, cancelReason);
+                } catch (RpcException e) {
+                    LOG.warn("cancel plan fragment get a exception, address={}:{}", brpcAddress.getHostname(),
+                            brpcAddress.getPort());
+                    SimpleScheduler.addToBlacklist(addressToBackendID.get(brpcAddress), e.getMessage());
+                }
+            } catch (Exception e) {
+                LOG.warn("catch a exception", e);
                 return false;
             }
-            if (this.hasCanceled) {
-                LOG.warn("Query {}, cancel after cancelled", DebugUtil.printId(queryId));
-                return false;
-            }
+            return true;
+        }
+
+        private synchronized boolean cancelInstance(Types.PPlanFragmentCancelReason cancelReason) {
             for (TPipelineInstanceParams localParam : rpcParams.local_params) {
                 LOG.warn("cancelRemoteFragments initiated={} done={} hasCanceled={} backend:{},"
-                                + " fragment instance id={} query={}, reason: {}",
+                        + " fragment instance id={} query={}, reason: {}",
                         this.initiated, this.done, this.hasCanceled, backend.getId(),
                         DebugUtil.printId(localParam.fragment_instance_id),
                         DebugUtil.printId(queryId), cancelReason.name());
@@ -3194,12 +3248,33 @@ public class Coordinator implements CoordInterface {
             if (!this.hasCanceled) {
                 return false;
             }
-
             for (int i = 0; i < this.numInstances; i++) {
                 fragmentInstancesMap.get(rpcParams.local_params.get(i).fragment_instance_id).setIsCancel(true);
             }
-            cancelProgress = numInstances;
             return true;
+        }
+
+        /// TODO: refactor rpcParams
+        public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
+            if (!this.initiated) {
+                LOG.warn("Query {}, ccancel before initiated", DebugUtil.printId(queryId));
+                return false;
+            }
+            // don't cancel if it is already finished
+            if (this.done) {
+                LOG.warn("Query {}, cancel after finished", DebugUtil.printId(queryId));
+                return false;
+            }
+            if (this.hasCanceled) {
+                LOG.warn("Query {}, cancel after cancelled", DebugUtil.printId(queryId));
+                return false;
+            }
+
+            if (this.enablePipelineX) {
+                return cancelFragment(cancelReason);
+            } else {
+                return cancelInstance(cancelReason);
+            }
         }
 
         public synchronized boolean computeTimeInProfile(int maxFragmentId) {
@@ -3785,7 +3860,7 @@ public class Coordinator implements CoordInterface {
     private void attachInstanceProfileToFragmentProfile() {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                ctx.fragmentInstancesMap.values().stream()
+                ctx.profileStream()
                         .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));
             }
         } else {

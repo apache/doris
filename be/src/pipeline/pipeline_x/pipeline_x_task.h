@@ -123,6 +123,8 @@ public:
 
     OperatorXs operatorXs() { return _operators; }
 
+    int task_id() const { return _index; };
+
     void clear_blocking_state() {
         if (!is_final_state(get_state()) && get_state() != PipelineTaskState::PENDING_FINISH &&
             _blocked_dep) {
