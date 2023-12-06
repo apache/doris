@@ -114,6 +114,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
+    private List<Integer> clusterKeyIndexes;
 
     public CreateReplicaTask(long backendId, long dbId, long tableId, long partitionId, long indexId, long tabletId,
                              long replicaId, short shortKeyColumnCount, int schemaHash, long version,
@@ -220,6 +221,10 @@ public class CreateReplicaTask extends AgentTask {
         this.storageFormat = storageFormat;
     }
 
+    public void setClusterKeyIndexes(List<Integer> clusterKeyIndexes) {
+        this.clusterKeyIndexes = clusterKeyIndexes;
+    }
+
     public TCreateTabletReq toThrift() {
         TCreateTabletReq createTabletReq = new TCreateTabletReq();
         createTabletReq.setTabletId(tabletId);
@@ -265,7 +270,10 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setDeleteSignIdx(deleteSign);
         tSchema.setSequenceColIdx(sequenceCol);
         tSchema.setVersionColIdx(versionCol);
-
+        if (!CollectionUtils.isEmpty(clusterKeyIndexes)) {
+            tSchema.setClusterKeyIdxes(clusterKeyIndexes);
+            LOG.debug("cluster key index={}, table_id={}, tablet_id={}", clusterKeyIndexes, tableId, tabletId);
+        }
         if (CollectionUtils.isNotEmpty(indexes)) {
             List<TOlapTableIndex> tIndexes = new ArrayList<>();
             for (Index index : indexes) {

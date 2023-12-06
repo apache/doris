@@ -337,7 +337,18 @@ public:
         return finalized;
     }
 
+    void finalize_if_not();
+
     void clear() override;
+
+    void clear_subcolumns_data();
+
+    std::string get_name() const override {
+        if (is_scalar_variant()) {
+            return "var_scalar(" + get_root()->get_name() + ")";
+        }
+        return "variant";
+    }
 
     /// Part of interface
     const char* get_family_name() const override { return "Variant"; }
@@ -358,8 +369,8 @@ public:
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     // May throw execption
     void try_insert(const Field& field);
@@ -396,14 +407,14 @@ public:
         return StringRef();
     }
 
+    void for_each_imutable_subcolumn(ImutableColumnCallback callback) const;
+
     const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "should not call the method in column object";
         return nullptr;
     }
 
-    void update_hash_with_value(size_t n, SipHash& hash) const override {
-        LOG(FATAL) << "should not call the method in column object";
-    }
+    void update_hash_with_value(size_t n, SipHash& hash) const override;
 
     void insert_data(const char* pos, size_t length) override {
         LOG(FATAL) << "should not call the method in column object";
@@ -444,9 +455,7 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
-        LOG(FATAL) << "not support";
-    }
+    void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
 
     template <typename Func>
     MutableColumnPtr apply_for_subcolumns(Func&& func) const;

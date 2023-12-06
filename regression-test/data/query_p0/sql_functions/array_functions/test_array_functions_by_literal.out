@@ -801,7 +801,7 @@ _
 ["a", "1", "2"]
 
 -- !sql --
-[NULL, NULL, NULL]
+[null, null, null]
 
 -- !sql --
 []

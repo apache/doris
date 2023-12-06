@@ -77,8 +77,8 @@ public:
         LOG(FATAL) << "insert_range_from not supported in ColumnDictionary";
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         LOG(FATAL) << "insert_indices_from not supported in ColumnDictionary";
     }
 
@@ -277,9 +277,7 @@ public:
     }
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx], _type); }
-    uint32_t get_crc32_hash_value(uint32_t idx) const {
-        return _dict.get_crc32_hash_value(_codes[idx], _type);
-    }
+
     template <typename HybridSetType>
     void find_codes(const HybridSetType* values, std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
@@ -378,31 +376,6 @@ public:
         }
 
         inline uint32_t get_hash_value(T code, FieldType type) const {
-            if (_compute_hash_value_flags[code]) {
-                return _hash_values[code];
-            } else {
-                auto& sv = (*_dict_data)[code];
-                // The char data is stored in the disk with the schema length,
-                // and zeros are filled if the length is insufficient
-
-                // When reading data, use shrink_char_type_column_suffix_zero(_char_type_idx)
-                // Remove the suffix 0
-                // When writing data, use the CharField::consume function to fill in the trailing 0.
-
-                // For dictionary data of char type, sv.size is the schema length,
-                // so use strnlen to remove the 0 at the end to get the actual length.
-                int32_t len = sv.size;
-                if (type == FieldType::OLAP_FIELD_TYPE_CHAR) {
-                    len = strnlen(sv.data, sv.size);
-                }
-                uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);
-                _hash_values[code] = hash_val;
-                _compute_hash_value_flags[code] = 1;
-                return _hash_values[code];
-            }
-        }
-
-        inline uint32_t get_crc32_hash_value(T code, FieldType type) const {
             if (_compute_hash_value_flags[code]) {
                 return _hash_values[code];
             } else {

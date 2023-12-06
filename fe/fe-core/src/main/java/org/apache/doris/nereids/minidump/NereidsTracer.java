@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.minidump;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.nereids.cost.Cost;
@@ -28,7 +29,8 @@ import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
-import lombok.extern.slf4j.Slf4j;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -41,8 +43,10 @@ import java.util.Optional;
 /**
  * log consumer
  */
-@Slf4j
 public class NereidsTracer {
+
+    private static final Logger LOG = LogManager.getLogger(NereidsTracer.class);
+
     private static long startTime;
     private static String TRACE_PATH = null;
 
@@ -164,7 +168,7 @@ public class NereidsTracer {
         try (FileWriter file = new FileWriter(TRACE_PATH + "/" + queryId + ".json")) {
             file.write(totalTraces.toString(4));
         } catch (IOException e) {
-            log.info("failed to output of tracer", e);
+            LOG.info("failed to output of tracer", e);
         }
     }
 
@@ -172,8 +176,12 @@ public class NereidsTracer {
     public static void init() {
         NereidsTracer.shouldLog = true;
         startTime = TimeUtils.getStartTimeMs();
-        TRACE_PATH = Optional.ofNullable(TRACE_PATH).orElse(System.getenv("DORIS_HOME") + "/log/nereids_trace");
+        TRACE_PATH = Optional.ofNullable(TRACE_PATH).orElse(Config.nereids_trace_log_dir);
         new File(TRACE_PATH).mkdirs();
+    }
+
+    public static void disable() {
+        NereidsTracer.shouldLog = false;
     }
 }
 

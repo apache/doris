@@ -69,9 +69,9 @@ public class ExplainCommand extends Command implements NoForward {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        LogicalPlan explainPlan = null;
+        LogicalPlan explainPlan;
         if (!(logicalPlan instanceof Explainable)) {
-            throw new AnalysisException("explain a plan cannot be explained");
+            throw new AnalysisException(logicalPlan.getClass().getSimpleName() + " cannot be explained");
         }
         explainPlan = ((LogicalPlan) ((Explainable) logicalPlan).getExplainPlan(ctx));
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(explainPlan, ctx.getStatementContext());

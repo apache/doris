@@ -54,7 +54,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         Status st = _reader->read_at(offset, result, bytes_read, io_ctx);
         _statistics.merged_io++;
         _statistics.request_bytes += *bytes_read;
-        _statistics.read_bytes += *bytes_read;
+        _statistics.merged_bytes += *bytes_read;
         return st;
     }
     if (offset + result.size > _random_access_ranges[range_index].end_offset) {
@@ -68,10 +68,10 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     if (cached_data.contains(offset)) {
         // has cached data in box
         _read_in_box(cached_data, offset, result, &has_read);
+        _statistics.request_bytes += has_read;
         if (has_read == result.size) {
             // all data is read in cache
             *bytes_read = has_read;
-            _statistics.request_bytes += has_read;
             return Status::OK();
         }
     } else if (!cached_data.empty()) {
@@ -91,7 +91,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         *bytes_read = has_read + read_size;
         _statistics.merged_io++;
         _statistics.request_bytes += read_size;
-        _statistics.read_bytes += read_size;
+        _statistics.merged_bytes += read_size;
         return Status::OK();
     }
 
@@ -186,7 +186,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         *bytes_read = has_read + read_size;
         _statistics.merged_io++;
         _statistics.request_bytes += read_size;
-        _statistics.read_bytes += read_size;
+        _statistics.merged_bytes += read_size;
         return Status::OK();
     }
 
@@ -314,7 +314,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         RETURN_IF_ERROR(
                 _reader->read_at(start_offset, Slice(_read_slice, to_read), bytes_read, io_ctx));
         _statistics.merged_io++;
-        _statistics.read_bytes += *bytes_read;
+        _statistics.merged_bytes += *bytes_read;
     }
 
     SCOPED_RAW_TIMER(&_statistics.copy_time);
@@ -386,20 +386,15 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
     return Status::OK();
 }
 
-// the condition variable would wait at most 10 seconds
-// otherwise it would quit the procedure and treat it
-// as one time out error status and would make the load
-// task failed
-constexpr static int WAIT_TIME_OUT_MS = 10000;
-
 // there exists occasions where the buffer is already closed but
 // some prior tasks are still queued in thread pool, so we have to check whether
 // the buffer is closed each time the condition variable is notified.
 void PrefetchBuffer::reset_offset(size_t offset) {
     {
         std::unique_lock lck {_lock};
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
-                                  [this]() { return _buffer_status != BufferStatus::PENDING; })) {
+        if (!_prefetched.wait_for(
+                    lck, std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
+                    [this]() { return _buffer_status != BufferStatus::PENDING; })) {
             _prefetch_status = Status::TimedOut("time out when reset prefetch buffer");
             return;
         }
@@ -426,10 +421,12 @@ void PrefetchBuffer::reset_offset(size_t offset) {
 void PrefetchBuffer::prefetch_buffer() {
     {
         std::unique_lock lck {_lock};
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
-                return _buffer_status == BufferStatus::RESET ||
-                       _buffer_status == BufferStatus::CLOSED;
-            })) {
+        if (!_prefetched.wait_for(
+                    lck, std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
+                    [this]() {
+                        return _buffer_status == BufferStatus::RESET ||
+                               _buffer_status == BufferStatus::CLOSED;
+                    })) {
             _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
             return;
         }
@@ -441,8 +438,6 @@ void PrefetchBuffer::prefetch_buffer() {
         _buffer_status = BufferStatus::PENDING;
         _prefetched.notify_all();
     }
-    _len = 0;
-    Status s;
 
     int read_range_index = search_read_range(_offset);
     size_t buf_size;
@@ -453,11 +448,14 @@ void PrefetchBuffer::prefetch_buffer() {
         buf_size = merge_small_ranges(_offset, read_range_index);
     }
 
+    _len = 0;
+    Status s;
+
     {
         SCOPED_RAW_TIMER(&_statis.read_time);
         s = _reader->read_at(_offset, Slice {_buf.get(), buf_size}, &_len, _io_ctx);
     }
-    if (UNLIKELY(buf_size != _len)) {
+    if (UNLIKELY(s.ok() && buf_size != _len)) {
         // This indicates that the data size returned by S3 object storage is smaller than what we requested,
         // which seems to be a violation of the S3 protocol since our request range was valid.
         // We currently consider this situation a bug and will treat this task as a failure.
@@ -469,12 +467,17 @@ void PrefetchBuffer::prefetch_buffer() {
     _statis.prefetch_request_io += 1;
     _statis.prefetch_request_bytes += _len;
     std::unique_lock lck {_lock};
-    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+    if (!_prefetched.wait_for(lck,
+                              std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
                               [this]() { return _buffer_status == BufferStatus::PENDING; })) {
         _prefetch_status = Status::TimedOut("time out when invoking prefetch buffer");
         return;
     }
     if (!s.ok() && _offset < _reader->size()) {
+        // We should print the error msg since this buffer might not be accessed by the consumer
+        // which would result in the status being missed
+        LOG_WARNING("prefetch path {} failed, offset {}, error {}", _reader->path().native(),
+                    _offset, s.to_string());
         _prefetch_status = std::move(s);
     }
     _buffer_status = BufferStatus::PREFETCHED;
@@ -550,10 +553,12 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
     {
         std::unique_lock lck {_lock};
         // buffer must be prefetched or it's closed
-        if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS), [this]() {
-                return _buffer_status == BufferStatus::PREFETCHED ||
-                       _buffer_status == BufferStatus::CLOSED;
-            })) {
+        if (!_prefetched.wait_for(
+                    lck, std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
+                    [this]() {
+                        return _buffer_status == BufferStatus::PREFETCHED ||
+                               _buffer_status == BufferStatus::CLOSED;
+                    })) {
             _prefetch_status = Status::TimedOut("time out when read prefetch buffer");
             return _prefetch_status;
         }
@@ -589,7 +594,8 @@ Status PrefetchBuffer::read_buffer(size_t off, const char* out, size_t buf_len,
 void PrefetchBuffer::close() {
     std::unique_lock lck {_lock};
     // in case _reader still tries to write to the buf after we close the buffer
-    if (!_prefetched.wait_for(lck, std::chrono::milliseconds(WAIT_TIME_OUT_MS),
+    if (!_prefetched.wait_for(lck,
+                              std::chrono::milliseconds(config::buffered_reader_read_timeout_ms),
                               [this]() { return _buffer_status != BufferStatus::PENDING; })) {
         _prefetch_status = Status::TimedOut("time out when close prefetch buffer");
         return;

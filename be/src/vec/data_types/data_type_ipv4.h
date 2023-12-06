@@ -25,6 +25,7 @@
 #include <string>
 
 #include "common/status.h"
+#include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -44,11 +45,12 @@ namespace doris::vectorized {
 class DataTypeIPv4 final : public DataTypeNumberBase<IPv4> {
 public:
     TypeIndex get_type_id() const override { return TypeIndex::IPv4; }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::IPV4;
-    }
     const char* get_family_name() const override { return "IPv4"; }
     std::string do_get_name() const override { return "IPv4"; }
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_IPV4;
+    }
 
     bool equals(const IDataType& rhs) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;

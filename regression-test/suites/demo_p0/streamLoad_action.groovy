@@ -66,6 +66,8 @@ suite("streamLoad_action") {
         directToBe  backendIps.get(backendId),  backendHttpPorts.get(backendId) as int
     }
 
+    sql """ sync; """
+
     order_qt_select_1 "SELECT * FROM ${tableName}"
     sql "TRUNCATE TABLE ${tableName}"
 

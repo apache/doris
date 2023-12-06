@@ -184,6 +184,9 @@ public class StatisticsRepository {
     }
 
     public static void dropStatistics(long tblId, Set<String> colNames) throws DdlException {
+        if (colNames == null) {
+            return;
+        }
         dropStatisticsByColName(tblId, colNames, StatisticConstants.STATISTIC_TBL_NAME);
         dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
     }
@@ -269,8 +272,8 @@ public class StatisticsRepository {
         params.put("count", String.valueOf(columnStatistic.count));
         params.put("ndv", String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
-        params.put("min", min == null ? "NULL" : min);
-        params.put("max", max == null ? "NULL" : max);
+        params.put("min", StatisticsUtil.escapeSQL(min));
+        params.put("max", StatisticsUtil.escapeSQL(max));
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
 
         if (partitionIds.isEmpty()) {
@@ -278,7 +281,7 @@ public class StatisticsRepository {
             params.put("partId", "NULL");
             StatisticsUtil.execUpdate(INSERT_INTO_COLUMN_STATISTICS, params);
             Env.getCurrentEnv().getStatisticsCache()
-                    .updateColStatsCache(objects.table.getId(), -1, colName, builder.build());
+                    .updateColStatsCache(objects.table.getId(), -1, colName, columnStatistic);
         } else {
             // update partition granularity statistics
             for (Long partitionId : partitionIds) {

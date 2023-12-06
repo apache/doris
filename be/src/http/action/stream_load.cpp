@@ -50,6 +50,7 @@
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
+#include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
@@ -144,14 +145,13 @@ Status StreamLoadAction::_handle(std::shared_ptr<StreamLoadContext> ctx) {
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
         return Status::InternalError("receive body don't equal with body bytes");
     }
+
+    // if we use non-streaming, MessageBodyFileSink.finish will close the file
+    RETURN_IF_ERROR(ctx->body_sink->finish());
     if (!ctx->use_streaming) {
-        // if we use non-streaming, we need to close file first,
-        // then execute_plan_fragment here
-        // this will close file
+        // we need to close file first, then execute_plan_fragment here
         ctx->body_sink.reset();
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(ctx));
-    } else {
-        RETURN_IF_ERROR(ctx->body_sink->finish());
     }
 
     // wait stream load finish
@@ -193,14 +193,21 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         if (iequal(req->header(HTTP_GROUP_COMMIT), "true") && !ctx->label.empty()) {
             st = Status::InternalError("label and group_commit can't be set at the same time");
         }
-        ctx->group_commit = true;
-    } else {
-        if (ctx->label.empty()) {
-            ctx->label = generate_uuid_string();
+        ctx->group_commit = load_size_smaller_than_wal_limit(req);
+        if (!ctx->group_commit) {
+            LOG(WARNING) << "The data size for this stream load("
+                         << std::stol(req->header(HttpHeaders::CONTENT_LENGTH))
+                         << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                         << config::wal_max_disk_size * 0.8
+                         << " Bytes). Please set this load to \"group commit\"=false.";
+            st = Status::InternalError("Stream load size too large.");
         }
     }
+    if (!ctx->group_commit && ctx->label.empty()) {
+        ctx->label = generate_uuid_string();
+    }
 
-    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true" ? true : false;
+    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
 
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
               << ", tbl=" << ctx->table;
@@ -523,7 +530,10 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
             request.__set_send_batch_parallelism(
                     std::stoi(http_req->header(HTTP_SEND_BATCH_PARALLELISM)));
         } catch (const std::invalid_argument& e) {
-            return Status::InvalidArgument("Invalid send_batch_parallelism format, {}", e.what());
+            return Status::InvalidArgument("send_batch_parallelism must be an integer, {}",
+                                           e.what());
+        } catch (const std::out_of_range& e) {
+            return Status::InvalidArgument("send_batch_parallelism out of range, {}", e.what());
         }
     }
 

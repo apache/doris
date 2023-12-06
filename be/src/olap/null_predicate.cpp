@@ -53,24 +53,25 @@ Status NullPredicate::evaluate(BitmapIndexIterator* iterator, uint32_t num_rows,
     return Status::OK();
 }
 
-Status NullPredicate::evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                               uint32_t num_rows, roaring::Roaring* bitmap) const {
-    // mask out null_bitmap, since NULL cmp VALUE will produce NULL
-    //  and be treated as false in WHERE
-    InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-    RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-    std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-    if (null_bitmap) {
-        if (_is_null) {
-            *bitmap &= *null_bitmap;
-        } else {
-            *bitmap -= *null_bitmap;
+Status NullPredicate::evaluate(const vectorized::NameAndTypePair& name_with_type,
+                               InvertedIndexIterator* iterator, uint32_t num_rows,
+                               roaring::Roaring* bitmap) const {
+    if (iterator->has_null()) {
+        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+
+        if (null_bitmap) {
+            if (_is_null) {
+                *bitmap &= *null_bitmap; // Keep only nulls in bitmap if _is_null is true
+            } else {
+                *bitmap -= *null_bitmap; // Remove nulls from bitmap if _is_null is false
+            }
+        } else if (_is_null) {
+            *bitmap = roaring::Roaring(); // Reset bitmap to an empty bitmap
         }
-    } else {
-        // all rows not null
-        if (_is_null) {
-            *bitmap -= *bitmap;
-        }
+    } else if (_is_null) {
+        *bitmap = roaring::Roaring(); // Reset bitmap to an empty bitmap
     }
 
     return Status::OK();

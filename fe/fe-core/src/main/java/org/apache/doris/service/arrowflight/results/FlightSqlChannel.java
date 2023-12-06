@@ -47,12 +47,8 @@ public class FlightSqlChannel {
 
     public FlightSqlChannel() {
         // The Stmt result is not picked up by the Client within 10 minutes and will be deleted.
-        resultCache =
-                CacheBuilder.newBuilder()
-                        .maximumSize(100)
-                        .expireAfterWrite(10, TimeUnit.MINUTES)
-                        .removalListener(new ResultRemovalListener())
-                        .build();
+        resultCache = CacheBuilder.newBuilder().maximumSize(100).expireAfterWrite(10, TimeUnit.MINUTES)
+                .removalListener(new ResultRemovalListener()).build();
         allocator = new RootAllocator(Long.MAX_VALUE);
     }
 
@@ -98,19 +94,53 @@ public class FlightSqlChannel {
         resultCache.put(queryId, flightSqlResultCacheEntry);
     }
 
-    public void addEmptyResult(String queryId, String query) {
+    public void addResult(String queryId, String runningQuery, ResultSetMetaData metaData, String result) {
         List<Field> schemaFields = new ArrayList<>();
         List<FieldVector> dataFields = new ArrayList<>();
-        schemaFields.add(new Field("StatusResult", FieldType.nullable(new Utf8()), null));
-        VarCharVector varCharVector = new VarCharVector("StatusResult", allocator);
-        varCharVector.allocateNew();
-        varCharVector.setValueCount(1);
-        varCharVector.setSafe(0, "OK".getBytes());
-        dataFields.add(varCharVector);
 
+        // TODO: only support varchar type
+        for (Column col : metaData.getColumns()) {
+            schemaFields.add(new Field(col.getName(), FieldType.nullable(new Utf8()), null));
+            VarCharVector varCharVector = new VarCharVector(col.getName(), allocator);
+            varCharVector.allocateNew();
+            varCharVector.setValueCount(result.split("\n").length);
+            dataFields.add(varCharVector);
+        }
+
+        int rowNum = 0;
+        for (String item : result.split("\n")) {
+            if (item == null || item.equals(FeConstants.null_string)) {
+                dataFields.get(0).setNull(rowNum);
+            } else {
+                ((VarCharVector) dataFields.get(0)).setSafe(rowNum, item.getBytes());
+            }
+            rowNum += 1;
+        }
         VectorSchemaRoot vectorSchemaRoot = new VectorSchemaRoot(schemaFields, dataFields);
         final FlightSqlResultCacheEntry flightSqlResultCacheEntry = new FlightSqlResultCacheEntry(vectorSchemaRoot,
-                query);
+                runningQuery);
+        resultCache.put(queryId, flightSqlResultCacheEntry);
+    }
+
+    /**
+     * Create a SchemaRoot with one row and one column.
+     */
+    public VectorSchemaRoot createOneOneSchemaRoot(String colName, String colValue) {
+        List<Field> schemaFields = new ArrayList<>();
+        List<FieldVector> dataFields = new ArrayList<>();
+        schemaFields.add(new Field(colName, FieldType.nullable(new Utf8()), null));
+        VarCharVector varCharVector = new VarCharVector(colName, allocator);
+        varCharVector.allocateNew();
+        varCharVector.setValueCount(1);
+        varCharVector.setSafe(0, colValue.getBytes());
+        dataFields.add(varCharVector);
+
+        return new VectorSchemaRoot(schemaFields, dataFields);
+    }
+
+    public void addOKResult(String queryId, String query) {
+        final FlightSqlResultCacheEntry flightSqlResultCacheEntry = new FlightSqlResultCacheEntry(
+                createOneOneSchemaRoot("StatusResult", "0"), query);
         resultCache.put(queryId, flightSqlResultCacheEntry);
     }
 

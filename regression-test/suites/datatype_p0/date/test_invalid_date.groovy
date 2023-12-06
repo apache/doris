@@ -23,7 +23,7 @@ suite("test_invalid_date") {
             CREATE TABLE IF NOT EXISTS ${tbName} (
                 c0 int,
                 c1 char(10),
-                c2 date,
+                c2 datev1,
                 c3 datev2
             )
             UNIQUE KEY(c0)

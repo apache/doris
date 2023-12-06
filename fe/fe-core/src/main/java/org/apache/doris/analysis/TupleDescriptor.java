@@ -146,6 +146,24 @@ public class TupleDescriptor {
         return result;
     }
 
+    public ArrayList<SlotId> getMaterializedSlotIds() {
+        ArrayList<SlotId> result = Lists.newArrayList();
+        for (SlotDescriptor slot : slots) {
+            if (slot.isMaterialized()) {
+                result.add(slot.getId());
+            }
+        }
+        return result;
+    }
+
+    public ArrayList<SlotId> getAllSlotIds() {
+        ArrayList<SlotId> result = Lists.newArrayList();
+        for (SlotDescriptor slot : slots) {
+            result.add(slot.getId());
+        }
+        return result;
+    }
+
     /**
      * Return slot descriptor corresponding to column referenced in the context
      * of tupleDesc, or null if no such reference exists.
@@ -157,6 +175,15 @@ public class TupleDescriptor {
             }
         }
         return null;
+    }
+
+    public boolean hasVariantCol() {
+        for (SlotDescriptor slotDesc : slots) {
+            if (slotDesc.getColumn() != null && slotDesc.getColumn().getType().isVariantType()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public TableIf getTable() {

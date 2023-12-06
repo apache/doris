@@ -37,6 +37,7 @@ import org.apache.doris.analysis.AlterColumnStatsStmt;
 import org.apache.doris.analysis.AlterDatabasePropertyStmt;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt;
 import org.apache.doris.analysis.AlterDatabaseRename;
+import org.apache.doris.analysis.AlterJobStatusStmt;
 import org.apache.doris.analysis.AlterPolicyStmt;
 import org.apache.doris.analysis.AlterResourceStmt;
 import org.apache.doris.analysis.AlterRoutineLoadStmt;
@@ -51,6 +52,7 @@ import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelBackupStmt;
 import org.apache.doris.analysis.CancelExportStmt;
+import org.apache.doris.analysis.CancelJobTaskStmt;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CleanProfileStmt;
@@ -95,7 +97,6 @@ import org.apache.doris.analysis.DropWorkloadGroupStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.InstallPluginStmt;
 import org.apache.doris.analysis.KillAnalysisJobStmt;
-import org.apache.doris.analysis.PauseJobStmt;
 import org.apache.doris.analysis.PauseRoutineLoadStmt;
 import org.apache.doris.analysis.PauseSyncJobStmt;
 import org.apache.doris.analysis.RecoverDbStmt;
@@ -106,12 +107,10 @@ import org.apache.doris.analysis.RefreshDbStmt;
 import org.apache.doris.analysis.RefreshLdapStmt;
 import org.apache.doris.analysis.RefreshTableStmt;
 import org.apache.doris.analysis.RestoreStmt;
-import org.apache.doris.analysis.ResumeJobStmt;
 import org.apache.doris.analysis.ResumeRoutineLoadStmt;
 import org.apache.doris.analysis.ResumeSyncJobStmt;
 import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetUserPropertyStmt;
-import org.apache.doris.analysis.StopJobStmt;
 import org.apache.doris.analysis.StopRoutineLoadStmt;
 import org.apache.doris.analysis.StopSyncJobStmt;
 import org.apache.doris.analysis.SyncStmt;
@@ -123,7 +122,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.ProfileManager;
 import org.apache.doris.load.sync.SyncJobManager;
 import org.apache.doris.persist.CleanQueryStatsInfo;
-import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.statistics.StatisticsRepository;
 
 import org.apache.logging.log4j.LogManager;
@@ -184,16 +182,25 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof AlterRoutineLoadStmt) {
             env.getRoutineLoadManager().alterRoutineLoadJob((AlterRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof CreateJobStmt) {
-            env.getJobRegister().registerJob((((CreateJobStmt) ddlStmt).getJob()));
-        } else if (ddlStmt instanceof StopJobStmt) {
-            StopJobStmt stmt = (StopJobStmt) ddlStmt;
-            env.getJobRegister().stopJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
-        } else if (ddlStmt instanceof PauseJobStmt) {
-            PauseJobStmt stmt = (PauseJobStmt) ddlStmt;
-            env.getJobRegister().pauseJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
-        } else if (ddlStmt instanceof ResumeJobStmt) {
-            ResumeJobStmt stmt = (ResumeJobStmt) ddlStmt;
-            env.getJobRegister().resumeJob(stmt.getDbFullName(), stmt.getName(), JobCategory.SQL);
+            try {
+                env.getJobManager().registerJob(((CreateJobStmt) ddlStmt).getJobInstance());
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
+        } else if (ddlStmt instanceof AlterJobStatusStmt) {
+            AlterJobStatusStmt stmt = (AlterJobStatusStmt) ddlStmt;
+            try {
+                env.getJobManager().alterJobStatus(stmt.getJobName(), stmt.getJobStatus());
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
+        } else if (ddlStmt instanceof CancelJobTaskStmt) {
+            CancelJobTaskStmt stmt = (CancelJobTaskStmt) ddlStmt;
+            try {
+                env.getJobManager().cancelTaskById(stmt.getJobName(), stmt.getTaskId());
+            } catch (Exception e) {
+                throw new DdlException(e.getMessage());
+            }
         } else if (ddlStmt instanceof CreateUserStmt) {
             CreateUserStmt stmt = (CreateUserStmt) ddlStmt;
             env.getAuth().createUser(stmt);

@@ -23,10 +23,11 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
@@ -44,6 +45,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -112,6 +114,11 @@ public class CascadesContext implements ScheduleContext {
     private final Optional<CTEId> currentTree;
     private final Optional<CascadesContext> parent;
 
+    private final List<MaterializationContext> materializationContexts;
+    private boolean isLeadingJoin = false;
+
+    private final Map<String, Hint> hintMap = Maps.newLinkedHashMap();
+
     /**
      * Constructor of OptimizerContext.
      *
@@ -133,6 +140,7 @@ public class CascadesContext implements ScheduleContext {
         this.currentJobContext = new JobContext(this, requireProperties, Double.MAX_VALUE);
         this.subqueryExprIsAnalyzed = new HashMap<>();
         this.runtimeFilterContext = new RuntimeFilterContext(getConnectContext().getSessionVariable());
+        this.materializationContexts = new ArrayList<>();
     }
 
     /**
@@ -309,6 +317,14 @@ public class CascadesContext implements ScheduleContext {
         this.outerScope = Optional.ofNullable(outerScope);
     }
 
+    public List<MaterializationContext> getMaterializationContexts() {
+        return materializationContexts;
+    }
+
+    public void addMaterializationContext(MaterializationContext materializationContext) {
+        this.materializationContexts.add(materializationContext);
+    }
+
     /**
      * getAndCacheSessionVariable
      */
@@ -387,12 +403,12 @@ public class CascadesContext implements ScheduleContext {
                 tableNames.addAll(extractTableNamesFromOneRowRelation((UnboundOneRowRelation) p));
             } else {
                 Set<LogicalPlan> logicalPlans = p.collect(
-                        n -> (n instanceof UnboundRelation || n instanceof UnboundOlapTableSink));
+                        n -> (n instanceof UnboundRelation || n instanceof UnboundTableSink));
                 for (LogicalPlan plan : logicalPlans) {
                     if (plan instanceof UnboundRelation) {
                         tableNames.add(((UnboundRelation) plan).getNameParts());
-                    } else if (plan instanceof UnboundOlapTableSink) {
-                        tableNames.add(((UnboundOlapTableSink<?>) plan).getNameParts());
+                    } else if (plan instanceof UnboundTableSink) {
+                        tableNames.add(((UnboundTableSink<?>) plan).getNameParts());
                     } else {
                         throw new AnalysisException("get tables from plan failed. meet unknown type node " + plan);
                     }
@@ -524,6 +540,9 @@ public class CascadesContext implements ScheduleContext {
                 cascadesContext.extractTables(plan);
             }
             for (TableIf table : cascadesContext.tables.values()) {
+                if (!table.needReadLockWhenPlan()) {
+                    continue;
+                }
                 if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
                     close();
                     throw new RuntimeException(String.format("Failed to get read lock on table: %s", table.getName()));
@@ -599,5 +618,17 @@ public class CascadesContext implements ScheduleContext {
             }
             p.value().setStatistics(updatedConsumerStats);
         }
+    }
+
+    public boolean isLeadingJoin() {
+        return isLeadingJoin;
+    }
+
+    public void setLeadingJoin(boolean leadingJoin) {
+        isLeadingJoin = leadingJoin;
+    }
+
+    public Map<String, Hint> getHintMap() {
+        return hintMap;
     }
 }

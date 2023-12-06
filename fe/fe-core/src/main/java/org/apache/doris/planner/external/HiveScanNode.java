@@ -32,6 +32,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
@@ -66,6 +67,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Random;
 import java.util.stream.Collectors;
 
@@ -100,12 +102,14 @@ public class HiveScanNode extends FileQueryScanNode {
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "HIVE_SCAN_NODE", StatisticalType.HIVE_SCAN_NODE, needCheckColumnPriv);
         hmsTable = (HMSExternalTable) desc.getTable();
+        brokerName = hmsTable.getCatalog().bindBrokerName();
     }
 
     public HiveScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
                         StatisticalType statisticalType, boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
         hmsTable = (HMSExternalTable) desc.getTable();
+        brokerName = hmsTable.getCatalog().bindBrokerName();
     }
 
     @Override
@@ -332,7 +336,7 @@ public class HiveScanNode extends FileQueryScanNode {
         if (bindBrokerName != null) {
             return TFileType.FILE_BROKER;
         }
-        return getTFileType(location).orElseThrow(() ->
+        return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
             new DdlException("Unknown file location " + location + " for hms table " + hmsTable.getName()));
     }
 

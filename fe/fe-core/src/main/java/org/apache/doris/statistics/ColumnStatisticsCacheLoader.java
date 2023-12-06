@@ -50,11 +50,10 @@ public class ColumnStatisticsCacheLoader extends StatisticsCacheLoader<Optional<
         }
         // Load from data source metadata
         try {
-            TableIf table = Env.getCurrentEnv().getCatalogMgr().getCatalog(key.catalogId)
-                    .getDbOrMetaException(key.dbId).getTableOrMetaException(key.tableId);
+            TableIf table = StatisticsUtil.findTable(key.catalogId, key.dbId, key.tableId);
             columnStatistic = table.getColumnStatistic(key.colName);
         } catch (Exception e) {
-            LOG.warn(String.format("Exception to get column statistics by metadata. [Catalog:%d, DB:%d, Table:%d]",
+            LOG.debug(String.format("Exception to get column statistics by metadata. [Catalog:%d, DB:%d, Table:%d]",
                     key.catalogId, key.dbId, key.tableId), e);
         }
         return columnStatistic;

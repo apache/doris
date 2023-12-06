@@ -41,8 +41,8 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
             + "COUNT(1) AS row_count, "
             + "NDV(`${colName}`) AS ndv, "
             + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
-            + "MIN(`${colName}`) AS min, "
-            + "MAX(`${colName}`) AS max, "
+            + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS min, "
+            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS max, "
             + "${dataSizeFunction} AS data_size, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";
@@ -76,7 +76,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
                 StatisticsUtil.execStatisticQuery(new StringSubstitutor(params).replace(ANALYZE_TABLE_COUNT_TEMPLATE));
         String rowCount = columnResult.get(0).get(0);
         Env.getCurrentEnv().getAnalysisManager()
-            .updateTableStatsStatus(new TableStatsMeta(table.getId(), Long.parseLong(rowCount), info));
+            .updateTableStatsStatus(new TableStatsMeta(Long.parseLong(rowCount), info, table));
         job.rowCountDone(this);
     }
 
@@ -110,7 +110,7 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);
         String sql = stringSubstitutor.replace(sb.toString());
-        runQuery(sql, true);
+        runQuery(sql);
     }
 
     private Map<String, String> buildTableStatsParams(String partId) {

@@ -40,11 +40,15 @@ suite("test_auto_partition_load") {
         file "auto_partition_stream_load1.csv"
         time 20000
     }
+    sql """ insert into ${tblName1} values (11, '2007-12-12 12:12:12.123', '2001-11-14 12:12:12.123456') """
+    sql """ insert into ${tblName1} values (12, '2008-12-12 12:12:12.123', '2001-11-14 12:12:12.123456') """
+    sql """ insert into ${tblName1} values (13, '2003-12-12 12:12:12.123', '2001-11-14 12:12:12.123456') """
+    sql """ insert into ${tblName1} values (14, '2002-12-12 12:12:12.123', '2001-11-14 12:12:12.123456') """
 
     qt_select1 "select * from ${tblName1} order by k1"
     result1 = sql "show partitions from ${tblName1}"
     logger.info("${result1}")
-    assertEquals(result1.size(), 7)
+    assertEquals(result1.size(), 8)
 
 
     def tblName2 = "load_table2"
@@ -71,9 +75,13 @@ suite("test_auto_partition_load") {
         file "auto_partition_stream_load2.csv"
         time 20000
     }
+    sql """ insert into ${tblName2} values (11, '11', '2123-11-14 12:12:12.123456') """
+    sql """ insert into ${tblName2} values (12, 'Chengdu', '2123-11-14 12:12:12.123456') """
+    sql """ insert into ${tblName2} values (13, '11', '2123-11-14 12:12:12.123456') """
+    sql """ insert into ${tblName2} values (14, '12', '2123-11-14 12:12:12.123456') """
 
     qt_select2 "select * from ${tblName2} order by k1"
     result2 = sql "show partitions from ${tblName2}"
     logger.info("${result2}")
-    assertEquals(result2.size(), 9)
+    assertEquals(result2.size(), 11)
 }

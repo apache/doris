@@ -258,6 +258,7 @@ message PFetchArrowFlightSchemaResult {
     optional PStatus status = 1;
     // valid when status is ok
     optional bytes schema = 2;
+    optional bytes be_arrow_flight_ip = 3;
 };
 
 message KeyTuple {
@@ -589,6 +590,7 @@ message PTabletWriteSlaveRequest {
     message IndexSize {
         required int64 indexId = 1;
         required int64 size = 2;
+        optional string suffix_path = 3;
     };
 
     message IndexSizeMap{
@@ -790,6 +792,16 @@ message PStreamHeader {
     repeated PTabletID tablets = 10;
 }
 
+message PGetWalQueueSizeRequest{
+    optional int64 table_id = 1;
+    optional int64 txn_id = 2;
+}
+
+message PGetWalQueueSizeResponse{
+    required PStatus status = 1;
+    optional int64 size = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -831,6 +843,7 @@ service PBackendService {
     rpc report_stream_load_status(PReportStreamLoadStatusRequest) returns (PReportStreamLoadStatusResponse);
     rpc glob(PGlobRequest) returns (PGlobResponse);
     rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
+    rpc get_wal_queue_size(PGetWalQueueSizeRequest) returns(PGetWalQueueSizeResponse);
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
 };
 

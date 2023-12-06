@@ -88,7 +88,7 @@ Status MemTableWriter::append(const vectorized::Block* block) {
     return write(block, {}, true);
 }
 
-Status MemTableWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+Status MemTableWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                              bool is_append) {
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
@@ -357,6 +357,7 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
 }
 
 int64_t MemTableWriter::active_memtable_mem_consumption() {
+    std::lock_guard<std::mutex> l(_lock);
     return _mem_table != nullptr ? _mem_table->memory_usage() : 0;
 }
 

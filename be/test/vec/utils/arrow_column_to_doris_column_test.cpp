@@ -410,12 +410,15 @@ void test_decimalv2(std::shared_ptr<arrow::Decimal128Type> type,
     DataTypePtr data_type = DataTypeFactory::instance().create_data_type(pt, true);
     MutableColumnPtr data_column = data_type->create_column();
     ColumnWithTypeAndName column(std::move(data_column), data_type, "test_numeric_column");
+    auto max_result =
+            vectorized::DataTypeDecimal<vectorized::Decimal128>::get_max_digits_number(27);
+    auto min_result = -max_result;
     for (auto& str : test_cases) {
         int128_t value = DecimalV2Value(str).value();
         int128_t expect_value =
                 convert_decimals<vectorized::DataTypeDecimal<vectorized::Decimal128>,
-                                 vectorized::DataTypeDecimal<vectorized::Decimal128>>(
-                        value, type->scale(), 9);
+                                 vectorized::DataTypeDecimal<vectorized::Decimal128>, true, true>(
+                        value, type->scale(), 9, min_result, max_result);
         test_arrow_to_decimal_column<is_nullable>(type, column, num_elements, value, expect_value,
                                                   counter);
     }

@@ -108,11 +108,11 @@ struct PhysicalTypeTraits<tparquet::Type::INT96> {
     M(TypeIndex::Float32, Float32, Float32) \
     M(TypeIndex::Float64, Float64, Float64)
 
-#define FOR_LOGICAL_DECIMAL_TYPES(M)             \
-    M(TypeIndex::Decimal32, Decimal32, Int32)    \
-    M(TypeIndex::Decimal64, Decimal64, Int64)    \
-    M(TypeIndex::Decimal128, Decimal128, Int128) \
-    M(TypeIndex::Decimal128I, Decimal128, Int128)
+#define FOR_LOGICAL_DECIMAL_TYPES(M)                 \
+    M(TypeIndex::Decimal32, Decimal32, Decimal32)    \
+    M(TypeIndex::Decimal64, Decimal64, Decimal64)    \
+    M(TypeIndex::Decimal128, Decimal128, Decimal128) \
+    M(TypeIndex::Decimal128I, Decimal128I, Decimal128I)
 
 struct ConvertParams {
     // schema.logicalType.TIMESTAMP.isAdjustedToUTC == false
@@ -174,7 +174,7 @@ struct ConvertParams {
             return;
         }
         auto scale = field_schema->parquet_schema.scale;
-        auto* decimal_type = static_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
+        auto* decimal_type = static_cast<DataTypeDecimal<DecimalPrimitiveType>*>(
                 const_cast<IDataType*>(remove_nullable(data_type).get()));
         auto dest_scale = decimal_type->get_scale();
         if (dest_scale > scale) {
@@ -221,7 +221,7 @@ struct ColumnConvert {
     }
 
 public:
-    ConvertParams* _convert_params;
+    ConvertParams* _convert_params = nullptr;
 };
 
 template <tparquet::Type::type parquet_physical_type, typename dst_type>
@@ -400,9 +400,8 @@ public:
         dst_col->resize(_convert_params->start_idx + rows);
 
         DecimalScaleParams& scale_params = _convert_params->decimal_scale;
-        auto* data = static_cast<ColumnDecimal<Decimal<DecimalPhysicalType>>*>(dst_col.get())
-                             ->get_data()
-                             .data();
+        auto* data =
+                static_cast<ColumnDecimal<DecimalPhysicalType>*>(dst_col.get())->get_data().data();
 
         for (int i = 0; i < rows; i++) {
             ValueCopyType value = src_data[i];

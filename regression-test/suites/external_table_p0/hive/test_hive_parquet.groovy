@@ -139,6 +139,21 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
     """
     }
 
+    def q21 = {
+        qt_q21_max """
+        select max(decimal_col) from parquet_decimal90_table;
+        """
+        qt_q21_min """
+        select min(decimal_col) from parquet_decimal90_table;
+        """
+        qt_q21_sum """
+        select sum(decimal_col) from parquet_decimal90_table;
+        """
+        qt_q21_avg """
+        select avg(decimal_col) from parquet_decimal90_table;
+        """
+    }
+
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         try {
@@ -175,6 +190,7 @@ suite("test_hive_parquet", "p0,external,hive,external_docker,external_docker_hiv
             q18()
             q19()
             q20()
+            q21()
 
             sql """explain physical plan select l_partkey from partition_table
                 where (nation != 'cn' or city !='beijing') and (l_quantity > 28 or l_extendedprice > 30000)

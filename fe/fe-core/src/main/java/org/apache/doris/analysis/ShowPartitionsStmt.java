@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.MaxComputeExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -37,6 +38,7 @@ import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -125,14 +127,21 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
 
         DatabaseIf db = catalog.getDbOrAnalysisException(dbName);
-        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP, TableType.MATERIALIZED_VIEW,
-                    TableType.HMS_EXTERNAL_TABLE);
+        TableIf table = db.getTableOrMetaException(tblName, Table.TableType.OLAP,
+                    TableType.HMS_EXTERNAL_TABLE, TableType.MAX_COMPUTE_EXTERNAL_TABLE);
 
         if (table instanceof HMSExternalTable) {
             if (((HMSExternalTable) table).isView()) {
                 throw new AnalysisException("Table " + tblName + " is not a partitioned table");
             }
             if (CollectionUtils.isEmpty(((HMSExternalTable) table).getPartitionColumns())) {
+                throw new AnalysisException("Table " + tblName + " is not a partitioned table");
+            }
+            return;
+        }
+
+        if (table instanceof MaxComputeExternalTable) {
+            if (((MaxComputeExternalTable) table).getOdpsTable().getPartitions().isEmpty()) {
                 throw new AnalysisException("Table " + tblName + " is not a partitioned table");
             }
             return;
@@ -170,7 +179,8 @@ public class ShowPartitionsStmt extends ShowStmt {
         }
 
         // disallow unsupported catalog
-        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog)) {
+        if (!(catalog.isInternalCatalog() || catalog instanceof HMSExternalCatalog
+                || catalog instanceof MaxComputeExternalCatalog)) {
             throw new AnalysisException(String.format("Catalog of type '%s' is not allowed in ShowPartitionsStmt",
                 catalog.getType()));
         }

@@ -89,7 +89,7 @@ ANALYZE TABLE lineitem WITH SAMPLE ROWS 100000;
 
 统计信息的收集作业本身需要占用一定的系统资源，为了尽可能降低开销，对于数据量较大（默认为5GiB，可通过设置FE参数`huge_table_lower_bound_size_in_bytes`来调节此行为）的表，Doris会自动采取采样的方式去收集，自动采样默认采样4194304(2^22)行，以尽可能降低对系统造成的负担并尽快完成收集作业。如果希望采样更多的行以获得更准确的数据分布信息，可通过调整参数`huge_table_default_sample_rows`增大采样行数。另外对于数据量大于`huge_table_lower_bound_size_in_bytes` * 5 的表，Doris保证其收集时间间隔不小于12小时（该时间可通过调整参数`huge_table_auto_analyze_interval_in_millis`控制）。
 
-如果担心自动收集作业对业务造成干扰，可结合自身需求通过设置参数`full_auto_analyze_start_time`和参数`full_auto_analyze_end_time`指定自动收集作业在业务负载较低的时间段执行。也可以通过设置参数`enable_full_auto_analyze` 为`false`来彻底关闭本功能。
+如果担心自动收集作业对业务造成干扰，可结合自身需求通过设置参数`auto_analyze_start_time`和参数`auto_analyze_end_time`指定自动收集作业在业务负载较低的时间段执行。也可以通过设置参数`enable_auto_analyze` 为`false`来彻底关闭本功能。
 
 External catalog 默认不参与自动收集。因为 external catalog 往往包含海量历史数据，如果参与自动收集，可能占用过多资源。可以通过设置 catalog 的 property 来打开和关闭 external catalog 的自动收集。
 
@@ -295,14 +295,15 @@ mysql> KILL ANALYZE 52357;
 
 |会话变量|说明|默认值|
 |---|---|---|
-|full_auto_analyze_start_time|自动统计信息收集开始时间|00:00:00|
-|full_auto_analyze_end_time|自动统计信息收集结束时间|23:59:59|
-|enable_full_auto_analyze|开启自动收集功能|true|
+|auto_analyze_start_time|自动统计信息收集开始时间|00:00:00|
+|auto_analyze_end_time|自动统计信息收集结束时间|23:59:59|
+|enable_auto_analyze|开启自动收集功能|true|
 |huge_table_default_sample_rows|对大表的采样行数|4194304|
 |huge_table_lower_bound_size_in_bytes|大小超过该值的的表，在自动收集时将会自动通过采样收集统计信息|5368709120|
 |huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes * 5的表仅ANALYZE一次|43200000|
 |table_stats_health_threshold|取值在0-100之间，当自上次统计信息收集操作之后，数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时|60|
 |analyze_timeout|控制ANALYZE超时时间，单位为秒|43200|
+|auto_analyze_table_width_threshold|控制自动统计信息收集处理的最大表宽度，列数大于该值的表不会参与自动统计信息收集|70|
 
 <br/>
 

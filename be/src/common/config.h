@@ -100,6 +100,11 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// If priority_networks is incorrect but cannot be modified, set public_access_ip as BE’s real IP.
+// For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
+// If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
+DECLARE_mString(public_access_ip);
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
@@ -404,6 +409,9 @@ DECLARE_Int32(vertical_compaction_max_row_source_memory_mb);
 // In vertical compaction, max dest segment file size
 DECLARE_mInt64(vertical_compaction_max_segment_size);
 
+// If enabled, segments will be flushed column by column
+DECLARE_mBool(enable_vertical_segment_writer);
+
 // In ordered data compaction, min segment size for input rowset
 DECLARE_mInt32(ordered_data_compaction_min_segment_size);
 
@@ -556,7 +564,9 @@ DECLARE_Int64(stream_tvf_buffer_size);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
-DECLARE_mInt32(olap_table_sink_send_interval_ms);
+DECLARE_mInt32(olap_table_sink_send_interval_microseconds);
+// For auto partition, the send interval will multiply the factor
+DECLARE_mDouble(olap_table_sink_send_interval_auto_partition_factor);
 
 // Fragment thread pool
 DECLARE_Int32(fragment_pool_thread_num_min);
@@ -799,6 +809,15 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 DECLARE_Bool(share_delta_writers);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
+// timeout for load stream close wait in ms
+DECLARE_Int64(close_load_stream_timeout_ms);
+
+// idle timeout for load stream in ms
+DECLARE_Int64(load_stream_idle_timeout_ms);
+// brpc streaming max_buf_size in bytes
+DECLARE_Int64(load_stream_max_buf_size);
+// brpc streaming messages_in_batch
+DECLARE_Int32(load_stream_messages_in_batch);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -930,7 +949,7 @@ DECLARE_mString(file_cache_type);
 DECLARE_Int32(s3_transfer_executor_pool_size);
 
 DECLARE_Bool(enable_time_lut);
-DECLARE_Bool(enable_simdjson_reader);
+DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
@@ -1112,12 +1131,17 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Whether flatten nested arrays in variant column
 // Notice: TEST ONLY
-DECLARE_mBool(enable_flatten_nested_for_variant);
+DECLARE_mBool(variant_enable_flatten_nested);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
-DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
+DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
+// Threshold to estimate a column is sparsed
+// Notice: TEST ONLY
+DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// rowid conversion correctness check when compaction for mow table
+DECLARE_mBool(enable_rowid_conversion_correctness_check);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1142,12 +1166,10 @@ DECLARE_Int16(bitmap_serialize_version);
 DECLARE_String(group_commit_replay_wal_dir);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
-DECLARE_Int32(group_commit_sync_wal_batch);
 DECLARE_Bool(wait_internal_group_commit_finish);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
-DECLARE_mInt32(group_commit_interval_ms);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1161,8 +1183,8 @@ DECLARE_mInt32(tablet_schema_cache_recycle_interval);
 DECLARE_mBool(exit_on_exception);
 
 // cgroup
-DECLARE_String(doris_cgroup_cpu_path);
-DECLARE_Bool(enable_cgroup_cpu_soft_limit);
+DECLARE_mString(doris_cgroup_cpu_path);
+DECLARE_mBool(enable_cgroup_cpu_soft_limit);
 
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
@@ -1184,6 +1206,14 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
+
+DECLARE_mInt32(buffered_reader_read_timeout_ms);
+
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
+
+// The max columns size for a tablet schema
+DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
 #ifdef BE_TEST
 // test s3

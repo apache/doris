@@ -34,4 +34,6 @@ suite("one_row_relation") {
 
     qt_string1 """ select 'A''B', 'A''''B', 'A\\'\\'B', ''; """
     qt_string2 """ select "A""B", "A\\"\\"B", "";  """
+    qt_string3 """ select 'A""B', 'A\\"\\"B';  """
+    qt_string4 """ select "A''B", "A\\'\\'B";  """
 }

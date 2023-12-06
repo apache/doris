@@ -88,9 +88,7 @@ public class MasterOpExecutor {
 
     // Send request to Master
     private TMasterOpResult forward(TMasterOpRequest params) throws Exception {
-        if (!ctx.getEnv().isReady()) {
-            throw new Exception("Node catalog is not ready, please wait for a while.");
-        }
+        ctx.getEnv().checkReadyOrThrow();
         String masterHost = ctx.getEnv().getMasterHost();
         int masterRpcPort = ctx.getEnv().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
@@ -239,7 +237,7 @@ public class MasterOpExecutor {
         private final String msg;
 
         public ForwardToMasterException(String msg, TTransportException exception) {
-            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType());
+            this.msg = msg + ", cause: " + TYPE_MSG_MAP.get(exception.getType()) + ", " + exception.getMessage();
         }
 
         @Override

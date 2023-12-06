@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.utframe.TestWithFeService;
@@ -27,6 +28,7 @@ import org.junit.jupiter.api.Test;
 public class StatisticDeriveTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
+        Config.enable_odbc_mysql_broker_table = true;
         // create database
         createDatabase("test");
 

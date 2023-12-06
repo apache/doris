@@ -75,7 +75,7 @@ private:
 
 private:
     //TODO(zhengyu): current impl depends heavily on the access to feilds of BetaRowsetWriter
-    BetaRowsetWriter* _writer;
+    BetaRowsetWriter* _writer = nullptr;
     io::FileWriterPtr _file_writer;
     std::atomic<bool> _cancelled = false;
 };

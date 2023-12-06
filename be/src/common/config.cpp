@@ -61,6 +61,8 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
+DEFINE_mString(public_access_ip, "");
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DEFINE_Int32(brpc_num_threads, "256");
@@ -81,7 +83,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-DEFINE_String(mem_limit, "80%");
+DEFINE_String(mem_limit, "90%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
@@ -351,6 +353,9 @@ DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 // In vertical compaction, max dest segment file size
 DEFINE_mInt64(vertical_compaction_max_segment_size, "268435456");
 
+// If enabled, segments will be flushed column by column
+DEFINE_mBool(enable_vertical_segment_writer, "true");
+
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
 
@@ -502,7 +507,8 @@ DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
-DEFINE_mInt32(olap_table_sink_send_interval_ms, "1");
+DEFINE_mInt32(olap_table_sink_send_interval_microseconds, "1000");
+DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_pool_thread_num_min, "64");
@@ -741,7 +747,16 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 // share delta writers when memtable_on_sink_node = true
 DEFINE_Bool(share_delta_writers, "true");
 // timeout for open load stream rpc in ms
-DEFINE_Int64(open_load_stream_timeout_ms, "500");
+DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
+// timeout for load stream close wait in ms
+DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
+
+// idle timeout for load stream in ms
+DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
+// brpc streaming max_buf_size in bytes
+DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
+// brpc streaming messages_in_batch
+DEFINE_Int32(load_stream_messages_in_batch, "128");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -880,7 +895,7 @@ DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_Bool(enable_simdjson_reader, "true");
+DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
@@ -944,8 +959,9 @@ DEFINE_Bool(enable_workload_group_for_scan, "false");
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
-DEFINE_mBool(enable_flatten_nested_for_variant, "false");
-DEFINE_mDouble(ratio_of_defaults_as_sparse_column, "0.95");
+DEFINE_mBool(variant_enable_flatten_nested, "false");
+DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "0.95");
+DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -1057,6 +1073,8 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+// rowid conversion correctness check when compaction for mow table
+DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1073,12 +1091,10 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 DEFINE_String(group_commit_replay_wal_dir, "./wal");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
-DEFINE_Int32(group_commit_sync_wal_batch, "10");
 DEFINE_Bool(wait_internal_group_commit_finish, "false");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
-DEFINE_mInt32(group_commit_interval_ms, "10000");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
@@ -1088,8 +1104,8 @@ DEFINE_Bool(exit_on_exception, "false");
 DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
-DEFINE_String(doris_cgroup_cpu_path, "");
-DEFINE_Bool(enable_cgroup_cpu_soft_limit, "false");
+DEFINE_mString(doris_cgroup_cpu_path, "");
+DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
@@ -1107,6 +1123,12 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
+
+DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
+
+DEFINE_Bool(enable_snapshot_action, "false");
+
+DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
 // clang-format off
 #ifdef BE_TEST

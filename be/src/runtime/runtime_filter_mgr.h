@@ -97,7 +97,7 @@ public:
 private:
     struct ConsumerFilterHolder {
         int node_id;
-        IRuntimeFilter* filter;
+        IRuntimeFilter* filter = nullptr;
     };
     // RuntimeFilterMgr is owned by RuntimeState, so we only
     // use filter_id as key
@@ -106,8 +106,8 @@ private:
     std::map<int32_t, std::vector<ConsumerFilterHolder>> _consumer_map;
     std::map<int32_t, IRuntimeFilter*> _producer_map;
 
-    RuntimeState* _state;
-    QueryContext* _query_ctx;
+    RuntimeState* _state = nullptr;
+    QueryContext* _query_ctx = nullptr;
     std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
@@ -145,7 +145,7 @@ public:
         TRuntimeFilterDesc runtime_filter_desc;
         std::vector<doris::TRuntimeFilterTargetParams> target_info;
         std::vector<doris::TRuntimeFilterTargetParamsV2> targetv2_info;
-        IRuntimeFilter* filter;
+        IRuntimeFilter* filter = nullptr;
         std::unordered_set<UniqueId> arrive_id; // fragment_instance_id ?
         std::shared_ptr<ObjectPool> pool;
     };
@@ -170,9 +170,9 @@ private:
     std::shared_mutex _filter_map_mutex;
     std::shared_ptr<MemTracker> _mem_tracker;
     using CntlValwithLock =
-            std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<SpinLock>>;
+            std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<std::mutex>>;
     std::map<int, CntlValwithLock> _filter_map;
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
     bool _opt_remote_rf = true;
 };
 

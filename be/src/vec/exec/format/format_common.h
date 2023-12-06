@@ -34,14 +34,17 @@ struct DecimalScaleParams {
 
     template <typename DecimalPrimitiveType>
     static inline constexpr DecimalPrimitiveType get_scale_factor(int32_t n) {
-        if constexpr (std::is_same_v<DecimalPrimitiveType, Int32>) {
+        if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal32>) {
             return common::exp10_i32(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int64>) {
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal64>) {
             return common::exp10_i64(n);
-        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Int128>) {
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128>) {
+            return common::exp10_i128(n);
+        } else if constexpr (std::is_same_v<DecimalPrimitiveType, Decimal128I>) {
             return common::exp10_i128(n);
         } else {
-            return DecimalPrimitiveType(1);
+            static_assert(!sizeof(DecimalPrimitiveType),
+                          "All types must be matched with if constexpr.");
         }
     }
 };
@@ -133,7 +136,7 @@ private:
     }
 
     uint32_t _num_shards;
-    KVCache<std::string>** _shards;
+    KVCache<std::string>** _shards = nullptr;
 };
 
 } // namespace doris::vectorized

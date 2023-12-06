@@ -94,7 +94,6 @@ public:
     virtual uint64_t size() const = 0;
 
     virtual void reset_page_zone_map() = 0;
-    virtual void reset_segment_zone_map() = 0;
 };
 
 // Zone map index is represented by an IndexedColumn with ordinal index.
@@ -120,7 +119,6 @@ public:
     uint64_t size() const override { return _estimated_size; }
 
     void reset_page_zone_map() override;
-    void reset_segment_zone_map() override;
 
 private:
     void _reset_zone_map(ZoneMap* zone_map) {
@@ -132,7 +130,7 @@ private:
         zone_map->pass_all = false;
     }
 
-    Field* _field;
+    Field* _field = nullptr;
     // memory will be managed by Arena
     ZoneMap _page_zone_map;
     ZoneMap _segment_zone_map;

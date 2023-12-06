@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <stdint.h>
 
 #include <map>
@@ -57,9 +59,14 @@ private:
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
 class QueryStatistics {
 public:
-    QueryStatistics()
-            : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
-    ~QueryStatistics();
+    QueryStatistics(TQueryType::type query_type = TQueryType::type::SELECT)
+            : scan_rows(0),
+              scan_bytes(0),
+              cpu_ms(0),
+              returned_rows(0),
+              max_peak_memory_bytes(0),
+              _query_type(query_type) {}
+    virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
 
@@ -107,10 +114,13 @@ public:
     }
 
     void to_pb(PQueryStatistics* statistics);
-
+    void to_thrift(TQueryStatistics* statistics) const;
     void from_pb(const PQueryStatistics& statistics);
     bool collected() const { return _collected; }
     void set_collected() { _collected = true; }
+
+    // LOAD does not need to collect information on the exchange node.
+    bool collect_dml_statistics() { return _query_type == TQueryType::LOAD; }
 
 private:
     friend class QueryStatisticsRecvr;
@@ -127,6 +137,7 @@ private:
     using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;
     bool _collected = false;
+    const TQueryType::type _query_type;
 };
 using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
@@ -146,14 +157,14 @@ private:
     friend class QueryStatistics;
 
     void merge(QueryStatistics* statistics) {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         for (auto& pair : _query_statistics) {
             statistics->merge(*(pair.second));
         }
     }
 
     std::map<int, QueryStatisticsPtr> _query_statistics;
-    SpinLock _lock;
+    std::mutex _lock;
 };
 
 } // namespace doris

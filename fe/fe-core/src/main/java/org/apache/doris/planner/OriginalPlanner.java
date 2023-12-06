@@ -257,6 +257,7 @@ public class OriginalPlanner extends Planner {
             LOG.debug("substitute result Exprs {}", resExprs);
             rootFragment.setOutputExprs(resExprs);
         }
+        rootFragment.setResultSinkType(ConnectContext.get().getResultSinkType());
         LOG.debug("finalize plan fragments");
         for (PlanFragment fragment : fragments) {
             fragment.finalize(queryStmt);
@@ -669,7 +670,7 @@ public class OriginalPlanner extends Planner {
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, expr.getType()));
-                super.handleLiteralInFe((LiteralExpr) expr, data);
+                data.add(((LiteralExpr) expr).getStringValueInFe());
             } else {
                 return Optional.empty();
             }

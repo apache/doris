@@ -106,6 +106,14 @@ public class DateTimeV2Literal extends DateTimeLiteral {
                 (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
     }
 
+    public String getMicrosecondString() {
+        if (microSecond == 0) {
+            return "0";
+        }
+        return String.format("%0" + getDataType().getScale() + "d",
+                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
+    }
+
     @Override
     public Expression plusYears(long years) {
         return fromJavaDateType(

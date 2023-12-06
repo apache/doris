@@ -58,12 +58,7 @@ namespace doris {
 using namespace ErrorCode;
 
 BetaRowsetWriterV2::BetaRowsetWriterV2(const std::vector<std::shared_ptr<LoadStreamStub>>& streams)
-        : _next_segment_id(0),
-          _num_segment(0),
-          _num_rows_written(0),
-          _total_data_size(0),
-          _total_index_size(0),
-          _streams(streams) {}
+        : _streams(streams) {}
 
 BetaRowsetWriterV2::~BetaRowsetWriterV2() = default;
 
@@ -101,11 +96,9 @@ Status BetaRowsetWriterV2::flush_memtable(vectorized::Block* block, int32_t segm
         return Status::OK();
     }
 
-    TabletSchemaSPtr flush_schema;
     {
         SCOPED_RAW_TIMER(&_segment_writer_ns);
-        RETURN_IF_ERROR(
-                _segment_creator.flush_single_block(block, segment_id, flush_size, flush_schema));
+        RETURN_IF_ERROR(_segment_creator.flush_single_block(block, segment_id, flush_size));
     }
     // delete bitmap and seg compaction are done on the destination BE.
     return Status::OK();

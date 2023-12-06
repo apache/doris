@@ -17,3 +17,21 @@
 -- !select --
 [null]
 
+-- !select_nereid --
+["1970-01-01", "1970-01-01"]
+
+-- !select_nereid --
+["1970-01-01", "1970-01-01"]
+
+-- !select_nereid --
+["1970-01-01", "1970-01-01"]
+
+-- !select_nereid --
+[]
+
+-- !select_nereid --
+["1970-01-01"]
+
+-- !select_nereid --
+[null]
+

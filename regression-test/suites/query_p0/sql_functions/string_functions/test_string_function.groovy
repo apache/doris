@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_string_function") {
+suite("test_string_function", "arrow_flight_sql") {
     sql "set batch_size = 4096;"
 
     qt_sql "select elt(0, \"hello\", \"doris\");"

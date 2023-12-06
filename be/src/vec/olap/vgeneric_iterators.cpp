@@ -51,7 +51,8 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
             auto unique_id = _schema.column(cid)->unique_id();
             if (_column_iterators_map.count(unique_id) < 1) {
                 RETURN_IF_ERROR(_segment->new_column_iterator(opts.tablet_schema->column(cid),
-                                                              &_column_iterators_map[unique_id]));
+                                                              &_column_iterators_map[unique_id],
+                                                              nullptr));
             }
             _column_iterators.push_back(_column_iterators_map[unique_id].get());
         }
@@ -79,7 +80,7 @@ Status VStatisticsIterator::next_batch(Block* block) {
             }
         } else {
             for (int i = 0; i < block->columns(); ++i) {
-                static_cast<void>(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
+                RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
             }
         }
         _output_rows += size;

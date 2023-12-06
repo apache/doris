@@ -115,18 +115,15 @@ suite("test_point_query") {
                   """, property)
         }
 
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 2; i++) {
             tableName = realDb + ".tbl_point_query" + i
             sql """DROP TABLE IF EXISTS ${tableName}"""
             if (i == 0) {
                 def sql0 = create_table_sql("")
                 sql """ ${sql0} """
-            } else if (i == 1) {
-                def sql1 = create_table_sql("\"function_column.sequence_type\" = 'int',")
-                sql """ ${sql1} """
             } else {
-                def sql2 = create_table_sql("\"function_column.sequence_col\" = 'k6',")
-                sql """ ${sql2} """
+                def sql1 = create_table_sql("\"function_column.sequence_col\" = 'k6',")
+                sql """ ${sql1} """
             }
             sql """ INSERT INTO ${tableName} VALUES(1231, 119291.11, "ddd", "laooq", null, "2020-01-01 12:36:38", null, "1022-01-01 11:30:38", null, 1.111112, [119181.1111, 819019.1191, null], null) """
             sql """ INSERT INTO ${tableName} VALUES(1232, 12222.99121135, "xxx", "laooq", "2023-01-02", "2020-01-01 12:36:38", 522.762, "2022-01-01 11:30:38", 1, 212.111, null, null) """
@@ -254,7 +251,7 @@ suite("test_point_query") {
                     "disable_auto_compaction" = "false"
                     );"""
                 sql """insert into ${tableName} values (0, "1", "2", "3")"""
-                qt_sql "select /*+ SET_VAR(enable_nereids_planner=false) */ * from test_query where customer_key = 0"
+                qt_sql """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${tableName} where customer_key = 0"""
             }
         }
     } finally {

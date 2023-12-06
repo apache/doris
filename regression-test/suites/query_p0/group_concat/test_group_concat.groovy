@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_group_concat") {
+suite("test_group_concat", "query,p0,arrow_flight_sql") {
     qt_select """
                 SELECT group_concat(k6) FROM test_query_db.test where k6='false'
               """
