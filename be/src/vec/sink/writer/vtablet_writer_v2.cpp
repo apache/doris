@@ -545,15 +545,14 @@ Status VTabletWriterV2::close(Status exec_status) {
                                              std::make_move_iterator(tablet_commit_infos.end()));
         _streams_for_node.clear();
 
-        _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
-                                              _tablet_finder->num_filtered_rows());
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
                                       _state->num_rows_load_unselected();
+        _state->set_num_rows_load_total(num_rows_load_total);
+        _state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() +
+                                              _tablet_finder->num_filtered_rows());
         _state->update_num_rows_load_unselected(
                 _tablet_finder->num_immutable_partition_filtered_rows());
-
-        _state->set_num_rows_load_total(num_rows_load_total);
 
         LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;

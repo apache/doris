@@ -1523,13 +1523,13 @@ Status VTabletWriter::close(Status exec_status) {
             COUNTER_SET(_add_batch_number, total_add_batch_num);
             COUNTER_SET(_num_node_channels, num_node_channels);
 
-            _state->update_num_rows_load_filtered(
-                    _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() +
-                    _state->num_rows_filtered_in_strict_mode_partial_update());
             // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
             int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
                                           _state->num_rows_load_unselected();
             _state->set_num_rows_load_total(num_rows_load_total);
+            _state->update_num_rows_load_filtered(
+                    _block_convertor->num_filtered_rows() + _tablet_finder->num_filtered_rows() +
+                    _state->num_rows_filtered_in_strict_mode_partial_update());
             _state->update_num_rows_load_unselected(
                     _tablet_finder->num_immutable_partition_filtered_rows());
 
@@ -1635,6 +1635,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
+    _number_input_rows += rows;
 
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
@@ -1645,7 +1646,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     channel_to_payload.resize(_channels.size());
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
 
-    _number_input_rows += rows;
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(rows);
