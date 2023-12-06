@@ -160,12 +160,16 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN || _is_broadcast_join) {
             return ExchangeType::NOOP;
         }
-        return ExchangeType::SHUFFLE;
+        return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+                               _join_distribution == TJoinDistributionType::COLOCATE
+                       ? ExchangeType::BUCKET_HASH_SHUFFLE
+                       : ExchangeType::HASH_SHUFFLE;
     }
 
 private:
     friend class HashJoinBuildSinkLocalState;
 
+    const TJoinDistributionType::type _join_distribution;
     // build expr
     vectorized::VExprContextSPtrs _build_expr_ctxs;
     // mark the build hash table whether it needs to store null value

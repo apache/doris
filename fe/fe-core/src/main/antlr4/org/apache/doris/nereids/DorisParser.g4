@@ -52,10 +52,10 @@ statement
         (AS query)?                                                    #createTable
     | explain? INSERT (INTO | OVERWRITE TABLE)
         (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
-        (PARTITION partition=identifierList)?  // partition define
+        partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
-        query                                                          #insertIntoQuery
+        (query | inlineTable)                                          #insertTable
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
@@ -104,11 +104,19 @@ statement
     ;
 
 constraint
-    : PRIMARY KEY LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
-    | UNIQUE LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
-    | FOREIGN KEY LEFT_PAREN slots+=errorCapturingIdentifier (COMMA slots+=errorCapturingIdentifier)* RIGHT_PAREN
+    : PRIMARY KEY slots=identifierList
+    | UNIQUE slots=identifierList
+    | FOREIGN KEY slots=identifierList
         REFERENCES referenceTable=multipartIdentifier
-        LEFT_PAREN referenceSlots+=errorCapturingIdentifier (COMMA referenceSlots+=errorCapturingIdentifier)* RIGHT_PAREN
+        referencedSlots=identifierList
+    ;
+
+partitionSpec
+    : TEMPORARY? (PARTITION | PARTITIONS) partitions=identifierList
+    | TEMPORARY? PARTITION partition=errorCapturingIdentifier
+    // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
+    // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
+    // | PARTITIONS WITH RECENT
     ;
 
 dataDesc
@@ -276,7 +284,6 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
-    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification
@@ -576,13 +583,17 @@ booleanExpression
     ;
 
 rowConstructor
-    : LEFT_PAREN namedExpression (COMMA namedExpression)* RIGHT_PAREN
+    : LEFT_PAREN (rowConstructorItem (COMMA rowConstructorItem)*)? RIGHT_PAREN
+    ;
+
+rowConstructorItem
+    : namedExpression | DEFAULT
     ;
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL

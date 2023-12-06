@@ -18,6 +18,7 @@
 package org.apache.doris.job.task;
 
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.thrift.TRow;
 
 import java.util.List;
 
@@ -53,7 +54,7 @@ public interface Task {
      *
      * @param msg The error message associated with the failure.
      */
-    void onFail(String msg);
+    void onFail(String msg) throws JobException;
 
     /**
      * This method is called when the task executes successfully.
@@ -72,4 +73,10 @@ public interface Task {
      * @return List<String> task common show info
      */
     List<String> getShowInfo();
+
+    /**
+     * get info for tvf `tasks`
+     * @return TRow
+     */
+    TRow getTvfInfo();
 }

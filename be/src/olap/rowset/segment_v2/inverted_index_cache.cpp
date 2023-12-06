@@ -19,6 +19,7 @@
 
 #include <CLucene/debug/mem.h>
 #include <CLucene/search/IndexSearcher.h>
+#include <CLucene/util/bkd/bkd_reader.h>
 // IWYU pragma: no_include <bthread/errno.h>
 #include <errno.h> // IWYU pragma: keep
 #include <string.h>
@@ -31,6 +32,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
+#include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
@@ -39,26 +41,48 @@
 namespace doris {
 namespace segment_v2 {
 
-IndexSearcherPtr InvertedIndexSearcherCache::build_index_searcher(const io::FileSystemSPtr& fs,
-                                                                  const std::string& index_dir,
-                                                                  const std::string& file_name) {
-    DorisCompoundReader* directory =
-            new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
-                                    file_name.c_str(), config::inverted_index_read_buffer_size);
+Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
+                                           OptionalIndexSearcherPtr& output_searcher) {
     auto closeDirectory = true;
     auto reader = lucene::index::IndexReader::open(
             directory, config::inverted_index_read_buffer_size, closeDirectory);
-    auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader);
+    bool close_reader = true;
+    auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, close_reader);
+    if (!index_searcher) {
+        _CLDECDELETE(directory)
+        output_searcher = std::nullopt;
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "FulltextIndexSearcherBuilder build index_searcher error.");
+    }
     // NOTE: need to cl_refcount-- here, so that directory will be deleted when
     // index_searcher is destroyed
     _CLDECDELETE(directory)
-    return index_searcher;
+    output_searcher = index_searcher;
+    return Status::OK();
+}
+
+Status BKDIndexSearcherBuilder::build(DorisCompoundReader* directory,
+                                      OptionalIndexSearcherPtr& output_searcher) {
+    try {
+        auto closeDirectory = true;
+        auto bkd_reader =
+                std::make_shared<lucene::util::bkd::bkd_reader>(directory, closeDirectory);
+        if (!bkd_reader->open()) {
+            LOG(INFO) << "bkd index file " << directory->getPath() + "/" + directory->getFileName()
+                      << " is empty";
+        }
+        output_searcher = bkd_reader;
+        _CLDECDELETE(directory)
+        return Status::OK();
+    } catch (const CLuceneError& e) {
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                "BKDIndexSearcherBuilder build error: {}", e.what());
+    }
 }
 
 InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
         size_t capacity, uint32_t num_shards) {
-    InvertedIndexSearcherCache* res = new InvertedIndexSearcherCache(capacity, num_shards);
-    return res;
+    return new InvertedIndexSearcherCache(capacity, num_shards);
 }
 
 InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards)
@@ -99,11 +123,10 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
     }
 }
 
-Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& fs,
-                                                      const std::string& index_dir,
-                                                      const std::string& file_name,
-                                                      InvertedIndexCacheHandle* cache_handle,
-                                                      OlapReaderStatistics* stats, bool use_cache) {
+Status InvertedIndexSearcherCache::get_index_searcher(
+        const io::FileSystemSPtr& fs, const std::string& index_dir, const std::string& file_name,
+        InvertedIndexCacheHandle* cache_handle, OlapReaderStatistics* stats,
+        InvertedIndexReaderType reader_type, bool& has_null, bool use_cache) {
     auto file_path = index_dir + "/" + file_name;
 
     using namespace std::chrono;
@@ -116,18 +139,66 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
     InvertedIndexSearcherCache::CacheKey cache_key(file_path);
     if (_lookup(cache_key, cache_handle)) {
         cache_handle->owned = false;
+        has_null = cache_handle->has_null;
         return Status::OK();
     }
 
     cache_handle->owned = !use_cache;
-    IndexSearcherPtr index_searcher = nullptr;
+    IndexSearcherPtr index_searcher;
+    std::unique_ptr<IndexSearcherBuilder> index_builder = nullptr;
     auto mem_tracker =
             std::unique_ptr<MemTracker>(new MemTracker("InvertedIndexSearcherCacheWithRead"));
 #ifndef BE_TEST
     {
+        bool exists = false;
+        RETURN_IF_ERROR(fs->exists(file_path, &exists));
+        if (!exists) {
+            LOG(WARNING) << "inverted index: " << file_path << " not exist.";
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index input file {} not found", file_path);
+        }
         SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker.get());
-        index_searcher = build_index_searcher(fs, index_dir, file_name);
+        switch (reader_type) {
+        case InvertedIndexReaderType::STRING_TYPE:
+        case InvertedIndexReaderType::FULLTEXT: {
+            index_builder = std::make_unique<FulltextIndexSearcherBuilder>();
+            break;
+        }
+        case InvertedIndexReaderType::BKD: {
+            index_builder = std::make_unique<BKDIndexSearcherBuilder>();
+            break;
+        }
+
+        default:
+            LOG(ERROR) << "InvertedIndexReaderType:" << reader_type_to_string(reader_type)
+                       << " is not support for InvertedIndexSearcherCache";
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "InvertedIndexSearcherCache do not support reader type.");
+        }
+        auto* directory =
+                new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
+                                        file_name.c_str(), config::inverted_index_read_buffer_size);
+        auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
+        if (!directory->fileExists(null_bitmap_file_name.c_str())) {
+            has_null = false;
+            cache_handle->has_null = false;
+        } else {
+            // roaring bitmap cookie header size is 5
+            if (directory->fileLength(null_bitmap_file_name.c_str()) <= 5) {
+                has_null = false;
+                cache_handle->has_null = false;
+            }
+        }
+        OptionalIndexSearcherPtr result;
+        RETURN_IF_ERROR(index_builder->build(directory, result));
+        if (!result.has_value()) {
+            LOG(ERROR) << "InvertedIndexReaderType:" << reader_type_to_string(reader_type)
+                       << " build for InvertedIndexSearcherCache error";
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "InvertedIndexSearcherCache build error.");
+        }
+        index_searcher = *result;
     }
 #endif
 
@@ -145,7 +216,8 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
 
 Status InvertedIndexSearcherCache::insert(const io::FileSystemSPtr& fs,
                                           const std::string& index_dir,
-                                          const std::string& file_name) {
+                                          const std::string& file_name,
+                                          InvertedIndexReaderType reader_type) {
     auto file_path = index_dir + "/" + file_name;
 
     using namespace std::chrono;
@@ -157,13 +229,48 @@ Status InvertedIndexSearcherCache::insert(const io::FileSystemSPtr& fs,
 
     InvertedIndexSearcherCache::CacheKey cache_key(file_path);
     IndexCacheValuePtr cache_value = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
-    IndexSearcherPtr index_searcher = nullptr;
-    auto mem_tracker =
-            std::unique_ptr<MemTracker>(new MemTracker("InvertedIndexSearcherCacheWithInsert"));
+    IndexSearcherPtr index_searcher;
+    std::unique_ptr<IndexSearcherBuilder> builder = nullptr;
+    auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithInsert");
 #ifndef BE_TEST
     {
+        bool exists = false;
+        RETURN_IF_ERROR(fs->exists(file_path, &exists));
+        if (!exists) {
+            LOG(WARNING) << "inverted index: " << file_path << " not exist.";
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
+                    "inverted index input file {} not found", file_path);
+        }
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker.get());
-        index_searcher = build_index_searcher(fs, index_dir, file_name);
+        switch (reader_type) {
+        case InvertedIndexReaderType::STRING_TYPE:
+        case InvertedIndexReaderType::FULLTEXT: {
+            builder = std::make_unique<FulltextIndexSearcherBuilder>();
+            break;
+        }
+        case InvertedIndexReaderType::BKD: {
+            builder = std::make_unique<BKDIndexSearcherBuilder>();
+            break;
+        }
+
+        default:
+            LOG(ERROR) << "InvertedIndexReaderType:" << reader_type_to_string(reader_type)
+                       << " is not support for InvertedIndexSearcherCache";
+            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
+                    "InvertedIndexSearcherCache do not support reader type.");
+        }
+        auto* directory =
+                new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
+                                        file_name.c_str(), config::inverted_index_read_buffer_size);
+        OptionalIndexSearcherPtr result;
+        RETURN_IF_ERROR(builder->build(directory, result));
+        if (!result.has_value()) {
+            LOG(ERROR) << "InvertedIndexReaderType:" << reader_type_to_string(reader_type)
+                       << " build for InvertedIndexSearcherCache error";
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "InvertedIndexSearcherCache build error.");
+        }
+        index_searcher = *result;
     }
 #endif
 

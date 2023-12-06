@@ -93,10 +93,6 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
         for (AnalysisInfo analysisInfo : analysisInfos) {
             try {
-                if (needDropStaleStats(analysisInfo)) {
-                    Env.getCurrentEnv().getAnalysisManager().dropStats(databaseIf.getTable(analysisInfo.tblId).get());
-                    continue;
-                }
                 analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
                 if (analysisInfo == null) {
                     continue;
@@ -200,31 +196,5 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         }
 
         return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
-    }
-
-    /**
-     * Check if the given table should drop stale stats. User may truncate table,
-     * in this case, we need to drop the stale stats.
-     * @param jobInfo
-     * @return True if you need to drop, false otherwise.
-     */
-    protected boolean needDropStaleStats(AnalysisInfo jobInfo) {
-        TableIf table = StatisticsUtil
-                .findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        if (!(table instanceof OlapTable)) {
-            return false;
-        }
-        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
-        TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
-        if (tblStats == null) {
-            return false;
-        }
-        if (tblStats.analyzeColumns().isEmpty()) {
-            return false;
-        }
-        if (table.getRowCount() == 0) {
-            return true;
-        }
-        return false;
     }
 }

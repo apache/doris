@@ -122,6 +122,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
@@ -143,7 +144,7 @@ import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.qe.cache.CacheAnalyzer.CacheMode;
 import org.apache.doris.resource.workloadgroup.QueryQueue;
-import org.apache.doris.resource.workloadgroup.QueueOfferToken;
+import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.rpc.RpcException;
@@ -176,6 +177,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.protobuf.ByteString;
+import lombok.Setter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -213,6 +215,8 @@ public class StmtExecutor {
     private StatementBase parsedStmt;
     private Analyzer analyzer;
     private ProfileType profileType = ProfileType.QUERY;
+
+    @Setter
     private volatile Coordinator coord = null;
     private MasterOpExecutor masterOpExecutor = null;
     private RedirectStatus redirectStatus = null;
@@ -518,6 +522,13 @@ public class StmtExecutor {
                 "Nereids only process LogicalPlanAdapter, but parsedStmt is " + parsedStmt.getClass().getName());
         context.getState().setNereids(true);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+        // when we in transaction mode, we only support insert into command and transaction command
+        if (context.isTxnModel()) {
+            if (!(logicalPlan instanceof BatchInsertIntoTableCommand)) {
+                String errMsg = "This is in a transaction, only insert, commit, rollback is acceptable.";
+                throw new NereidsException(errMsg, new AnalysisException(errMsg));
+            }
+        }
         if (logicalPlan instanceof Command) {
             if (logicalPlan instanceof Forward) {
                 redirectStatus = ((Forward) logicalPlan).toRedirectStatus();
@@ -607,22 +618,16 @@ public class StmtExecutor {
     private void handleQueryWithRetry(TUniqueId queryId) throws Exception {
         // queue query here
         syncJournalIfNeeded();
-        QueueOfferToken offerRet = null;
+        QueueToken queueToken = null;
         QueryQueue queryQueue = null;
         if (!parsedStmt.isExplain() && Config.enable_workload_group && Config.enable_query_queue
                 && context.getSessionVariable().getEnablePipelineEngine()) {
             queryQueue = context.getEnv().getWorkloadGroupMgr().getWorkloadGroupQueryQueue(context);
-            try {
-                offerRet = queryQueue.offer();
-            } catch (InterruptedException e) {
-                // this Exception means try lock/await failed, so no need to handle offer result
-                LOG.error("error happens when offer queue, query id=" + DebugUtil.printId(queryId) + " ", e);
-                throw new RuntimeException("interrupted Exception happens when queue query");
-            }
-            if (offerRet != null && !offerRet.isOfferSuccess()) {
-                String retMsg = "queue failed, reason=" + offerRet.getOfferResultDetail();
-                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + retMsg);
-                throw new UserException(retMsg);
+            queueToken = queryQueue.getToken();
+            if (!queueToken.waitSignal()) {
+                LOG.error("query (id=" + DebugUtil.printId(queryId) + ") " + queueToken.getOfferResultDetail());
+                queryQueue.returnToken(queueToken);
+                throw new UserException(queueToken.getOfferResultDetail());
             }
         }
 
@@ -660,8 +665,8 @@ public class StmtExecutor {
                 }
             }
         } finally {
-            if (offerRet != null && offerRet.isOfferSuccess()) {
-                queryQueue.poll();
+            if (queueToken != null) {
+                queryQueue.returnToken(queueToken);
             }
         }
     }

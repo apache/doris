@@ -22,11 +22,11 @@
 namespace doris::pipeline {
 
 void LocalExchangeSourceDependency::block() {
-    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->running_sink_operators == 0) {
+    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->_running_sink_operators == 0) {
         return;
     }
     std::unique_lock<std::mutex> lc(((LocalExchangeSharedState*)_shared_state.get())->le_lock);
-    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->running_sink_operators == 0) {
+    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->_running_sink_operators == 0) {
         return;
     }
     Dependency::block();
@@ -42,7 +42,8 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =
             ADD_COUNTER_WITH_LEVEL(profile(), "GetBlockFailedTime", TUnit::UNIT, 1);
-    if (_exchanger->get_type() == ExchangeType::SHUFFLE) {
+    if (_exchanger->get_type() == ExchangeType::HASH_SHUFFLE ||
+        _exchanger->get_type() == ExchangeType::BUCKET_HASH_SHUFFLE) {
         _copy_data_timer = ADD_TIMER(profile(), "CopyDataTime");
     }
 

@@ -27,8 +27,10 @@ class LocalExchangeSinkLocalState;
 
 class Exchanger {
 public:
-    Exchanger(int num_instances)
-            : running_sink_operators(num_instances), _num_instances(num_instances) {}
+    Exchanger(int num_partitions)
+            : _running_sink_operators(num_partitions), _num_partitions(num_partitions) {}
+    Exchanger(int running_sink_operators, int num_partitions)
+            : _running_sink_operators(running_sink_operators), _num_partitions(num_partitions) {}
     virtual ~Exchanger() = default;
     virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                              SourceState& source_state,
@@ -37,24 +39,29 @@ public:
                         LocalExchangeSinkLocalState& local_state) = 0;
     virtual ExchangeType get_type() const = 0;
 
-    std::atomic<int> running_sink_operators = 0;
-
 protected:
-    const int _num_instances;
+    friend struct LocalExchangeSourceDependency;
+    friend struct LocalExchangeSharedState;
+    std::atomic<int> _running_sink_operators = 0;
+    const int _num_partitions;
 };
 
 class LocalExchangeSourceLocalState;
 class LocalExchangeSinkLocalState;
 
-class ShuffleExchanger final : public Exchanger {
+class ShuffleExchanger : public Exchanger {
     using PartitionedBlock =
             std::pair<std::shared_ptr<vectorized::Block>,
                       std::tuple<std::shared_ptr<std::vector<uint32_t>>, size_t, size_t>>;
 
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
-    ShuffleExchanger(int num_instances) : Exchanger(num_instances) {
-        _data_queue.resize(num_instances);
+    ShuffleExchanger(int num_partitions) : Exchanger(num_partitions) {
+        _data_queue.resize(num_partitions);
+    }
+    ShuffleExchanger(int running_sink_operators, int num_partitions)
+            : Exchanger(running_sink_operators, num_partitions) {
+        _data_queue.resize(num_partitions);
     }
     ~ShuffleExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
@@ -62,14 +69,22 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block, SourceState& source_state,
                      LocalExchangeSourceLocalState& local_state) override;
-    ExchangeType get_type() const override { return ExchangeType::SHUFFLE; }
+    ExchangeType get_type() const override { return ExchangeType::HASH_SHUFFLE; }
 
-private:
+protected:
     Status _split_rows(RuntimeState* state, const uint32_t* __restrict channel_ids,
                        vectorized::Block* block, SourceState source_state,
                        LocalExchangeSinkLocalState& local_state);
 
     std::vector<moodycamel::ConcurrentQueue<PartitionedBlock>> _data_queue;
+};
+
+class BucketShuffleExchanger : public ShuffleExchanger {
+    ENABLE_FACTORY_CREATOR(BucketShuffleExchanger);
+    BucketShuffleExchanger(int running_sink_operators, int num_buckets)
+            : ShuffleExchanger(running_sink_operators, num_buckets) {}
+    ~BucketShuffleExchanger() override = default;
+    ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };
 
 class PassthroughExchanger final : public Exchanger {

@@ -267,6 +267,7 @@ terminal String
     KW_BACKENDS,
     KW_BACKUP,
     KW_BEGIN,
+    KW_BELONG,
     KW_BETWEEN,
     KW_BIGINT,
     KW_BIN,
@@ -478,6 +479,7 @@ terminal String
     KW_MATCH_ANY,
     KW_MATCH_ALL,
     KW_MATCH_PHRASE,
+    KW_MATCH_PHRASE_PREFIX,
     KW_MATCH_ELEMENT_EQ,
     KW_MATCH_ELEMENT_LT,
     KW_MATCH_ELEMENT_GT,
@@ -687,7 +689,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt, unset_var_stmt,
-    create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,
+    create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,cancel_job_task_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
@@ -975,7 +977,7 @@ precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -1156,6 +1158,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | pause_job_stmt : stmt   
     {: RESULT = stmt; :}
+    | cancel_job_task_stmt : stmt
+    {: RESULT = stmt; :}       
     | show_job_stmt : stmt   
     {: RESULT = stmt; :}
     | stop_job_stmt : stmt   
@@ -2588,13 +2592,7 @@ create_job_stmt ::=
      {:  
           RESULT = endTime;  
      :}
-     ;       
-resume_job_stmt ::=
-    KW_RESUME KW_JOB  KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ResumeJobStmt(jobLabel);
-    :}
-    ;    
+     ;        
 show_job_stmt ::=
     KW_SHOW KW_JOBS
     {:
@@ -2602,11 +2600,11 @@ show_job_stmt ::=
     :}
     | KW_SHOW KW_MTMV KW_JOBS
     {:
-        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.MTMV);
+        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.MV);
     :}
     | KW_SHOW KW_MTMV KW_JOB KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
+        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.MV);
     :}
     | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
     {:
@@ -2618,22 +2616,34 @@ show_job_stmt ::=
     :}    
     | KW_SHOW KW_MTMV KW_JOB KW_TASKS KW_FOR job_label:jobLabel
     {:
-        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
+        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.MV);
     :}       
     ;
 pause_job_stmt ::=
-    KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
+    KW_PAUSE KW_JOB opt_wild_where
     {:
-        RESULT = new PauseJobStmt(jobLabel);
+       RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.PAUSED);
     :}
     ;
 
 stop_job_stmt ::=
-    KW_STOP KW_JOB KW_FOR job_label:jobLabel
+    KW_DROP KW_JOB opt_wild_where
     {:
-        RESULT = new StopJobStmt(jobLabel);
+      RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.STOPPED);
     :}
-    ;                       
+    ;    
+resume_job_stmt ::=
+    KW_RESUME KW_JOB  opt_wild_where
+    {:
+        RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.RUNNING);
+    :}
+    ;    
+cancel_job_task_stmt ::=
+   KW_CANCEL KW_TASK opt_wild_where
+    {:
+      RESULT = new CancelJobTaskStmt(parser.where);
+    :}
+    ;                          
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -3980,6 +3990,10 @@ show_param ::=
     | KW_TABLET INTEGER_LITERAL:tabletId
     {:
         RESULT = new ShowTabletStmt(null, tabletId);
+    :}
+    | KW_TABLETS KW_BELONG integer_list:tabletIds
+    {:
+        RESULT = new ShowTabletsBelongStmt(tabletIds);
     :}
     | KW_TABLETS KW_FROM table_name:dbTblName opt_partition_names:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
@@ -7022,6 +7036,8 @@ match_predicate ::=
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ALL, e1, e2); :}
   | expr:e1 KW_MATCH_PHRASE expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE, e1, e2); :}
+  | expr:e1 KW_MATCH_PHRASE_PREFIX expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_PREFIX, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_LT expr:e2

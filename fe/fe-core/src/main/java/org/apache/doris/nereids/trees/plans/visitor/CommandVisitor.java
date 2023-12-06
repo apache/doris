@@ -19,15 +19,18 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
@@ -45,9 +48,19 @@ public interface CommandVisitor<R, C> {
         return visitCommand(createPolicy, context);
     }
 
-    default R visitInsertIntoTableCommand(InsertIntoTableCommand insertIntoSelectCommand,
+    default R visitInsertIntoTableCommand(InsertIntoTableCommand insertIntoTableCommand,
             C context) {
-        return visitCommand(insertIntoSelectCommand, context);
+        return visitCommand(insertIntoTableCommand, context);
+    }
+
+    default R visitInsertOverwriteTableCommand(InsertOverwriteTableCommand insertOverwriteTableCommand,
+            C context) {
+        return visitCommand(insertOverwriteTableCommand, context);
+    }
+
+    default R visitBatchInsertIntoTableCommand(BatchInsertIntoTableCommand batchInsertIntoTableCommand,
+            C context) {
+        return visitCommand(batchInsertIntoTableCommand, context);
     }
 
     default R visitUpdateCommand(UpdateCommand updateCommand, C context) {
@@ -80,6 +93,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAddConstraintCommand(AddConstraintCommand addConstraintCommand, C context) {
         return visitCommand(addConstraintCommand, context);
+    }
+
+    default R visitDropConstraintCommand(DropConstraintCommand dropConstraintCommand, C context) {
+        return visitCommand(dropConstraintCommand, context);
     }
 
     default R visitRefreshMTMVCommand(RefreshMTMVCommand refreshMTMVCommand, C context) {

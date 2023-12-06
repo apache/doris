@@ -371,7 +371,7 @@ public:
         if (_probe_expr_ctxs.empty()) {
             return _needs_finalize ? ExchangeType::PASSTHROUGH : ExchangeType::NOOP;
         }
-        return ExchangeType::SHUFFLE;
+        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
     }
 
     using DataSinkOperatorX<LocalStateType>::id;
@@ -396,7 +396,7 @@ protected:
 
     bool _needs_finalize;
     bool _is_merge;
-    bool _is_first_phase;
+    const bool _is_first_phase;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
@@ -415,6 +415,7 @@ protected:
     const bool _is_streaming;
 
     const std::vector<TExpr> _partition_exprs;
+    const bool _is_colocate;
 };
 
 } // namespace pipeline

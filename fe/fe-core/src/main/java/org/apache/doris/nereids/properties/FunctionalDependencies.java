@@ -32,6 +32,7 @@ import java.util.stream.Collectors;
  * 2. uniform slotL it means the column that has ndv = 1, can be null
  */
 public class FunctionalDependencies {
+
     public static final FunctionalDependencies EMPTY_FUNC_DEPS
             = new FunctionalDependencies(new NestedSet().toImmutable(), new NestedSet().toImmutable());
     private final NestedSet uniqueSet;
@@ -81,8 +82,7 @@ public class FunctionalDependencies {
 
     @Override
     public String toString() {
-        return "uniform:" + uniformSet
-                + "\t unique:" + uniqueSet;
+        return String.format("FuncDeps[uniform:%s,  unique:%s]", uniformSet, uniqueSet);
     }
 
     /**
