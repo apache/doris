@@ -182,12 +182,6 @@ s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
 
-//arrow flight sql test config
-extArrowFlightSqlHost = "127.0.0.1"
-extArrowFlightSqlPort = 9090
-extArrowFlightSqlUser = "root"
-extArrowFlightSqlPassword= ""
-
 // iceberg rest catalog config
 iceberg_rest_uri_port=18181
 
