@@ -47,8 +47,7 @@ public:
             : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit_,
                                          max_bytes_in_blocks_queue, num_parallel_instances,
                                          local_state),
-              _col_distribute_ids(col_distribute_ids),
-              _need_colocate_distribute(!_col_distribute_ids.empty()) {}
+              _need_colocate_distribute(false) {}
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
@@ -63,6 +62,7 @@ public:
             }
         }
 
+        std::vector<vectorized::BlockUPtr> merge_blocks;
         {
             std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
             if (_blocks_queues[id].empty()) {
@@ -76,6 +76,18 @@ public:
             *block = std::move(_blocks_queues[id].front());
             _blocks_queues[id].pop_front();
 
+            auto rows = (*block)->rows();
+            while (!_blocks_queues[id].empty()) {
+                const auto add_rows = (*_blocks_queues[id].front()).rows();
+                if (rows + add_rows < state->batch_size()) {
+                    rows += add_rows;
+                    merge_blocks.emplace_back(std::move(_blocks_queues[id].front()));
+                    _blocks_queues[id].pop_front();
+                } else {
+                    break;
+                }
+            }
+
             if (_blocks_queues[id].empty()) {
                 this->reschedule_scanner_ctx();
                 if (_dependency) {
@@ -83,7 +95,16 @@ public:
                 }
             }
         }
+
         _current_used_bytes -= (*block)->allocated_bytes();
+        if (!merge_blocks.empty()) {
+            vectorized::MutableBlock m(block->get());
+            for (auto& merge_block : merge_blocks) {
+                _current_used_bytes -= merge_block->allocated_bytes();
+                static_cast<void>(m.merge(*merge_block));
+                return_free_block(std::move(merge_block));
+            }
+        }
 
         return Status::OK();
     }
@@ -126,8 +147,8 @@ public:
                     hashes[i] = hashes[i] % element_size;
                 }
 
-                std::vector<int> channel2rows[element_size];
-                for (int i = 0; i < rows; i++) {
+                std::vector<uint32_t> channel2rows[element_size];
+                for (uint32_t i = 0; i < rows; i++) {
                     channel2rows[hashes[i]].emplace_back(i);
                 }
 
@@ -227,17 +248,17 @@ private:
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
     std::atomic_int64_t _current_used_bytes = 0;
 
-    const std::vector<int>& _col_distribute_ids;
+    const std::vector<int> _col_distribute_ids;
     const bool _need_colocate_distribute;
     std::vector<vectorized::BlockUPtr> _colocate_blocks;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _colocate_mutable_blocks;
     std::vector<std::unique_ptr<std::mutex>> _colocate_block_mutexs;
 
     void _add_rows_colocate_blocks(vectorized::Block* block, int loc,
-                                   const std::vector<int>& rows) {
+                                   const std::vector<uint32_t>& rows) {
         int row_wait_add = rows.size();
         const int batch_size = _batch_size;
-        const int* begin = &rows[0];
+        const uint32_t* begin = rows.data();
         std::lock_guard<std::mutex> l(*_colocate_block_mutexs[loc]);
 
         while (row_wait_add > 0) {

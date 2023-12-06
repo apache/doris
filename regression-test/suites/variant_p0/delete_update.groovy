@@ -59,4 +59,21 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     // sql """update ${table_name} set vs = '{"updated_value" : 123}' where k = 2"""
     // sql """update ${table_name} set v = '{"updated_value" : 123}' where k = 2"""
     qt_sql "select * from ${table_name} order by k"
+
+    // delete & insert concurrently
+
+    t1 = Thread.startDaemon {
+        for (int k = 1; k <= 60; k++) {
+            int x = k % 10;
+            sql """insert into ${table_name} values(${x}, '${x}', '{"k${x}" : ${x}}')"""
+        } 
+    }
+    t2 = Thread.startDaemon {
+        for (int k = 1; k <= 60; k++) {
+            int x = k % 10;
+            sql """delete from ${table_name} where k = ${x} """
+        }
+    }
+    t1.join()
+    t2.join()
 }

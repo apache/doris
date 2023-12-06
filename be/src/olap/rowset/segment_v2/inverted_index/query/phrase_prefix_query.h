@@ -15,26 +15,40 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#ifndef DORIS_BE_SRC_MOCK_MOCK_TASK_WORKER_POOL_H
-#define DORIS_BE_SRC_MOCK_MOCK_TASK_WORKER_POOL_H
+#pragma once
 
-#include "agent/task_worker_pool.h"
-#include "common/status.h"
+#include <CLucene.h>
+#include <CLucene/index/IndexReader.h>
+
+#include <memory>
+
+#include "CLucene/search/MultiPhraseQuery.h"
+#include "roaring/roaring.hh"
+
+CL_NS_USE(index)
+CL_NS_USE(search)
 
 namespace doris {
 
-const uint32_t TASK_FINISH_MAX_RETRY = 3;
-const uint32_t PUSH_MAX_RETRY = 1;
-const uint32_t REPORT_TASK_WORKER_COUNT = 1;
-const uint32_t REPORT_DISK_STATE_WORKER_COUNT = 1;
-const uint32_t REPORT_OLAP_TABLE_WORKER_COUNT = 1;
-const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
+namespace segment_v2 {
 
-class MockTaskWorkerPool : public TaskWorkerPool {
+class PhrasePrefixQuery {
 public:
-    MOCK_METHOD0(start, void());
-    MOCK_METHOD1(submit_task, void(const TAgentTaskRequest& task));
-    MOCK_METHOD0(get_command_executor, CommandExecutor*());
-}; // class MockTaskWorkerPool
+    PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher);
+    ~PhrasePrefixQuery() = default;
+
+    void set_max_expansions(int32_t max_expansions) { _max_expansions = max_expansions; }
+
+    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
+    void search(roaring::Roaring& roaring);
+
+private:
+    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    MultiPhraseQuery _query;
+
+    int32_t _max_expansions = 50;
+};
+
+} // namespace segment_v2
+
 } // namespace doris
-#endif // DORIS_BE_SRC_MOCK_MOCK_TASK_WORKER_POOL_H

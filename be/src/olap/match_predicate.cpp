@@ -82,11 +82,13 @@ Status MatchPredicate::evaluate(const vectorized::NameAndTypePair& name_with_typ
     // mask out null_bitmap, since NULL cmp VALUE will produce NULL
     //  and be treated as false in WHERE
     // keep it after query, since query will try to read null_bitmap and put it to cache
-    InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-    RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-    std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-    if (null_bitmap) {
-        *bitmap -= *null_bitmap;
+    if (iterator->has_null()) {
+        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+        if (null_bitmap) {
+            *bitmap -= *null_bitmap;
+        }
     }
 
     *bitmap &= roaring;
@@ -104,6 +106,9 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
         break;
     case MatchType::MATCH_PHRASE:
         ret = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
+        break;
+    case MatchType::MATCH_PHRASE_PREFIX:
+        ret = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
         break;
     case MatchType::MATCH_ELEMENT_EQ:
         ret = InvertedIndexQueryType::EQUAL_QUERY;
@@ -127,7 +132,7 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
 }
 
 bool MatchPredicate::_skip_evaluate(InvertedIndexIterator* iterator) const {
-    if (_match_type == MatchType::MATCH_PHRASE &&
+    if ((_match_type == MatchType::MATCH_PHRASE || _match_type == MatchType::MATCH_PHRASE_PREFIX) &&
         iterator->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
         get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
                 INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {

@@ -15,20 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+#pragma once
 
-import org.apache.doris.qe.ConnectContext;
+#include <CLucene.h>
+#include <CLucene/index/IndexReader.h>
 
-/**
- * if session variable check_overflow_for_decimal set to true, the expression's return always nullable
- */
-public interface CheckOverflowNullable extends PropagateNullable {
-    @Override
-    default boolean nullable() {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
-            return true;
-        } else {
-            return PropagateNullable.super.nullable();
-        }
-    }
-}
+#include <cstdint>
+
+CL_NS_USE(index)
+
+namespace doris {
+
+class PrefixQuery {
+public:
+    PrefixQuery() = default;
+    ~PrefixQuery() = default;
+
+    static void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
+                                 const std::string& prefix,
+                                 std::vector<CL_NS(index)::Term*>& prefix_terms,
+                                 int32_t max_expansions = 50);
+};
+
+} // namespace doris

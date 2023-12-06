@@ -308,6 +308,9 @@ public class StreamLoadPlanner {
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
         queryOptions.setExecutionTimeout(timeout);
+        if (timeout < 1) {
+            LOG.info("try set timeout less than 1", new RuntimeException(""));
+        }
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
@@ -527,6 +530,9 @@ public class StreamLoadPlanner {
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
         queryOptions.setExecutionTimeout(timeout);
+        if (timeout < 1) {
+            LOG.info("try set timeout less than 1", new RuntimeException(""));
+        }
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());

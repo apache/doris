@@ -30,11 +30,9 @@ import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
@@ -83,7 +81,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -492,33 +489,4 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
-
-    protected static Optional<TFileType> getTFileType(String location) {
-        if (location != null && !location.isEmpty()) {
-            if (S3Util.isObjStorage(location)) {
-                if (S3Util.isHdfsOnOssEndpoint(location)) {
-                    // if hdfs service is enabled on oss, use hdfs lib to access oss.
-                    return Optional.of(TFileType.FILE_HDFS);
-                }
-                return Optional.of(TFileType.FILE_S3);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_VIEWFS)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_COSN)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
-                return Optional.of(TFileType.FILE_LOCAL);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            }
-        }
-        return Optional.empty();
-    }
 }
-
-

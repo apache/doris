@@ -41,44 +41,61 @@ import java.util.Optional;
 /**
  * Represent an olap table sink plan node that has not been bound.
  */
-public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
+public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
         implements Unbound, Sink, BlockFuncDepsPropagation {
 
     private final List<String> nameParts;
     private final List<String> colNames;
     private final List<String> hints;
+    private final boolean temporaryPartition;
     private final List<String> partitions;
     private final boolean isPartialUpdate;
     private final boolean isFromNativeInsertStmt;
 
-    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, partitions, false, false, Optional.empty(), Optional.empty(), child);
+        this(nameParts, colNames, hints, false, partitions,
+                false, false, Optional.empty(), Optional.empty(), child);
     }
 
-    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+            boolean temporaryPartition, List<String> partitions, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, temporaryPartition, partitions,
+                false, false, Optional.empty(), Optional.empty(), child);
+    }
+
+    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, partitions, isPartialUpdate, false,
+        this(nameParts, colNames, hints, false, partitions, isPartialUpdate, false,
                 Optional.empty(), Optional.empty(), child);
     }
 
-    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, boolean isPartialUpdate, boolean isFromNativeInsertStmt, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, partitions, isPartialUpdate, isFromNativeInsertStmt,
+    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+            boolean temporaryPartition, List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate, false,
+                Optional.empty(), Optional.empty(), child);
+    }
+
+    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+            boolean temporaryPartition, List<String> partitions,
+            boolean isPartialUpdate, boolean isFromNativeInsertStmt, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate, isFromNativeInsertStmt,
                 Optional.empty(), Optional.empty(), child);
     }
 
     /**
      * constructor
      */
-    public UnboundOlapTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
-            List<String> partitions, boolean isPartialUpdate, boolean isFromNativeInsertStmt,
+    public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
+            boolean temporaryPartition, List<String> partitions,
+            boolean isPartialUpdate, boolean isFromNativeInsertStmt,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression, logicalProperties, child);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.colNames = Utils.copyRequiredList(colNames);
         this.hints = Utils.copyRequiredList(hints);
+        this.temporaryPartition = temporaryPartition;
         this.partitions = Utils.copyRequiredList(partitions);
         this.isPartialUpdate = isPartialUpdate;
         this.isFromNativeInsertStmt = isFromNativeInsertStmt;
@@ -90,6 +107,10 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     public List<String> getNameParts() {
         return nameParts;
+    }
+
+    public boolean isTemporaryPartition() {
+        return temporaryPartition;
     }
 
     public List<String> getPartitions() {
@@ -111,13 +132,13 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundOlapTableSink only accepts one child");
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, isPartialUpdate,
+        return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate,
                 isFromNativeInsertStmt, groupExpression, Optional.empty(), children.get(0));
     }
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitUnboundOlapTableSink(this, context);
+        return visitor.visitUnboundTableSink(this, context);
     }
 
     @Override
@@ -133,7 +154,7 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        UnboundOlapTableSink<?> that = (UnboundOlapTableSink<?>) o;
+        UnboundTableSink<?> that = (UnboundTableSink<?>) o;
         return Objects.equals(nameParts, that.nameParts)
                 && Objects.equals(colNames, that.colNames)
                 && Objects.equals(hints, that.hints)
@@ -147,14 +168,14 @@ public class UnboundOlapTableSink<CHILD_TYPE extends Plan> extends LogicalSink<C
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions, isPartialUpdate,
+        return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate,
                 isFromNativeInsertStmt, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new UnboundOlapTableSink<>(nameParts, colNames, hints, partitions,
+        return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
                 isPartialUpdate, isFromNativeInsertStmt, groupExpression, logicalProperties, children.get(0));
     }
 
