@@ -818,6 +818,8 @@ DECLARE_Int64(load_stream_idle_timeout_ms);
 DECLARE_Int64(load_stream_max_buf_size);
 // brpc streaming messages_in_batch
 DECLARE_Int32(load_stream_messages_in_batch);
+// brpc streaming StreamWait seconds on EAGAIN
+DECLARE_Int32(load_stream_eagain_wait_seconds);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
