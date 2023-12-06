@@ -42,7 +42,7 @@ public class QueueToken {
 
     private TokenState tokenState;
 
-    private long waitTimeout = 0;
+    private long queueWaitTimeout = 0;
 
     private String offerResultDetail;
 
@@ -51,15 +51,15 @@ public class QueueToken {
     private final ReentrantLock tokenLock = new ReentrantLock();
     private final Condition tokenCond = tokenLock.newCondition();
 
-    public QueueToken(TokenState tokenState, long waitTimeout,
+    public QueueToken(TokenState tokenState, long queueWaitTimeout,
             String offerResultDetail) {
         this.tokenId = tokenIdGenerator.addAndGet(1);
         this.tokenState = tokenState;
-        this.waitTimeout = waitTimeout;
+        this.queueWaitTimeout = queueWaitTimeout;
         this.offerResultDetail = offerResultDetail;
     }
 
-    public boolean waitSignal() throws InterruptedException {
+    public boolean waitSignal(long queryTimeoutMillis) throws InterruptedException {
         this.tokenLock.lock();
         try {
             if (isTimeout) {
@@ -68,6 +68,9 @@ public class QueueToken {
             if (tokenState == TokenState.READY_TO_RUN) {
                 return true;
             }
+            // If query timeout is less than queue wait timeout, then should use
+            // query timeout as wait timeout
+            long waitTimeout = queryTimeoutMillis > queueWaitTimeout ? queueWaitTimeout : queryTimeoutMillis;
             tokenCond.await(waitTimeout, TimeUnit.MILLISECONDS);
             // If wait timeout and is steal not ready to run, then return false
             if (tokenState != TokenState.READY_TO_RUN) {
