@@ -247,8 +247,13 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
     case TYPE_QUANTILE_STATE: {
         return column_type->to_string(*column_ptr, 0);
     }
+    case TYPE_IPV4:
+    case TYPE_IPV6: {
+        return column_type->to_string(*column_ptr, 0);
+    }
     default:
-        DCHECK(false) << "Type not implemented: " << type.debug_string();
+        DCHECK(false) << "Type not implemented: " << type.debug_string()
+                      << ", and query_id: " << print_id(_query_id);
         return "";
     }
 }
