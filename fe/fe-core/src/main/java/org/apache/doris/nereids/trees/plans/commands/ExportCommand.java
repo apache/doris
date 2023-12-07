@@ -220,7 +220,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     private void checkBrokerDesc(ConnectContext ctx) throws UserException {
         // check path is valid
-        StorageBackend.checkPath(this.path, this.brokerDesc.get().getStorageType());
+        StorageBackend.checkPath(this.path, this.brokerDesc.get().getStorageType(), null);
 
         if (brokerDesc.get().getStorageType() == StorageBackend.StorageType.BROKER) {
             BrokerMgr brokerMgr = ctx.getEnv().getBrokerMgr();
