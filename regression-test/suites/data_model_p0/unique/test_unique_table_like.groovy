@@ -37,7 +37,7 @@ suite("test_unique_table_like") {
             ENGINE=OLAP
             UNIQUE KEY(k)
             DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1",
-                "function_column.sequence_type" = "int", "enable_unique_key_merge_on_write" = "false");
+                "function_column.sequence_type" = "int");
         """
     qt_desc_uniq_table "desc ${tbNameA}"    
     sql """
