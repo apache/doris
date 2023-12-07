@@ -44,17 +44,19 @@ PROPERTIES ("key"="value", ...)
 
 ## Parameter Description
 
-| Parameter                 | Required or Not | Default Value | Description                                                                                                              |
-|---------------------------|-----------------|---------------|--------------------------------------------------------------------------------------------------------------------------|
-| `user`                    | Yes             |               | Username in relation to the corresponding database                                                                       |
-| `password`                | Yes             |               | Password for the corresponding database                                                                                  |
-| `jdbc_url `               | Yes             |               | JDBC connection string                                                                                                   |
-| `driver_url `             | Yes             |               | JDBC Driver Jar                                                                                                          |
-| `driver_class `           | Yes             |               | JDBC Driver Class                                                                                                        |
-| `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
-| `lower_case_table_names`  | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
-| `include_database_list`   | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
-| `exclude_database_list`   | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
+| Parameter                  | Required or Not | Default Value | Description                                                                                                              |
+|----------------------------|-----------------|---------------|--------------------------------------------------------------------------------------------------------------------------|
+| `user`                     | Yes             |               | Username in relation to the corresponding database                                                                       |
+| `password`                 | Yes             |               | Password for the corresponding database                                                                                  |
+| `jdbc_url `                | Yes             |               | JDBC connection string                                                                                                   |
+| `driver_url `              | Yes             |               | JDBC Driver Jar                                                                                                          |
+| `driver_class `            | Yes             |               | JDBC Driver Class                                                                                                        |
+| `only_specified_database`  | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
+| `lower_case_table_names`   | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
+| `include_database_list`    | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
+| `exclude_database_list`    | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
+| `remove_abandoned_timeout` | No              | "false"       | Idle time. If `remove_abandoned` is "true", connections whose idle time exceeds this value will be released.             |
+| `remove_abandoned`         | No              | "false"       | Automatic release switch if not connected for a long time                                                                |
 
 ### Driver path
 
@@ -125,7 +127,7 @@ Functions that are currently not pushed down include:
 
 Functions that are currently pushed down include:
 
-|  ClickHouse    |
+|   ClickHouse   |
 |:--------------:|
 | FROM_UNIXTIME  |
 | UNIX_TIMESTAMP |
@@ -197,37 +199,37 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 
 #### Type Mapping
 
-| MYSQL Type                                | Doris Type     | Comment                                                                       |
-|-------------------------------------------|----------------|-------------------------------------------------------------------------------|
-| BOOLEAN                                   | TINYINT        |                                                                               |
-| TINYINT                                   | TINYINT        |                                                                               |
-| SMALLINT                                  | SMALLINT       |                                                                               |
-| MEDIUMINT                                 | INT            |                                                                               |
-| INT                                       | INT            |                                                                               |
-| BIGINT                                    | BIGINT         |                                                                               |
-| UNSIGNED TINYINT                          | SMALLINT       | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
-| UNSIGNED MEDIUMINT                        | INT            | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
-| UNSIGNED INT                              | BIGINT         | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
-| UNSIGNED BIGINT                           | LARGEINT       |                                                                               |
-| FLOAT                                     | FLOAT          |                                                                               |
-| DOUBLE                                    | DOUBLE         |                                                                               |
-| DECIMAL                                   | DECIMAL        |                                                                               |
-| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | If p+1>38, the Doris STRING type will be used.        |
-| DATE                                      | DATE           |                                                                               |
-| TIMESTAMP                                 | DATETIME       |                                                                               |
-| DATETIME                                  | DATETIME       |                                                                               |
-| YEAR                                      | SMALLINT       |                                                                               |
-| TIME                                      | STRING         |                                                                               |
-| CHAR                                      | CHAR           |                                                                               |
-| VARCHAR                                   | VARCHAR        |                                                                               |
-| JSON                                      | JSON           |                                                                               |
-| SET                                       | STRING         |                                                                               |
-| BIT                                       | BOOLEAN/STRING | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING     |
-| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING         |                                                                               |
-| BLOB、MEDIUMBLOB、LONGBLOB、TINYBLOB         | STRING         |                                                                               |
-| TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING | STRING         |                                                                               |
-| BINARY、VARBINARY                          | STRING         |                                                                               |
-| Other                                     | UNSUPPORTED    |                                                                               |
+| MYSQL Type                                | Doris Type              | Comment                                                                       |
+|-------------------------------------------|-------------------------|-------------------------------------------------------------------------------|
+| BOOLEAN                                   | TINYINT                 |                                                                               |
+| TINYINT                                   | TINYINT                 |                                                                               |
+| SMALLINT                                  | SMALLINT                |                                                                               |
+| MEDIUMINT                                 | INT                     |                                                                               |
+| INT                                       | INT                     |                                                                               |
+| BIGINT                                    | BIGINT                  |                                                                               |
+| UNSIGNED TINYINT                          | SMALLINT                | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
+| UNSIGNED MEDIUMINT                        | INT                     | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
+| UNSIGNED INT                              | BIGINT                  | Doris does not have an UNSIGNED data type, so expand by an order of magnitude |
+| UNSIGNED BIGINT                           | LARGEINT                |                                                                               |
+| FLOAT                                     | FLOAT                   |                                                                               |
+| DOUBLE                                    | DOUBLE                  |                                                                               |
+| DECIMAL                                   | DECIMAL                 |                                                                               |
+| UNSIGNED DECIMAL(p,s)                     | DECIMAL(p+1,s) / STRING | If p+1>38, the Doris STRING type will be used.                                |
+| DATE                                      | DATE                    |                                                                               |
+| TIMESTAMP                                 | DATETIME                |                                                                               |
+| DATETIME                                  | DATETIME                |                                                                               |
+| YEAR                                      | SMALLINT                |                                                                               |
+| TIME                                      | STRING                  |                                                                               |
+| CHAR                                      | CHAR                    |                                                                               |
+| VARCHAR                                   | VARCHAR                 |                                                                               |
+| JSON                                      | JSON                    |                                                                               |
+| SET                                       | STRING                  |                                                                               |
+| BIT                                       | BOOLEAN/STRING          | BIT(1) will be mapped to BOOLEAN, and other BITs will be mapped to STRING     |
+| TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT         | STRING                  |                                                                               |
+| BLOB、MEDIUMBLOB、LONGBLOB、TINYBLOB         | STRING                  |                                                                               |
+| TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING | STRING                  |                                                                               |
+| BINARY、VARBINARY                          | STRING                  |                                                                               |
+| Other                                     | UNSUPPORTED             |                                                                               |
 
 ### PostgreSQL
 
@@ -260,30 +262,30 @@ Doris obtains all schemas that PG user can access through the SQL statement: `se
 
 #### Type Mapping
 
- | POSTGRESQL Type                         | Doris Type     | Comment                                   |
- |-----------------------------------------|----------------|-------------------------------------------|
- | boolean                                 | BOOLEAN        |                                           |
- | smallint/int2                           | SMALLINT       |                                           |
- | integer/int4                            | INT            |                                           |
- | bigint/int8                             | BIGINT         |                                           |
- | decimal/numeric                         | DECIMAL        |                                           |
- | real/float4                             | FLOAT          |                                           |
- | double precision                        | DOUBLE         |                                           |
- | smallserial                             | SMALLINT       |                                           |
- | serial                                  | INT            |                                           |
- | bigserial                               | BIGINT         |                                           |
- | char                                    | CHAR           |                                           |
- | varchar/text                            | STRING         |                                           |
- | timestamp                               | DATETIME       |                                           |
- | date                                    | DATE           |                                           |
- | json/josnb                              | JSON           |                                           |
- | time                                    | STRING         |                                           |
- | interval                                | STRING         |                                           |
- | point/line/lseg/box/path/polygon/circle | STRING         |                                           |
- | cidr/inet/macaddr                       | STRING         |                                           |
+ | POSTGRESQL Type                         | Doris Type     | Comment                                                                   |
+ |-----------------------------------------|----------------|---------------------------------------------------------------------------|
+ | boolean                                 | BOOLEAN        |                                                                           |
+ | smallint/int2                           | SMALLINT       |                                                                           |
+ | integer/int4                            | INT            |                                                                           |
+ | bigint/int8                             | BIGINT         |                                                                           |
+ | decimal/numeric                         | DECIMAL        |                                                                           |
+ | real/float4                             | FLOAT          |                                                                           |
+ | double precision                        | DOUBLE         |                                                                           |
+ | smallserial                             | SMALLINT       |                                                                           |
+ | serial                                  | INT            |                                                                           |
+ | bigserial                               | BIGINT         |                                                                           |
+ | char                                    | CHAR           |                                                                           |
+ | varchar/text                            | STRING         |                                                                           |
+ | timestamp                               | DATETIME       |                                                                           |
+ | date                                    | DATE           |                                                                           |
+ | json/josnb                              | JSON           |                                                                           |
+ | time                                    | STRING         |                                                                           |
+ | interval                                | STRING         |                                                                           |
+ | point/line/lseg/box/path/polygon/circle | STRING         |                                                                           |
+ | cidr/inet/macaddr                       | STRING         |                                                                           |
  | bit                                     | BOOLEAN/STRING | bit(1) will be mapped to BOOLEAN, and other bits will be mapped to STRING |
- | uuid                                    | STRING         |                                           |
- | Other                                   | UNSUPPORTED    |                                           |
+ | uuid                                    | STRING         |                                                                           |
+ | Other                                   | UNSUPPORTED    |                                                                           |
 
 ### Oracle
 
@@ -319,7 +321,7 @@ As for data mapping from Oracle to Doris, one Database in Doris corresponds to o
 | number(p) / number(p,0)           | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris will determine the type to map to based on the value of p: `p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
 | number(p,s), [ if(s>0 && p>s) ]   | DECIMAL(p,s)                         |                                                                                                                                                                               |
 | number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s)                         |                                                                                                                                                                               |
-| number(p,s), [ if(s<0) ]          | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | if s<0, Doris will set `p` to `p+|s|`, and perform the same mapping as `number(p) / number(p,0)`.                                                                             |
+| number(p,s), [ if(s<0) ]          | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | if s<0, Doris will set `p` to `p+                                                                                                                                             |s|`, and perform the same mapping as `number(p) / number(p,0)`.                                                                             |
 | number                            |                                      | Doris does not support Oracle `NUMBER` type that does not specified p and s                                                                                                   |
 | float/real                        | DOUBLE                               |                                                                                                                                                                               |
 | DATE                              | DATETIME                             |                                                                                                                                                                               |
@@ -407,27 +409,27 @@ CREATE CATALOG jdbc_doris PROPERTIES (
 
 #### Type Mapping
 
-| Doris Type | Jdbc Catlog Doris Type | Comment                                                                              |
-|------------|------------------------|--------------------------------------------------------------------------------------|
-| BOOLEAN    | BOOLEAN                |                                                                                      |
-| TINYINT    | TINYINT                |                                                                                      |
-| SMALLINT   | SMALLINT               |                                                                                      |
-| INT        | INT                    |                                                                                      |
-| BIGINT     | BIGINT                 |                                                                                      |
-| LARGEINT   | LARGEINT               |                                                                                      |
-| FLOAT      | FLOAT                  |                                                                                      |
-| DOUBLE     | DOUBLE                 |                                                                                      |
-| DECIMALV3  | DECIMALV3/STRING       | Which type will be selected according to the (precision, scale) of the DECIMAL field |
-| DATE       | DATE                   |                                                                                      |
-| DATETIME   | DATETIME               |                                                                                      |
-| CHAR       | CHAR                   |                                                                                      |
-| VARCHAR    | VARCHAR                |                                                                                      |
-| STRING     | STRING                 |                                                                                      |
-| TEXT       | STRING                 |                                                                                      |
-| HLL        | HLL                    | Query HLL needs to set `return_object_data_as_binary=true`                           |
-| Array      | Array                  | The internal type adaptation logic of Array refers to the above types, and nested complex types are not supported        |
-| BITMAP     | BITMAP                 | Query BITMAP needs to set `return_object_data_as_binary=true`                        |
-| Other      | UNSUPPORTED            |                                                                                      |
+| Doris Type | Jdbc Catlog Doris Type | Comment                                                                                                           |
+|------------|------------------------|-------------------------------------------------------------------------------------------------------------------|
+| BOOLEAN    | BOOLEAN                |                                                                                                                   |
+| TINYINT    | TINYINT                |                                                                                                                   |
+| SMALLINT   | SMALLINT               |                                                                                                                   |
+| INT        | INT                    |                                                                                                                   |
+| BIGINT     | BIGINT                 |                                                                                                                   |
+| LARGEINT   | LARGEINT               |                                                                                                                   |
+| FLOAT      | FLOAT                  |                                                                                                                   |
+| DOUBLE     | DOUBLE                 |                                                                                                                   |
+| DECIMALV3  | DECIMALV3/STRING       | Which type will be selected according to the (precision, scale) of the DECIMAL field                              |
+| DATE       | DATE                   |                                                                                                                   |
+| DATETIME   | DATETIME               |                                                                                                                   |
+| CHAR       | CHAR                   |                                                                                                                   |
+| VARCHAR    | VARCHAR                |                                                                                                                   |
+| STRING     | STRING                 |                                                                                                                   |
+| TEXT       | STRING                 |                                                                                                                   |
+| HLL        | HLL                    | Query HLL needs to set `return_object_data_as_binary=true`                                                        |
+| Array      | Array                  | The internal type adaptation logic of Array refers to the above types, and nested complex types are not supported |
+| BITMAP     | BITMAP                 | Query BITMAP needs to set `return_object_data_as_binary=true`                                                     |
+| Other      | UNSUPPORTED            |                                                                                                                   |
 
 ### Clickhouse
 
@@ -674,18 +676,18 @@ DROP CATALOG <catalog_name>;
 
 It is recommended to use the following versions of Driver to connect to the corresponding database. Other versions of the Driver have not been tested and may cause unexpected problems.
 
-|  Source | JDBC Driver Version |
-|:--------:|:--------:|
-| MySQL 5.x  | mysql-connector-java-5.1.47.jar |
-| MySQL 8.x  | mysql-connector-java-8.0.25.jar |
-| PostgreSQL | postgresql-42.5.1.jar |
-| Oracle   | ojdbc8.jar|
-| SQLServer | mssql-jdbc-11.2.3.jre8.jar |
-| Doris | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
-| Clickhouse | clickhouse-jdbc-0.4.2-all.jar  |
-| SAP HAHA | ngdbc.jar |
-| Trino/Presto | trino-jdbc-389.jar / presto-jdbc-0.280.jar |
-| OceanBase | oceanbase-client-2.4.2.jar |
+|    Source    |                        JDBC Driver Version                        |
+|:------------:|:-----------------------------------------------------------------:|
+|  MySQL 5.x   |                  mysql-connector-java-5.1.47.jar                  |
+|  MySQL 8.x   |                  mysql-connector-java-8.0.25.jar                  |
+|  PostgreSQL  |                       postgresql-42.5.1.jar                       |
+|    Oracle    |                            ojdbc8.jar                             |
+|  SQLServer   |                    mssql-jdbc-11.2.3.jre8.jar                     |
+|    Doris     | mysql-connector-java-5.1.47.jar / mysql-connector-java-8.0.25.jar |
+|  Clickhouse  |                   clickhouse-jdbc-0.4.2-all.jar                   |
+|   SAP HAHA   |                             ngdbc.jar                             |
+| Trino/Presto |            trino-jdbc-389.jar / presto-jdbc-0.280.jar             |
+|  OceanBase   |                    oceanbase-client-2.4.2.jar                     |
 
 ## FAQ
 
