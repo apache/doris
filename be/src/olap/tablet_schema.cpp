@@ -1036,6 +1036,16 @@ void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
     }
 }
 
+void TabletSchema::reserve_extracted_columns() {
+    for (auto it = _cols.begin(); it != _cols.end(); ) {
+        if (!it->is_extracted_column()) {
+            it = _cols.erase(it); 
+        } else {
+            ++it; 
+        }
+    }
+}
+
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     for (const auto& i : _cluster_key_idxes) {
         tablet_schema_pb->add_cluster_key_idxes(i);

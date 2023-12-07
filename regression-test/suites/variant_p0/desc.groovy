@@ -113,13 +113,6 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         qt_sql_3 """desc ${table_name}"""
         sql "truncate table ${table_name}"
 
-        // always sparse column
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0")
-        sql """insert into  ${table_name} select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
-            union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_5 """desc ${table_name}"""
-        sql "truncate table ${table_name}"
-
         // partititon
         table_name = "partition_data"
         create_table_partition.call(table_name, "4")

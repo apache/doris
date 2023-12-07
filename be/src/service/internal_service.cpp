@@ -917,6 +917,7 @@ void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcContr
                 static_cast<void>(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
                                                                                    merged_schema));
                 VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
+                merged_schema->reserve_extracted_columns();
                 merged_schema->to_schema_pb(response->mutable_merged_schema());
             }
             st.to_protobuf(response->mutable_status());

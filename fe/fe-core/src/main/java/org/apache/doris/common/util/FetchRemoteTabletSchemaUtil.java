@@ -160,20 +160,8 @@ public class FetchRemoteTabletSchemaUtil {
                 throw new AnalysisException("column default value to string failed");
             }
         }
-        int variantColumntIdx = 0;
-        for (Column column : tableColumns) {
-            variantColumntIdx++;
-            // find the first variant column
-            if (column.getType().isVariantType()) {
-                break;
-            }
-        }
-        if (variantColumntIdx == tableColumns.size()) {
-            return;
-        }
-        // sort the columns from the first variant column to the last column
-        List<Column> subList = tableColumns.subList(variantColumntIdx, tableColumns.size());
-        Collections.sort(subList, new Comparator<Column>() {
+        // sort the columns
+        Collections.sort(tableColumns, new Comparator<Column>() {
             @Override
             public int compare(Column c1, Column c2) {
                 return c1.getName().compareTo(c2.getName());
@@ -183,8 +171,8 @@ public class FetchRemoteTabletSchemaUtil {
 
     private Column initColumnFromPB(ColumnPB column) throws AnalysisException {
         try {
-            AggregateType aggType = AggregateTypeConverter.getAggTypeFromAggName(column.getAggregation());
-            Type type = ColumnTypeConverter.getTypeFromTypeName(column.getType());
+            AggregateType aggType = AggregateType.getAggTypeFromAggName(column.getAggregation());
+            Type type = Type.getTypeFromTypeName(column.getType());
             String columnName = column.getName();
             boolean isKey = column.getIsKey();
             boolean isNullable = column.getIsNullable();
