@@ -265,6 +265,8 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
+        // if the diff of the left side and right side row count is
+        // less than this threshold, we will consider their connectivity
         double ignorableDiffBetweenLeftAndRightThreshold = 10.0;
         if (Math.abs(leftRowCount - rightRowCount) < ignorableDiffBetweenLeftAndRightThreshold
                 && physicalHashJoin.getGroupExpression().isPresent()
@@ -325,6 +327,11 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         );
     }
 
+    /*
+    in a join cluster graph, if a node has higher connectivity, it is more likely to be reduced
+    by runtime filters, and it is also more likely to produce effective runtime filters.
+    Thus, we prefer to put the node with higher connectivity on the join right side.
+     */
     private int computeConnectivity(
             Plan plan, PlanContext context) {
         int connectCount = 0;
