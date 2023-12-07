@@ -254,7 +254,7 @@ Status VNestedLoopJoinNode::push(doris::RuntimeState* state, vectorized::Block* 
 
 Status VNestedLoopJoinNode::_fresh_left_block(doris::RuntimeState* state) {
     do {
-        release_block_memory(_left_block.get());
+        release_block_memory(*_left_block);
         RETURN_IF_ERROR(child(0)->get_next_after_projects(
                 state, _left_block.get(), &_left_side_eos,
                 std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
