@@ -21,6 +21,8 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.StringJoiner;
 
 /**
@@ -64,6 +66,17 @@ public class ColStatsData {
         maxLit = null;
         dataSizeInBytes = 0;
         updateTime = null;
+    }
+
+    public ColStatsData(StatsId statsId) {
+        this.statsId = statsId;
+        count = 0;
+        ndv = 0;
+        nullCount = 0;
+        minLit = null;
+        maxLit = null;
+        dataSizeInBytes = 0;
+        updateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 
     public ColStatsData(ResultRow row) {
