@@ -41,7 +41,7 @@ suite("test_schema_change") {
                 PARTITION p201707 VALUES LESS THAN ('2021-12-01')
             )
             DISTRIBUTED BY HASH(siteid) BUCKETS 5
-            PROPERTIES("replication_num" = "1", "light_schema_change" = "true", "enable_unique_key_merge_on_write" = "false"); 
+            PROPERTIES("replication_num" = "1", "light_schema_change" = "true"); 
          """
      sql """ insert into ${tbName} values('2021-11-01',1,1,'用户A',1),('2021-11-01',1,1,'用户B',1),('2021-11-01',1,1,'用户A',3),('2021-11-02',1,1,'用户A',1),('2021-11-02',1,1,'用户B',1),('2021-11-02',101,112332121,'用户B',112312),('2021-11-02',103,112332211,'用户B',112312); """
      sql """ alter  table ${tbName} modify column citycode string """
