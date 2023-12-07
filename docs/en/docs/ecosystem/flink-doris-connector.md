@@ -388,6 +388,7 @@ ON a.city = c.city
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | ARRAY      | ARRAY     |
+| MAP        | MAP       |
 | HLL        | Unsupported datatype             |
 
 ## An example of using Flink CDC to access Doris 
