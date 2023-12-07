@@ -102,7 +102,7 @@ PROPERTIES (
 
             set 'column_separator', '|'
             set 'columns', columns + ",lo_dummy"
-//            set 'group_commit', 'true'
+            set 'group_commit', 'true'
             unset 'label'
             file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
 
