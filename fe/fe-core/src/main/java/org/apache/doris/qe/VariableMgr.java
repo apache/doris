@@ -150,9 +150,24 @@ public class VariableMgr {
         return defaultSessionVariable;
     }
 
+    private static void checkFieldValue(String variableName, int minValue, String value) throws DdlException {
+        int val = Integer.valueOf(value);
+        if (val < minValue) {
+            throw new DdlException(
+                    variableName + " value should greater than or equal " + String.valueOf(minValue)
+                            + ", you set value is: " + value);
+        }
+    }
+
     // Set value to a variable
     private static boolean setValue(Object obj, Field field, String value) throws DdlException {
         VarAttr attr = field.getAnnotation(VarAttr.class);
+        if ("parallel_pipeline_task_num".equalsIgnoreCase(attr.name())) {
+            checkFieldValue("parallel_pipeline_task_num", 0, value);
+        }
+        if ("parallel_fragment_exec_instance_num".equalsIgnoreCase(attr.name())) {
+            checkFieldValue("parallel_fragment_exec_instance_num", 1, value);
+        }
         if (VariableVarConverters.hasConverter(attr.name())) {
             value = VariableVarConverters.encode(attr.name(), value).toString();
         }
