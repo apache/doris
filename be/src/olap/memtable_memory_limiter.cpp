@@ -18,7 +18,6 @@
 #include "olap/memtable_memory_limiter.h"
 
 #include <bvar/bvar.h>
-#include <bvar/latency_recorder.h>
 
 #include "common/config.h"
 #include "olap/memtable_writer.h"
@@ -31,19 +30,14 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(memtable_memory_limiter_mem_consumption, Metr
                                    memtable_memory_limiter_mem_consumption,
                                    Labels({{"type", "load"}}));
 
-bvar::LatencyRecorder g_memtable_memory_limit_latency_ms("mm_limiter", "limit_time_ms");
-bvar::Adder<int> g_memtable_memory_limit_waiting_threads("mm_limiter", "waiting_threads");
-bvar::Status<int64_t> g_memtable_active_memory("mm_limiter", "mem_active", 0);
-bvar::Status<int64_t> g_memtable_write_memory("mm_limiter", "mem_write", 0);
-bvar::Status<int64_t> g_memtable_flush_memory("mm_limiter", "mem_flush", 0);
-bvar::Status<int64_t> g_memtable_load_memory("mm_limiter", "mem_load", 0);
-bvar::Status<int64_t> g_load_hard_mem_limit("mm_limiter", "limit_hard", 0);
-bvar::Status<int64_t> g_load_soft_mem_limit("mm_limiter", "limit_soft", 0);
-bvar::PassiveStatus<int64_t> g_sys_mem_avail(
-        "mm_limiter", "m_sys_avail", [](void*) { return MemInfo::sys_mem_available(); }, nullptr);
-bvar::PassiveStatus<int64_t> g_proc_mem_used(
-        "mm_limiter", "m_proc_used", [](void*) { return MemInfo::proc_mem_no_allocator_cache(); },
-        nullptr);
+bvar::LatencyRecorder g_memtable_memory_limit_latency_ms("mm_limiter_limit_time_ms");
+bvar::Adder<int> g_memtable_memory_limit_waiting_threads("mm_limiter_waiting_threads");
+bvar::Status<int64_t> g_memtable_active_memory("mm_limiter_mem_active", 0);
+bvar::Status<int64_t> g_memtable_write_memory("mm_limiter_mem_write", 0);
+bvar::Status<int64_t> g_memtable_flush_memory("mm_limiter_mem_flush", 0);
+bvar::Status<int64_t> g_memtable_load_memory("mm_limiter_mem_load", 0);
+bvar::Status<int64_t> g_load_hard_mem_limit("mm_limiter_limit_hard", 0);
+bvar::Status<int64_t> g_load_soft_mem_limit("mm_limiter_limit_soft", 0);
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
