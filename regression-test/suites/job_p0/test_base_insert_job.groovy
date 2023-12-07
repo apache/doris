@@ -21,7 +21,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 
 suite("test_base_insert_job") {
-    def tableName = "t_test_base_insert_job"
+    def tableName = "t_test_BASE_inSert_job"
     def jobName = "insert_recovery_test_base_insert_job"
     sql """drop table if exists `${tableName}` force"""
     sql """
@@ -78,9 +78,15 @@ suite("test_base_insert_job") {
      """
 
     Thread.sleep(25000)
-    def onceJob = sql """select id from jobs("type"="insert") where Name='${jobName}'"""
+    def onceJob = sql """select id,ExecuteSql from jobs("type"="insert") where Name='${jobName}'"""
     assert onceJob.size() == 1
     def onceJobId= onceJob.get(0).get(0);
+    def onceJobSql= onceJob.get(0).get(1);
+    println onceJobSql
+    def assertSql = "insert into ${tableName}  values  (\'2023-07-19\', sleep(10000), 1001);"
+    println 'hhh'
+    println assertSql
+    assert onceJobSql == assertSql
     // test cancel task
     def datas = sql """select status,taskid from tasks("type"="insert") where jobid= ${onceJobId}"""
     println datas
