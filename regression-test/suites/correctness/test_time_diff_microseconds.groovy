@@ -42,8 +42,6 @@ suite("test_time_diff_microseconds") {
         INSERT INTO tbl_time VALUES(3,'0001-01-03 19:00:00.123123','0001-01-22 00:00:00.891312');
     """
 
-    sql """set enable_nereids_planner=false"""
-
     qt_select1 """
         select timediff(t1,t2) from tbl_time order by id
     """
