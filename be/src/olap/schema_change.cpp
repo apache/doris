@@ -894,13 +894,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
                 mv_param.column_name = item.column_name;
-                /*
-                 * origin_column_name is always be set now,
-                 * but origin_column_name may be not set in some materialized view function. eg:count(1)
-                */
-                if (item.__isset.origin_column_name) {
-                    mv_param.origin_column_name = item.origin_column_name;
-                }
 
                 if (item.__isset.mv_expr) {
                     mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
@@ -1195,9 +1188,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         if (materialized_function_map.find(column_name_lower) != materialized_function_map.end()) {
             auto mv_param = materialized_function_map.find(column_name_lower)->second;
             column_mapping->expr = mv_param.expr;
-            int32_t column_index = base_tablet_schema->field_index(mv_param.origin_column_name);
-            column_mapping->ref_column = column_index;
-            if (column_index >= 0 || column_mapping->expr != nullptr) {
+            if (column_mapping->expr != nullptr) {
                 continue;
             }
         }
