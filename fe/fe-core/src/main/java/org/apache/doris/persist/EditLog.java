@@ -151,6 +151,13 @@ public class EditLog {
         return journal == null ? 0 : 1;
     }
 
+    public long getEnvDiskUsagePercent() {
+        if (journal instanceof BDBJEJournal) {
+            return ((BDBJEJournal) journal).getEnvDiskUsagePercent();
+        }
+        return -1;
+    }
+
     /**
      * Load journal.
      **/

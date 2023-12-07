@@ -5863,6 +5863,11 @@ public class Env {
             sb.append(frontend.toString()).append("\n");
         }
 
+        long diskUsagePercent = editLog.getEnvDiskUsagePercent();
+        sb.append("Disk usage: ")
+                .append(diskUsagePercent != -1 ? String.valueOf(diskUsagePercent) : "<unknown>")
+                .append("%\n");
+
         if (haProtocol instanceof BDBHA) {
             try {
                 BDBHA ha = (BDBHA) haProtocol;

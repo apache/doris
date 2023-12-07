@@ -514,6 +514,13 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         return this.bdbEnvironment;
     }
 
+    public long getEnvDiskUsagePercent() {
+        if (bdbEnvironment == null) {
+            return -1;
+        }
+        return bdbEnvironment.getEnvDiskUsagePercent();
+    }
+
     public String getBDBStats() {
         if (bdbEnvironment == null) {
             return "";
