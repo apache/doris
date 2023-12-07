@@ -138,7 +138,7 @@ public class MTMVTask extends AbstractTask {
                 return;
             } else if (refreshMode == MTMVTaskRefreshMode.PARTITION) {
                 OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
-                MTMVUtil.dealMvPartition(mtmv, relatedTable, mtmv.getMvPartitionInfo().getRelatedCol());
+                MTMVUtil.dealMvPartition(mtmv, relatedTable);
                 refreshPartitionIds = MTMVUtil.getMTMVStalePartitions(mtmv, relatedTable);
                 tableWithPartKey.put(relatedTable, mtmv.getMvPartitionInfo().getRelatedCol());
             }
@@ -148,7 +148,7 @@ public class MTMVTask extends AbstractTask {
             executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
             executor.execute(queryId);
         } catch (Throwable e) {
-            LOG.warn(e);
+            e.printStackTrace();
             throw new JobException(e);
         }
     }
@@ -255,7 +255,7 @@ public class MTMVTask extends AbstractTask {
         }
         OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
         excludedTriggerTables.add(relatedTable.getName());
-        // check if every table except followTable is fresh
+        // check if every table except relatedTable is fresh
         fresh = MTMVUtil.isMTMVFresh(mtmv, relation.getBaseTables(), excludedTriggerTables);
         // if true, we can use `Partition`, otherwise must `FULL`
         if (fresh) {

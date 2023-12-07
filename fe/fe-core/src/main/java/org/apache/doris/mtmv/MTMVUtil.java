@@ -57,6 +57,7 @@ import com.esotericsoftware.minlog.Log;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.HashMap;
 import java.util.List;
@@ -147,10 +148,10 @@ public class MTMVUtil {
         }
     }
 
-    public static void addPartition(MTMV mtmv, OlapTable followTable, Long partitionId)
+    public static void addPartition(MTMV mtmv, OlapTable relatedTable, Long partitionId)
             throws AnalysisException, DdlException {
-        PartitionDesc partitionDesc = followTable.getPartitionInfo().toPartitionDesc(followTable);
-        Partition partition = mtmv.getPartition(partitionId);
+        PartitionDesc partitionDesc = relatedTable.getPartitionInfo().toPartitionDesc(relatedTable);
+        Partition partition = relatedTable.getPartition(partitionId);
         SinglePartitionDesc oldPartitionDesc = partitionDesc.getSinglePartitionDescByName(partition.getName());
 
         Map<String, String> partitionProperties = Maps.newHashMap();
@@ -169,46 +170,46 @@ public class MTMVUtil {
     // will has two PartitionItem
     // first PartitionItem will has 2 PartitionKey (('1', 'Beijing') and ('2', 'Shanghai'))
     // second PartitionItem will has 1 PartitionKey(('3',"tj"))
-    public static void dealMvPartition(MTMV mtmv, OlapTable followTable, String followCol)
+    public static void dealMvPartition(MTMV mtmv, OlapTable relatedTable)
             throws DdlException, AnalysisException {
-        Map<Long, PartitionItem> followTableItems = followTable.getPartitionInfo().getIdToItem(false);
+        Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionInfo().getIdToItem(false);
         Map<Long, PartitionItem> mtmvItems = mtmv.getPartitionInfo().getIdToItem(false);
         // drop partition of mtmv
         for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
-            long partitionId = getExistPartitionId(entry.getValue(), followTableItems);
+            long partitionId = getExistPartitionId(entry.getValue(), relatedTableItems);
             if (partitionId == -1L) {
                 dropPartition(mtmv, entry.getKey());
             }
         }
 
         // add partition for mtmv
-        for (Entry<Long, PartitionItem> entry : followTableItems.entrySet()) {
-            long partitionId = getExistPartitionId(entry.getValue(), followTableItems);
+        for (Entry<Long, PartitionItem> entry : relatedTableItems.entrySet()) {
+            long partitionId = getExistPartitionId(entry.getValue(), mtmvItems);
             if (partitionId == -1L) {
-                addPartition(mtmv, followTable, entry.getKey());
+                addPartition(mtmv, relatedTable, entry.getKey());
             }
         }
 
     }
 
-    public static Map<Long, Set<Long>> getBaseToMvPartitions(MTMV mtmv, OlapTable followTable) {
+    public static Map<Long, Set<Long>> getMvToBasePartitions(MTMV mtmv, OlapTable relatedTable) {
         HashMap<Long, Set<Long>> res = Maps.newHashMap();
-        Map<Long, PartitionItem> followTableItems = followTable.getPartitionInfo().getIdToItem(false);
+        Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionInfo().getIdToItem(false);
         Map<Long, PartitionItem> mtmvItems = mtmv.getPartitionInfo().getIdToItem(false);
-        for (Entry<Long, PartitionItem> entry : followTableItems.entrySet()) {
-            long partitionId = getExistPartitionId(entry.getValue(), mtmvItems);
+        for (Entry<Long, PartitionItem> entry : mtmvItems.entrySet()) {
+            long partitionId = getExistPartitionId(entry.getValue(), relatedTableItems);
             res.put(entry.getKey(), Sets.newHashSet(partitionId));
         }
         return res;
     }
 
-    public static Set<Long> getMTMVStalePartitions(MTMV mtmv, OlapTable followTable) {
+    public static Set<Long> getMTMVStalePartitions(MTMV mtmv, OlapTable relatedTable) {
         Set<Long> ids = Sets.newHashSet();
-        Map<Long, Set<Long>> baseToMvPartitions = getBaseToMvPartitions(mtmv, followTable);
-        for (Entry<Long, Set<Long>> entry : baseToMvPartitions.entrySet()) {
+        Map<Long, Set<Long>> mvToBasePartitions = getMvToBasePartitions(mtmv, relatedTable);
+        for (Entry<Long, Set<Long>> entry : mvToBasePartitions.entrySet()) {
             long mvVersionTime = mtmv.getPartition(entry.getKey()).getVisibleVersionTime();
             for (Long partitionId : entry.getValue()) {
-                long visibleVersionTime = followTable.getPartition(partitionId).getVisibleVersionTime();
+                long visibleVersionTime = relatedTable.getPartition(partitionId).getVisibleVersionTime();
                 if (visibleVersionTime > mvVersionTime) {
                     ids.add(entry.getKey());
                     break;
@@ -308,6 +309,9 @@ public class MTMVUtil {
         }
         try {
             OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
+            if (mtmv.getRelation() == null || CollectionUtils.isEmpty(mtmv.getRelation().getBaseTables())) {
+                return false;
+            }
             boolean mtmvFresh = isMTMVFresh(mtmv, mtmv.getRelation().getBaseTables(),
                     Sets.newHashSet(relatedTable.getName()));
             if (!mtmvFresh) {
