@@ -25,6 +25,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -35,7 +36,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -46,12 +47,15 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -108,7 +112,7 @@ public class MTMVTask extends AbstractTask {
     private MTMV mtmv;
     private MTMVRelation relation;
     private StmtExecutor executor;
-    private OlapTable followTable;
+    private OlapTable relatedTable;
 
     public MTMVTask(long dbId, long mtmvId, MTMVTaskContext taskContext) {
         this.dbId = Objects.requireNonNull(dbId);
@@ -125,15 +129,18 @@ public class MTMVTask extends AbstractTask {
             // such as deleting a table and creating a view with the same name
             relation = MTMVUtil.generateMTMVRelation(mtmv, ctx);
 
-            Set<PartitionItem> refreshPartitionItems = null;
+            Set<PartitionItem> refreshPartitionItems = Sets.newHashSet();
             MTMVTaskRefreshMode refreshMode = getRefreshMode();
+            Map<OlapTable, String> tableWithPartKey = Maps.newHashMap();
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             } else if (refreshMode == MTMVTaskRefreshMode.PARTITION) {
-                MTMVUtil.dealMvPartition(mtmv, followTable, mtmv.getMvPartitionInfo().getFollowCol());
-                refreshPartitionItems = MTMVUtil.getMTMVStalePartitions(mtmv, followTable);
+                MTMVUtil.dealMvPartition(mtmv, relatedTable, mtmv.getMvPartitionInfo().getFollowCol());
+                refreshPartitionItems = MTMVUtil.getMTMVStalePartitions(mtmv, relatedTable);
+                tableWithPartKey.put(relatedTable, mtmv.getMvPartitionInfo().getFollowCol());
             }
-            Command command = MTMVUtil.getCommand(mtmv, refreshPartitionItems);
+            UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
+                    .from(mtmv, refreshPartitionItems, tableWithPartKey);
             executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
             executor.execute(queryId);
         } catch (Throwable e) {
@@ -170,10 +177,9 @@ public class MTMVTask extends AbstractTask {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
-                followTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getFollowTable());
+                relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getFollowTable());
             }
-            // TODO: 2023/12/5 can get sql?
-            // sql = generateSql(mtmv);
+            sql = generateSql(mtmv);
         } catch (UserException e) {
             LOG.warn(e);
             throw new JobException(e);
@@ -223,6 +229,19 @@ public class MTMVTask extends AbstractTask {
         executor = null;
     }
 
+    private static String generateSql(MTMV mtmv) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("INSERT OVERWRITE TABLE ");
+        builder.append(mtmv.getDatabase().getCatalog().getName());
+        builder.append(".");
+        builder.append(ClusterNamespace.getNameFromFullName(mtmv.getQualifiedDbName()));
+        builder.append(".");
+        builder.append(mtmv.getName());
+        builder.append(" ");
+        builder.append(mtmv.getQuerySql());
+        return builder.toString();
+    }
+
     private MTMVTaskRefreshMode getRefreshMode() throws AnalysisException {
         // check whether the user manually triggers it
         if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
@@ -243,7 +262,7 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return MTMVTaskRefreshMode.FULL;
         }
-        excludedTriggerTables.add(followTable.getName());
+        excludedTriggerTables.add(relatedTable.getName());
         // check if every table except followTable is fresh
         fresh = MTMVUtil.isMTMVFresh(mtmv, relation.getBaseTables(), excludedTriggerTables);
         // if true, we can use `Partition`, otherwise must `FULL`

@@ -90,7 +90,6 @@ import org.apache.doris.nereids.DorisParser.GroupingSetContext;
 import org.apache.doris.nereids.DorisParser.HavingClauseContext;
 import org.apache.doris.nereids.DorisParser.HintAssignmentContext;
 import org.apache.doris.nereids.DorisParser.HintStatementContext;
-import org.apache.doris.nereids.DorisParser.IdentifierContext;
 import org.apache.doris.nereids.DorisParser.IdentifierListContext;
 import org.apache.doris.nereids.DorisParser.IdentifierOrTextContext;
 import org.apache.doris.nereids.DorisParser.IdentifierSeqContext;
@@ -541,15 +540,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 desc, properties, logicalPlan, querySql,
                 new MTMVRefreshInfo(buildMode, refreshMethod, refreshTriggerInfo),
                 ctx.cols == null ? Lists.newArrayList() : visitSimpleColumnDefs(ctx.cols),
-                visitMTMVPartitionInfo(ctx.partitionKey)
+                visitMTMVPartitionInfo(ctx.partitionSpec())
         ));
     }
 
-    public MTMVPartitionInfo visitMTMVPartitionInfo(IdentifierContext ctx) {
+    public MTMVPartitionInfo visitMTMVPartitionInfo(PartitionSpecContext ctx) {
         if (ctx == null) {
             return new MTMVPartitionInfo(MTMVPartitionType.SELF_MANAGE);
         } else {
-            return new MTMVPartitionInfo(MTMVPartitionType.FOLLOW_BASE_TABLE, ctx.getText());
+            List<String> partitions = ImmutableList.of();
+            if (ctx.TEMPORARY() != null) {
+                throw new AnalysisException("Not allowed to specify TEMPORARY ");
+            }
+            if (ctx.partition != null) {
+                partitions = ImmutableList.of(ctx.partition.getText());
+            } else {
+                partitions = visitIdentifierList(ctx.partitions);
+            }
+            if (partitions.size() != 1) {
+                throw new AnalysisException("Only one partitionKey can be specified");
+            }
+            return new MTMVPartitionInfo(MTMVPartitionType.FOLLOW_BASE_TABLE, partitions.get(0));
         }
     }
 
