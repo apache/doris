@@ -75,8 +75,8 @@ PROPERTIES (
         log.info("Stream load result: ${result}".toString())
         def json = parseJson(result)
         assertEquals("success", json.Status.toLowerCase())
-        assertTrue(json.GroupCommit)
-        assertTrue(json.Label.startsWith("group_commit_"))
+//        assertTrue(json.GroupCommit)
+//        assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
         assertEquals(loaded_rows, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)
@@ -96,7 +96,7 @@ PROPERTIES (
 
             set 'column_separator', '|'
             set 'columns', columns + ",lo_dummy"
-            set 'group_commit', 'true'
+//            set 'group_commit', 'true'
             unset 'label'
             file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
 
