@@ -22,7 +22,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -47,11 +46,12 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
+import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.glassfish.jersey.internal.guava.Sets;
 
 import java.util.List;
 import java.util.Map;
@@ -68,10 +68,14 @@ public class MTMVTask extends AbstractTask {
             new Column("JobId", ScalarType.createStringType()),
             new Column("JobName", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
+            new Column("ErrorMsg", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
             new Column("StartTime", ScalarType.createStringType()),
             new Column("FinishTime", ScalarType.createStringType()),
             new Column("DurationMs", ScalarType.createStringType()),
+            new Column("TaskContext", ScalarType.createStringType()),
+            new Column("RefreshMode", ScalarType.createStringType()),
+            new Column("RefreshPartitions", ScalarType.createStringType()),
             new Column("ExecuteSql", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
@@ -105,13 +109,12 @@ public class MTMVTask extends AbstractTask {
     private MTMVTaskContext taskContext;
     @SerializedName("rp")
     List<String> refreshPartitions;
-    @SerializedName("trm")
-    MTMVTaskRefreshMode taskRefreshMode;
+    @SerializedName("rm")
+    MTMVTaskRefreshMode refreshMode;
 
     private MTMV mtmv;
     private MTMVRelation relation;
     private StmtExecutor executor;
-    private OlapTable relatedTable;
 
     public MTMVTask(long dbId, long mtmvId, MTMVTaskContext taskContext) {
         this.dbId = Objects.requireNonNull(dbId);
@@ -128,18 +131,20 @@ public class MTMVTask extends AbstractTask {
             // such as deleting a table and creating a view with the same name
             relation = MTMVUtil.generateMTMVRelation(mtmv, ctx);
 
-            Set<PartitionItem> refreshPartitionItems = Sets.newHashSet();
-            MTMVTaskRefreshMode refreshMode = getRefreshMode();
+            Set<Long> refreshPartitionIds = Sets.newHashSet();
+            refreshMode = getRefreshMode();
             Map<OlapTable, String> tableWithPartKey = Maps.newHashMap();
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             } else if (refreshMode == MTMVTaskRefreshMode.PARTITION) {
-                MTMVUtil.dealMvPartition(mtmv, relatedTable, mtmv.getMvPartitionInfo().getFollowCol());
-                refreshPartitionItems = MTMVUtil.getMTMVStalePartitions(mtmv, relatedTable);
-                tableWithPartKey.put(relatedTable, mtmv.getMvPartitionInfo().getFollowCol());
+                OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
+                MTMVUtil.dealMvPartition(mtmv, relatedTable, mtmv.getMvPartitionInfo().getRelatedCol());
+                refreshPartitionIds = MTMVUtil.getMTMVStalePartitions(mtmv, relatedTable);
+                tableWithPartKey.put(relatedTable, mtmv.getMvPartitionInfo().getRelatedCol());
             }
+            refreshPartitions = MTMVUtil.getPartitionNamesByIds(mtmv, refreshPartitionIds);
             UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                    .from(mtmv, refreshPartitionItems, tableWithPartKey);
+                    .from(mtmv, MTMVUtil.getPartitionItemsByIds(mtmv, refreshPartitionIds), tableWithPartKey);
             executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
             executor.execute(queryId);
         } catch (Throwable e) {
@@ -175,9 +180,6 @@ public class MTMVTask extends AbstractTask {
         try {
             Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
             mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
-            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
-                relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getFollowTable());
-            }
             sql = generateSql(mtmv);
         } catch (UserException e) {
             LOG.warn(e);
@@ -192,11 +194,15 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(super.getStatus().toString()));
+        trow.addToColumnValue(new TCell().setStringVal(super.getErrMsg()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getStartTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getFinishTimeMs())));
         trow.addToColumnValue(
                 new TCell().setStringVal(String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(taskContext)));
+        trow.addToColumnValue(new TCell().setStringVal(refreshMode.toString()));
+        trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(refreshPartitions)));
         trow.addToColumnValue(new TCell().setStringVal(sql));
         return trow;
     }
@@ -247,6 +253,7 @@ public class MTMVTask extends AbstractTask {
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return MTMVTaskRefreshMode.FULL;
         }
+        OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
         excludedTriggerTables.add(relatedTable.getName());
         // check if every table except followTable is fresh
         fresh = MTMVUtil.isMTMVFresh(mtmv, relation.getBaseTables(), excludedTriggerTables);
@@ -256,5 +263,9 @@ public class MTMVTask extends AbstractTask {
         } else {
             return MTMVTaskRefreshMode.FULL;
         }
+    }
+
+    public MTMVTaskContext getTaskContext() {
+        return taskContext;
     }
 }

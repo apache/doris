@@ -544,6 +544,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         ));
     }
 
+    /**
+     * get MTMVPartitionInfo
+     * @param ctx PartitionSpecContext
+     * @return MTMVPartitionInfo
+     */
     public MTMVPartitionInfo visitMTMVPartitionInfo(PartitionSpecContext ctx) {
         if (ctx == null) {
             return new MTMVPartitionInfo(MTMVPartitionType.SELF_MANAGE);

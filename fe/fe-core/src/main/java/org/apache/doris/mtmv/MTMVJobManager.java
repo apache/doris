@@ -50,7 +50,7 @@ import java.util.List;
  * when do some operation, do something about job
  */
 public class MTMVJobManager implements MTMVHookService {
-    public static final String MTMV_JOB_PREFIX = "mtmv_";
+    public static final String MTMV_JOB_PREFIX = "inner_mtmv_";
 
     /**
      * create MTMVJob

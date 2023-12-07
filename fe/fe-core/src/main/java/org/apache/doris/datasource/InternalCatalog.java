@@ -897,6 +897,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 + " please use \"DROP table FORCE\".");
                     }
                 }
+                if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                    Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
+                }
                 unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
                 if (!stmt.isForceDrop()) {
                     recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
@@ -909,9 +912,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
-            if (table.getType() == TableType.MATERIALIZED_VIEW) {
-                Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
-            }
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e);

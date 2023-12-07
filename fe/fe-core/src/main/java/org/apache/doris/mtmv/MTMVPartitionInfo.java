@@ -31,10 +31,10 @@ public class MTMVPartitionInfo {
 
     @SerializedName("pt")
     MTMVPartitionType partitionType;
-    @SerializedName("ft")
-    BaseTableInfo followTable;
-    @SerializedName("fc")
-    String followCol;
+    @SerializedName("rt")
+    BaseTableInfo relatedTable;
+    @SerializedName("rc")
+    String relatedCol;
     @SerializedName("pc")
     String partitionCol;
 
@@ -59,20 +59,20 @@ public class MTMVPartitionInfo {
         this.partitionType = partitionType;
     }
 
-    public BaseTableInfo getFollowTable() {
-        return followTable;
+    public BaseTableInfo getRelatedTable() {
+        return relatedTable;
     }
 
-    public void setFollowTable(BaseTableInfo followTable) {
-        this.followTable = followTable;
+    public void setRelatedTable(BaseTableInfo relatedTable) {
+        this.relatedTable = relatedTable;
     }
 
-    public String getFollowCol() {
-        return followCol;
+    public String getRelatedCol() {
+        return relatedCol;
     }
 
-    public void setFollowCol(String followCol) {
-        this.followCol = followCol;
+    public void setRelatedCol(String relatedCol) {
+        this.relatedCol = relatedCol;
     }
 
     public String getPartitionCol() {
@@ -82,7 +82,4 @@ public class MTMVPartitionInfo {
     public void setPartitionCol(String partitionCol) {
         this.partitionCol = partitionCol;
     }
-
-    // TODO: 2023/12/5 write and read
-
 }

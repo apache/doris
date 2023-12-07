@@ -30,6 +30,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TCell;
@@ -39,7 +40,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -110,6 +110,9 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
 
     @Override
     public List<MTMVTask> createTasks(TaskType taskType, MTMVTaskContext taskContext) {
+        if (taskContext == null) {
+            taskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+        }
         MTMVTask task = new MTMVTask(dbId, mtmvId, taskContext);
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
@@ -118,10 +121,25 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         return tasks;
     }
 
+    /**
+     * if user trigger, return true
+     * if system trigger, Check if there are any system triggered tasks, and if so, return false
+     *
+     * @param taskContext
+     * @return
+     */
     @Override
     public boolean isReadyForScheduling(MTMVTaskContext taskContext) {
-        // TODO: 2023/12/6 zd
-        return CollectionUtils.isEmpty(getRunningTasks());
+        if (taskContext != null) {
+            return true;
+        }
+        List<MTMVTask> runningTasks = getRunningTasks();
+        for (MTMVTask task : runningTasks) {
+            if (task.getTaskContext() == null || task.getTaskContext().getTriggerMode() == MTMVTaskTriggerMode.SYSTEM) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

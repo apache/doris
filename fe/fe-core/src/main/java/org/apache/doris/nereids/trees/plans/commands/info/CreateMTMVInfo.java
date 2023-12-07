@@ -226,8 +226,8 @@ public class CreateMTMVInfo {
             if (partitionColumnNames.size() != 1) {
                 throw new AnalysisException("base table for partitioning only support single column.");
             }
-            mvPartitionInfo.setFollowTable(relatedTableInfo.get().getTableInfo());
-            mvPartitionInfo.setFollowCol(relatedTableInfo.get().getColumn());
+            mvPartitionInfo.setRelatedTable(relatedTableInfo.get().getTableInfo());
+            mvPartitionInfo.setRelatedCol(relatedTableInfo.get().getColumn());
             partitionDesc = generatePartitionDesc((OlapTable) followTable);
         }
     }

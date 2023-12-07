@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -43,6 +44,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -68,7 +70,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable")
+            .add("IsMutable").add("IsStale")
             .build();
 
     private Database db;
@@ -302,7 +304,9 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
 
                 partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
-
+                partitionInfo
+                        .add(olapTable instanceof MTMV ? MTMVUtil.isSyncWithOlapTables((MTMV) olapTable, partitionId)
+                                : true);
                 partitionInfos.add(partitionInfo);
             }
         } finally {

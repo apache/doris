@@ -41,6 +41,7 @@ public class RefreshMTMVInfo {
 
     /**
      * analyze refresh info
+     *
      * @param ctx ConnectContext
      */
     public void analyze(ConnectContext ctx) {
@@ -56,6 +57,7 @@ public class RefreshMTMVInfo {
 
     /**
      * getMvName
+     *
      * @return TableNameInfo
      */
     public TableNameInfo getMvName() {
@@ -64,7 +66,8 @@ public class RefreshMTMVInfo {
 
     /**
      * getPartitions
-     * @return List<String>
+     *
+     * @return partitionNames
      */
     public List<String> getPartitions() {
         return partitions;

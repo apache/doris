@@ -56,7 +56,9 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
             new Column("RefreshInfo", ScalarType.createStringType()),
             new Column("QuerySql", ScalarType.createStringType()),
             new Column("EnvInfo", ScalarType.createStringType()),
-            new Column("MvProperties", ScalarType.createStringType()));
+            new Column("MvProperties", ScalarType.createStringType()),
+            new Column("MvPartitionCol", ScalarType.createStringType()),
+            new Column("SyncWithOlapTables", ScalarType.createType(PrimitiveType.BOOLEAN)));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 

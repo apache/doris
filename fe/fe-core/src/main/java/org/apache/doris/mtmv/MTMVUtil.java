@@ -36,6 +36,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mysql.privilege.Auth;
@@ -45,7 +46,6 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
@@ -53,6 +53,8 @@ import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollecto
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
+import com.esotericsoftware.minlog.Log;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
@@ -97,11 +99,16 @@ public class MTMVUtil {
     }
 
     public static boolean isMTMVFresh(MTMV mtmv, Set<BaseTableInfo> baseTables,
-            Set<String> excludedTriggerTables) throws AnalysisException {
+            Set<String> excludedTriggerTables) {
         Long mtmvLastTime = getTableLastVisibleVersionTime(mtmv);
         Long maxAvailableTime = mtmvLastTime;
         for (BaseTableInfo baseTableInfo : baseTables) {
-            TableIf table = getTable(baseTableInfo);
+            TableIf table = null;
+            try {
+                table = getTable(baseTableInfo);
+            } catch (AnalysisException e) {
+                return false;
+            }
             if (excludedTriggerTables.contains(table.getName())) {
                 continue;
             }
@@ -188,14 +195,14 @@ public class MTMVUtil {
         HashMap<Long, Set<Long>> res = Maps.newHashMap();
         Map<Long, PartitionItem> followTableItems = followTable.getPartitionInfo().getIdToItem(false);
         Map<Long, PartitionItem> mtmvItems = mtmv.getPartitionInfo().getIdToItem(false);
-        for (Entry<Long, PartitionItem> entry :followTableItems.entrySet()) {
+        for (Entry<Long, PartitionItem> entry : followTableItems.entrySet()) {
             long partitionId = getExistPartitionId(entry.getValue(), mtmvItems);
-            res.put(entry.getKey(),Sets.newHashSet(partitionId));
+            res.put(entry.getKey(), Sets.newHashSet(partitionId));
         }
         return res;
     }
 
-    public static Set<PartitionItem> getMTMVStalePartitions(MTMV mtmv, OlapTable followTable) {
+    public static Set<Long> getMTMVStalePartitions(MTMV mtmv, OlapTable followTable) {
         Set<Long> ids = Sets.newHashSet();
         Map<Long, Set<Long>> baseToMvPartitions = getBaseToMvPartitions(mtmv, followTable);
         for (Entry<Long, Set<Long>> entry : baseToMvPartitions.entrySet()) {
@@ -208,6 +215,10 @@ public class MTMVUtil {
                 }
             }
         }
+        return ids;
+    }
+
+    public static Set<PartitionItem> getPartitionItemsByIds(MTMV mtmv, Set<Long> ids) {
         Set<PartitionItem> res = Sets.newHashSet();
         for (Long partitionId : ids) {
             res.add(mtmv.getPartitionInfo().getItem(partitionId));
@@ -215,9 +226,12 @@ public class MTMVUtil {
         return res;
     }
 
-    public static Command getCommand(MTMV mtmv, Set<PartitionItem> refreshPartitionItems) {
-        // TODO: 2023/12/5 调用方法
-        return null;
+    public static List<String> getPartitionNamesByIds(MTMV mtmv, Set<Long> ids) {
+        List<String> res = Lists.newArrayList();
+        for (Long partitionId : ids) {
+            res.add(mtmv.getPartition(partitionId).getName());
+        }
+        return res;
     }
 
     public static ConnectContext createMTMVContext(MTMV mtmv) throws AnalysisException {
@@ -278,6 +292,38 @@ public class MTMVUtil {
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         return planner.plan(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
+    }
+
+    public static boolean isSyncWithOlapTables(MTMV mtmv) {
+        MTMVRelation mtmvRelation = mtmv.getRelation();
+        if (mtmvRelation == null) {
+            return false;
+        }
+        return isMTMVFresh(mtmv, mtmv.getRelation().getBaseTables(), Sets.newHashSet());
+    }
+
+    public static boolean isSyncWithOlapTables(MTMV mtmv, Long partitionId) {
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
+            return isSyncWithOlapTables(mtmv);
+        }
+        try {
+            OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
+            boolean mtmvFresh = isMTMVFresh(mtmv, mtmv.getRelation().getBaseTables(),
+                    Sets.newHashSet(relatedTable.getName()));
+            if (!mtmvFresh) {
+                return false;
+            }
+            PartitionItem item = mtmv.getPartitionInfo().getItem(partitionId);
+            long relatedPartitionId = getExistPartitionId(item, relatedTable.getPartitionInfo().getIdToItem(false));
+            if (partitionId == -1L) {
+                return false;
+            }
+            return mtmv.getPartition(partitionId).getVisibleVersionTime() > relatedTable
+                    .getPartition(relatedPartitionId).getVisibleVersionTime();
+        } catch (AnalysisException e) {
+            Log.warn(e.getMessage());
+            return false;
+        }
     }
 
     public static boolean isAvailableMTMV(MTMV mtmv, ConnectContext ctx) throws AnalysisException, DdlException {

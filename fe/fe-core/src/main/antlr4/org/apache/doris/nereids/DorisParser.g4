@@ -159,7 +159,7 @@ refreshSchedule
     ;
 
 mvRefreshUnit
-    : SECOND | MINUTE | HOUR | DAY | WEEK
+    : MINUTE | HOUR | DAY | WEEK
     ;
 
 refreshMethod
