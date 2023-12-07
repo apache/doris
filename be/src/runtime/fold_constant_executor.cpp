@@ -271,8 +271,9 @@ Status FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescr
         break;
     }
     default:
-        auto error_msg = fmt::format("Type not implemented:{} need check it, and exec_query_id is: {}.",
-                                     type.debug_string(), query_id_string());
+        auto error_msg =
+                fmt::format("Type not implemented:{} need check it, and exec_query_id is: {}.",
+                            type.debug_string(), query_id_string());
         return Status::InternalError(error_msg);
     }
     return Status::OK();
