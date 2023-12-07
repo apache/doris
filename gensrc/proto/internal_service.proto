@@ -790,6 +790,7 @@ message PStreamHeader {
     optional int64 src_id = 8;
     optional SegmentStatisticsPB segment_statistics = 9;
     repeated PTabletID tablets = 10;
+    optional TabletSchemaPB flush_schema = 11;
 }
 
 message PGetWalQueueSizeRequest{
