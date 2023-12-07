@@ -49,6 +49,7 @@
 #include "service/point_query_executor.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
@@ -343,6 +344,8 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     {
         std::shared_lock rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        DBUG_EXECUTE_IF("_append_block_with_partial_content.clear_specified_rowsets",
+                        { specified_rowsets.clear(); });
         if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
             // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
             // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
