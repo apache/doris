@@ -116,12 +116,16 @@ public:
 
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
+    bool is_finished() { return _is_finished.load(); }
+    bool should_stop() { return _should_stop.load(); }
 
     void inc_num_running_scanners(int32_t scanner_inc);
 
     void set_ready_to_finish();
 
     int get_num_running_scanners() const { return _num_running_scanners; }
+
+    int get_num_unfinished_scanners() const { return _num_unfinished_scanners; }
 
     void dec_num_scheduling_ctx();
 
