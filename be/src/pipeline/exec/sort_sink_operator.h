@@ -94,6 +94,13 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
+    ExchangeType get_local_exchange_type() const override {
+        if (_vsort_exec_exprs.lhs_ordering_expr_ctxs().size() == 1) {
+            return ExchangeType::PASSTHROUGH;
+        }
+        return ExchangeType::NOOP;
+    }
+
 private:
     friend class SortSinkLocalState;
 
