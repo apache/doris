@@ -92,7 +92,7 @@ public:
         return Status::OK();
     }
 
-    std::shared<Block> get_child_block() { return _child_block; }
+    std::shared_ptr<Block> get_child_block() { return _child_block; }
 
 private:
     Status _prepare_output_slot_ids(const TPlanNode& tnode);

@@ -95,7 +95,7 @@ public:
                        : *_output_row_desc;
     }
 
-    std::shared<Block> get_left_block() { return _left_block; }
+    std::shared_ptr<Block> get_left_block() { return _left_block; }
 
     std::vector<TRuntimeFilterDesc>& runtime_filter_descs() { return _runtime_filter_descs; }
     VExprContextSPtrs& filter_src_expr_ctxs() { return _filter_src_expr_ctxs; }
@@ -260,7 +260,7 @@ private:
     // _left_block must be cleared before calling get_next().  The child node
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
-    std::shared<Block> _left_block;
+    std::shared_ptr<Block> _left_block;
 
     int _left_block_start_pos = 0;
     int _left_block_pos; // current scan pos in _left_block
