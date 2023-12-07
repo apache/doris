@@ -15,44 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
-
-import org.apache.doris.common.Id;
-import org.apache.doris.common.IdGenerator;
+package org.apache.doris.common;
 
 /**
- * UUID for Expression in Nereids.
+ * MaterializedViewException
  */
-public class ExprId extends Id<ExprId> {
+public class MaterializedViewException extends UserException {
 
-    public ExprId(int id) {
-        super(id);
+    public MaterializedViewException(String msg, Throwable cause) {
+        super(msg, cause);
     }
 
-    /**
-     * Should be only called by {@link StatementScopeIdGenerator}.
-     */
-    public static IdGenerator<ExprId> createGenerator() {
-        return new IdGenerator<ExprId>() {
-            @Override
-            public ExprId getNextId() {
-                return new ExprId(nextId++);
-            }
-        };
+    public MaterializedViewException(Throwable cause) {
+        super(cause);
     }
 
-    @Override
-    public String toString() {
-        return "" + id;
+    public MaterializedViewException(String msg, Throwable cause, boolean enableSuppression,
+            boolean writableStackTrace) {
+        super(msg, cause, enableSuppression, writableStackTrace);
     }
 
-    @Override
-    public boolean equals(Object obj) {
-        return super.equals(obj);
+    public MaterializedViewException(String msg) {
+        super(msg);
     }
 
-    @Override
-    public int hashCode() {
-        return super.hashCode();
+    public MaterializedViewException(InternalErrorCode errCode, String msg) {
+        super(errCode, msg);
     }
 }

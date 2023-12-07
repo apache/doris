@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollecto
 import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
@@ -68,6 +69,11 @@ public class MTMVCacheManager implements MTMVHookService {
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.get(table);
+    }
+
+    // TODO Implement the method which getting materialized view by tables
+    public List<MTMV> getAvailableMaterializedView(List<BaseTableInfo> tables) {
+        return ImmutableList.of();
     }
 
     public boolean isAvailableMTMV(MTMV mtmv, ConnectContext ctx) throws AnalysisException, DdlException {

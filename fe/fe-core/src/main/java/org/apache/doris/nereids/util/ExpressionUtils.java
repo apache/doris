@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.MaterializedViewException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
@@ -205,6 +207,11 @@ public class ExpressionUtils {
                 .orElse(BooleanLiteral.of(type == And.class));
     }
 
+    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
+            Plan plan) {
+        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of());
+    }
+
     /**
      * Replace the slot in expressions with the lineage identifier from specifiedbaseTable sets or target table types
      * example as following:
@@ -221,13 +228,18 @@ public class ExpressionUtils {
 
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
                 new ExpressionLineageReplacer.ExpressionReplaceContext(
-                        expressions.stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                        expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
                         targetTypes,
                         tableIdentifiers);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
-        return replaceContext.getReplacedExpressions();
+        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (expressions.size() != replacedExpressions.size()) {
+            throw new NereidsException("shuttle expression fail",
+                    new MaterializedViewException("shuttle expression fail"));
+        }
+        return replacedExpressions;
     }
 
     /**
@@ -298,7 +310,24 @@ public class ExpressionUtils {
      * </pre>
      */
     public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-        return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+        return expr.accept(ExpressionReplacer.INSTANCE, ExpressionReplacerContext.of(replaceMap, false));
+    }
+
+    /**
+     * Replace expression node in the expression tree by `replaceMap` in top-down manner.
+     * if replaced, create alias
+     * For example.
+     * <pre>
+     * input expression: a > 1
+     * replaceMap: a -> b + c
+     *
+     * output:
+     * ((b + c) as a) > 1
+     * </pre>
+     */
+    public static Expression replace(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap,
+            boolean withAlias) {
+        return expr.accept(ExpressionReplacer.INSTANCE, ExpressionReplacerContext.of(replaceMap, true));
     }
 
     /**
@@ -306,7 +335,8 @@ public class ExpressionUtils {
      */
     public static NamedExpression replace(NamedExpression expr,
             Map<? extends Expression, ? extends Expression> replaceMap) {
-        Expression newExpr = expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+        Expression newExpr = expr.accept(ExpressionReplacer.INSTANCE,
+                ExpressionReplacerContext.of(replaceMap, false));
         if (newExpr instanceof NamedExpression) {
             return (NamedExpression) newExpr;
         } else {
@@ -336,18 +366,54 @@ public class ExpressionUtils {
     }
 
     private static class ExpressionReplacer
-            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
+            extends DefaultExpressionRewriter<ExpressionReplacerContext> {
         public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
 
         private ExpressionReplacer() {
         }
 
         @Override
-        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr);
+        public Expression visit(Expression expr, ExpressionReplacerContext replacerContext) {
+            Map<? extends Expression, ? extends Expression> replaceMap = replacerContext.getReplaceMap();
+            boolean isContained = replaceMap.containsKey(expr);
+            if (!isContained) {
+                return super.visit(expr, replacerContext);
             }
-            return super.visit(expr, replaceMap);
+            boolean withAlias = replacerContext.isWithAlias();
+            if (!withAlias) {
+                return replaceMap.get(expr);
+            } else {
+                Expression replacedExpression = replaceMap.get(expr);
+                if (replacedExpression instanceof SlotReference) {
+                    replacedExpression = ((SlotReference) (replacedExpression)).withNullable(expr.nullable());
+                }
+                return new Alias(((NamedExpression) expr).getExprId(), replacedExpression,
+                        ((NamedExpression) expr).getName());
+            }
+        }
+    }
+
+    private static class ExpressionReplacerContext {
+        private final Map<? extends Expression, ? extends Expression> replaceMap;
+        private final boolean withAlias;
+
+        private ExpressionReplacerContext(Map<? extends Expression, ? extends Expression> replaceMap,
+                boolean withAlias) {
+            this.replaceMap = replaceMap;
+            this.withAlias = withAlias;
+        }
+
+        public static ExpressionReplacerContext of(Map<? extends Expression, ? extends Expression> replaceMap,
+                boolean withAlias) {
+            return new ExpressionReplacerContext(replaceMap, withAlias);
+        }
+
+        public Map<? extends Expression, ? extends Expression> getReplaceMap() {
+            return replaceMap;
+        }
+
+        public boolean isWithAlias() {
+            return withAlias;
         }
     }
 

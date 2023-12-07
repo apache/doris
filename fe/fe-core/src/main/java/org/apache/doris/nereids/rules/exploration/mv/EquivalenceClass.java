@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -31,9 +33,22 @@ import java.util.Set;
  */
 public class EquivalenceClass {
 
-    private final Map<SlotReference, Set<SlotReference>> equivalenceSlotMap = new LinkedHashMap<>();
+    /**
+     * eg: column a = b
+     * this will be
+     * {
+     * a: [a, b],
+     * b: [a, b]
+     * }
+     */
+    private Map<SlotReference, Set<SlotReference>> equivalenceSlotMap = new LinkedHashMap<>();
+    private List<Set<SlotReference>> equivalenceSlotList;
 
     public EquivalenceClass() {
+    }
+
+    public EquivalenceClass(Map<SlotReference, Set<SlotReference>> equivalenceSlotMap) {
+        this.equivalenceSlotMap = equivalenceSlotMap;
     }
 
     /**
@@ -82,11 +97,48 @@ public class EquivalenceClass {
     }
 
     /**
-     * EquivalenceClass
+     * EquivalenceClass permute
      */
-    public List<Set<SlotReference>> getEquivalenceValues() {
-        List<Set<SlotReference>> values = new ArrayList<>();
-        equivalenceSlotMap.values().forEach(each -> values.add(each));
-        return values;
+    public EquivalenceClass permute(Map<SlotReference, SlotReference> mapping) {
+
+        Map<SlotReference, Set<SlotReference>> permutedEquivalenceSlotMap = new HashMap<>();
+        for (Map.Entry<SlotReference, Set<SlotReference>> slotReferenceSetEntry : equivalenceSlotMap.entrySet()) {
+            SlotReference mappedSlotReferenceKey = mapping.get(slotReferenceSetEntry.getKey());
+            if (mappedSlotReferenceKey == null) {
+                // can not permute then need to return null
+                return null;
+            }
+            Set<SlotReference> equivalenceValueSet = slotReferenceSetEntry.getValue();
+            final Set<SlotReference> mappedSlotReferenceSet = new HashSet<>();
+            for (SlotReference target : equivalenceValueSet) {
+                SlotReference mappedSlotReferenceValue = mapping.get(target);
+                if (mappedSlotReferenceValue == null) {
+                    return null;
+                }
+                mappedSlotReferenceSet.add(mappedSlotReferenceValue);
+            }
+            permutedEquivalenceSlotMap.put(mappedSlotReferenceKey, mappedSlotReferenceSet);
+        }
+        return new EquivalenceClass(permutedEquivalenceSlotMap);
+    }
+
+    /**
+     * Return the list of equivalence set, remove duplicate
+     */
+    public List<Set<SlotReference>> getEquivalenceSetList() {
+
+        if (equivalenceSlotList != null) {
+            return equivalenceSlotList;
+        }
+        List<Set<SlotReference>> equivalenceSets = new ArrayList<>();
+        Set<Set<SlotReference>> visited = new HashSet<>();
+        equivalenceSlotMap.values().forEach(slotSet -> {
+            if (!visited.contains(slotSet)) {
+                equivalenceSets.add(slotSet);
+            }
+            visited.add(slotSet);
+        });
+        this.equivalenceSlotList = equivalenceSets;
+        return this.equivalenceSlotList;
     }
 }

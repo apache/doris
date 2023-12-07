@@ -15,44 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
-
-import org.apache.doris.common.Id;
-import org.apache.doris.common.IdGenerator;
+package org.apache.doris.nereids;
 
 /**
- * UUID for Expression in Nereids.
+ * optimize plan process has some phase, such as analyze, rewrite, optimize, generate physical plan
+ * and so on, this hook give a chance to do something in the planning process.
+ * For example: after analyze plan when query or explain, we should generate materialization context.
  */
-public class ExprId extends Id<ExprId> {
+public interface PlannerHook {
 
-    public ExprId(int id) {
-        super(id);
+    /**
+     * the hook before analyze
+     */
+    default void beforeAnalyze(NereidsPlanner planner) {
     }
 
     /**
-     * Should be only called by {@link StatementScopeIdGenerator}.
+     * the hook after analyze
      */
-    public static IdGenerator<ExprId> createGenerator() {
-        return new IdGenerator<ExprId>() {
-            @Override
-            public ExprId getNextId() {
-                return new ExprId(nextId++);
-            }
-        };
-    }
-
-    @Override
-    public String toString() {
-        return "" + id;
-    }
-
-    @Override
-    public boolean equals(Object obj) {
-        return super.equals(obj);
-    }
-
-    @Override
-    public int hashCode() {
-        return super.hashCode();
+    default void afterAnalyze(NereidsPlanner planner) {
     }
 }
