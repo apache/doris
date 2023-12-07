@@ -32,12 +32,11 @@ OPERATOR_CODE_GENERATOR(TableFunctionOperator, StatefulOperator)
 
 Status TableFunctionOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_child_block());
+    _child_block = _node->get_child_block();
     return StatefulOperator::prepare(state);
 }
 
 Status TableFunctionOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 

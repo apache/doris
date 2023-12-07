@@ -447,14 +447,14 @@ public:
 
         if (node->need_more_input_data()) {
             _child_block->clear_column_data();
-            RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));
+            RETURN_IF_ERROR(child->get_block(state, _child_block, _child_source_state));
             source_state = _child_source_state;
             if (_child_block->rows() == 0 && _child_source_state != SourceState::FINISHED) {
                 return Status::OK();
             }
             node->prepare_for_next();
-            RETURN_IF_ERROR(node->push(state, _child_block.get(),
-                                       _child_source_state == SourceState::FINISHED));
+            RETURN_IF_ERROR(
+                    node->push(state, _child_block, _child_source_state == SourceState::FINISHED));
         }
 
         if (!node->need_more_input_data()) {
@@ -475,7 +475,10 @@ public:
     }
 
 protected:
-    std::unique_ptr<vectorized::Block> _child_block;
+    // _child_block is owned by execnode, not by this operator, so that it should
+    // be a shared ptr here. I have already modify it in master branch, it need modify
+    // many codes, so that it is simple to use raw ptr here.
+    vectorized::Block* _child_block;
     SourceState _child_source_state;
 };
 
