@@ -93,6 +93,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
         this.labelName = labelName;
     }
 
+    public Optional<String> getLabelName() {
+        return labelName;
+    }
+
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {

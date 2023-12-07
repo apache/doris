@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -49,13 +50,24 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Update mv by partition
  */
 public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
-    private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery, Optional.empty());
+    // This is a fake sql of this plan, it can't be guaranteed to execute
+
+    private UpdateMvByPartitionCommand(LogicalPlan logicalQuery, String label) {
+        super(logicalQuery, Optional.of(label));
+    }
+
+    public String getLabel() {
+        Preconditions.checkArgument(getLabelName().isPresent(),
+                "UpdateMvByPartitionCommand must have a label");
+        return getLabelName().get();
     }
 
     /**
@@ -77,7 +89,27 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         UnboundTableSink<? extends Plan> sink =
                 new UnboundTableSink<>(mv.getFullQualifiers(), ImmutableList.of(), ImmutableList.of(),
                         parts, plan);
-        return new UpdateMvByPartitionCommand(sink);
+        return new UpdateMvByPartitionCommand(sink, constructName(mv, parts, predicates));
+    }
+
+    private static String constructName(MTMV mv, List<String> parts, Map<OlapTable, Set<Expression>> predicates) {
+        String partition = "";
+        if (!parts.isEmpty()) {
+            partition = "PARTITION (" + String.join(",", parts) + ") ";
+        }
+
+        String queryWithPredicate = mv.getQuerySql();
+        for (OlapTable table : predicates.keySet()) {
+            String regex = table.getName() + "(?![.])";
+            Pattern p = Pattern.compile(regex);
+            Matcher m = p.matcher(queryWithPredicate);
+            Set<Expression> expr = predicates.get(table);
+            String pred = expr.stream().map(Expression::toSql).collect(Collectors.toList()).toString();
+            queryWithPredicate = m.replaceAll(table.getName() + pred);
+        }
+        return String.format("INSERT OVERWRITE TABLE %s "
+                + "%s"
+                + "%s", mv.getName(), partition, queryWithPredicate);
     }
 
     private static List<String> constructPartsForMv(MTMV mv, Set<PartitionItem> partitions) {

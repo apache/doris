@@ -62,6 +62,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
@@ -751,6 +752,13 @@ public abstract class TestWithFeService {
         checkAlterJob();
         // waiting table state to normal
         Thread.sleep(100);
+    }
+
+    protected void createMvByNereids(String sql) throws Exception {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan parsed = nereidsParser.parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        ((CreateMTMVCommand) parsed).run(connectContext, stmtExecutor);
     }
 
     private void updateReplicaPathHash() {
