@@ -183,9 +183,6 @@ public:
     /// Returns number of rows from first column in block, not equal to nullptr. If no columns, returns 0.
     size_t rows() const;
 
-    // check block is still valid with given rows after mutable block merging other block
-    bool is_valid(size_t rows) const;
-
     std::string each_col_size() const;
 
     // Cut the rows in block, use in LIMIT operation

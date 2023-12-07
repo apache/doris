@@ -842,6 +842,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             pre_row_ref = cur_row;
         }
     } while (true);
+    block->set_columns(std::move(target_columns));
 
     return Status::OK();
 }

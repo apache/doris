@@ -337,6 +337,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _agg_data_counters.push_back(_last_agg_data_counter);
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
+    block->set_columns(std::move(target_columns));
 
     _merged_rows += merged_row;
     return Status::OK();
@@ -379,6 +380,7 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             return res;
         }
     } while (target_block_row < _reader_context.batch_size);
+    block->set_columns(std::move(target_columns));
 
     // do filter delete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {

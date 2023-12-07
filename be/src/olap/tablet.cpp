@@ -3196,6 +3196,7 @@ Status Tablet::generate_new_block_for_partial_update(
                     read_index_update[idx]);
         }
     }
+    output_block->set_columns(std::move(full_mutable_columns));
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
@@ -3241,6 +3242,7 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
             }
         }
     }
+    block.set_columns(std::move(mutable_columns));
     return Status::OK();
 }
 

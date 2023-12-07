@@ -205,9 +205,8 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
             ++_child_idx;
         }
     }
-    if (!block->is_valid(mblock.rows())) {
-        block->swap(mblock.to_block());
-    }
+    block->set_columns(std::move(mblock.mutable_columns()));
+
     DCHECK_LE(_child_idx, _children.size());
     return Status::OK();
 }
@@ -235,9 +234,8 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
             tmp_block.clear();
         }
     }
-    if (!block->is_valid(mblock.rows())) {
-        block->swap(mblock.to_block());
-    }
+    block->set_columns(std::move(mblock.mutable_columns()));
+
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
     // need add one row to make sure the union node exec const expr return at least one row
@@ -260,9 +258,8 @@ Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
         Block res;
         RETURN_IF_ERROR(materialize_block(input_block, child_id, &res));
         RETURN_IF_ERROR(mblock.merge(res));
-        if (!output_block->is_valid(mblock.rows())) {
-            output_block->swap(mblock.to_block());
-        }
+
+        output_block->set_columns(std::move(mblock.mutable_columns()));
     }
     return Status::OK();
 }

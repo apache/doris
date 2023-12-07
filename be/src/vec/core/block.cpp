@@ -364,15 +364,6 @@ size_t Block::rows() const {
     return 0;
 }
 
-bool Block::is_valid(size_t rows) const {
-    for (const auto& elem : data) {
-        if (elem.column && elem.column->size() != rows) {
-            return false;
-        }
-    }
-    return true;
-}
-
 std::string Block::each_col_size() const {
     std::string ss;
     for (const auto& elem : data) {
@@ -721,7 +712,7 @@ void Block::swap(Block& other) noexcept {
 void Block::swap(Block&& other) noexcept {
     clear();
     data = std::move(other.data);
-    initialize_index_by_name();
+    index_by_name = std::move(other.index_by_name);
     row_same_bit = std::move(other.row_same_bit);
 }
 
@@ -941,7 +932,7 @@ void MutableBlock::swap(MutableBlock& another) noexcept {
     _columns.swap(another._columns);
     _data_types.swap(another._data_types);
     _names.swap(another._names);
-    initialize_index_by_name();
+    index_by_name.swap(another.index_by_name);
 }
 
 void MutableBlock::swap(MutableBlock&& another) noexcept {
@@ -949,7 +940,7 @@ void MutableBlock::swap(MutableBlock&& another) noexcept {
     _columns = std::move(another._columns);
     _data_types = std::move(another._data_types);
     _names = std::move(another._names);
-    initialize_index_by_name();
+    index_by_name = std::move(another.index_by_name);
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
@@ -1032,6 +1023,7 @@ Block MutableBlock::to_block(int start_column) {
 
 Block MutableBlock::to_block(int start_column, int end_column) {
     ColumnsWithTypeAndName columns_with_schema;
+    columns_with_schema.reserve(end_column - start_column);
     for (size_t i = start_column; i < end_column; ++i) {
         columns_with_schema.emplace_back(std::move(_columns[i]), _data_types[i], _names[i]);
     }

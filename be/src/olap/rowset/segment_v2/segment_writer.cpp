@@ -516,6 +516,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     auto mutable_full_columns = full_block.mutate_columns();
     RETURN_IF_ERROR(fill_missing_columns(mutable_full_columns, use_default_or_null_flag,
                                          has_default_or_nullable, segment_start_pos));
+    full_block.set_columns(std::move(mutable_full_columns));
     // row column should be filled here
     if (_tablet_schema->store_row_column()) {
         // convert block to row store format
@@ -618,6 +619,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             }
         }
     }
+    old_value_block.set_columns(std::move(mutable_old_columns));
+
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
@@ -643,6 +646,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             }
         }
     }
+    default_value_block.set_columns(std::move(mutable_default_value_columns));
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {

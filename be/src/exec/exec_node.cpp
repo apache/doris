@@ -561,6 +561,7 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
             }
         }
         DCHECK(mutable_block.rows() == rows);
+        output_block->swap(mutable_block.to_block());
     }
 
     return Status::OK();

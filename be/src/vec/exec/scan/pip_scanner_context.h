@@ -106,9 +106,7 @@ public:
                 static_cast<void>(m.merge(*merge_block));
                 return_free_block(std::move(merge_block));
             }
-            if (!(*block)->is_valid(m.rows())) {
-                (*block)->swap(m.to_block());
-            }
+            (*block)->set_columns(std::move(m.mutable_columns()));
         }
 
         return Status::OK();
