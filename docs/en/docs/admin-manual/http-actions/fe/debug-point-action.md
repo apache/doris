@@ -81,13 +81,13 @@ To activate debug points, need set `enable_debug_points` to true.
 ### Query Parameters
 
 * `debug_point_name`
-    Debug point name. Require.
+    Debug point name. Mandatory parameter.
 
 * `timeout`
     Timeout in seconds. When timeout, the debug point will be disable. Default is -1,  not timeout. Optional.
 
 * `execute`
-    Max active times。Default is -1,  unlimit active times. Optional.  
+    Max active times。Default is -1, unlimited number of activation times. Optional.  
 
 
 ### Request body
@@ -126,7 +126,7 @@ Enable debug point `foo`, activate no more than five times.
 ### Query Parameters
 
 * `debug_point_name`
-    Debug point name. Require.
+    Debug point name. Mandatory parameter.
     
 
 
