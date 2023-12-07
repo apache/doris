@@ -98,7 +98,7 @@ public class CreateTableInfo {
     private final String partitionType;
     private List<String> partitionColumns;
     private final List<PartitionDefinition> partitions;
-    private final DistributionDescriptor distribution;
+    private DistributionDescriptor distribution;
     private final List<RollupDefinition> rollups;
     private Map<String, String> properties;
     private Map<String, String> extProperties;
@@ -359,11 +359,20 @@ public class CreateTableInfo {
                     throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE
                             + " property only support unique key table");
                 }
-                try {
-                    isEnableMergeOnWrite = PropertyAnalyzer
-                            .analyzeUniqueKeyMergeOnWrite(Maps.newHashMap(properties));
-                } catch (Exception e) {
-                    throw new AnalysisException(e.getMessage(), e.getCause());
+            }
+
+            if (keysType == KeysType.UNIQUE_KEYS) {
+                isEnableMergeOnWrite = false;
+                if (properties != null) {
+                    // properties = PropertyAnalyzer.enableUniqueKeyMergeOnWriteIfNotExists(properties);
+                    // `analyzeXXX` would modify `properties`, which will be used later,
+                    // so we just clone a properties map here.
+                    try {
+                        isEnableMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
+                                new HashMap<>(properties));
+                    } catch (Exception e) {
+                        throw new AnalysisException(e.getMessage(), e.getCause());
+                    }
                 }
             }
 
@@ -375,6 +384,19 @@ public class CreateTableInfo {
             }
             for (int i = 0; i < keys.size(); ++i) {
                 columns.get(i).setIsKey(true);
+            }
+
+            if (keysType != KeysType.AGG_KEYS) {
+                AggregateType type = AggregateType.REPLACE;
+                if (keysType == KeysType.DUP_KEYS) {
+                    type = AggregateType.NONE;
+                }
+                if (keysType == KeysType.UNIQUE_KEYS && isEnableMergeOnWrite) {
+                    type = AggregateType.NONE;
+                }
+                for (int i = keys.size(); i < columns.size(); ++i) {
+                    columns.get(i).setAggType(type);
+                }
             }
 
             // add hidden column
@@ -567,6 +589,9 @@ public class CreateTableInfo {
 
     public void validateCreateTableAsSelect(List<ColumnDefinition> columns, ConnectContext ctx) {
         this.columns = Utils.copyRequiredMutableList(columns);
+        // bucket num is hard coded 10 to be consistent with legacy planner
+        this.distribution = new DistributionDescriptor(true, false, 10,
+                Lists.newArrayList(columns.get(0).getName()));
         validate(ctx);
     }
 

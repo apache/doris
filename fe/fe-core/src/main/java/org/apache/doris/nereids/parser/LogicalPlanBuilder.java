@@ -194,6 +194,7 @@ import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.analyzer.UnboundVariable;
 import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
@@ -2962,6 +2963,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public DataType visitPrimitiveDataType(PrimitiveDataTypeContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             String dataType = ctx.primitiveColType().type.getText().toLowerCase(Locale.ROOT);
+            if (dataType.equalsIgnoreCase("all")) {
+                throw new NotSupportedException("Disable to create table with `ALL` type columns");
+            }
             List<String> l = Lists.newArrayList(dataType);
             ctx.INTEGER_VALUE().stream().map(ParseTree::getText).forEach(l::add);
             return DataType.convertPrimitiveFromStrings(l, ctx.primitiveColType().UNSIGNED() != null);

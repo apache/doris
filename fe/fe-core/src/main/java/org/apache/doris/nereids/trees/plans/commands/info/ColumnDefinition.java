@@ -124,6 +124,10 @@ public class ColumnDefinition {
         return aggType;
     }
 
+    public void setAggType(AggregateType aggType) {
+        this.aggType = aggType;
+    }
+
     public boolean isNullable() {
         return isNullable;
     }

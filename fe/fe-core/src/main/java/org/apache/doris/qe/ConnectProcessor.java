@@ -215,8 +215,7 @@ public abstract class ConnectProcessor {
         if (mysqlCommand == MysqlCommand.COM_QUERY
                 && ctx.getSessionVariable().isEnableNereidsPlanner()
                 && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
-                && stmts.stream().allMatch(s -> s instanceof QueryStmt
-                || s instanceof CreateTableStmt)) {
+                && stmts.stream().allMatch(s -> s instanceof CreateTableStmt)) {
             handleQueryException(new AnalysisException("Nereids parse DQL failed. " + originStmt),
                     originStmt, null, null);
             return;
