@@ -40,9 +40,10 @@
 #include "common/status.h"
 #include "exec/exec_node.h"
 #include "olap/rowset/rowset.h"
+#include "olap/parallel_scanner_builder.h"
+#include "olap/reader.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
 #include "olap/tablet_manager.h"
 #include "olap/tablet_reader.h"
 #include "runtime/decimalv2_value.h"
@@ -50,7 +51,6 @@
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "service/backend_options.h"
 #include "util/time.h"
 #include "util/to_string.h"
 #include "vec/columns/column.h"
@@ -518,12 +518,28 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     std::vector<std::pair<BaseTabletSPtr, int64_t /* version */>> tablets_to_scan;
     tablets_to_scan.reserve(_scan_ranges.size());
 
+    std::vector<TabletWithVersion> tablets;
+
     for (auto&& scan_range : _scan_ranges) {
         auto tablet = DORIS_TRY(ExecEnv::get_tablet(scan_range->tablet_id));
         int64_t version = 0;
         std::from_chars(scan_range->version.data(),
                         scan_range->version.data() + scan_range->version.size(), version);
+        tablets.emplace_back(
+                TabletWithVersion {std::dynamic_pointer_cast<Tablet>(tablet), version});
         tablets_to_scan.emplace_back(std::move(tablet), version);
+    }
+
+    std::vector<OlapScanRange*> key_ranges;
+    for (auto& range : _cond_ranges) {
+        key_ranges.emplace_back(range.get());
+    }
+    ParallelScannerBuilder<NewOlapScanNode> scanner_builder(this, tablets, _scanner_profile,
+                                                            key_ranges, _state, _limit_per_scanner,
+                                                            _olap_scan_node.is_preaggregation);
+
+    if (_shared_scan_opt) {
+        scanner_builder.set_max_scanners_count(config::doris_scanner_thread_pool_thread_num);
     }
 
     // Split tablet segment by scanner, only use in pipeline in duplicate key
@@ -583,6 +599,14 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
     };
 
     if (is_dup_mow_key) {
+        RETURN_IF_ERROR(scanner_builder.build_scanners(*scanners));
+        for (auto& scanner : *scanners) {
+            auto* olap_scanner = assert_cast<NewOlapScanner*>(scanner.get());
+            RETURN_IF_ERROR(olap_scanner->prepare(_state, _conjuncts));
+            olap_scanner->set_compound_filters(_compound_filters);
+        }
+        LOG(INFO) << "segment count: " << segment_count << ", scanners count: " << scanners->size();
+#if 0
         // 2. Split segment evenly to each scanner (e.g. each scanner need to scan `avg_segment_count_per_scanner` segments)
         const auto avg_segment_count_by_scanner =
                 std::max(segment_count / config::doris_scanner_thread_pool_thread_num, (size_t)1);
@@ -664,6 +688,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScannerSPtr>* scanners) {
                                           {std::move(rs_splits), read_source.delete_predicates}));
             }
         }
+#endif
     } else {
         for (auto&& [tablet, version] : tablets_to_scan) {
             std::vector<std::unique_ptr<doris::OlapScanRange>>* ranges = &_cond_ranges;

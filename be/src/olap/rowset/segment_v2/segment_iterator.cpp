@@ -381,6 +381,10 @@ Status SegmentIterator::_lazy_init() {
                    << _opts.delete_bitmap.at(segment_id())->cardinality() << ", "
                    << _opts.stats->rows_del_by_bitmap << " rows deleted by bitmap";
     }
+
+    if (!_opts.row_ranges.is_empty()) {
+        _row_bitmap &= RowRanges::ranges_to_roaring(_opts.row_ranges);
+    }
     if (_opts.read_orderby_key_reverse) {
         _range_iter.reset(new BackwardBitmapRangeIterator(_row_bitmap));
     } else {
