@@ -158,7 +158,7 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   <version since="1.2"> 支持 `csv_with_names` (csv文件行首过滤)、`csv_with_names_and_types`(csv文件前两行过滤)、`parquet`、`orc`。</version>
 
-  <version since="2.0.4"> 支持 `arrow`格式。</version>
+  <version since="2.1.0"> 支持 `arrow`格式。</version>
 
   ```text
   列顺序变换例子：原始数据有三列(src_c1,src_c2,src_c3), 目前doris表也有三列（dst_c1,dst_c2,dst_c3）
