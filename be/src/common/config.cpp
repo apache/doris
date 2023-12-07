@@ -1181,6 +1181,15 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 
 // create tablet in partition random robin idx lru size, default 10000
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
+// limit the storage space that query spill files can use
+DEFINE_String(spill_storage_root_path, "${DORIS_HOME}/storage");
+DEFINE_mInt64(spill_storage_limit, "10737418240"); // 10G
+DEFINE_mInt32(spill_gc_interval_ms, "2000");       // 2s
+DEFINE_Int32(spill_io_thread_pool_per_disk_thread_num, "2");
+DEFINE_Int32(spill_io_thread_pool_queue_size, "1024");
+DEFINE_Int32(spill_async_task_thread_pool_thread_num, "2");
+DEFINE_Int32(spill_async_task_thread_pool_queue_size, "1024");
+DEFINE_mInt32(spill_mem_warning_water_mark_multiplier, "2");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
 
