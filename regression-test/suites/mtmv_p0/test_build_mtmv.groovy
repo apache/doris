@@ -288,11 +288,11 @@ suite("test_build_mtmv") {
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-    def jobs = sql """show mtmv job for ${jobName}"""
+    def jobs = sql """select count(1) from jobs("type"="mv")  where name= '${jobName}'"""
     println jobs
-    assertEquals(jobs.size(), 0);
-    def tasks = sql """show mtmv job tasks for ${jobName}"""
+    assertEquals(jobs.get(0).get(0), 0);
+    def tasks = sql """select count(1) from tasks("type"="mv") where jobname = '${jobName}'"""
     println tasks
-    assertEquals(tasks.size(), 0);
+    assertEquals(tasks.get(0).get(0), 0);
 
 }

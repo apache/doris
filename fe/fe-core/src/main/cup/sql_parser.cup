@@ -689,7 +689,7 @@ nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt, unset_var_stmt,
-    create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,cancel_job_task_stmt,
+    create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
@@ -1160,8 +1160,6 @@ stmt ::=
     {: RESULT = stmt; :}
     | cancel_job_task_stmt : stmt
     {: RESULT = stmt; :}       
-    | show_job_stmt : stmt   
-    {: RESULT = stmt; :}
     | stop_job_stmt : stmt   
     {: RESULT = stmt; :}
     | resume_job_stmt : stmt                    
@@ -2593,32 +2591,6 @@ create_job_stmt ::=
           RESULT = endTime;  
      :}
      ;        
-show_job_stmt ::=
-    KW_SHOW KW_JOBS
-    {:
-        RESULT = new ShowJobStmt(null,null);
-    :}
-    | KW_SHOW KW_MTMV KW_JOBS
-    {:
-        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.MV);
-    :}
-    | KW_SHOW KW_MTMV KW_JOB KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.MV);
-    :}
-    | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.INSERT);
-    :}    
-    | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.INSERT);
-    :}    
-    | KW_SHOW KW_MTMV KW_JOB KW_TASKS KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.MV);
-    :}       
-    ;
 pause_job_stmt ::=
     KW_PAUSE KW_JOB opt_wild_where
     {:
