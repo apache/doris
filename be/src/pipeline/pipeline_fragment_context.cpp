@@ -879,6 +879,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
+    _runtime_state->runtime_profile()->total_time_counter()->update(
+            _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());

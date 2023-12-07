@@ -31,8 +31,7 @@ suite ("varchar_length") {
             DISTRIBUTED BY HASH(vid) BUCKETS AUTO
             PROPERTIES
             (
-            "replication_num" = "1",
-            "enable_unique_key_merge_on_write" = "false"
+            "replication_num" = "1"
             ); 
         """
 
