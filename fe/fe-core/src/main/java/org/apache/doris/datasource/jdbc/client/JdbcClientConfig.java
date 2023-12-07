@@ -32,6 +32,10 @@ public class JdbcClientConfig {
     private Map<String, Boolean> includeDatabaseMap;
     private Map<String, Boolean> excludeDatabaseMap;
 
+    private String removeAbandonedTimeout;
+
+    private String removeAbandoned;
+
     public String getCatalog() {
         return catalog;
     }
@@ -119,6 +123,24 @@ public class JdbcClientConfig {
 
     public JdbcClientConfig setExcludeDatabaseMap(Map<String, Boolean> excludeDatabaseMap) {
         this.excludeDatabaseMap = excludeDatabaseMap;
+        return this;
+    }
+
+    public String getRemoveAbandonedTimeout() {
+        return removeAbandonedTimeout;
+    }
+
+    public JdbcClientConfig setRemoveAbandonedTimeout(String removeAbandonedTimeout) {
+        this.removeAbandonedTimeout = removeAbandonedTimeout;
+        return this;
+    }
+
+    public String getRemoveAbandoned() {
+        return removeAbandoned;
+    }
+
+    public JdbcClientConfig setRemoveAbandoned(String removeAbandoned) {
+        this.removeAbandoned = removeAbandoned;
         return this;
     }
 }

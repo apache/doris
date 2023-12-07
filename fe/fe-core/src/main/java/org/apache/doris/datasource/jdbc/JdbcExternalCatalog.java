@@ -125,6 +125,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(JdbcResource.ONLY_SPECIFIED_DATABASE, "false");
     }
 
+    public String getRemoveAbandoned() {
+        return catalogProperty.getOrDefault(JdbcResource.REMOVE_ABANDONED, "false");
+    }
+
+    public String getRemoveAbandonedTimeout() {
+        return catalogProperty.getOrDefault(JdbcResource.REMOVE_ABANDONED_TIMEOUT, "false");
+    }
+
     public String getLowerCaseTableNames() {
         // Forced to true if Config.lower_case_table_names has a value of 1 or 2
         if (Config.lower_case_table_names == 1 || Config.lower_case_table_names == 2) {
@@ -147,7 +155,9 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 .setOnlySpecifiedDatabase(getOnlySpecifiedDatabase())
                 .setIsLowerCaseTableNames(getLowerCaseTableNames())
                 .setIncludeDatabaseMap(getIncludeDatabaseMap())
-                .setExcludeDatabaseMap(getExcludeDatabaseMap());
+                .setExcludeDatabaseMap(getExcludeDatabaseMap())
+                .setRemoveAbandoned(getRemoveAbandoned())
+                .setRemoveAbandonedTimeout(getRemoveAbandonedTimeout());
 
         jdbcClient = JdbcClient.createJdbcClient(jdbcClientConfig);
     }

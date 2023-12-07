@@ -95,6 +95,8 @@ public class JdbcResource extends Resource {
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
     public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String CHECK_SUM = "checksum";
+    public static final String REMOVE_ABANDONED_TIMEOUT = "remove_abandoned_timeout";
+    public static final String REMOVE_ABANDONED = "remove_abandoned";
     private static final ImmutableList<String> ALL_PROPERTIES = new ImmutableList.Builder<String>().add(
             JDBC_URL,
             USER,
@@ -105,13 +107,17 @@ public class JdbcResource extends Resource {
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES,
             INCLUDE_DATABASE_LIST,
-            EXCLUDE_DATABASE_LIST
+            EXCLUDE_DATABASE_LIST,
+            REMOVE_ABANDONED,
+            REMOVE_ABANDONED_TIMEOUT
     ).build();
     private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
             LOWER_CASE_TABLE_NAMES,
             INCLUDE_DATABASE_LIST,
-            EXCLUDE_DATABASE_LIST
+            EXCLUDE_DATABASE_LIST,
+            REMOVE_ABANDONED,
+            REMOVE_ABANDONED_TIMEOUT
     ).build();
 
     // The default value of optional properties
@@ -123,6 +129,8 @@ public class JdbcResource extends Resource {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(REMOVE_ABANDONED, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(REMOVE_ABANDONED_TIMEOUT, "600");
     }
 
     // timeout for both connection and read. 10 seconds is long enough.

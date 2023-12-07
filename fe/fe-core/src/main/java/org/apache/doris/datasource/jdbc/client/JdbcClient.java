@@ -64,6 +64,9 @@ public abstract class JdbcClient {
 
     protected Map<String, Boolean> includeDatabaseMap;
     protected Map<String, Boolean> excludeDatabaseMap;
+    protected String removeAbandonedTimeout;
+    protected String removeAbandoned;
+
     // only used when isLowerCaseTableNames = true.
     protected final ConcurrentHashMap<String, String> lowerDBToRealDB = new ConcurrentHashMap<>();
     // only used when isLowerCaseTableNames = true.
@@ -115,6 +118,8 @@ public abstract class JdbcClient {
         this.dbType = parseDbType(jdbcUrl);
         initializeDataSource(jdbcClientConfig.getPassword(), jdbcUrl, jdbcClientConfig.getDriverUrl(),
                 jdbcClientConfig.getDriverClass());
+        this.removeAbandoned = jdbcClientConfig.getRemoveAbandoned();
+        this.removeAbandonedTimeout = jdbcClientConfig.getRemoveAbandonedTimeout();
     }
 
     // Initialize DruidDataSource
@@ -141,6 +146,9 @@ public abstract class JdbcClient {
             dataSource.setMaxActive(100);
             dataSource.setTimeBetweenEvictionRunsMillis(600000);
             dataSource.setMinEvictableIdleTimeMillis(300000);
+
+            dataSource.setRemoveAbandoned(Boolean.parseBoolean(removeAbandoned));
+            dataSource.setRemoveAbandonedTimeout(Integer.parseInt(removeAbandonedTimeout));
             // set connection timeout to 5s.
             // The default is 30s, which is too long.
             // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
