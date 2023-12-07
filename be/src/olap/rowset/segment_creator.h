@@ -131,7 +131,7 @@ public:
     bool need_buffering();
 
 private:
-    Status _expand_variant_to_subcolumns(vectorized::Block& block);
+    Status _expand_variant_to_subcolumns(vectorized::Block& block, TabletSchemaSPtr& flush_schema);
     Status _add_rows(std::unique_ptr<segment_v2::SegmentWriter>& segment_writer,
                      const vectorized::Block* block, size_t row_offset, size_t row_num);
     Status _add_rows(std::unique_ptr<segment_v2::VerticalSegmentWriter>& segment_writer,
@@ -143,8 +143,10 @@ private:
                                   int32_t segment_id, bool no_compression = false,
                                   TabletSchemaSPtr flush_schema = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
+                                 TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
     Status _flush_segment_writer(std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer,
+                                 TabletSchemaSPtr flush_schema = nullptr,
                                  int64_t* flush_size = nullptr);
 
 private:
@@ -156,9 +158,6 @@ private:
     // written rows by add_block/add_row
     std::atomic<int64_t> _num_rows_written = 0;
     std::atomic<int64_t> _num_rows_filtered = 0;
-
-    // Variant schema on the fly
-    TabletSchemaSPtr _flush_schema;
 };
 
 class SegmentCreator {
