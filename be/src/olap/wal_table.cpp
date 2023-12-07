@@ -323,16 +323,9 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
     auto name = ss_name.str().substr(0, ss_name.str().size() - 1);
     auto id = ss_id.str().substr(0, ss_id.str().size() - 1);
     std::stringstream ss;
-    if (config::wait_relay_wal_finish) {
-        ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label
-           << " select * from http_stream(\"format\" = \"wal\", \"table_id\" = \""
-           << std::to_string(_table_id) << "\")";
-    } else {
-        ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label
-           << " (" << name << ") select " << id
-           << " from http_stream(\"format\" = \"wal\", \"table_id\" = \""
-           << std::to_string(_table_id) << "\")";
-    }
+    ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label << " ("
+       << name << ") select " << id << " from http_stream(\"format\" = \"wal\", \"table_id\" = \""
+       << std::to_string(_table_id) << "\")";
     evhttp_add_header(req->output_headers, HTTP_SQL.c_str(), ss.str().c_str());
     evbuffer* output = evhttp_request_get_output_buffer(req);
     evbuffer_add_printf(output, "replay wal %s", std::to_string(wal_id).c_str());
