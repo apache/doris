@@ -680,11 +680,11 @@ public class SessionVariable implements Serializable, Writable {
      * 1 means disable this feature
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
-                        setter = "checkFragmentInstanceNum")
+                        setter = "setFragmentInstanceNum")
     public int parallelExecInstanceNum = 1;
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
-                        setter = "checkPipelineTaskNum")
+                        setter = "setPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
 
     @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
@@ -1844,21 +1844,24 @@ public class SessionVariable implements Serializable, Writable {
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
     }
 
-    public void checkPipelineTaskNum(String value) throws Exception {
-        checkFieldValue("parallel_pipeline_task_num", 0, value);
+    public void setPipelineTaskNum(String value) throws Exception {
+        int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, value);
+        this.parallelPipelineTaskNum = val;
     }
 
-    public void checkFragmentInstanceNum(String value) throws Exception {
-        checkFieldValue("parallel_fragment_exec_instance_num", 1, value);
+    public void setFragmentInstanceNum(String value) throws Exception {
+        int val = checkFieldValue(PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, 1, value);
+        this.parallelExecInstanceNum = val;
     }
 
-    private void checkFieldValue(String variableName, int minValue, String value) throws Exception {
+    private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
         int val = Integer.valueOf(value);
         if (val < minValue) {
-            throw new DdlException(
+            throw new Exception(
                     variableName + " value should greater than or equal " + String.valueOf(minValue)
                             + ", you set value is: " + value);
         }
+        return val;
     }
 
     public String getWorkloadGroup() {
