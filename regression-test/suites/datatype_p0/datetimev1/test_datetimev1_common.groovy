@@ -68,6 +68,7 @@ suite("test_datetimev1_common", "nonConcurrent") {
           DISTRIBUTED BY HASH(`date_key1`, `date_key2`) BUCKETS 4
           PROPERTIES (
           "replication_allocation" = "tag.location.default: 1",
+          "enable_unique_key_merge_on_write" = "false",
           "in_memory" = "false",
           "storage_format" = "V2"
         )
