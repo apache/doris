@@ -96,18 +96,11 @@ public abstract class ColumnType {
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.DATEV2.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.STRING.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
-        schemaChangeMatrix[PrimitiveType.VARCHAR.ordinal()][PrimitiveType.VARIANT.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
-        schemaChangeMatrix[PrimitiveType.STRING.ordinal()][PrimitiveType.VARIANT.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.STRING.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
-        schemaChangeMatrix[PrimitiveType.JSONB.ordinal()][PrimitiveType.VARIANT.ordinal()] = true;
-
-        schemaChangeMatrix[PrimitiveType.VARIANT.ordinal()][PrimitiveType.VARCHAR.ordinal()] = true;
-        schemaChangeMatrix[PrimitiveType.VARIANT.ordinal()][PrimitiveType.STRING.ordinal()] = true;
-        schemaChangeMatrix[PrimitiveType.VARIANT.ordinal()][PrimitiveType.JSONB.ordinal()] = true;
 
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.TINYINT.ordinal()] = true;
         schemaChangeMatrix[PrimitiveType.CHAR.ordinal()][PrimitiveType.SMALLINT.ordinal()] = true;

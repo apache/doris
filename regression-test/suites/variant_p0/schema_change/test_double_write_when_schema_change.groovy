@@ -16,6 +16,17 @@
 // under the License.
 
 suite("double_write_schema_change_with_variant") {
+    def set_be_config = { key, value ->
+        String backend_id;
+        def backendId_to_backendIP = [:]
+        def backendId_to_backendHttpPort = [:]
+        getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+
+        backend_id = backendId_to_backendIP.keySet()[0]
+        def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+        logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
+    }
+
     def load_json_data = {table_name, file_name ->
         // load the json data
         streamLoad {
@@ -57,6 +68,8 @@ suite("double_write_schema_change_with_variant") {
         DISTRIBUTED BY HASH(k) BUCKETS 2
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
+
+    set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "6294967296")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-1.json'}""")
     load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-2.json'}""")
@@ -88,28 +101,16 @@ suite("double_write_schema_change_with_variant") {
         }
     }
 
+    qt_sql "select v:type, v:id, v:created_at from ${table_name} where cast(v:id as bigint) != 25061216922 order by k, cast(v:id as bigint) limit 10"
+
     sql """ ALTER TABLE ${table_name} modify COLUMN change_column text"""
     double_write.call()
 
-    // change variant to string
-    sql """ ALTER TABLE ${table_name} modify COLUMN v text"""
-    double_write.call()
-
-    // change string to variant
-    sql """ ALTER TABLE ${table_name} modify COLUMN v variant"""
-    double_write.call()
-    qt_sql "select v:type, v:id, v:created_at from ${table_name} where cast(v:id as bigint) != 25061216922 order by k, cast(v:id as bigint) limit 10"
-
     sql """ALTER TABLE ${table_name} drop index idx_var"""
     double_write.call()
-
-    // change variant to jsonb
-    sql """ ALTER TABLE ${table_name} modify COLUMN v jsonb"""
-    double_write.call()
-
-    // change jsonb to variant
-    sql """ ALTER TABLE ${table_name} modify COLUMN v variant"""
-    double_write.call()
-
     qt_sql "select v:type, v:id, v:created_at from ${table_name} where cast(v:id as bigint) != 25061216922 order by k,  cast(v:id as bigint) limit 10"
+
+    createMV("create materialized view xxx as select k, sum(k) from ${table_name} group by k order by k;")
+    qt_sql "select v:type, v:id, v:created_at from ${table_name} where cast(v:id as bigint) != 25061216922 order by k,  cast(v:id as bigint) limit 10"
+    set_be_config.call("memory_limitation_per_thread_for_schema_change_bytes", "2147483648")
 }
