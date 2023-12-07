@@ -305,14 +305,8 @@ Status DataTypeArraySerDe::_write_column_to_mysql(const IColumn& column,
     auto& data = column_array.get_data();
     bool is_nested_string = data.is_column_string();
     const auto row_idx_of_col_arr = index_check_const(row_idx_of_mysql, col_const);
-
-    if (column_array.size() <= row_idx_of_col_arr) {
-        return Status::InternalError(
-                "Logical error, trying to fetch {}-th element of column array, whose size is {}",
-                row_idx_of_col_arr, column_array.size());
-    }
-
     result.open_dynamic_mode();
+
     if (0 != result.push_string("[", 1)) {
         return Status::InternalError("pack mysql buffer failed.");
     }
