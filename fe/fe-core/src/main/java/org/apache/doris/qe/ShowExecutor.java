@@ -935,14 +935,29 @@ public class ShowExecutor {
     private void handleShowCreateDb() throws AnalysisException {
         ShowCreateDbStmt showStmt = (ShowCreateDbStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDb());
+
         StringBuilder sb = new StringBuilder();
-        sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
-        if (db.getDbProperties().getProperties().size() > 0) {
-            sb.append("\nPROPERTIES (\n");
-            sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
-            sb.append("\n)");
+        CatalogIf catalog = ctx.getCurrentCatalog();
+        if (catalog.isInternalCatalog()) {
+            DatabaseIf db = catalog.getDbOrAnalysisException(showStmt.getDb());
+            sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
+            if (db.getDbProperties().getProperties().size() > 0) {
+                sb.append("\nPROPERTIES (\n");
+                sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
+                sb.append("\n)");
+            }
+        } else if (catalog instanceof HMSExternalCatalog) {
+            String simpleDBName = ClusterNamespace.getNameFromFullName(showStmt.getDb());
+            org.apache.hadoop.hive.metastore.api.Database db = ((HMSExternalCatalog) catalog).getClient()
+                    .getDatabase(simpleDBName);
+            sb.append("CREATE DATABASE `").append(simpleDBName).append("`")
+                .append(" LOCATION '")
+                .append(db.getLocationUri())
+                .append("'");
+        } else {
+            throw new AnalysisException("Only support internal catalog and hms catalog");
         }
+
 
         rows.add(Lists.newArrayList(ClusterNamespace.getNameFromFullName(showStmt.getDb()), sb.toString()));
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
