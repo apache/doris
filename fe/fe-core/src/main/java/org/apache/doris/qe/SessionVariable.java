@@ -679,10 +679,12 @@ public class SessionVariable implements Serializable, Writable {
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
      */
-    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true)
+    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
+                        setter = "checkFragmentInstanceNum")
     public int parallelExecInstanceNum = 1;
 
-    @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
+    @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
+                        setter = "checkPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
 
     @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
@@ -1840,6 +1842,23 @@ public class SessionVariable implements Serializable, Writable {
     public void setMaxExecutionTimeMS(String maxExecutionTimeMS) {
         this.maxExecutionTimeMS = Integer.valueOf(maxExecutionTimeMS);
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+    }
+
+    public void checkPipelineTaskNum(String value) throws Exception {
+        checkFieldValue("parallel_pipeline_task_num", 0, value);
+    }
+
+    public void checkFragmentInstanceNum(String value) throws Exception {
+        checkFieldValue("parallel_fragment_exec_instance_num", 1, value);
+    }
+
+    private void checkFieldValue(String variableName, int minValue, String value) throws Exception {
+        int val = Integer.valueOf(value);
+        if (val < minValue) {
+            throw new DdlException(
+                    variableName + " value should greater than or equal " + String.valueOf(minValue)
+                            + ", you set value is: " + value);
+        }
     }
 
     public String getWorkloadGroup() {
