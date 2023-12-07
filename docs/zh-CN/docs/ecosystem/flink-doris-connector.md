@@ -389,7 +389,8 @@ ON a.city = c.city
 | LARGEINT   | STRING             |
 | VARCHAR    | STRING            |
 | DECIMALV2  | DECIMAL                      |
-| TIME       | DOUBLE             |
+| TIME       | DOUBLE 
+| ARRAY      | ARRAY |
 | HLL        | Unsupported datatype             |
 
 ## 使用FlinkSQL通过CDC接入Doris示例
