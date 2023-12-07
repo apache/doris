@@ -119,7 +119,6 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
-
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
     auto num_rows = block.rows();
@@ -169,7 +168,8 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
 
         for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
             const auto& argument = arguments[col_idx];
-            if (argument.column->size() < num_rows) {
+            // const column will only have 1 row, see unpack_if_const
+            if (argument.column->size() < num_rows && !argument.is_const) {
                 return Status::InternalError(
                         "Required row size is out of range, need {} rows, column {} has {} "
                         "rows in fact.",
