@@ -288,7 +288,7 @@ public class MappingTest extends TestWithFeService {
         SlotMapping slotMapping = SlotMapping.generate(relationMapping);
         Assertions.assertNotNull(slotMapping);
         BiMap<ExprId, ExprId> generatedSlotMapping = HashBiMap.create();
-        slotMapping.getSlotBiMap().forEach((key, value) ->
+        slotMapping.getRelationSlotMap().forEach((key, value) ->
                 generatedSlotMapping.put(key.getExprId(), value.getExprId())
         );
         Assertions.assertEquals(generatedSlotMapping, expectSlotMapping);

@@ -30,6 +30,7 @@ import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVStatus;
+import org.apache.doris.mtmv.MVCache;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -61,6 +62,8 @@ public class MTMV extends OlapTable {
     private Map<String, String> mvProperties;
     @SerializedName("r")
     private MTMVRelation relation;
+    // Should update after every fresh
+    private MVCache mvCache;
 
     // For deserialization
     public MTMV() {
@@ -114,6 +117,14 @@ public class MTMV extends OlapTable {
 
     public MTMVRelation getRelation() {
         return relation;
+    }
+
+    public MVCache getMvCache() {
+        return mvCache;
+    }
+
+    public void setMvCache(MVCache mvCache) {
+        this.mvCache = mvCache;
     }
 
     public MTMVRefreshInfo alterRefreshInfo(MTMVRefreshInfo newRefreshInfo) {
