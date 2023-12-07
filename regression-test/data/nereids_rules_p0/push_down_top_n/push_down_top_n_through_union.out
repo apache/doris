@@ -104,9 +104,8 @@ PhysicalResultSink
 --------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------------PhysicalProject
 ------------------------PhysicalOlapScan[table1] apply RFs: RF0
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[t]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute

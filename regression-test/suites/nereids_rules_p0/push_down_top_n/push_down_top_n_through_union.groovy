@@ -52,7 +52,7 @@ suite("push_down_top_n_through_union") {
     """
 
     qt_push_down_topn_union_after_join """
-        explain shape plan select * from (select t1.id from table1 t1 join t t2 on t1.id = t2.id union all select id from table1 t3) sub order by id limit 10;
+        explain shape plan select * from (select t1.id from table1 t1 join table1 t2 on t1.id = t2.id union all select id from table1 t3) sub order by id limit 10;
     """
 
     qt_push_down_topn_union_different_projections """
