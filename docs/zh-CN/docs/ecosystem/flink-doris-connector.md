@@ -391,6 +391,7 @@ ON a.city = c.city
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE            |
 | ARRAY      | ARRAY |
+| MAP        | MAP   | 
 | HLL        | Unsupported datatype             |
 
 ## 使用FlinkSQL通过CDC接入Doris示例
