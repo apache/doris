@@ -720,7 +720,8 @@ Status BetaRowsetWriter::_check_segment_number_limit() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
+Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
+                                     TabletSchemaSPtr flush_schema) {
     uint32_t segid_offset = segment_id - _segment_start_id;
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
@@ -743,8 +744,8 @@ Status BetaRowsetWriter::add_segment(uint32_t segment_id, const SegmentStatistic
         }
     }
     // tablet schema updated
-    if (segstat.flush_schema != nullptr) {
-        update_rowset_schema(segstat.flush_schema);
+    if (flush_schema != nullptr) {
+        update_rowset_schema(flush_schema);
     }
     if (_context.mow_context != nullptr) {
         RETURN_IF_ERROR(_generate_delete_bitmap(segment_id));

@@ -339,11 +339,10 @@ Status SegmentFlusher::_flush_segment_writer(
     segstat.data_size = segment_size + writer->inverted_index_file_size();
     segstat.index_size = index_size + writer->inverted_index_file_size();
     segstat.key_bounds = key_bounds;
-    segstat.flush_schema = _flush_schema;
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat));
+    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat, _flush_schema));
 
     if (flush_size) {
         *flush_size = segment_size + index_size;
@@ -385,7 +384,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat));
+    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat, _flush_schema));
 
     if (flush_size) {
         *flush_size = segment_size + index_size;

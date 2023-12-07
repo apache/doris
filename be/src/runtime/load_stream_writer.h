@@ -71,7 +71,7 @@ public:
 
     Status close_segment(uint32_t segid);
 
-    Status add_segment(uint32_t segid, const SegmentStatistics& stat);
+    Status add_segment(uint32_t segid, const SegmentStatistics& stat, TabletSchemaSPtr flush_chema);
 
     // wait for all memtables to be flushed.
     Status close();

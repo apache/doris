@@ -67,7 +67,8 @@ class SegmentCollector {
 public:
     virtual ~SegmentCollector() = default;
 
-    virtual Status add(uint32_t segment_id, SegmentStatistics& segstat) = 0;
+    virtual Status add(uint32_t segment_id, SegmentStatistics& segstat,
+                       TabletSchemaSPtr flush_chema) = 0;
 };
 
 template <class T>
@@ -75,8 +76,9 @@ class SegmentCollectorT : public SegmentCollector {
 public:
     explicit SegmentCollectorT(T* t) : _t(t) {}
 
-    Status add(uint32_t segment_id, SegmentStatistics& segstat) override {
-        return _t->add_segment(segment_id, segstat);
+    Status add(uint32_t segment_id, SegmentStatistics& segstat,
+               TabletSchemaSPtr flush_chema) override {
+        return _t->add_segment(segment_id, segstat, flush_chema);
     }
 
 private:
