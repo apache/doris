@@ -207,9 +207,8 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         }
 
-        if (!is_mem_reuse || !keep_origin) {
-            output_block->swap(mutable_block.to_block());
-        }
+        output_block->set_columns(std::move(mutable_block.mutable_columns()));
+
         DCHECK(output_block->rows() == rows);
     }
 
