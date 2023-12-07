@@ -964,7 +964,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     if (load_tablet_from_meta_status.is<TABLE_ALREADY_DELETED_ERROR>()) {
         VLOG_NOTICE << load_tablet_from_meta_status;
     } else {
-        LOG(WARNING) << fmt::format("fail to load tablet. header_path=$0", header_path)
+        LOG(WARNING) << "fail to load tablet. header_path=" << header_path
                      << ", error: " << load_tablet_from_meta_status;
         return load_tablet_from_meta_status;
     }
