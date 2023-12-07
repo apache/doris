@@ -1156,21 +1156,19 @@ public class ShowExecutor {
         DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDbName());
         long dbId = db.getId();
         List<List<Comparable>> loadInfos;
-        if (Config.enable_nereids_load) {
-            LoadMgr loadMgr = env.getLoadMgr();
-            loadInfos = loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
-                    showStmt.isAccurateMatch(), showStmt.getStateV2());
-        } else {
-            // combine the List<LoadInfo> of load(v1) and loadManager(v2)
-            Load load = env.getLoadInstance();
-            loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
-                    showStmt.isAccurateMatch(), showStmt.getStates());
-            Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
-                    .map(entity -> entity.name())
-                    .collect(Collectors.toSet());
-            loadInfos.addAll(env.getLoadManager()
-                    .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), statesValue));
-        }
+        // combine the List<LoadInfo> of load(v1) and loadManager(v2)
+        Load load = env.getLoadInstance();
+        loadInfos = load.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
+                showStmt.isAccurateMatch(), showStmt.getStates());
+        Set<String> statesValue = showStmt.getStates() == null ? null : showStmt.getStates().stream()
+                .map(entity -> entity.name())
+                .collect(Collectors.toSet());
+        loadInfos.addAll(env.getLoadManager()
+                .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), statesValue));
+        // add the nerieds load info
+        LoadMgr loadMgr = env.getLoadMgr();
+        loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
+                showStmt.isAccurateMatch(), showStmt.getStateV2()));
 
         // order the result of List<LoadInfo> by orderByPairs in show stmt
         List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();

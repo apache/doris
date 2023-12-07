@@ -45,10 +45,10 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
 
     private final ConcurrentHashMap<Long, T> jobMap = new ConcurrentHashMap<>(32);
 
-    private JobScheduler jobScheduler;
+    private JobScheduler<T> jobScheduler;
 
     public void start() {
-        jobScheduler = new JobScheduler(jobMap);
+        jobScheduler = new JobScheduler<T>(jobMap);
         jobScheduler.start();
     }
 

@@ -91,6 +91,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
     }
 
+    public Optional<String> getLabelName() {
+        return labelName;
+    }
+
     public void setLabelName(Optional<String> labelName) {
         this.labelName = labelName;
     }

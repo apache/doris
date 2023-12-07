@@ -25,7 +25,9 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -92,6 +94,9 @@ public class InsertTask extends AbstractTask {
 
     private UserIdentity userIdentity;
 
+    private LoadStatistic statistic;
+    private FailMsg failMsg;
+
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
 
     private AtomicBoolean isFinished = new AtomicBoolean(false);
@@ -100,7 +105,53 @@ public class InsertTask extends AbstractTask {
     @Getter
     @Setter
     private LoadJob loadJob;
+    private TaskType taskType = TaskType.PENDING;
+    private MergeType mergeType = MergeType.APPEND;
 
+    /**
+     * task merge type
+     */
+    enum MergeType {
+        MERGE,
+        APPEND,
+        DELETE
+    }
+
+    /**
+     * task type
+     */
+    enum TaskType {
+        UNKNOWN, // this is only for ISSUE #2354
+        PENDING,
+        LOADING,
+        FINISHED,
+        FAILED,
+        CANCELLED
+    }
+
+    public InsertTask(InsertIntoTableCommand insertInto,
+                      ConnectContext ctx, StmtExecutor executor, LoadStatistic statistic) {
+        this(null, insertInto, ctx, executor, statistic);
+    }
+
+    public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
+        this.labelName = labelName;
+        this.sql = sql;
+        this.currentDb = currentDb;
+        this.userIdentity = userIdentity;
+
+    }
+
+    public InsertTask(String labelName, InsertIntoTableCommand insertInto,
+                       ConnectContext ctx, StmtExecutor executor, LoadStatistic statistic) {
+        this.labelName = labelName;
+        this.command = insertInto;
+        this.ctx = ctx;
+        this.stmtExecutor = executor;
+        this.statistic = statistic;
+        setTaskId(Env.getCurrentEnv().getNextId());
+        // 是否会在follower上回放？
+    }
 
     @Override
     public void before() throws JobException {
@@ -133,18 +184,10 @@ public class InsertTask extends AbstractTask {
         return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
-    public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
-        this.labelName = labelName;
-        this.sql = sql;
-        this.currentDb = currentDb;
-        this.userIdentity = userIdentity;
-
-    }
-
     @Override
     public void run() throws JobException {
         try {
-            command.run(ctx, stmtExecutor);
+            command.statefulRun(ctx, stmtExecutor);
         } catch (Exception e) {
             throw new JobException(e);
         }
@@ -211,7 +254,7 @@ public class InsertTask extends AbstractTask {
         jobInfo.add(TimeUtils.longToTimeString(loadJob.getFinishTimestamp()));
         // tracking url
         jobInfo.add(loadJob.getLoadingStatus().getTrackingUrl());
-        jobInfo.add(loadJob.getLoadStatistic().toJson());
+        // jobInfo.add(coordinator.getLoadStatistic().toJson());
         // user
         jobInfo.add(loadJob.getUserInfo().getQualifiedUser());
         return jobInfo;

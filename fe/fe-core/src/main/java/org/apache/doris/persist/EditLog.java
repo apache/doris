@@ -79,7 +79,6 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.scheduler.executor.TVFLoadJob;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -1934,10 +1933,6 @@ public class EditLog {
 
     public void logAlterMTMV(AlterMTMV log) {
         logEdit(OperationType.OP_ALTER_MTMV, log);
-
-    }
-
-    public void logLoadCreate(TVFLoadJob loadJob) {
 
     }
 

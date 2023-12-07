@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -28,6 +29,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
+import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -97,7 +100,11 @@ public class MTMVJob extends AbstractJob<MTMVTask> {
     @SerializedName(value = "mi")
     private long mtmvId;
 
-    public MTMVJob(long dbId, long mtmvId) {
+    public MTMVJob() {}
+
+    public MTMVJob(long dbId, String dbName, long mtmvId, String jobName, String comment,
+                   UserIdentity createUser, JobStatus status, JobExecutionConfiguration jobConfiguration) {
+        super(Env.getCurrentEnv().getNextId(), jobName, status, dbName, comment, createUser, jobConfiguration);
         this.dbId = dbId;
         this.mtmvId = mtmvId;
         super.setCreateTimeMs(System.currentTimeMillis());

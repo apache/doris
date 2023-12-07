@@ -29,6 +29,9 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -54,7 +57,6 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.scheduler.executor.TVFLoadJob;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
 
@@ -479,8 +481,10 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     private void submitInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<InsertIntoTableCommand> plans) {
         try {
-            TVFLoadJob jobExecutor = new TVFLoadJob(ctx, executor, labelName, plans,
-                    sinkTableNames, properties, comment);
+            JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
+            jobExecutionConfiguration.setExecuteType(JobExecuteType.INSTANT);
+            InsertJob jobExecutor = new InsertJob(ctx, executor, labelName, plans,
+                    sinkTableNames, properties, comment, jobExecutionConfiguration);
             Env.getCurrentEnv().getLoadMgr().addLoadJob(jobExecutor);
         } catch (Exception e) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());

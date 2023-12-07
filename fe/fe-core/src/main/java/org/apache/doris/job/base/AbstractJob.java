@@ -75,6 +75,41 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
     @SerializedName(value = "sql")
     String executeSql;
 
+    public AbstractJob() {}
+
+    public AbstractJob(Long id) {
+        setJobId(id);
+    }
+
+    public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
+                            String currentDbName,
+                            String comment,
+                            UserIdentity createUser,
+                            JobExecutionConfiguration jobConfig) {
+        this(jobId, jobName, jobStatus, currentDbName, comment,
+                createUser, jobConfig, null, null, null);
+    }
+
+    public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
+                       String currentDbName,
+                       String comment,
+                       UserIdentity createUser,
+                       JobExecutionConfiguration jobConfig,
+                       Long createTimeMs,
+                       String executeSql,
+                       List<T> runningTasks) {
+        this.jobId = jobId;
+        this.jobName = jobName;
+        this.jobStatus = jobStatus;
+        this.currentDbName = currentDbName;
+        this.comment = comment;
+        this.createUser = createUser;
+        this.jobConfig = jobConfig;
+        this.createTimeMs = createTimeMs;
+        this.executeSql = executeSql;
+        this.runningTasks = runningTasks;
+    }
+
     private List<T> runningTasks = new ArrayList<>();
 
     @Override
@@ -109,7 +144,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
                 .orElseThrow(() -> new JobException("no task id:" + taskId)).cancel();
     }
 
-    public void initTasks(List<? extends AbstractTask> tasks) {
+    public void initTasks(Collection<? extends T> tasks) {
         tasks.forEach(task -> {
             task.setJobId(jobId);
             task.setTaskId(getNextId());
@@ -119,7 +154,7 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         if (CollectionUtils.isEmpty(getRunningTasks())) {
             setRunningTasks(new ArrayList<>());
         }
-        getRunningTasks().addAll((Collection<? extends T>) tasks);
+        getRunningTasks().addAll(tasks);
     }
 
     public void checkJobParams() {

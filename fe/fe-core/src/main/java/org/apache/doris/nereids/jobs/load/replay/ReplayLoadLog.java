@@ -17,10 +17,12 @@
 
 package org.apache.doris.nereids.jobs.load.replay;
 
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.loadv2.JobState;
-import org.apache.doris.scheduler.executor.TVFLoadJob;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import java.io.DataOutput;
 import java.io.IOException;
@@ -36,11 +38,11 @@ public abstract class ReplayLoadLog implements Writable {
         this.jobId = jobId;
     }
 
-    public static ReplayCreateLoadLog logCreateLoadOperation(TVFLoadJob loadJob) {
+    public static ReplayCreateLoadLog logCreateLoadOperation(InsertJob loadJob) {
         return new ReplayCreateLoadLog(loadJob);
     }
 
-    public static ReplayEndLoadLog logEndLoadOperation(TVFLoadJob loadJob) {
+    public static ReplayEndLoadLog logEndLoadOperation(InsertJob loadJob) {
         return new ReplayEndLoadLog(loadJob);
     }
 
@@ -54,13 +56,20 @@ public abstract class ReplayLoadLog implements Writable {
      * replay create load log
      */
     public static class ReplayCreateLoadLog extends ReplayLoadLog {
-        public ReplayCreateLoadLog(TVFLoadJob loadJob) {
-            super(loadJob.getId());
+        private final long dbId;
+
+        public ReplayCreateLoadLog(InsertJob loadJob) {
+            super(loadJob.getJobId());
+            dbId = loadJob.getDbId();
+        }
+
+        public long getDbId() {
+            return dbId;
         }
 
         @Override
         public void write(DataOutput out) throws IOException {
-
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
         }
     }
 
@@ -68,23 +77,31 @@ public abstract class ReplayLoadLog implements Writable {
      * replay end load log
      */
     public static class ReplayEndLoadLog extends ReplayLoadLog {
-        private JobState state;
+        private final JobStatus status;
         // 0: the job status is pending
         // n/100: n is the number of task which has been finished
         // 99: all tasks have been finished
         // 100: txn status is visible and load has been finished
-        private int progress;
-        private long createTimestamp = System.currentTimeMillis();
-        private long startTimestamp = -1;
-        private long finishTimestamp = -1;
-        private FailMsg failMsg;
+        private final int progress;
+        private final long startTimestamp;
+        private final long finishTimestamp;
+        private final FailMsg failMsg;
 
-        public ReplayEndLoadLog(TVFLoadJob loadJob) {
-            super(loadJob.getId());
+        /**
+         * serialize end load log
+         * @param loadJob serialize some field from loadJob
+         */
+        public ReplayEndLoadLog(InsertJob loadJob) {
+            super(loadJob.getJobId());
+            status = loadJob.getJobStatus();
+            progress = loadJob.getProgress();
+            startTimestamp = loadJob.getStartTimestamp();
+            finishTimestamp = loadJob.getFinishTimestamp();
+            failMsg = loadJob.getFailMsg();
         }
 
-        public JobState getLoadingState() {
-            return state;
+        public JobStatus getLoadingStatus() {
+            return status;
         }
 
         public int getProgress() {
@@ -105,7 +122,7 @@ public abstract class ReplayLoadLog implements Writable {
 
         @Override
         public void write(DataOutput out) throws IOException {
-
+            Text.writeString(out, GsonUtils.GSON.toJson(this));
         }
     }
 }
