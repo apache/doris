@@ -559,8 +559,14 @@ set(COMMON_THIRDPARTY
     xml2
     lzma
     simdjson
-    deflate
 )
+
+if (ARCH_AMD64)
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        deflate
+    )
+endif()
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
