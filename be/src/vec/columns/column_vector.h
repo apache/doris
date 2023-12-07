@@ -196,6 +196,12 @@ public:
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
+    void insert_raw_integers(T val, size_t n) {
+        auto old_size = data.size();
+        data.resize(old_size + n);
+        std::fill(data.data() + old_size, data.data() + old_size + n, val);
+    }
+
     void insert_range_of_integer(T begin, T end) {
         auto old_size = data.size();
         data.resize(old_size + (end - begin));
