@@ -9,9 +9,9 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_with_conditions --
 PhysicalResultSink
@@ -24,13 +24,13 @@ PhysicalResultSink
 --------------PhysicalUnion
 ----------------PhysicalDistribute
 ------------------filter((t1.score > 10))
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
 ------------------filter((t2.name = 'Test'))
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
 ------------------filter((t3.id < 5))
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_with_order_by --
 PhysicalResultSink
@@ -42,11 +42,11 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_nested_union --
 PhysicalResultSink
@@ -58,13 +58,13 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+------------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_after_join --
 PhysicalResultSink
@@ -79,12 +79,13 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[t]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t]
+------------------------PhysicalOlapScan[table2]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[t]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_different_projections --
 PhysicalResultSink
@@ -97,10 +98,10 @@ PhysicalResultSink
 --------------PhysicalUnion
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_with_subquery --
 PhysicalResultSink
@@ -113,11 +114,11 @@ PhysicalResultSink
 --------------PhysicalUnion
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------filter((t.score > 20))
-----------------------PhysicalOlapScan[t]
+--------------------filter((table2.score > 20))
+----------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_with_limit --
 PhysicalResultSink
@@ -132,12 +133,12 @@ PhysicalResultSink
 ------------------PhysicalLimit[GLOBAL]
 --------------------PhysicalDistribute
 ----------------------PhysicalLimit[LOCAL]
-------------------------PhysicalOlapScan[t]
+------------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
 ------------------PhysicalLimit[GLOBAL]
 --------------------PhysicalDistribute
 ----------------------PhysicalLimit[LOCAL]
-------------------------PhysicalOlapScan[t]
+------------------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_complex_conditions --
 PhysicalResultSink
@@ -150,8 +151,8 @@ PhysicalResultSink
 --------------PhysicalUnion
 ----------------PhysicalDistribute
 ------------------filter((t1.name = 'Test') and (t1.score > 10))
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 ----------------PhysicalDistribute
 ------------------filter((t2.id < 5) and (t2.score < 20))
---------------------PhysicalOlapScan[t]
+--------------------PhysicalOlapScan[table2]
 
