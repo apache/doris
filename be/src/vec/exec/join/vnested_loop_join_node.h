@@ -120,14 +120,14 @@ private:
             // We should try to join rows if there still are some rows from probe side.
             while (_join_block.rows() < state->batch_size()) {
                 while (_current_build_pos == _build_blocks.size() ||
-                       _left_block_pos == _left_block.rows()) {
+                       _left_block_pos == _left_block->rows()) {
                     // if left block is empty(), do not need disprocess the left block rows
-                    if (_left_block.rows() > _left_block_pos) {
+                    if (_left_block->rows() > _left_block_pos) {
                         _left_side_process_count++;
                     }
 
                     _reset_with_next_probe_row();
-                    if (_left_block_pos < _left_block.rows()) {
+                    if (_left_block_pos < _left_block->rows()) {
                         if constexpr (set_probe_side_flag) {
                             _probe_offset_stack.push(mutable_join_block.rows());
                         }
