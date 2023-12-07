@@ -959,13 +959,16 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
     tablet_meta->set_tablet_uid(std::move(tablet_uid));
     std::string meta_binary;
     RETURN_IF_ERROR(tablet_meta->serialize(&meta_binary));
+
     Status load_tablet_from_meta_status = load_tablet_from_meta(
             store, tablet_id, schema_hash, meta_binary, true, force, restore, true);
-    if (load_tablet_from_meta_status.is<TABLE_ALREADY_DELETED_ERROR>()) {
-        VLOG_NOTICE << load_tablet_from_meta_status;
-    } else {
-        LOG(WARNING) << "fail to load tablet. header_path=" << header_path
-                     << ", error: " << load_tablet_from_meta_status;
+    if (!load_tablet_from_meta_status.ok()) {
+        if (load_tablet_from_meta_status.is<TABLE_ALREADY_DELETED_ERROR>()) {
+            VLOG_NOTICE << load_tablet_from_meta_status;
+        } else {
+            LOG(WARNING) << "fail to load tablet. header_path=" << header_path
+                         << ", error: " << load_tablet_from_meta_status;
+        }
         return load_tablet_from_meta_status;
     }
 
