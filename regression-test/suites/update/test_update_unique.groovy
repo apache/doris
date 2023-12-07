@@ -29,7 +29,7 @@ suite("test_update_unique", "p0") {
                 date_value date
             )
             UNIQUE KEY(k)
-            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
+            DISTRIBUTED BY HASH(k) BUCKETS 5 properties("replication_num" = "1");
         """
     sql "insert into ${tbName1} values(1, 1, 1, '2000-01-01');"
     sql "insert into ${tbName1} values(2, 1, 1, '2000-01-01');"
@@ -49,12 +49,10 @@ suite("test_update_unique", "p0") {
 
     // test complex update syntax
     sql """
-        create table ${tbName1} (id int, c1 bigint, c2 string, c3 double, c4 date) unique key (id) distributed by hash(id)
-        properties('replication_num'='1', "enable_unique_key_merge_on_write" = "false");
+        create table ${tbName1} (id int, c1 bigint, c2 string, c3 double, c4 date) unique key (id) distributed by hash(id) properties('replication_num'='1');
     """
     sql """
-        create table ${tbName2} (id int, c1 bigint, c2 string, c3 double, c4 date) unique key (id) distributed by hash(id)
-        properties('replication_num'='1', "enable_unique_key_merge_on_write" = "false");
+        create table ${tbName2} (id int, c1 bigint, c2 string, c3 double, c4 date) unique key (id) distributed by hash(id) properties('replication_num'='1');
     """
     sql """
         create table ${tbName3} (id int) distributed by hash (id) properties('replication_num'='1');

@@ -418,6 +418,7 @@ struct TTabletMetaInfo {
     13: optional i64 time_series_compaction_time_threshold_seconds
     14: optional bool enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
+    16: optional bool disable_auto_compaction
 }
 
 struct TUpdateTabletMetaInfoReq {
