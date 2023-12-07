@@ -42,7 +42,7 @@ suite("test_base_insert_job") {
         );
         """
     sql """
-       CREATE JOB ${jobName}  ON SCHEDULER every 1 second   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+       CREATE JOB ${jobName}  ON SCHEDULE every 1 second   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
     """
     Thread.sleep(2500)
     def jobs = sql """select * from ${tableName}"""
@@ -74,7 +74,7 @@ suite("test_base_insert_job") {
     def dataCount = sql """select count(*) from ${tableName}"""
     assert dataCount.get(0).get(0) == 0
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10000), 1001);
+          CREATE JOB ${jobName}  ON SCHEDULE at '${startTime}'   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10000), 1001);
      """
 
     Thread.sleep(25000)
@@ -105,7 +105,7 @@ suite("test_base_insert_job") {
  
     try{
         sql """
-            CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+            CREATE JOB ${jobName}  ON SCHEDULE at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
         assert e.getMessage().contains("startTimeMs must be greater than current time")
@@ -115,7 +115,7 @@ suite("test_base_insert_job") {
     """
     try{
         sql """
-            CREATE JOB test_one_time_error_starts  ON SCHEDULER at '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+            CREATE JOB test_one_time_error_starts  ON SCHEDULE at '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
         assert e.getMessage().contains("startTimeMs must be greater than current time")
@@ -125,7 +125,7 @@ suite("test_base_insert_job") {
     """
     try{
         sql """
-            CREATE JOB test_error_starts  ON SCHEDULER every 1 second ends '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+            CREATE JOB test_error_starts  ON SCHEDULE every 1 second ends '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
         assert e.getMessage().contains("end time cannot be less than start time")
@@ -136,7 +136,7 @@ suite("test_base_insert_job") {
     """
     try{
         sql """
-            CREATE JOB test_error_starts  ON SCHEDULER every 1 years ends '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+            CREATE JOB test_error_starts  ON SCHEDULE every 1 years ends '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
         assert e.getMessage().contains("interval time unit can not be years")
