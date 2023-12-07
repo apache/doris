@@ -1037,11 +1037,11 @@ void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
 }
 
 void TabletSchema::reserve_extracted_columns() {
-    for (auto it = _cols.begin(); it != _cols.end(); ) {
+    for (auto it = _cols.begin(); it != _cols.end();) {
         if (!it->is_extracted_column()) {
-            it = _cols.erase(it); 
+            it = _cols.erase(it);
         } else {
-            ++it; 
+            ++it;
         }
     }
 }
