@@ -409,6 +409,10 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         std::shared_lock rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
         if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
+            // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
+            // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_mow_context->rowset_ids`
+            // to the fresh value and re-request the correspoding rowsets.
             int64_t cur_max_version = tablet->max_version_unlocked().second;
             _mow_context->rowset_ids.clear();
             RETURN_IF_ERROR(tablet->all_rs_id(cur_max_version, &_mow_context->rowset_ids));
