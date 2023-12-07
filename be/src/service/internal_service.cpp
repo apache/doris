@@ -1250,7 +1250,7 @@ Status PInternalServiceImpl::_fold_constant_expr(const std::string& ser_request,
     Status st = obj->fold_constant_vexpr(t_request, response);
     if (!st.ok()) {
         LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st
-                     << " .and query_id: " << obj->query_id_string();
+                     << " .and query_id_is: " << obj->query_id_string();
     }
     return st;
 }
