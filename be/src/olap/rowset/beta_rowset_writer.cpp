@@ -154,10 +154,24 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
             // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
             // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
             // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_context.mow_context->rowset_ids`
-            // to the fresh value and re-request the correspoding rowsets.
-            int64_t cur_max_version = tablet->max_version_unlocked().second;
-            _context.mow_context->rowset_ids.clear();
-            RETURN_IF_ERROR(tablet->all_rs_id(cur_max_version, &_context.mow_context->rowset_ids));
+            // to the latest value and re-request the correspoding rowsets.
+            LOG(INFO) << fmt::format(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
+                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
+                    "transaction_id: {}",
+                    specified_rowsets.size(), _context.mow_context->rowset_ids.size(),
+                    _context.tablet->tablet_id(), _context.mow_context->max_version,
+                    _context.mow_context->txn_id);
+            Status st {Status::OK()};
+            _context.mow_context->update_rowset_ids_with_lock([&]() {
+                _context.mow_context->rowset_ids.clear();
+                st = tablet->all_rs_id(_context.mow_context->max_version,
+                                       &_context.mow_context->rowset_ids);
+            });
+            if (!st.ok()) {
+                return st;
+            }
             specified_rowsets = tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
             DCHECK(specified_rowsets.size() == _context.mow_context->rowset_ids.size());
         }
