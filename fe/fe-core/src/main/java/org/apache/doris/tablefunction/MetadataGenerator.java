@@ -580,7 +580,7 @@ public class MetadataGenerator {
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
-            List<AbstractTask> tasks = job.queryTasks();
+            List<AbstractTask> tasks = job.queryAllTasks();
             for (AbstractTask task : tasks) {
                 TRow tvfInfo = task.getTvfInfo();
                 if (tvfInfo != null) {

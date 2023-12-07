@@ -44,12 +44,10 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.List;
 import java.util.UUID;
 
 public class MTMVTask extends AbstractTask {
@@ -141,20 +139,6 @@ public class MTMVTask extends AbstractTask {
             LOG.warn(e);
             throw new JobException(e);
         }
-    }
-
-    @Override
-    public List<String> getShowInfo() {
-        List<String> data = Lists.newArrayList();
-        data.add(super.getJobId() + "");
-        data.add(super.getTaskId() + "");
-        data.add(super.getStatus() + "");
-        data.add(TimeUtils.longToTimeString(super.getCreateTimeMs()));
-        data.add(TimeUtils.longToTimeString(super.getStartTimeMs()));
-        data.add(TimeUtils.longToTimeString(super.getFinishTimeMs()));
-        data.add(String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs()));
-        data.add(sql);
-        return data;
     }
 
     @Override

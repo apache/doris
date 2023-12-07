@@ -64,8 +64,6 @@ import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
-import org.apache.doris.analysis.ShowJobStmt;
-import org.apache.doris.analysis.ShowJobTaskStmt;
 import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
@@ -183,7 +181,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.MaxComputeExternalCatalog;
-import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -432,10 +429,6 @@ public class ShowExecutor {
             handleShowBuildIndexStmt();
         } else if (stmt instanceof ShowAnalyzeTaskStatus) {
             handleShowAnalyzeTaskStatus();
-        } else if (stmt instanceof ShowJobStmt) {
-            handleShowJob();
-        } else if (stmt instanceof ShowJobTaskStmt) {
-            handleShowJobTask();
         } else if (stmt instanceof ShowConvertLSCStmt) {
             handleShowConvertLSC();
         } else {
@@ -1422,53 +1415,6 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
-    }
-
-    private void handleShowJobTask() {
-        ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        List<org.apache.doris.job.base.AbstractJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(showJobTaskStmt.getJobType(), showJobTaskStmt.getName());
-        if (CollectionUtils.isEmpty(jobs)) {
-            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
-            return;
-        }
-        org.apache.doris.job.base.AbstractJob job = jobs.get(0);
-        List<AbstractTask> jobTasks = job.queryAllTasks();
-        if (CollectionUtils.isEmpty(jobTasks)) {
-            resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
-            return;
-        }
-        for (AbstractTask jobTask : jobTasks) {
-            rows.add(jobTask.getShowInfo());
-        }
-        resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
-    }
-
-    private void handleShowJob() throws AnalysisException {
-        ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // if job exists
-        List<org.apache.doris.job.base.AbstractJob> jobList;
-        if (null == showJobStmt.getJobType()) {
-            jobList = Env.getCurrentEnv().getJobManager()
-                    .queryJobs(showJobStmt.getJobTypes());
-        } else {
-            jobList = Env.getCurrentEnv().getJobManager()
-                    .queryJobs(showJobStmt.getJobType(), showJobStmt.getName());
-        }
-
-        if (jobList.isEmpty()) {
-            resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
-            return;
-        }
-
-        // check auth
-
-        for (org.apache.doris.job.base.AbstractJob job : jobList) {
-            rows.add(job.getShowInfo());
-        }
-        resultSet = new ShowResultSet(jobList.get(0).getJobMetaData(), rows);
     }
 
     private void handleShowRoutineLoad() throws AnalysisException {
