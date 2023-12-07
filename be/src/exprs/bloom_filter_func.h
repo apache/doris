@@ -55,8 +55,6 @@ public:
         return _bloom_filter->find(data);
     }
 
-    void add_bytes(const char* data, size_t len) { _bloom_filter->insert(StringRef(data, len)); }
-
     // test_element/find_element only used on vectorized engine
     template <typename T>
     bool test_element(T element) const {
@@ -217,70 +215,76 @@ protected:
     bool _build_bf_exactly = false;
 };
 
-struct BaseOp {
-    virtual ~BaseOp() = default;
+template <typename T, bool need_trim = false>
+uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* data,
+                         const uint8* nullmap, uint16_t* offsets, int number,
+                         const bool is_parse_column) {
+    auto get_element = [](const char* input_data, int idx) {
+        if constexpr (std::is_same_v<T, StringRef> && need_trim) {
+            const auto value = ((const StringRef*)(input_data))[idx];
+            int64_t size = value.size;
+            const char* data = value.data;
+            // CHAR type may pad the tail with \0, need to trim
+            while (size > 0 && data[size - 1] == '\0') {
+                size--;
+            }
+            return StringRef(value.data, size);
+        } else {
+            return ((const T*)(input_data))[idx];
+        }
+    };
 
-    virtual bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
-                                  const void* data) const = 0;
-
-    uint16_t find_batch_olap_engine_with_element_size(const BloomFilterAdaptor& bloom_filter,
-                                                      const char* data, const uint8* nullmap,
-                                                      uint16_t* offsets, int number,
-                                                      const bool is_parse_column,
-                                                      size_t element_size) const {
-        uint16_t new_size = 0;
-        if (is_parse_column) {
-            if (nullmap == nullptr) {
-                for (int i = 0; i < number; i++) {
-                    uint16_t idx = offsets[i];
-                    if (!find_olap_engine(bloom_filter, data + element_size * idx)) {
-                        continue;
-                    }
-                    offsets[new_size++] = idx;
+    uint16_t new_size = 0;
+    if (is_parse_column) {
+        if (nullmap == nullptr) {
+            for (int i = 0; i < number; i++) {
+                uint16_t idx = offsets[i];
+                if (!bloom_filter.test_element(get_element(data, idx))) {
+                    continue;
                 }
-            } else {
-                for (int i = 0; i < number; i++) {
-                    uint16_t idx = offsets[i];
-                    if (nullmap[idx]) {
-                        continue;
-                    }
-                    if (!find_olap_engine(bloom_filter, data + element_size * idx)) {
-                        continue;
-                    }
-                    offsets[new_size++] = idx;
-                }
+                offsets[new_size++] = idx;
             }
         } else {
-            if (nullmap == nullptr) {
-                for (int i = 0; i < number; i++) {
-                    if (!find_olap_engine(bloom_filter, data + element_size * i)) {
-                        continue;
-                    }
-                    offsets[new_size++] = i;
+            for (int i = 0; i < number; i++) {
+                uint16_t idx = offsets[i];
+                if (nullmap[idx]) {
+                    continue;
                 }
-            } else {
-                for (int i = 0; i < number; i++) {
-                    if (nullmap[i]) {
-                        continue;
-                    }
-                    if (!find_olap_engine(bloom_filter, data + element_size * i)) {
-                        continue;
-                    }
-                    offsets[new_size++] = i;
+                if (!bloom_filter.test_element(get_element(data, idx))) {
+                    continue;
                 }
+                offsets[new_size++] = idx;
             }
         }
-        return new_size;
+    } else {
+        if (nullmap == nullptr) {
+            for (int i = 0; i < number; i++) {
+                if (!bloom_filter.test_element(get_element(data, i))) {
+                    continue;
+                }
+                offsets[new_size++] = i;
+            }
+        } else {
+            for (int i = 0; i < number; i++) {
+                if (nullmap[i]) {
+                    continue;
+                }
+                if (!bloom_filter.test_element(get_element(data, i))) {
+                    continue;
+                }
+                offsets[new_size++] = i;
+            }
+        }
     }
-};
+    return new_size;
+}
 
 template <class T>
-struct CommonFindOp : BaseOp {
+struct CommonFindOp {
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
                                     const bool is_parse_column) {
-        return find_batch_olap_engine_with_element_size(bloom_filter, data, nullmap, offsets,
-                                                        number, is_parse_column, sizeof(T));
+        return find_batch_olap<T>(bloom_filter, data, nullmap, offsets, number, is_parse_column);
     }
 
     void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
@@ -333,22 +337,11 @@ struct CommonFindOp : BaseOp {
     void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
         bloom_filter.add_element(*(T*)data);
     }
-
-    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const override {
-        return bloom_filter.test_element(*(T*)data);
-    }
 };
 
-struct StringFindOp : public BaseOp {
-    uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                    const uint8* nullmap, uint16_t* offsets, int number,
-                                    const bool is_parse_column) {
-        return find_batch_olap_engine_with_element_size(bloom_filter, data, nullmap, offsets,
-                                                        number, is_parse_column, sizeof(StringRef));
-    }
-
-    static void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
-                             size_t start) {
+struct StringFindOp : CommonFindOp<StringRef> {
+    void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
+                      size_t start) {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& col =
@@ -370,8 +363,8 @@ struct StringFindOp : public BaseOp {
         }
     }
 
-    static void find_batch(const BloomFilterAdaptor& bloom_filter,
-                           const vectorized::ColumnPtr& column, uint8_t* results) {
+    void find_batch(const BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
+                    uint8_t* results) {
         if (column->is_nullable()) {
             const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
             const auto& col =
@@ -394,33 +387,16 @@ struct StringFindOp : public BaseOp {
             }
         }
     }
-
-    static void insert(BloomFilterAdaptor& bloom_filter, const void* data) {
-        const auto* value = reinterpret_cast<const StringRef*>(data);
-        if (value) {
-            bloom_filter.add_bytes(value->data, value->size);
-        }
-    }
-
-    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const override {
-        const auto* value = reinterpret_cast<const StringRef*>(data);
-        return bloom_filter.test(*value);
-    }
 };
 
 // We do not need to judge whether data is empty, because null will not appear
 // when filer used by the storage engine
 struct FixedStringFindOp : public StringFindOp {
-    bool find_olap_engine(const BloomFilterAdaptor& bloom_filter,
-                          const void* input_data) const override {
-        const auto* value = reinterpret_cast<const StringRef*>(input_data);
-        int64_t size = value->size;
-        const char* data = value->data;
-        // CHAR type may pad the tail with \0, need to trim
-        while (size > 0 && data[size - 1] == '\0') {
-            size--;
-        }
-        return bloom_filter.test(StringRef(value->data, size));
+    uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
+                                    const uint8* nullmap, uint16_t* offsets, int number,
+                                    const bool is_parse_column) {
+        return find_batch_olap<StringRef, true>(bloom_filter, data, nullmap, offsets, number,
+                                                is_parse_column);
     }
 };
 
