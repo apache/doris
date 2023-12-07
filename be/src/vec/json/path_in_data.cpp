@@ -150,11 +150,11 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
     return hash.low ^ hash.high;
 }
 
-PathInData PathInData::pop_front() const {
-    return pop_nfront(1);
+PathInData PathInData::copy_pop_front() const {
+    return copy_pop_nfront(1);
 }
 
-PathInData PathInData::pop_nfront(size_t n) const {
+PathInData PathInData::copy_pop_nfront(size_t n) const {
     if (n >= parts.size()) {
         return {};
     }
