@@ -245,13 +245,13 @@ Status VRepeatNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     DCHECK(block->rows() == 0);
     while (need_more_input_data()) {
         RETURN_IF_ERROR(child(0)->get_next_after_projects(
-                state, &_child_block, &_child_eos,
+                state, _child_block.get(), &_child_eos,
                 std::bind((Status(ExecNode::*)(RuntimeState*, vectorized::Block*, bool*)) &
                                   ExecNode::get_next,
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
 
-        static_cast<void>(push(state, &_child_block, _child_eos));
+        static_cast<void>(push(state, _child_block.get(), _child_eos));
     }
 
     return pull(state, block, eos);

@@ -146,12 +146,12 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
     // if child_block is empty, get data from child.
     while (need_more_input_data()) {
         RETURN_IF_ERROR(child(0)->get_next_after_projects(
-                state, &_child_block, &_child_eos,
+                state, _child_block.get(), &_child_eos,
                 std::bind((Status(ExecNode::*)(RuntimeState*, Block*, bool*)) & ExecNode::get_next,
                           _children[0], std::placeholders::_1, std::placeholders::_2,
                           std::placeholders::_3)));
 
-        RETURN_IF_ERROR(push(state, &_child_block, _child_eos));
+        RETURN_IF_ERROR(push(state, _child_block.get(), _child_eos));
     }
 
     return pull(state, block, eos);
