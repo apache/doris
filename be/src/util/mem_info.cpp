@@ -24,6 +24,7 @@
 #include <sys/sysctl.h>
 #endif
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/segment_v2.pb.h>
@@ -52,6 +53,12 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
+
+bvar::PassiveStatus<int64_t> g_sys_mem_avail(
+        "meminfo_sys_mem_avail", [](void*) { return MemInfo::sys_mem_available(); }, nullptr);
+bvar::PassiveStatus<int64_t> g_proc_mem_no_allocator_cache(
+        "meminfo_proc_mem_no_allocator_cache",
+        [](void*) { return MemInfo::proc_mem_no_allocator_cache(); }, nullptr);
 
 bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;
