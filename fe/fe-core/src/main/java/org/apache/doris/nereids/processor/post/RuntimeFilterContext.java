@@ -52,6 +52,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * runtime filter context used at post process and translation.
@@ -273,6 +274,7 @@ public class RuntimeFilterContext {
                     l.addAll(r);
                     return l;
                 });
+        filters = filters.stream().distinct().collect(Collectors.toList());
         filters.sort((a, b) -> a.getId().compareTo(b.getId()));
         return filters;
     }
