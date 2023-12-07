@@ -1127,11 +1127,6 @@ public class OlapTable extends Table {
         if (tblStats == null) {
             return true;
         }
-        long rowCount = getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
-        }
         if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
                 .stream()
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
@@ -1139,6 +1134,7 @@ public class OlapTable extends Table {
                 .collect(Collectors.toSet()))) {
             return true;
         }
+        long rowCount = getRowCount();
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
