@@ -507,7 +507,7 @@ insert into doris_sink select id,name,bank,age from cdc_mysql_source;
 | --oracle-conf           | Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can find [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html) View all configurations Oracle-CDC, where hostname/username/password/database-name/schema-name is required. |
 | --postgres-conf         | Postgres CDCSource configuration, e.g. --postgres-conf hostname=127.0.0.1, you can find [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html) View all configurations Postgres-CDC where hostname/username/password/database-name/schema-name/slot.name is required. |
 | --sqlserver-conf        | SQLServer CDCSource configuration, for example --sqlserver-conf hostname=127.0.0.1, you can find it [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html) View all configurations SQLServer-CDC, where hostname/username/password/database-name/schema-name is required. |
-| --sink-conf             | All configurations of Doris Sink can be found [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9) View the complete configuration items. |
+| --sink-conf             | All configurations of Doris Sink can be found [here](https://doris.apache.org/zh-CN/docs/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9) View the complete configuration items. |
 | --table-conf            | The configuration items of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1 |
 | --ignore-default-value  | Turn off the default value of synchronizing mysql table structure. It is suitable for synchronizing mysql data to doris when the field has a default value but the actual inserted data is null. Reference [here](https://github.com/apache/doris-flink-connector/pull/152) |
 | --use-new-schema-change | Whether to use the new schema change to support synchronization of MySQL multi-column changes and default values. Reference [here](https://github.com/apache/doris-flink-connector/pull/167) |
@@ -723,13 +723,13 @@ At this time, it cannot be started from the checkpoint, and the expiration time 
 
 6. **errCode = 2, detailMessage = current running txns on db 10006 is 100, larger than limit 100**
 
-This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `max_running_txn_num_per_db` of fe.conf. For details, please refer to [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/dev/admin-manual/config/fe-config/#max_running_txn_num_per_db)
+This is because the concurrent import of the same library exceeds 100, which can be solved by adjusting the parameter `max_running_txn_num_per_db` of fe.conf. For details, please refer to [max_running_txn_num_per_db](https://doris.apache.org/zh-CN/docs/admin-manual/config/fe-config/#max_running_txn_num_per_db)
 
 At the same time, if a task frequently modifies the label and restarts, it may also cause this error. In the 2pc scenario (Duplicate/Aggregate model), the label of each task needs to be unique, and when restarting from the checkpoint, the Flink task will actively abort the txn that has been successfully precommitted before and has not been committed. Frequently modifying the label and restarting will cause a large number of txn that have successfully precommitted to fail to be aborted, occupying the transaction. Under the Unique model, 2pc can also be turned off, which can realize idempotent writing.
 
 7. **How to ensure the order of a batch of data when Flink writes to the Uniq model?**
 
-You can add sequence column configuration to ensure that, for details, please refer to [sequence](https://doris.apache.org/zh-CN/docs/dev/data-operate/update-delete/sequence-column-manual)
+You can add sequence column configuration to ensure that, for details, please refer to [sequence](https://doris.apache.org/zh-CN/docs/data-operate/update-delete/sequence-column-manual)
 
 8. **The Flink task does not report an error, but the data cannot be synchronized? **
 

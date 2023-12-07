@@ -314,7 +314,7 @@ my_import.json
 >1. 这里我们使用了 JSON 格式导入数据
 >2.  `line_delimiter` 默认是换行符，可能会和数据中的值冲突，我们可以使用一些特殊字符或者不可见字符，避免导入错误
 >3. strip_outer_array ：在一批导入数据中表示多行数据，Doris 在解析时会将数组展开，然后依次解析其中的每一个 Object 作为一行数据
->4. 更多 Stream load 参数请参照 [Stream load文档]([Stream load - Apache Doris](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way/stream-load-manual))
+>4. 更多 Stream load 参数请参照 [Stream load文档]([Stream load - Apache Doris](https://doris.apache.org/zh-CN/docs/data-operate/import/import-way/stream-load-manual))
 >5. 如果是 CSV 格式我们可以这样使用
 >
 >```json

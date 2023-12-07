@@ -314,7 +314,7 @@ my_import.json
 >1. Here we use JSON format to import data
 >2. `line_delimiter` defaults to a newline character, which may conflict with the value in the data, we can use some special characters or invisible characters to avoid import errors
 >3. strip_outer_array : Represents multiple rows of data in a batch of imported data. Doris will expand the array when parsing, and then parse each Object in it as a row of data in turn.
->4. For more parameters of Stream load, please refer to [Stream load document]([Stream load - Apache Doris](https://doris.apache.org/zh-CN/docs/dev/data-operate/import/import-way /stream-load-manual))
+>4. For more parameters of Stream load, please refer to [Stream load document]([Stream load - Apache Doris](https://doris.apache.org/zh-CN/docs/data-operate/import/import-way/stream-load-manual))
 >5. If it is in CSV format, we can use it like this
 >
 >```json

@@ -186,7 +186,7 @@ Number of retries after writing to Doris fails
 
 Import parameters for Stream load. For example: 'doris.column_separator' = ', ' etc.
 
-[More Stream Load parameter configuration](../../data-operate/import/import-way/stream-load-manual.md)
+[More Stream Load parameter configuration](../data-operate/import/import-way/stream-load-manual.md)
 
 #### Examples
 
@@ -271,7 +271,7 @@ Doris number of submissions per batch
 `doris. [string]`
 Doris stream_load properties,you can use 'doris.' prefix + stream_load properties
 
-[More Doris stream_load Configurations](../../data-operate/import/import-way/stream-load-manual.md)
+[More Doris stream_load Configurations](../data-operate/import/import-way/stream-load-manual.md)
 
 #### Examples
 
