@@ -57,7 +57,6 @@ public class RangerHiveAccessController implements CatalogAccessController {
         auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         //start a timed log flusher
         logFlushTimer.scheduleAtFixedRate(new RangerHiveAuditLogFlusher(auditHandler), 10, 20L, TimeUnit.SECONDS);
-        hivePlugin.
     }
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, HiveAccessType accessType) {
