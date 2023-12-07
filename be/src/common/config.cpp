@@ -570,7 +570,13 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
-DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "100");
+DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
+
+// percent of (active memtables size / all memtables size) when reach hard limit
+DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
+
+// percent of (active memtables size / all memtables size) when reach soft limit
+DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
 
 // Alignment
 DEFINE_Int32(memory_max_alignment, "16");
