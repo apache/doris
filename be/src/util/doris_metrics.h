@@ -186,7 +186,7 @@ public:
     UIntGauge* query_mem_consumption = nullptr;
     UIntGauge* schema_change_mem_consumption = nullptr;
     UIntGauge* storage_migration_mem_consumption = nullptr;
-    UIntGauge* tablet_meta_mem_consumption = nullptr;
+    UIntGauge* tablet_meta_schema_columns_count = nullptr;
 
     // Cache metrics
     UIntGauge* query_cache_memory_total_byte = nullptr;
@@ -194,7 +194,7 @@ public:
     UIntGauge* query_cache_partition_total_count = nullptr;
 
     IntCounter* tablet_schema_cache_count = nullptr;
-    UIntGauge* tablet_schema_cache_memory_bytes = nullptr;
+    IntCounter* tablet_schema_cache_columns_count = nullptr;
     IntGauge* lru_cache_memory_bytes = nullptr;
 
     UIntGauge* scanner_thread_pool_queue_size = nullptr;

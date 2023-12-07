@@ -118,7 +118,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _stopped(false),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
-          _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
+          _segment_meta_mem_tracker(std::make_shared<MemTracker>(
+                  "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
