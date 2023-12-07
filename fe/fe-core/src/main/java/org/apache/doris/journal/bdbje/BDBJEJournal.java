@@ -167,8 +167,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                  * subsequent update operations to the Master.
                  */
                 LOG.error("catch ReplicaWriteException when writing to database, will exit. journal id {}", id, e);
+                ReplicatedEnvironment.State state = bdbEnvironment.getReplicatedEnvironment().getState();
                 String msg = "write bdb failed. will exit. journalId: " + id + ", bdb database Name: "
-                        + currentJournalDB.getDatabaseName();
+                        + currentJournalDB.getDatabaseName() + ", current state: " + state;
                 LOG.error(msg);
                 Util.stdoutWithTime(msg);
                 System.exit(-1);
