@@ -436,10 +436,12 @@ TEST(BlockTest, merge_with_shared_columns) {
     vectorized::MutableBlock mutable_block(&src_block);
     auto status = mutable_block.merge(temp_block);
     ASSERT_TRUE(status.ok());
-    ASSERT_FALSE(src_block.is_valid(1034));
 
-    src_block.swap(mutable_block.to_block());
-    ASSERT_TRUE(src_block.is_valid(1034));
+    src_block.set_columns(std::move(mutable_block.mutable_columns()));
+
+    for (auto& column : src_block.get_columns()) {
+        EXPECT_EQ(1034, column->size());
+    }
     EXPECT_EQ(1034, src_block.rows());
 }
 
