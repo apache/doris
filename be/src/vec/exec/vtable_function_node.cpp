@@ -235,7 +235,7 @@ Status VTableFunctionNode::_process_next_child_row() {
             RETURN_IF_ERROR(fn->process_close());
         }
 
-        release_block_memory(_child_block);
+        release_block_memory(*_child_block);
         _cur_child_offset = -1;
         return Status::OK();
     }

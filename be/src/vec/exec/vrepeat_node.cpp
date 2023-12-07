@@ -191,7 +191,7 @@ Status VRepeatNode::pull(doris::RuntimeState* state, vectorized::Block* output_b
         int size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
-            release_block_memory(_child_block);
+            release_block_memory(*_child_block);
             _repeat_id_idx = 0;
         }
     }
