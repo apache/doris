@@ -52,6 +52,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     /**
      * create MTMVJob
+     *
      * @param mtmv
      * @throws DdlException
      */
@@ -112,13 +113,14 @@ public class MTMVJobManager implements MTMVHookService {
 
     /**
      * drop MTMVJob
+     *
      * @param mtmv
      * @throws DdlException
      */
     @Override
     public void dropMTMV(MTMV mtmv) throws DdlException {
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
+                .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
         if (!CollectionUtils.isEmpty(jobs)) {
             try {
                 Env.getCurrentEnv().getJobManager()
@@ -142,6 +144,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     /**
      * drop MTMVJob and then create MTMVJob
+     *
      * @param mtmv
      * @param alterMTMV
      * @throws DdlException
@@ -156,6 +159,7 @@ public class MTMVJobManager implements MTMVHookService {
 
     /**
      * trigger MTMVJob
+     *
      * @param info
      * @throws DdlException
      * @throws MetaNotFoundException
@@ -165,12 +169,12 @@ public class MTMVJobManager implements MTMVHookService {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getMvName().getDb());
         MTMV mtmv = (MTMV) db.getTableOrMetaException(info.getMvName().getTbl(), TableType.MATERIALIZED_VIEW);
         List<MTMVJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(JobType.MTMV, mtmv.getJobInfo().getJobName());
+                .queryJobs(JobType.MV, mtmv.getJobInfo().getJobName());
         if (CollectionUtils.isEmpty(jobs) || jobs.size() != 1) {
             throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
         }
         try {
-            Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId());
+            Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId(), null);
         } catch (JobException e) {
             e.printStackTrace();
             throw new DdlException(e.getMessage());

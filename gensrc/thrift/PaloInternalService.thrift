@@ -257,6 +257,10 @@ struct TQueryOptions {
   90: optional bool skip_missing_version = false;
 
   91: optional bool runtime_filter_wait_infinitely = false;
+
+  92: optional i32 wait_full_block_schedule_times = 1;
+  
+  93: optional i32 inverted_index_max_expansions = 50;
 }
 
 
@@ -683,6 +687,8 @@ struct TPipelineFragmentParams {
   31: optional i32 load_stream_per_node // num load stream for each sink backend
   32: optional i32 total_load_streams // total num of load streams the downstream backend will see
   33: optional i32 num_local_sink
+  34: optional i32 num_buckets
+  35: optional map<i32, i32> bucket_seq_to_instance_idx
 }
 
 struct TPipelineFragmentParamsList {

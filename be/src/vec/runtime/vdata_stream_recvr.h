@@ -237,6 +237,7 @@ public:
 
 protected:
     friend class pipeline::ExchangeLocalState;
+    friend struct pipeline::ExchangeDataDependency;
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
     // Not managed by this class

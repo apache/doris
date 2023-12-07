@@ -232,8 +232,9 @@ public class Load {
                      * ->
                      * (A, B, C) SET (__doris_shadow_B = B)
                      */
-                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
-                            new SlotRef(null, originCol));
+                    SlotRef slot = new SlotRef(null, originCol);
+                    slot.setType(column.getType());
+                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), slot);
                     shadowColumnDescs.add(importColumnDesc);
                 }
             } else {
@@ -343,10 +344,12 @@ public class Load {
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
+        HashMap<String, Type> colToType = new HashMap<>();
 
         // check default value and auto-increment column
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
+            colToType.put(columnName, column.getType());
             if (columnExprMap.containsKey(columnName)) {
                 continue;
             }
@@ -426,9 +429,15 @@ public class Load {
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                // columns default be varchar type
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+
+                if (formatType == TFileFormatType.FORMAT_ARROW) {
+                    slotDesc.setColumn(new Column(realColName, colToType.get(realColName)));
+                } else {
+                    // columns default be varchar type
+                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                }
+
                 // ISSUE A: src slot should be nullable even if the column is not nullable.
                 // because src slot is what we read from file, not represent to real column value.
                 // If column is not nullable, error will be thrown when filling the dest slot,
@@ -462,6 +471,30 @@ public class Load {
         // otherwise analyze exprs with varchar type
         analyzeAllExprs(tbl, analyzer, exprsByName, mvDefineExpr, slotDescByName);
         LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    private static Expr getExprFromDesc(Analyzer analyzer, SlotDescriptor slotDesc, SlotRef slot)
+            throws AnalysisException {
+        SlotRef newSlot = new SlotRef(slotDesc);
+        newSlot.setType(slotDesc.getType());
+        Expr rhs = newSlot;
+        rhs = rhs.castTo(slot.getType());
+
+        if (slot.getDesc() == null) {
+            // shadow column
+            return rhs;
+        }
+
+        if (newSlot.isNullable() && !slot.isNullable()) {
+            rhs = new FunctionCallExpr("non_nullable", Lists.newArrayList(rhs));
+            rhs.setType(slotDesc.getType());
+            rhs.analyze(analyzer);
+        } else if (!newSlot.isNullable() && slot.isNullable()) {
+            rhs = new FunctionCallExpr("nullable", Lists.newArrayList(rhs));
+            rhs.setType(slotDesc.getType());
+            rhs.analyze(analyzer);
+        }
+        return rhs;
     }
 
     private static void analyzeAllExprs(Table tbl, Analyzer analyzer, Map<String, Expr> exprsByName,
@@ -521,8 +554,7 @@ public class Load {
             for (SlotRef slot : slots) {
                 if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
-                            new SlotRef(slotDescByName.get(slot.getColumnName()))));
+                    smap.getRhs().add(getExprFromDesc(analyzer, slotDescByName.get(slot.getColumnName()), slot));
                 } else if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),

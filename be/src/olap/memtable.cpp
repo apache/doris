@@ -205,7 +205,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<ui
     } else {
         _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
     }
-    size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
+    size_t input_size = target_block.bytes() * num_rows / target_block.rows();
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {

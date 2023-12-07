@@ -25,7 +25,7 @@ suite("test_base_insert_job") {
     def jobName = "insert_recovery_test_base_insert_job"
     sql """drop table if exists `${tableName}` force"""
     sql """
-        STOP JOB for ${jobName}
+        DROP JOB where jobname =  '${jobName}'
     """
 
     sql """
@@ -49,7 +49,7 @@ suite("test_base_insert_job") {
     println jobs
     assert 3>=jobs.size() >= (2 as Boolean) //at least 2 records, some times 3 records
     sql """
-        STOP JOB for ${jobName}
+        DROP JOB where jobname =  '${jobName}'
     """
     sql """drop table if exists `${tableName}` force """
     sql """
@@ -65,47 +65,81 @@ suite("test_base_insert_job") {
             "replication_allocation" = "tag.location.default: 1"
         );
         """
-    def currentMs=System.currentTimeMillis()+1000;
+    // Enlarge this parameter to avoid other factors that cause time verification to fail when submitting.
+    def currentMs=System.currentTimeMillis()+20000;
     def   dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(currentMs), ZoneId.systemDefault());
 
     def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     def startTime= dateTime.format(formatter);
+    def dataCount = sql """select count(*) from ${tableName}"""
+    assert dataCount.get(0).get(0) == 0
     sql """
-          CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+          CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test for test&68686781jbjbhj//ncsa' DO insert into ${tableName}  values  ('2023-07-19', sleep(10000), 1001);
      """
 
-    Thread.sleep(2500)
-
-    def datas = sql """select * from ${tableName}"""
+    Thread.sleep(25000)
+    def onceJob = sql """select id from jobs("type"="insert") where Name='${jobName}'"""
+    assert onceJob.size() == 1
+    def onceJobId= onceJob.get(0).get(0);
+    // test cancel task
+    def datas = sql """select status,taskid from tasks("type"="insert") where jobid= ${onceJobId}"""
     println datas
-    //assert datas.size() == 1
+    assert datas.size() == 1
+    assert datas.get(0).get(0) == "RUNNING"
+    def taskId = datas.get(0).get(1)
+    sql """cancel  task where jobName='${jobName}' and taskId= ${taskId}"""
+    def cancelTask = sql """ select status from tasks("type"="insert") where jobid= ${onceJobId}""" 
+    println cancelTask
+    //check task status
+    assert cancelTask.size() == 1
+    assert cancelTask.get(0).get(0) == "CANCELED"
+    // check table data
+    def dataCount1 = sql """select count(1) from ${tableName}"""
+    assert dataCount1.get(0).get(0) == 0
+    // check job status
+    def oncejob=sql """select status,comment from jobs("type"="insert") where Name='${jobName}' """
+    println oncejob
+    assert oncejob.get(0).get(0) == "FINISHED"
+    //assert comment
+    assert oncejob.get(0).get(1) == "test for test&68686781jbjbhj//ncsa"
+ 
     try{
         sql """
             CREATE JOB ${jobName}  ON SCHEDULER at '${startTime}'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
-        assert true
+        assert e.getMessage().contains("startTimeMs must be greater than current time")
     }
     sql """
-        STOP JOB for test_one_time_error_starts
+        DROP JOB where jobname =  'test_one_time_error_starts'
     """
     try{
         sql """
             CREATE JOB test_one_time_error_starts  ON SCHEDULER at '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
-        assert true
+        assert e.getMessage().contains("startTimeMs must be greater than current time")
     }
     sql """
-        STOP JOB for test_error_starts
+        DROP JOB where jobname =  'test_error_starts'
     """
     try{
         sql """
             CREATE JOB test_error_starts  ON SCHEDULER every 1 second ends '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
         """
     } catch (Exception e) {
-        assert true
+        assert e.getMessage().contains("end time cannot be less than start time")
     }
 
-
+    sql """
+        DROP JOB where jobname =  'test_error_starts'
+    """
+    try{
+        sql """
+            CREATE JOB test_error_starts  ON SCHEDULER every 1 years ends '2023-11-13 14:18:07'   comment 'test' DO insert into ${tableName} (timestamp, type, user_id) values ('2023-03-18','1','12213');
+        """
+    } catch (Exception e) {
+        assert e.getMessage().contains("interval time unit can not be years")
+    }
+    
 }

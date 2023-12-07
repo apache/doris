@@ -64,8 +64,6 @@ import org.apache.doris.analysis.ShowFrontendsStmt;
 import org.apache.doris.analysis.ShowFunctionsStmt;
 import org.apache.doris.analysis.ShowGrantsStmt;
 import org.apache.doris.analysis.ShowIndexStmt;
-import org.apache.doris.analysis.ShowJobStmt;
-import org.apache.doris.analysis.ShowJobTaskStmt;
 import org.apache.doris.analysis.ShowLastInsertStmt;
 import org.apache.doris.analysis.ShowLoadProfileStmt;
 import org.apache.doris.analysis.ShowLoadStmt;
@@ -97,6 +95,7 @@ import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
+import org.apache.doris.analysis.ShowTabletsBelongStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowTrashStmt;
@@ -168,6 +167,7 @@ import org.apache.doris.common.proc.TrashProcDir;
 import org.apache.doris.common.proc.TrashProcNode;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -181,7 +181,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.MaxComputeExternalCatalog;
-import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -237,6 +236,7 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -417,6 +417,8 @@ public class ShowExecutor {
             handleShowCreateCatalog();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
+        } else if (stmt instanceof ShowTabletsBelongStmt) {
+            handleShowTabletsBelong();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
         } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
@@ -427,10 +429,6 @@ public class ShowExecutor {
             handleShowBuildIndexStmt();
         } else if (stmt instanceof ShowAnalyzeTaskStatus) {
             handleShowAnalyzeTaskStatus();
-        } else if (stmt instanceof ShowJobStmt) {
-            handleShowJob();
-        } else if (stmt instanceof ShowJobTaskStmt) {
-            handleShowJobTask();
         } else if (stmt instanceof ShowConvertLSCStmt) {
             handleShowConvertLSC();
         } else {
@@ -1000,7 +998,7 @@ public class ShowExecutor {
     private void handleShowColumn() throws AnalysisException {
         ShowColumnStmt showStmt = (ShowColumnStmt) stmt;
         List<List<String>> rows = Lists.newArrayList();
-        DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDb());
+        DatabaseIf db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException(showStmt.getDb());
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
@@ -1417,53 +1415,6 @@ public class ShowExecutor {
         }
 
         resultSet = new ShowResultSet(showWarningsStmt.getMetaData(), rows);
-    }
-
-    private void handleShowJobTask() {
-        ShowJobTaskStmt showJobTaskStmt = (ShowJobTaskStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        List<org.apache.doris.job.base.AbstractJob> jobs = Env.getCurrentEnv().getJobManager()
-                .queryJobs(showJobTaskStmt.getJobType(), showJobTaskStmt.getName());
-        if (CollectionUtils.isEmpty(jobs)) {
-            resultSet = new ShowResultSet(showJobTaskStmt.getMetaData(), rows);
-            return;
-        }
-        org.apache.doris.job.base.AbstractJob job = jobs.get(0);
-        List<AbstractTask> jobTasks = job.queryTasks();
-        if (CollectionUtils.isEmpty(jobTasks)) {
-            resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
-            return;
-        }
-        for (AbstractTask jobTask : jobTasks) {
-            rows.add(jobTask.getShowInfo());
-        }
-        resultSet = new ShowResultSet(job.getTaskMetaData(), rows);
-    }
-
-    private void handleShowJob() throws AnalysisException {
-        ShowJobStmt showJobStmt = (ShowJobStmt) stmt;
-        List<List<String>> rows = Lists.newArrayList();
-        // if job exists
-        List<org.apache.doris.job.base.AbstractJob> jobList;
-        if (null == showJobStmt.getJobType()) {
-            jobList = Env.getCurrentEnv().getJobManager()
-                    .queryJobs(showJobStmt.getJobTypes());
-        } else {
-            jobList = Env.getCurrentEnv().getJobManager()
-                    .queryJobs(showJobStmt.getJobType(), showJobStmt.getName());
-        }
-
-        if (jobList.isEmpty()) {
-            resultSet = new ShowResultSet(showJobStmt.getMetaData(), rows);
-            return;
-        }
-
-        // check auth
-
-        for (org.apache.doris.job.base.AbstractJob job : jobList) {
-            rows.add(job.getShowInfo());
-        }
-        resultSet = new ShowResultSet(jobList.get(0).getJobMetaData(), rows);
     }
 
     private void handleShowRoutineLoad() throws AnalysisException {
@@ -2702,6 +2653,62 @@ public class ShowExecutor {
             }
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
+    }
+
+    private void handleShowTabletsBelong() {
+        ShowTabletsBelongStmt showStmt = (ShowTabletsBelongStmt) stmt;
+        List<List<String>> rows = new ArrayList<>();
+
+        Env env = Env.getCurrentEnv();
+
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        Map<Long, HashSet<Long>> tableToTabletIdsMap = new HashMap<>();
+        for (long tabletId : showStmt.getTabletIds()) {
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+            if (tabletMeta == null) {
+                continue;
+            }
+            Database db = env.getInternalCatalog().getDbNullable(tabletMeta.getDbId());
+            if (db == null) {
+                continue;
+            }
+            long tableId = tabletMeta.getTableId();
+            Table table = db.getTableNullable(tableId);
+            if (table == null) {
+                continue;
+            }
+
+            if (!tableToTabletIdsMap.containsKey(tableId)) {
+                tableToTabletIdsMap.put(tableId, new HashSet<>());
+            }
+            tableToTabletIdsMap.get(tableId).add(tabletId);
+        }
+
+        for (long tableId : tableToTabletIdsMap.keySet()) {
+            Table table = env.getInternalCatalog().getTableByTableId(tableId);
+            List<String> line = new ArrayList<>();
+            line.add(table.getDatabase().getFullName());
+            line.add(table.getName());
+
+            OlapTable olapTable = (OlapTable) table;
+            Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) olapTable.getDataSize());
+            String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
+                    + tableSizePair.second;
+            line.add(readableSize);
+            line.add(new Long(olapTable.getPartitionNum()).toString());
+            int totalBucketNum = 0;
+            Set<String> partitionNamesSet = table.getPartitionNames();
+            for (String partitionName : partitionNamesSet) {
+                totalBucketNum += table.getPartition(partitionName).getDistributionInfo().getBucketNum();
+            }
+            line.add(new Long(totalBucketNum).toString());
+            line.add(new Long(olapTable.getReplicaCount()).toString());
+            line.add(tableToTabletIdsMap.get(tableId).toString());
+
+            rows.add(line);
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleCopyTablet() throws AnalysisException {

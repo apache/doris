@@ -184,6 +184,9 @@ public class StatisticsRepository {
     }
 
     public static void dropStatistics(long tblId, Set<String> colNames) throws DdlException {
+        if (colNames == null) {
+            return;
+        }
         dropStatisticsByColName(tblId, colNames, StatisticConstants.STATISTIC_TBL_NAME);
         dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
     }

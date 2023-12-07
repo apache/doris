@@ -81,11 +81,6 @@ public:
     RuntimeProfile::Counter* get_mgr_add_batch_timer() { return _mgr_add_batch_timer; }
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
 
-    std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> get_tablets_channels() {
-        std::lock_guard<SpinLock> l(_tablets_channels_lock);
-        return _tablets_channels;
-    }
-
 protected:
     Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
                                 const int64_t index_id);
