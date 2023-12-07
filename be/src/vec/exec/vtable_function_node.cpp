@@ -45,7 +45,9 @@ namespace doris::vectorized {
 
 VTableFunctionNode::VTableFunctionNode(doris::ObjectPool* pool, const TPlanNode& tnode,
                                        const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs) {}
+        : ExecNode(pool, tnode, descs) {
+    _child_block = Block::create_shared();
+}
 
 Status VTableFunctionNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -170,7 +172,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
         RETURN_IF_CANCELLED(state);
         RETURN_IF_ERROR(state->check_query_state("VTableFunctionNode, while getting next batch."));
 
-        if (_child_block.rows() == 0) {
+        if (_child_block->rows() == 0) {
             break;
         }
 
@@ -227,7 +229,7 @@ Status VTableFunctionNode::_get_expanded_block(RuntimeState* state, Block* outpu
 Status VTableFunctionNode::_process_next_child_row() {
     _cur_child_offset++;
 
-    if (_cur_child_offset >= _child_block.rows()) {
+    if (_cur_child_offset >= _child_block->rows()) {
         // release block use count.
         for (TableFunction* fn : _fns) {
             RETURN_IF_ERROR(fn->process_close());

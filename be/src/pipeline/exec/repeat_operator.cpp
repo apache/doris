@@ -34,12 +34,11 @@ OPERATOR_CODE_GENERATOR(RepeatOperator, StatefulOperator)
 
 Status RepeatOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_child_block());
+    _child_block = _node->get_child_block();
     return StatefulOperator::prepare(state);
 }
 
 Status RepeatOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 
@@ -231,13 +230,13 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
         int size = _repeat_id_list.size();
         if (_repeat_id_idx >= size) {
             _intermediate_block->clear();
-            _child_block.clear_column_data(_child_x->row_desc().num_materialized_slots());
+            _child_block->clear_column_data(_child_x->row_desc().num_materialized_slots());
             _repeat_id_idx = 0;
         }
     }
     RETURN_IF_ERROR(vectorized::VExprContext::filter_block(_conjuncts, output_block,
                                                            output_block->columns()));
-    if (_child_eos && _child_block.rows() == 0) {
+    if (_child_eos && _child_block->rows() == 0) {
         source_state = SourceState::FINISHED;
     }
     local_state.reached_limit(output_block, source_state);

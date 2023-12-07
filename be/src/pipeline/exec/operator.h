@@ -484,7 +484,7 @@ public:
     }
 
 protected:
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::shared_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
 };
 
