@@ -261,6 +261,8 @@ struct TQueryOptions {
   92: optional i32 wait_full_block_schedule_times = 1;
   
   93: optional i32 inverted_index_max_expansions = 50;
+
+  94: optional i32 inverted_index_skip_threshold = 50;
 }
 
 
