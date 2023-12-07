@@ -216,9 +216,9 @@ protected:
 };
 
 template <typename T, bool need_trim = false>
-uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
-                                const uint8* nullmap, uint16_t* offsets, int number,
-                                const bool is_parse_column) {
+uint16_t find_batch_olap(const BloomFilterAdaptor& bloom_filter, const char* data,
+                         const uint8* nullmap, uint16_t* offsets, int number,
+                         const bool is_parse_column) {
     auto get_element = [](const char* input_data, int idx) {
         if constexpr (std::is_same_v<T, StringRef> && need_trim) {
             const auto value = ((const StringRef*)(input_data))[idx];
@@ -284,8 +284,7 @@ struct CommonFindOp {
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
                                     const bool is_parse_column) {
-        return find_batch_olap_engine<T>(bloom_filter, data, nullmap, offsets, number,
-                                         is_parse_column);
+        return find_batch_olap<T>(bloom_filter, data, nullmap, offsets, number, is_parse_column);
     }
 
     void insert_batch(BloomFilterAdaptor& bloom_filter, const vectorized::ColumnPtr& column,
@@ -396,8 +395,8 @@ struct FixedStringFindOp : public StringFindOp {
     uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
                                     const uint8* nullmap, uint16_t* offsets, int number,
                                     const bool is_parse_column) {
-        return find_batch_olap_engine<StringRef, true>(bloom_filter, data, nullmap, offsets, number,
-                                                       is_parse_column);
+        return find_batch_olap<StringRef, true>(bloom_filter, data, nullmap, offsets, number,
+                                                is_parse_column);
     }
 };
 
