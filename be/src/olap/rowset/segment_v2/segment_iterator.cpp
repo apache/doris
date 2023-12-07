@@ -850,6 +850,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 // downgrade without index query
                 _not_apply_index_pred.insert(pred->column_id());
+                _need_read_data_indices[pred->column_id()] = true;
                 continue;
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -869,7 +870,10 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             _check_column_pred_all_push_down(column_name, true,
                                              pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
-            _need_read_data_indices[pred->column_id()] = false;
+            // if column's need_read_data already set true, we can not set it to false now.
+            if (_need_read_data_indices.find(pred->column_id()) == _need_read_data_indices.end()) {
+                _need_read_data_indices[pred->column_id()] = false;
+            }
         }
     }
 
@@ -955,6 +959,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
+                _need_read_data_indices[pred->column_id()] = true;
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -985,7 +990,10 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         if (_check_column_pred_all_push_down(column_name, false,
                                              pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
-            _need_read_data_indices[pred->column_id()] = false;
+            // if column's need_read_data already set true, we can not set it to false now.
+            if (_need_read_data_indices.find(pred->column_id()) == _need_read_data_indices.end()) {
+                _need_read_data_indices[pred->column_id()] = false;
+            }
         }
     }
     return Status::OK();
@@ -1017,7 +1025,9 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         if (res.ok()) {
             if (_check_column_pred_all_push_down(column_name) &&
                 !all_predicates_are_marked_by_runtime_filter(predicate_set)) {
-                _need_read_data_indices[column_id] = false;
+                if (_need_read_data_indices.find(column_id) == _need_read_data_indices.end()) {
+                    _need_read_data_indices[column_id] = false;
+                }
             }
             no_need_to_pass_column_predicate_set.insert(predicate_set.begin(), predicate_set.end());
             _row_bitmap &= output_result;
