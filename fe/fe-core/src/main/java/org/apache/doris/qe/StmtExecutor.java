@@ -2021,7 +2021,9 @@ public class StmtExecutor {
                  */
                 throwable = t;
             } finally {
-                coord.close();
+                if (coord != null) {
+                    coord.close();
+                }
                 finalizeQuery();
             }
 
@@ -2725,7 +2727,9 @@ public class StmtExecutor {
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             }
         } finally {
-            coord.close();
+            if (coord != null) {
+                coord.close();
+            }
             AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
