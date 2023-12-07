@@ -20,7 +20,7 @@ enum SC {
     ADD_COLUMN(2),
     DELETE(3),
     DROP_COLUMN(4),
-    CHANGE_ORDER(50)
+    CHANGE_ORDER(5)
     private int value
 
     SC(int value) {
@@ -417,7 +417,7 @@ PROPERTIES (
 
 
     def process = { table_name ->
-        for (int i = 1; i <= 5; i++) {
+        for (int i = 1; i <= 4; i++) {
             switch (i) {
                 case SC.TRUNCATE_TABLE.value:
                     truncate(table_name)
