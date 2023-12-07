@@ -568,7 +568,7 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
                        _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
                        _scanner_ctx->get_num_running_scanners(),
                        _scanner_ctx->get_num_scheduling_ctx(),
-                       _scanner_ctx->_num_unfinished_scanners.load());
+                       _scanner_ctx->get_num_unfinished_scanners());
     }
 
     return fmt::to_string(debug_string_buffer);
