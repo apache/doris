@@ -209,7 +209,7 @@ suite("test_bitmap_index") {
                v1  INT
             )
             UNIQUE KEY(k1,k2,k3,k4,k5,k6,k7,k8,k9,k10,k11)
-            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
+            DISTRIBUTED BY HASH(k1) BUCKETS 5 properties("replication_num" = "1");
         """
 
     sql """
@@ -313,7 +313,6 @@ suite("test_bitmap_index") {
                 "dynamic_partition.reserved_history_periods" = "NULL",
                 "dynamic_partition.storage_policy" = "",
                 "storage_format" = "V2",
-                "enable_unique_key_merge_on_write" = "false",
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "false",
                 "enable_single_replica_compaction" = "false"
