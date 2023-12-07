@@ -460,6 +460,19 @@ void MemInfo::init() {
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
     }
 
+    std::ifstream sys_transparent_hugepage("/sys/kernel/mm/transparent_hugepage/enabled",
+                                           std::ios::in);
+    std::string hugepage_enable;
+    getline(sys_transparent_hugepage, hugepage_enable);
+    if (sys_transparent_hugepage.is_open()) sys_transparent_hugepage.close();
+    if (hugepage_enable == "[always] madvise never") {
+        std::cout << "[WARNING!] /sys/kernel/mm/transparent_hugepage/enabled: " << hugepage_enable
+                  << ", Doris not recommend turning on THP, which may cause the BE process to use "
+                     "more memory and cannot be freed in time. Turn off THP: `echo madvise | sudo "
+                     "tee /sys/kernel/mm/transparent_hugepage/enabled`"
+                  << std::endl;
+    }
+
     // Expect vm overcommit memory value to be 1, system will no longer throw bad_alloc, memory alloc are always accepted,
     // memory limit check is handed over to Doris Allocator, make sure throw exception position is controllable,
     // otherwise bad_alloc can be thrown anywhere and it will be difficult to achieve exception safety.
@@ -468,7 +481,7 @@ void MemInfo::init() {
     getline(sys_vm, vm_overcommit);
     if (sys_vm.is_open()) sys_vm.close();
     if (std::stoi(vm_overcommit) == 2) {
-        std::cout << "/proc/sys/vm/overcommit_memory: " << vm_overcommit
+        std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
                   << ", expect is 1, memory limit check is handed over to Doris Allocator, "
                      "otherwise BE may crash even with remaining memory"
                   << std::endl;
