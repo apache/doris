@@ -29,6 +29,7 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -123,7 +124,15 @@ public class UserPropertyMgr implements Writable {
         if (existProperty == null) {
             return UserProperty.INVALID_RESOURCE_TAGS;
         }
-        return existProperty.getCopiedResourceTags();
+        Set<Tag> tags = existProperty.getCopiedResourceTags();
+        // only root and admin can return empty tag.
+        // empty tag means user can access all backends.
+        // for normal user, if tag is empty, use default tag.
+        if (tags.isEmpty() && !(qualifiedUser.equalsIgnoreCase(Auth.ROOT_USER)
+                || qualifiedUser.equalsIgnoreCase(Auth.ADMIN_USER))) {
+            tags = Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
+        }
+        return tags;
     }
 
     public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {
