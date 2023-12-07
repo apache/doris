@@ -65,6 +65,8 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                 || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
             return null;
         }
+        // record the group id in materializationContext, and when rewrite again in
+        // the same group, bail out quickly.
         if (queryStructInfo.getOriginalPlan().getGroupExpression().isPresent()) {
             materializationContext.addMatchedGroup(
                     queryStructInfo.getOriginalPlan().getGroupExpression().get().getOwnerGroup().getGroupId());
@@ -88,10 +90,11 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
                     SUPPORTED_JOIN_TYPE_SET)) {
                 return false;
             }
-            for (Edge edge : hyperGraph.getEdges()) {
-                if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER, SUPPORTED_JOIN_TYPE_SET)) {
-                    return false;
-                }
+        }
+        for (Edge edge : hyperGraph.getEdges()) {
+            if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER,
+                    SUPPORTED_JOIN_TYPE_SET)) {
+                return false;
             }
         }
         return true;

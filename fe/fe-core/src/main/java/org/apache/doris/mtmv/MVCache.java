@@ -42,7 +42,6 @@ public class MVCache {
     private final Plan logicalPlan;
     // this should be shuttle expression with lineage
     private final List<NamedExpression> mvOutputExpressions;
-    // the context when parse, analyze, optimize the mv logical plan
 
     public MVCache(MTMV materializedView, Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
         this.logicalPlan = logicalPlan;

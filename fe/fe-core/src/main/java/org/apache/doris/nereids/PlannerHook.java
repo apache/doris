@@ -23,9 +23,16 @@ package org.apache.doris.nereids;
  * For example: after analyze plan when query or explain, we should generate materialization context.
  */
 public interface PlannerHook {
+
+    /**
+     * the hook before analyze
+     */
     default void beforeAnalyze(NereidsPlanner planner) {
     }
 
+    /**
+     * the hook after analyze
+     */
     default void afterAnalyze(NereidsPlanner planner) {
     }
 }

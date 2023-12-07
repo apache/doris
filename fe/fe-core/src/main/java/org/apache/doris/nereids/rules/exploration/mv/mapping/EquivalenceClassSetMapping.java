@@ -27,6 +27,8 @@ import java.util.Set;
 
 /**
  * EquivalenceClassSetMapping
+ * This will extract the equivalence class set in EquivalenceClass and mapping set in
+ * two different EquivalenceClass.
  */
 public class EquivalenceClassSetMapping extends Mapping {
 
@@ -42,7 +44,7 @@ public class EquivalenceClassSetMapping extends Mapping {
     }
 
     /**
-     * source equivalence set map to target equivalence set
+     * Generate source equivalence set map to target equivalence set
      */
     public static EquivalenceClassSetMapping generate(EquivalenceClass source, EquivalenceClass target) {
 

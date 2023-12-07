@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Expression and it's index mapping
+ * Expression mapping, maybe one expression map to multi expression
  */
 public class ExpressionMapping extends Mapping {
     private final Multimap<? extends Expression, ? extends Expression> expressionMapping;
