@@ -339,10 +339,10 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
         case 0:
             return Status::OK();
         case EAGAIN: {
-            const timespec time = butil::seconds_from_now(60);
+            const timespec time = butil::seconds_from_now(config::load_stream_eagain_wait_seconds);
             int wait_ret = brpc::StreamWait(_stream_id, &time);
             if (wait_ret != 0) {
-                return Status::InternalError("StreamWait failed, err=", wait_ret);
+                return Status::InternalError("StreamWait failed, err={}", wait_ret);
             }
             break;
         }
