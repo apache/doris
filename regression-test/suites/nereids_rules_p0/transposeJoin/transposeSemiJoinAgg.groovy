@@ -65,6 +65,17 @@ suite("transposeSemiJoinAgg") {
         "group_commit_interval_ms" = "10000"
         );
         """
+
+    sql "set enable_runtime_filter_prune=false;"
+    sql '''
+    alter table T1 modify column A set stats ('ndv'='5999989709', 'num_nulls'='0', 'row_count'='5999989709');
+    '''
+    sql '''
+    alter table T1 modify column B set stats ('ndv'='5999989709', 'num_nulls'='0', 'row_count'='5999989709');
+    '''
+    sql '''
+    alter table T2 modify column A set stats ('ndv'='100', 'num_nulls'='0', 'row_count'='100');
+    '''
     // RULE: TransposeSemiJoinAggProject
     // 1. group-by(without grouping sets) 
     // agg-leftSemi => leftSemi-agg
