@@ -4698,6 +4698,7 @@ public class Env {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
+                .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction();
 
         // need to update partition info meta
