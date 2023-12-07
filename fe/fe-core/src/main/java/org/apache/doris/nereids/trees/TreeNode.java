@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -208,6 +209,19 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             }
         });
         return (List<T>) result.build();
+    }
+
+    /**
+     * Collect the nodes that satisfied the predicate to set.
+     */
+    default <T> Set<T> collectToSet(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        ImmutableSet.Builder<TreeNode<NODE_TYPE>> result = ImmutableSet.builder();
+        foreach(node -> {
+            if (predicate.test(node)) {
+                result.add(node);
+            }
+        });
+        return (Set<T>) result.build();
     }
 
     /**
