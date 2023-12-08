@@ -185,7 +185,7 @@ enum RuntimeFilterState {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc)
+    IRuntimeFilter(RuntimeFilterparams* state, ObjectPool* pool, const TRuntimeFilterDesc* desc)
             : _state(state),
               _pool(pool),
               _filter_id(desc->filter_id),
@@ -199,9 +199,9 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
-              _wait_infinitely(_state->runtime_filter_wait_infinitely()),
-              _rf_wait_time_ms(_state->runtime_filter_wait_time_ms()),
-              _enable_pipeline_exec(_state->enable_pipeline_exec()),
+              _wait_infinitely(_state->runtime_filter_wait_infinitely),
+              _rf_wait_time_ms(_state->runtime_filter_wait_time_ms),
+              _enable_pipeline_exec(_state->enable_pipeline_exec),
               _runtime_filter_type(get_runtime_filter_type(desc)),
               _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                 to_string(_runtime_filter_type))),
@@ -231,9 +231,10 @@ public:
 
     ~IRuntimeFilter() = default;
 
-    static Status create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
-                         const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
+    static Status create(RuntimeFilterparams* state, ObjectPool* pool,
+                         const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
+                         const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
+                         bool build_bf_exactly = false);
 
     static Status create(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
@@ -299,10 +300,10 @@ public:
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
     // for ut
-    static Status create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
+    static Status create_wrapper(RuntimeFilterparams* state, const MergeRuntimeFilterParams* param,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
+    static Status create_wrapper(RuntimeFilterparams* state, const UpdateRuntimeFilterParams* param,
                                  ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     static Status create_wrapper(QueryContext* query_ctx, const UpdateRuntimeFilterParamsV2* param,
@@ -325,7 +326,8 @@ public:
     Status join_rpc();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(RuntimeState* state, const TNetworkAddress* addr, bool opt_remote_rf);
+    Status push_to_remote(RuntimeFilterparams* state, const TNetworkAddress* addr,
+                          bool opt_remote_rf);
 
     void init_profile(RuntimeProfile* parent_profile);
 
@@ -367,7 +369,7 @@ public:
     int32_t wait_time_ms() const {
         int32_t res = 0;
         if (wait_infinitely()) {
-            res = _state == nullptr ? _query_ctx->execution_timeout() : _state->execution_timeout();
+            res = _state == nullptr ? _query_ctx->execution_timeout() : _state->execution_timeout;
             // Convert to ms
             res *= 1000;
         } else {
@@ -391,7 +393,7 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
+    static Status _create_wrapper(RuntimeFilterparams* state, const T* param, ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     void _set_push_down() { _is_push_down = true; }
@@ -419,7 +421,7 @@ protected:
         }
     }
 
-    RuntimeState* _state = nullptr;
+    RuntimeFilterparams* _state = nullptr;
     QueryContext* _query_ctx = nullptr;
     ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
