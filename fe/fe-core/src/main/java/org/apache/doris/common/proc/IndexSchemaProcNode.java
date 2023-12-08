@@ -49,10 +49,8 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
         this.bfColumns = bfColumns;
     }
 
-    @Override
-    public ProcResult fetchResult() throws AnalysisException {
+    public static ProcResult createResult(List<Column> schema, Set<String> bfColumns) throws AnalysisException {
         Preconditions.checkNotNull(schema);
-
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
@@ -105,4 +103,8 @@ public class IndexSchemaProcNode implements ProcNodeInterface {
         return result;
     }
 
+    @Override
+    public ProcResult fetchResult() throws AnalysisException {
+        return createResult(this.schema, this.bfColumns);
+    }
 }

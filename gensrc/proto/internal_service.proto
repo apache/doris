@@ -803,6 +803,23 @@ message PGetWalQueueSizeResponse{
     optional int64 size = 2;
 }
 
+message PTabletsLocation {
+    required string host = 1;
+    required int32  brpc_port = 2;
+    repeated int64  tablet_id = 3;
+}
+
+message PFetchRemoteSchemaRequest {
+    repeated PTabletsLocation tablet_location = 1;
+    required bool is_coordinator = 2;
+}
+
+message PFetchRemoteSchemaResponse {
+    optional PStatus status = 1;
+    // intermediate merged schema
+    optional TabletSchemaPB merged_schema = 2;
+}
+
 service PBackendService {
     rpc transmit_data(PTransmitDataParams) returns (PTransmitDataResult);
     rpc transmit_data_by_http(PEmptyRequest) returns (PTransmitDataResult);
@@ -846,5 +863,6 @@ service PBackendService {
     rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
     rpc get_wal_queue_size(PGetWalQueueSizeRequest) returns(PGetWalQueueSizeResponse);
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
+    rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
 };
 
