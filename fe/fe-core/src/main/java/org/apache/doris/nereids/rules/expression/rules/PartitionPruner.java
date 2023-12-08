@@ -106,7 +106,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             PartitionTableType partitionTableType) {
         partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
-
+        partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
         List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
                 .stream()
                 .map(kv -> toPartitionEvaluator(kv.getKey(), kv.getValue(), partitionSlots, cascadesContext,
