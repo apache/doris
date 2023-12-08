@@ -1,6 +1,6 @@
 ---
 {
-"title": "STOP-JOB",
+"title": "DROP-JOB",
 "language": "zh-CN"
 }
 ---
@@ -24,26 +24,26 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## STOP-JOB
+## DROP-JOB
 
 ### Name
 
-STOP JOB
+DROP JOB
 
 ### Description
 
-用户停止一个 JOB 作业。被停止的作业无法再重新运行。
+Delete a job, the running TASKs will be canceled. The deleted JOB cannot be recovered.
 
 ```sql
-STOP JOB FOR job_name;
+DROP JOB where jobName='jobname';
 ```
 
 ### Example
 
-1. 停止名称为 test1 的作业。
+1. 停止名称为 example 的作业。
 
    ```sql
-   STOP JOB FOR test1;
+   DROP JOB where jobName='example';
    ```
 
 ### Keywords

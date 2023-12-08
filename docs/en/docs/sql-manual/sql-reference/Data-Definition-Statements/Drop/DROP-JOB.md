@@ -1,6 +1,6 @@
 ---
 {
-"title": "STOP-JOB",
+"title": "DROP-JOB",
 "language": "en"
 }
 ---
@@ -24,31 +24,31 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## STOP-JOB
+## DROP-JOB
 
 ### Name
 
-STOP JOB
+DROP JOB
 
 ### Description
 
 User stops a JOB job. A stopped job cannot be rerun.
 
 ```sql
-STOP JOB FOR job_name;
+DROP JOB WHERE jobName = 'job_name';
 ```
 
 ### Example
 
-1. Stop the job named test1.
+1. DROP the job named test1.
 
     ```sql
-    STOP JOB FOR test1;
+    DROP JOB where jobName = 'test1';
     ```
 
 ### Keywords
 
-     STOP, JOB
+     DROP, JOB
 
 ### Best Practice
 

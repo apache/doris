@@ -35,7 +35,7 @@ RESUME JOB
 Used to restart a JOB in PAUSE state. The restarted job will continue to be executed periodically. A JOB in STOP state cannot be resumed.
 
 ```sql
-RESUME JOB FOR job_name;
+RESUME JOB WHERE jobName = 'job_name';
 ```
 
 ### Example
@@ -43,7 +43,7 @@ RESUME JOB FOR job_name;
 1. Restart the JOB named test1.
 
     ```sql
-    RESUME JOB FOR test1;
+    RESUME JOB WHERE jobName = 'test1';
     ```
 
 ### Keywords
