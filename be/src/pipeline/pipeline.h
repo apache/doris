@@ -50,8 +50,9 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
 
 public:
     Pipeline() = delete;
-    explicit Pipeline(PipelineId pipeline_id, std::weak_ptr<PipelineFragmentContext> context)
-            : _pipeline_id(pipeline_id), _context(context) {
+    explicit Pipeline(PipelineId pipeline_id, int num_tasks,
+                      std::weak_ptr<PipelineFragmentContext> context)
+            : _pipeline_id(pipeline_id), _context(context), _num_tasks(num_tasks) {
         _init_profile();
     }
 
@@ -138,6 +139,11 @@ public:
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
     void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
 
+    void incr_created_tasks() { _num_tasks_created++; }
+    bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
+    void set_num_tasks(int num_tasks) { _num_tasks = num_tasks; }
+    int num_tasks() const { return _num_tasks; }
+
 private:
     void _init_profile();
 
@@ -199,6 +205,11 @@ private:
     // then set `_need_to_local_shuffle` to false which means we should use local shuffle in this fragment
     // because data already be partitioned by storage/shuffling.
     bool _need_to_local_shuffle = true;
+
+    // How many tasks should be created ?
+    int _num_tasks = 1;
+    // How many tasks are already created?
+    int _num_tasks_created = 0;
 };
 
 } // namespace doris::pipeline
