@@ -481,7 +481,7 @@ void MemInfo::init() {
     std::string vm_overcommit;
     getline(sys_vm, vm_overcommit);
     if (sys_vm.is_open()) sys_vm.close();
-    if (vm_overcommit != "" && std::stoi(vm_overcommit) == 2) {
+    if (!vm_overcommit.empty() && std::stoi(vm_overcommit) == 2) {
         std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
                   << ", expect is 1, memory limit check is handed over to Doris Allocator, "
                      "otherwise BE may crash even with remaining memory"
