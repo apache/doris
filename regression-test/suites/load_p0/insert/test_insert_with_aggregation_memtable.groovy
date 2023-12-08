@@ -113,7 +113,6 @@ suite("test_insert_with_aggregation_memtable") {
     sql insert_sql
     sql "sync"
     qt_sql "select * from ${testTable} order by id asc"
-    sql """ set enable_memtable_on_sink_node=false"""
 
     reset_be_param("enable_shrink_memory")
     reset_be_param("write_buffer_size_for_agg")
