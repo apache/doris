@@ -229,7 +229,7 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
     std::vector<JsonPath>* parsed_paths;
     std::vector<JsonPath> tmp_parsed_paths;
 
-    //Cannot use '/' as the last character, return NULL
+    //Cannot use '\' as the last character, return NULL
     if (path_string.back() == '\\') {
         document->SetNull();
         return document;
