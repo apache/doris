@@ -129,7 +129,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     auto flush_func = [this, new_segid, eos, buf, header]() {
         auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf);
         if (eos && st.ok()) {
-            st = _load_stream_writer->close_segment(new_segid, header.offset());
+            st = _load_stream_writer->close_segment(new_segid);
         }
         if (!st.ok() && _failed_st->ok()) {
             _failed_st = std::make_shared<Status>(st);

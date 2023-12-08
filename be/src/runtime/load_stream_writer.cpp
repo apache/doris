@@ -114,7 +114,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
     return file_writer->append(buf.to_string());
 }
 
-Status LoadStreamWriter::close_segment(uint32_t segid, uint64_t offset) {
+Status LoadStreamWriter::close_segment(uint32_t segid) {
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -128,11 +128,6 @@ Status LoadStreamWriter::close_segment(uint32_t segid, uint64_t offset) {
     }
     if (file_writer == nullptr) {
         return Status::Corruption("close_segment failed, segment {} is already done", segid);
-    }
-    if (file_writer->bytes_appended() != offset) {
-        return Status::Corruption("segment {} is incomplete, expected length={}, actual={}",
-                                  file_writer->path().native(), offset,
-                                  file_writer->bytes_appended());
     }
     auto st = file_writer->close();
     if (!st.ok()) {
