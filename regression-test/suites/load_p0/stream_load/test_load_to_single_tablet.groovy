@@ -65,7 +65,7 @@ suite("test_load_to_single_tablet", "p0") {
 
     sql "sync"
     def totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 10)
+    assertEquals(10, totalCount[0][0])
     def res = sql "show tablets from ${tableName}"
     def tabletMetaUrl1 = res[0][17]
     def tabletMetaUrl2 = res[1][17]
@@ -81,9 +81,10 @@ suite("test_load_to_single_tablet", "p0") {
     def rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows
     def rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows
 
-    assertEquals(rowCount1, 10)
-    assertEquals(rowCount2, 0)
-    assertEquals(rowCount3, 0)
+    assertEquals(10, rowCount1)
+    assertEquals(0, rowCount2)
+    assertEquals(0, rowCount3)
+    
 
     // load second time
     streamLoad {
@@ -98,7 +99,7 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 20)
+    assertEquals(20, totalCount[0][0])
     tabletMetaRes1 = http_get(tabletMetaUrl1)
     tabletMetaRes2 = http_get(tabletMetaUrl2)
     tabletMetaRes3 = http_get(tabletMetaUrl3)
@@ -110,9 +111,9 @@ suite("test_load_to_single_tablet", "p0") {
     rowCount1 = obj1.rs_metas[0].num_rows + obj1.rs_metas[1].num_rows + obj1.rs_metas[2].num_rows
     rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows + obj2.rs_metas[2].num_rows
     rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows + obj3.rs_metas[2].num_rows
-    assertEquals(rowCount1, 10)
-    assertEquals(rowCount2, 10)
-    assertEquals(rowCount3, 0)
+    assertEquals(10, rowCount1)
+    assertEquals(10, rowCount2)
+    assertEquals(0, rowCount3)
 
     // load third time
     streamLoad {
@@ -127,7 +128,7 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 30)
+    assertEquals(30, totalCount[0][0])
     tabletMetaRes1 = http_get(tabletMetaUrl1)
     tabletMetaRes2 = http_get(tabletMetaUrl2)
     tabletMetaRes3 = http_get(tabletMetaUrl3)
@@ -139,11 +140,12 @@ suite("test_load_to_single_tablet", "p0") {
     rowCount1 = obj1.rs_metas[0].num_rows + obj1.rs_metas[1].num_rows + obj1.rs_metas[2].num_rows + obj1.rs_metas[3].num_rows
     rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows + obj2.rs_metas[2].num_rows + obj2.rs_metas[3].num_rows
     rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows + obj3.rs_metas[2].num_rows + obj3.rs_metas[3].num_rows
-    assertEquals(rowCount1, 10)
-    assertEquals(rowCount2, 10)
-    assertEquals(rowCount3, 10)
+    assertEquals(10, rowCount1)
+    assertEquals(10, rowCount2)
+    assertEquals(10, rowCount3)
 
     // test partitioned table
+    tableName = "test_load_to_single_tablet_partitioned"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -180,7 +182,7 @@ suite("test_load_to_single_tablet", "p0") {
 
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 10)
+    assertEquals(10, totalCount[0][0])
     res = sql "show tablets from ${tableName} partitions(p20231011, p20231012)"
     tabletMetaUrl1 = res[0][17]
     tabletMetaUrl2 = res[1][17]
@@ -208,12 +210,12 @@ suite("test_load_to_single_tablet", "p0") {
     def rowCount4 = obj4.rs_metas[0].num_rows + obj4.rs_metas[1].num_rows
     def rowCount5 = obj5.rs_metas[0].num_rows + obj5.rs_metas[1].num_rows
     def rowCount6 = obj6.rs_metas[0].num_rows + obj6.rs_metas[1].num_rows
-    assertEquals(rowCount1, 5)
-    assertEquals(rowCount2, 0)
-    assertEquals(rowCount3, 0)
-    assertEquals(rowCount4, 5)
-    assertEquals(rowCount5, 0)
-    assertEquals(rowCount6, 0)
+    assertEquals(5, rowCount1)
+    assertEquals(0, rowCount2)
+    assertEquals(0, rowCount3)
+    assertEquals(5, rowCount4)
+    assertEquals(0, rowCount5)
+    assertEquals(0, rowCount6)
 
     // load second time
     streamLoad {
@@ -228,7 +230,7 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 20)
+    assertEquals(20, totalCount[0][0])
     tabletMetaRes1 = http_get(tabletMetaUrl1)
     tabletMetaRes2 = http_get(tabletMetaUrl2)
     tabletMetaRes3 = http_get(tabletMetaUrl3)
@@ -249,12 +251,12 @@ suite("test_load_to_single_tablet", "p0") {
     rowCount4 = obj4.rs_metas[0].num_rows + obj4.rs_metas[1].num_rows + obj4.rs_metas[2].num_rows
     rowCount5 = obj5.rs_metas[0].num_rows + obj5.rs_metas[1].num_rows + obj5.rs_metas[2].num_rows
     rowCount6 = obj6.rs_metas[0].num_rows + obj6.rs_metas[1].num_rows + obj6.rs_metas[2].num_rows
-    assertEquals(rowCount1, 5)
-    assertEquals(rowCount2, 5)
-    assertEquals(rowCount3, 0)
-    assertEquals(rowCount4, 5)
-    assertEquals(rowCount5, 5)
-    assertEquals(rowCount6, 0)
+    assertEquals(5, rowCount1)
+    assertEquals(5, rowCount2)
+    assertEquals(0, rowCount3)
+    assertEquals(5, rowCount4)
+    assertEquals(5, rowCount5)
+    assertEquals(0, rowCount6)
 
     // load third time
     streamLoad {
@@ -269,7 +271,7 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 30)
+    assertEquals(30, totalCount[0][0])
     tabletMetaRes1 = http_get(tabletMetaUrl1)
     tabletMetaRes2 = http_get(tabletMetaUrl2)
     tabletMetaRes3 = http_get(tabletMetaUrl3)
@@ -290,11 +292,11 @@ suite("test_load_to_single_tablet", "p0") {
     rowCount4 = obj4.rs_metas[0].num_rows + obj4.rs_metas[1].num_rows + obj4.rs_metas[2].num_rows + obj4.rs_metas[3].num_rows
     rowCount5 = obj5.rs_metas[0].num_rows + obj5.rs_metas[1].num_rows + obj5.rs_metas[2].num_rows + obj5.rs_metas[3].num_rows
     rowCount6 = obj6.rs_metas[0].num_rows + obj6.rs_metas[1].num_rows + obj6.rs_metas[2].num_rows + obj6.rs_metas[3].num_rows
-    assertEquals(rowCount1, 5)
-    assertEquals(rowCount2, 5)
-    assertEquals(rowCount3, 5)
-    assertEquals(rowCount4, 5)
-    assertEquals(rowCount5, 5)
-    assertEquals(rowCount6, 5)
+    assertEquals(5, rowCount1)
+    assertEquals(5, rowCount2)
+    assertEquals(5, rowCount3)
+    assertEquals(5, rowCount4)
+    assertEquals(5, rowCount5)
+    assertEquals(5, rowCount6)
 }
 
