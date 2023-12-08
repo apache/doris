@@ -800,7 +800,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
         for (String hint : planHints) {
             if (SHUFFLE_HINT.equalsIgnoreCase(hint)) {
-                if (!targetTable.isPartitioned()) {
+                if (!targetTable.isPartitionedTable()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_INSERT_HINT_NOT_SUPPORT);
                 }
                 if (isRepartition != null && !isRepartition) {
@@ -808,7 +808,7 @@ public class NativeInsertStmt extends InsertStmt {
                 }
                 isRepartition = Boolean.TRUE;
             } else if (NOSHUFFLE_HINT.equalsIgnoreCase(hint)) {
-                if (!targetTable.isPartitioned()) {
+                if (!targetTable.isPartitionedTable()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_INSERT_HINT_NOT_SUPPORT);
                 }
                 if (isRepartition != null && isRepartition) {

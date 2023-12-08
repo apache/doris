@@ -1251,8 +1251,21 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public boolean isPartitioned() {
+    public boolean isPartitionedTable() {
         return !PartitionType.UNPARTITIONED.equals(partitionInfo.getType());
+    }
+
+    // Return true if data is distributed by one more partitions or buckets.
+    @Override
+    public boolean isPartitionDistributed() {
+        int numSegs = 0;
+        for (Partition part : getPartitions()) {
+            numSegs += part.getDistributionInfo().getBucketNum();
+            if (numSegs > 1) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
