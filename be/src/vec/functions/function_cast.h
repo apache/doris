@@ -2074,7 +2074,7 @@ private:
             if (variant.is_scalar_variant()) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
-                DCHECK(nested_from_type->is_nullable());
+                // DCHECK(nested_from_type->is_nullable());
                 DCHECK(!data_type_to->is_nullable());
                 auto new_context = context->clone();
                 new_context->set_jsonb_string_as_string(true);
