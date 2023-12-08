@@ -2870,6 +2870,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         Database db = (Database) getDbOrDdlException(dbTbl.getDb());
         OlapTable olapTable = db.getOlapTableOrDdlException(dbTbl.getTbl());
 
+        long rowsToTruncate = 0;
+
         BinlogConfig binlogConfig;
         olapTable.readLock();
         try {
@@ -2882,6 +2884,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     origPartitions.put(partName, partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
+                    rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             } else {
                 for (Partition partition : olapTable.getPartitions()) {
@@ -3016,7 +3019,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         } finally {
             olapTable.writeUnlock();
         }
-
+        if (truncateEntireTable) {
+            // Drop the whole table stats after truncate the entire table
+            Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable);
+        } else {
+            // Update the updated rows in table stats after truncate some partitions.
+            Env.getCurrentEnv().getAnalysisManager().updateUpdatedRows(olapTable.getId(), rowsToTruncate);
+        }
         LOG.info("finished to truncate table {}, partitions: {}", tblRef.getName().toSql(), tblRef.getPartitionNames());
     }
 
