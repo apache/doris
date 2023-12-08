@@ -24,6 +24,7 @@ import org.apache.doris.analysis.AdminShowReplicaDistributionStmt;
 import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.AdminShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.DescribeStmt;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.HelpStmt;
 import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.PartitionNames;
@@ -1655,28 +1656,53 @@ public class ShowExecutor {
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
-    private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) {
+    private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) throws AnalysisException {
         HMSExternalCatalog catalog = (HMSExternalCatalog) (showStmt.getCatalog());
         List<List<String>> rows = new ArrayList<>();
         String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
 
         List<String> partitionNames;
         LimitElement limit = showStmt.getLimitElement();
-        if (limit != null && limit.hasLimit()) {
-            // only limit is valid on Hive
+        Map<String, Expr> filterMap = showStmt.getFilterMap();
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+
+        if (limit != null && limit.hasLimit() && limit.getOffset() == 0
+                && (orderByPairs == null || !orderByPairs.get(0).isDesc())) {
+            // hmsClient returns unordered partition list, hence if offset > 0 cannot pass limit
             partitionNames = catalog.getClient()
-                    .listPartitionNames(dbName, showStmt.getTableName().getTbl(), limit.getLimit());
+                .listPartitionNames(dbName, showStmt.getTableName().getTbl(), limit.getLimit());
         } else {
             partitionNames = catalog.getClient().listPartitionNames(dbName, showStmt.getTableName().getTbl());
         }
+
+        /* Filter add rows */
         for (String partition : partitionNames) {
             List<String> list = new ArrayList<>();
+
+            if (filterMap != null && !filterMap.isEmpty()) {
+                if (!PartitionsProcDir.filter(ShowPartitionsStmt.FILTER_PARTITION_NAME, partition, filterMap)) {
+                    continue;
+                }
+            }
             list.add(partition);
             rows.add(list);
         }
 
         // sort by partition name
-        rows.sort(Comparator.comparing(x -> x.get(0)));
+        if (orderByPairs != null && orderByPairs.get(0).isDesc()) {
+            rows.sort(Comparator.comparing(x -> x.get(0), Comparator.reverseOrder()));
+        } else {
+            rows.sort(Comparator.comparing(x -> x.get(0)));
+        }
+
+        if (limit != null && limit.hasLimit()) {
+            int beginIndex = (int) limit.getOffset();
+            int endIndex = (int) (beginIndex + limit.getLimit());
+            if (endIndex > rows.size()) {
+                endIndex = rows.size();
+            }
+            rows = rows.subList(beginIndex, endIndex);
+        }
 
         resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
