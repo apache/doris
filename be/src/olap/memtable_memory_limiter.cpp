@@ -167,13 +167,13 @@ int64_t MemTableMemoryLimiter::_flush_memtable(std::weak_ptr<MemTableWriter> wri
     auto mem_usage = writer->active_memtable_mem_consumption();
     // if the memtable writer just got flushed, don't flush it again
     if (mem_usage < threshold) {
-        LOG(INFO) << "flusing active memtables, active mem usage "
-                  << PrettyPrinter::print_bytes(mem_usage) << " is less than "
-                  << PrettyPrinter::print_bytes(threshold) << ", skipping";
+        VLOG_DEBUG << "flushing active memtables, active mem usage "
+                   << PrettyPrinter::print_bytes(mem_usage) << " is less than "
+                   << PrettyPrinter::print_bytes(threshold) << ", skipping";
         return 0;
     }
-    LOG(INFO) << "flusing active memtables, active mem usage "
-                << PrettyPrinter::print_bytes(mem_usage);
+    VLOG_DEBUG << "flushing active memtables, active mem usage "
+               << PrettyPrinter::print_bytes(mem_usage);
     Status st = writer->flush_async();
     if (!st.ok()) {
         auto err_msg = fmt::format(
