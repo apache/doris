@@ -1244,7 +1244,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->num_key_columns(); i < new_schema_size; ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
 
-        if (column_mapping->ref_column < 0) {
+        if (column_mapping->expr == nullptr) {
             num_default_value++;
             continue;
         }
@@ -1293,22 +1293,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
 
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
-        if (column_mapping->ref_column < 0) {
+        if (column_mapping->expr == nullptr) {
             continue;
         } else {
-            auto column_new = new_tablet_schema->column(i);
-            auto column_old = base_tablet_schema->column(column_mapping->ref_column);
-            if (column_new.type() != column_old.type() ||
-                column_new.precision() != column_old.precision() ||
-                column_new.frac() != column_old.frac() ||
-                column_new.length() != column_old.length() ||
-                column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
-                new_tablet_schema->has_inverted_index(column_new) !=
-                        base_tablet_schema->has_inverted_index(column_old)) {
-                *sc_directly = true;
-                return Status::OK();
-            }
+            *sc_directly = true;
+            return Status::OK();
         }
     }
 
