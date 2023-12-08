@@ -201,9 +201,13 @@ public class CreateJobStmt extends DdlStmt {
         doStmt.analyze(analyzer);
     }
 
+    /**
+     * parse execute sql from create job stmt
+     * Some stmt not implement toSql method,so we need to parse sql from originStmt
+     */
     private String parseExecuteSql(String sql) throws AnalysisException {
-        sql = sql.toLowerCase();
-        int executeSqlIndex = sql.indexOf(" do ");
+        String lowerCaseSql = sql.toLowerCase();
+        int executeSqlIndex = lowerCaseSql.indexOf(" do ");
         String executeSql = sql.substring(executeSqlIndex + 4).trim();
         if (StringUtils.isBlank(executeSql)) {
             throw new AnalysisException("execute sql has invalid format");

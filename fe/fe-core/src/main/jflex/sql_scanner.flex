@@ -422,7 +422,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("rows", new Integer(SqlParserSymbols.KW_ROWS));
         keywordMap.put("s3", new Integer(SqlParserSymbols.KW_S3));
         keywordMap.put("schema", new Integer(SqlParserSymbols.KW_SCHEMA));
-        keywordMap.put("scheduler", new Integer(SqlParserSymbols.KW_SCHEDULER));
+        keywordMap.put("schedule", new Integer(SqlParserSymbols.KW_SCHEDULE));
         keywordMap.put("schemas", new Integer(SqlParserSymbols.KW_SCHEMAS));
         keywordMap.put("second", new Integer(SqlParserSymbols.KW_SECOND));
         keywordMap.put("select", new Integer(SqlParserSymbols.KW_SELECT));
