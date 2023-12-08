@@ -203,7 +203,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
                             + tblType + " type, do not support EXPORT.");
             }
             // check table
-            if (!table.isPartitioned()) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
             }
             for (String partitionName : this.partitionsNames) {
