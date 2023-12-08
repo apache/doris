@@ -185,7 +185,8 @@ enum RuntimeFilterState {
 /// that can be pushed down to node based on the results of the right table.
 class IRuntimeFilter {
 public:
-    IRuntimeFilter(RuntimeFilterparams* state, ObjectPool* pool, const TRuntimeFilterDesc* desc)
+    IRuntimeFilter(RuntimeFilterParamsContext* state, ObjectPool* pool,
+                   const TRuntimeFilterDesc* desc)
             : _state(state),
               _pool(pool),
               _filter_id(desc->filter_id),
@@ -231,7 +232,7 @@ public:
 
     ~IRuntimeFilter() = default;
 
-    static Status create(RuntimeFilterparams* state, ObjectPool* pool,
+    static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                          const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                          bool build_bf_exactly = false);
@@ -300,11 +301,11 @@ public:
     Status merge_from(const RuntimePredicateWrapper* wrapper);
 
     // for ut
-    static Status create_wrapper(RuntimeFilterparams* state, const MergeRuntimeFilterParams* param,
-                                 ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(RuntimeFilterparams* state, const UpdateRuntimeFilterParams* param,
-                                 ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     static Status create_wrapper(QueryContext* query_ctx, const UpdateRuntimeFilterParamsV2* param,
                                  ObjectPool* pool,
@@ -326,7 +327,7 @@ public:
     Status join_rpc();
 
     // async push runtimefilter to remote node
-    Status push_to_remote(RuntimeFilterparams* state, const TNetworkAddress* addr,
+    Status push_to_remote(RuntimeFilterParamsContext* state, const TNetworkAddress* addr,
                           bool opt_remote_rf);
 
     void init_profile(RuntimeProfile* parent_profile);
@@ -393,7 +394,8 @@ protected:
     Status serialize_impl(T* request, void** data, int* len);
 
     template <class T>
-    static Status _create_wrapper(RuntimeFilterparams* state, const T* param, ObjectPool* pool,
+    static Status _create_wrapper(RuntimeFilterParamsContext* state, const T* param,
+                                  ObjectPool* pool,
                                   std::unique_ptr<RuntimePredicateWrapper>* wrapper);
 
     void _set_push_down() { _is_push_down = true; }
@@ -421,7 +423,7 @@ protected:
         }
     }
 
-    RuntimeFilterparams* _state = nullptr;
+    RuntimeFilterParamsContext* _state = nullptr;
     QueryContext* _query_ctx = nullptr;
     ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper

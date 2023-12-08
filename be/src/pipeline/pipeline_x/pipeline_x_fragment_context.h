@@ -227,7 +227,7 @@ private:
     // Local runtime states for each task
     std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
 
-    std::vector<std::unique_ptr<RuntimeFilterparams>> _runtime_filter_states;
+    std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
 };
 
 } // namespace pipeline

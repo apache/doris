@@ -280,7 +280,7 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
 // This class is a wrapper of runtime predicate function
 class RuntimePredicateWrapper {
 public:
-    RuntimePredicateWrapper(RuntimeFilterparams* state, ObjectPool* pool,
+    RuntimePredicateWrapper(RuntimeFilterParamsContext* state, ObjectPool* pool,
                             const RuntimeFilterParams* params)
             : _state(state),
               _be_exec_version(_state->be_exec_version),
@@ -290,8 +290,8 @@ public:
               _filter_id(params->filter_id) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
-    RuntimePredicateWrapper(RuntimeFilterparams* state, ObjectPool* pool, PrimitiveType column_type,
-                            RuntimeFilterType type, uint32_t filter_id)
+    RuntimePredicateWrapper(RuntimeFilterParamsContext* state, ObjectPool* pool,
+                            PrimitiveType column_type, RuntimeFilterType type, uint32_t filter_id)
             : _state(state),
               _be_exec_version(_state->be_exec_version),
               _pool(pool),
@@ -946,7 +946,7 @@ public:
     }
 
 private:
-    RuntimeFilterparams* _state;
+    RuntimeFilterParamsContext* _state;
     QueryContext* _query_ctx;
     int _be_exec_version;
     ObjectPool* _pool;
@@ -963,7 +963,7 @@ private:
     uint32_t _filter_id;
 };
 
-Status IRuntimeFilter::create(RuntimeFilterparams* state, ObjectPool* pool,
+Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                               const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                               bool build_bf_exactly) {
@@ -1236,13 +1236,13 @@ Status IRuntimeFilter::serialize(PPublishFilterRequestV2* request, void** data, 
     return serialize_impl(request, data, len);
 }
 
-Status IRuntimeFilter::create_wrapper(RuntimeFilterparams* state,
+Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
                                       const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     return _create_wrapper(state, param, pool, wrapper);
 }
 
-Status IRuntimeFilter::create_wrapper(RuntimeFilterparams* state,
+Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
                                       const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     return _create_wrapper(state, param, pool, wrapper);
@@ -1292,7 +1292,8 @@ Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
 }
 
 template <class T>
-Status IRuntimeFilter::_create_wrapper(RuntimeFilterparams* state, const T* param, ObjectPool* pool,
+Status IRuntimeFilter::_create_wrapper(RuntimeFilterParamsContext* state, const T* param,
+                                       ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;

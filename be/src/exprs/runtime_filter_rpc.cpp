@@ -48,8 +48,8 @@ struct IRuntimeFilter::RPCContext {
     static void finish(std::shared_ptr<RPCContext> ctx) { ctx->is_finished = true; }
 };
 
-Status IRuntimeFilter::push_to_remote(RuntimeFilterparams* state, const TNetworkAddress* addr,
-                                      bool opt_remote_rf) {
+Status IRuntimeFilter::push_to_remote(RuntimeFilterParamsContext* state,
+                                      const TNetworkAddress* addr, bool opt_remote_rf) {
     DCHECK(is_producer());
     DCHECK(_rpc_context == nullptr);
     std::shared_ptr<PBackendService_Stub> stub(

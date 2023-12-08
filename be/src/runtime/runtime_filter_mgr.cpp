@@ -51,8 +51,9 @@ struct AsyncRPCContext {
     brpc::CallId cid;
 };
 
-RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterparams* state) {
+RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state) {
     _state = state;
+    _state->runtime_filter_mgr = this;
 }
 
 RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx)
@@ -475,7 +476,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
 
 Status RuntimeFilterMergeController::add_entity(
         const TExecPlanFragmentParams& params,
-        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeFilterparams* state) {
+        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+        RuntimeFilterParamsContext* state) {
     if (!params.params.__isset.runtime_filter_params ||
         params.params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
         return Status::OK();
@@ -506,7 +508,8 @@ Status RuntimeFilterMergeController::add_entity(
 
 Status RuntimeFilterMergeController::add_entity(
         const TPipelineFragmentParams& params, const TPipelineInstanceParams& local_params,
-        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeFilterparams* state) {
+        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+        RuntimeFilterParamsContext* state) {
     if (!local_params.__isset.runtime_filter_params ||
         local_params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
         return Status::OK();

@@ -651,9 +651,9 @@ private:
 };
 
 // from runtime state
-struct RuntimeFilterparams {
-    RuntimeFilterparams() = default;
-    static RuntimeFilterparams* create(RuntimeState* state);
+struct RuntimeFilterParamsContext {
+    RuntimeFilterParamsContext() = default;
+    static RuntimeFilterParamsContext* create(RuntimeState* state);
 
     bool runtime_filter_wait_infinitely;
     int32_t runtime_filter_wait_time_ms;
