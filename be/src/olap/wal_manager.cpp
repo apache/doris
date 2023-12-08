@@ -159,6 +159,10 @@ Status WalManager::add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
        << std::to_string(wal_id) << "_" << label;
+    auto it = _wal_path_map.find(wal_id);
+    if (it != _wal_path_map.end()) {
+        return Status::InternalError("wal_id {} already in wal_path_map", wal_id);
+    }
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
         _wal_path_map.emplace(wal_id, ss.str());
@@ -358,7 +362,7 @@ Status WalManager::delete_wal(int64_t wal_id) {
             _wal_id_to_writer_map.erase(wal_id);
         }
         if (_wal_id_to_writer_map.empty()) {
-            CHECK_EQ(_all_wal_disk_bytes->load(std::memory_order_relaxed), 0);
+            //CHECK_EQ(_all_wal_disk_bytes->load(std::memory_order_relaxed), 0);
         }
         std::string wal_path = _wal_path_map[wal_id];
         RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));

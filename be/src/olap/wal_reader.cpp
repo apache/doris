@@ -54,7 +54,10 @@ Status WalReader::read_block(PBlock& block) {
             file_reader->read_at(_offset, {row_len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
     _offset += WalWriter::LENGTH_SIZE;
     size_t block_len = decode_fixed64_le(row_len_buf);
-    LOG(INFO) << "block_len:" << block_len;
+    LOG(INFO) << "file name:" << _file_name << "block_len:" << block_len;
+    if (block_len > 67108864) {
+        return Status::InternalError("block len {} is too large", block_len);
+    }
     // read block
     std::string block_buf;
     block_buf.resize(block_len);
