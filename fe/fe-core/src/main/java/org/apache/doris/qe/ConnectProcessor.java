@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.QueryStmt;
@@ -210,15 +209,6 @@ public abstract class ConnectProcessor {
                 handleQueryException(throwable, originStmt, null, null);
                 return;
             }
-        }
-
-        if (mysqlCommand == MysqlCommand.COM_QUERY
-                && ctx.getSessionVariable().isEnableNereidsPlanner()
-                && !ctx.getSessionVariable().enableFallbackToOriginalPlanner
-                && stmts.stream().allMatch(s -> s instanceof CreateTableStmt)) {
-            handleQueryException(new AnalysisException("Nereids parse DQL failed. " + originStmt),
-                    originStmt, null, null);
-            return;
         }
 
         List<String> origSingleStmtList = null;

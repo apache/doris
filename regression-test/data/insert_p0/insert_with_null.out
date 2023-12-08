@@ -45,10 +45,11 @@
 4	null	[]
 5	NULL	["k5, k6"]
 6	\N	["k7", "k8"]
-7	abc	[]
+7	abc	\N
 
 -- !sql --
 6	\N	["k7", "k8"]
 
 -- !sql --
+7	abc	\N
 
