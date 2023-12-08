@@ -529,7 +529,7 @@ public:
 
     void resize_op_id_to_local_state(int operator_size, int sink_size);
 
-    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
+    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
 
 private:
     Status create_error_log_file();
@@ -643,6 +643,8 @@ private:
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
+
+    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

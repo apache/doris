@@ -454,7 +454,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
     _total_tasks = 0;
     int target_size = request.local_params.size();
     _tasks.resize(target_size);
-    auto& pipeline_id_to_profile = _runtime_state->_pipeline_id_to_profile;
+    auto& pipeline_id_to_profile = _runtime_state->pipeline_id_to_profile();
     DCHECK(pipeline_id_to_profile.empty());
     pipeline_id_to_profile.resize(_pipelines.size());
     {
@@ -500,19 +500,37 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             DCHECK(runtime_filter_mgr);
             runtime_state->set_pipeline_x_runtime_filter_mgr(runtime_filter_mgr.get());
         };
-        _runtime_filter_state.push_back(RuntimeState::create_unique(
-                this, local_params.fragment_instance_id, request.query_id, request.fragment_id,
-                request.query_options, _query_ctx->query_globals, _exec_env));
+
+        auto filterparams = std::make_unique<RuntimeFilterparams>();
+
+        {
+            filterparams->runtime_filter_wait_infinitely =
+                    _runtime_state->runtime_filter_wait_infinitely();
+            filterparams->runtime_filter_wait_time_ms =
+                    _runtime_state->runtime_filter_wait_time_ms();
+            filterparams->enable_pipeline_exec = _runtime_state->enable_pipeline_exec();
+            filterparams->execution_timeout = _runtime_state->execution_timeout();
+
+            filterparams->exec_env = ExecEnv::GetInstance();
+            filterparams->query_id.set_hi(_runtime_state->query_id().hi);
+            filterparams->query_id.set_lo(_runtime_state->query_id().lo);
+
+            filterparams->fragment_instance_id.set_hi(fragment_instance_id.hi);
+            filterparams->fragment_instance_id.set_lo(fragment_instance_id.lo);
+            filterparams->be_exec_version = _runtime_state->be_exec_version();
+            filterparams->query_ctx = _query_ctx.get();
+        }
 
         // build runtime_filter_mgr for each instance
-        // yxc
-        runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(request.query_id,
-                                                                _runtime_filter_state.back().get());
+        runtime_filter_mgr =
+                std::make_unique<RuntimeFilterMgr>(request.query_id, filterparams.get());
         if (local_params.__isset.runtime_filter_params) {
             runtime_filter_mgr->set_runtime_filter_params(local_params.runtime_filter_params);
         }
         RETURN_IF_ERROR(runtime_filter_mgr->init());
-        set_runtime_state(_runtime_filter_state.back());
+        filterparams->runtime_filter_mgr = runtime_filter_mgr.get();
+
+        _runtime_filter_states.push_back(std::move(filterparams));
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
                 -> std::map<int, std::shared_ptr<LocalExchangeSharedState>> {
