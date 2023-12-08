@@ -1577,7 +1577,6 @@ public class FunctionCallExpr extends Expr {
             uncheckedCastChild(((ArrayType) children.get(0).getType()).getItemType(), 2);
             fn = getBuiltinFunction(fnName.getFunction(), collectChildReturnTypes(),
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            fn.getArgs()[2] = this.getChild(2).getType(); // before have cast child(2) type
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
@@ -1900,6 +1899,9 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_shuffle")
                         || fnName.getFunction().equalsIgnoreCase("shuffle")
                         || fnName.getFunction().equalsIgnoreCase("array_except")
+                        || fnName.getFunction().equalsIgnoreCase("array_apply")
+                        || fnName.getFunction().equalsIgnoreCase("array_position")
+                        || fnName.getFunction().equalsIgnoreCase("array_contains")
                         || fnName.getFunction().equalsIgnoreCase("width_bucket"))
                         && (args[ix].isDecimalV3() || (children.get(0).getType().isArrayType()
                         && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())
