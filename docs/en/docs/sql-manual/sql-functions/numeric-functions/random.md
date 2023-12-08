@@ -28,18 +28,50 @@ under the License.
 #### Syntax
 
 `DOUBLE random()`
-Returns a random number between 0-1.
+Returns a random number between 0 and 1.
+
+`DOUBLE random(DOUBLE seed)`
+Returns a random number between 0 and 1, seeded with `seed`.
+
+`BIGINT random(BIGINT a, BIGINT b)`
+Returns a random number between a and b. a must be less than b.
+
+Alias: `rand`.
 
 ### example
 
-```
+```sql
 mysql> select random();
 +---------------------+
 | random()            |
 +---------------------+
 | 0.35446706030596947 |
 +---------------------+
+
+mysql> select rand(1.2);
++---------------------+
+| rand(1)             |
++---------------------+
+| 0.13387664401253274 |
++---------------------+
+1 row in set (0.13 sec)
+
+mysql> select rand(1.2);
++---------------------+
+| rand(1)             |
++---------------------+
+| 0.13387664401253274 |
++---------------------+
+1 row in set (0.11 sec)
+
+mysql> select rand(-20, -10);
++------------------+
+| random(-20, -10) |
++------------------+
+|              -13 |
++------------------+
+1 row in set (0.10 sec)
 ```
 
 ### keywords
-	RANDOM
+	RANDOM, RAND
