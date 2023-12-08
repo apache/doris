@@ -53,6 +53,7 @@ struct AsyncRPCContext {
 
 RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterparams* state) {
     _state = state;
+    _state->runtime_filter_mgr = this;
 }
 
 RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx)
