@@ -131,7 +131,8 @@ Status LoadStreamWriter::close_segment(uint32_t segid, uint64_t offset) {
     }
     if (file_writer->bytes_appended() != offset) {
         return Status::Corruption("segment {} is incomplete, expected length={}, actual={}",
-                                  file_writer->path().native(), offset, file_writer->bytes_appended());
+                                  file_writer->path().native(), offset,
+                                  file_writer->bytes_appended());
     }
     auto st = file_writer->close();
     if (!st.ok()) {
