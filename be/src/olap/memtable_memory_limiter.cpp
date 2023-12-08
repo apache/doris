@@ -141,7 +141,12 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 }
 
 void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
-    if (need_flush <= 0 || _active_writers.size() == 0) {
+    if (need_flush <= 0) {
+        return;
+    }
+
+    _refresh_mem_tracker();
+    if (_active_writers.size() == 0) {
         return;
     }
     int64_t mem_flushed = 0;
@@ -202,9 +207,6 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
                   << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
                   << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
     }
-    if (!_hard_limit_reached()) {
-        _hard_limit_end_cond.notify_all();
-    }
 }
 
 void MemTableMemoryLimiter::_refresh_mem_tracker() {
@@ -234,6 +236,9 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     g_memtable_load_memory.set_value(_mem_usage);
     VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
     THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
+    if (!_hard_limit_reached()) {
+        _hard_limit_end_cond.notify_all();
+    }
 }
 
 } // namespace doris
