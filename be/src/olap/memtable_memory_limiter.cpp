@@ -113,7 +113,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                   << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
         if (_active_mem_usage >=
             _write_mem_usage * config::memtable_hard_limit_active_percent / 100) {
-            _flush_active_memtables();
+            _flush_active_memtables(_write_mem_usage / 20);
         }
         if (!_hard_limit_reached()) {
             break;
@@ -131,7 +131,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
                   << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
         if (_active_mem_usage >=
             _write_mem_usage * config::memtable_soft_limit_active_percent / 100) {
-            _flush_active_memtables();
+            _flush_active_memtables(_write_mem_usage / 20);
         }
     }
     timer.stop();
@@ -140,24 +140,40 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
     LOG(INFO) << "waited " << time_ms << " ms for memtable memory limit";
 }
 
-void MemTableMemoryLimiter::_flush_active_memtables() {
-    _refresh_mem_tracker();
-    auto writer = _largest_active_writer.lock();
+void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
+    if (need_flush <= 0 || _active_writers.size() == 0) {
+        return;
+    }
+    int64_t mem_flushed = 0;
+    int64_t num_flushed = 0;
+    int64_t avg_mem = _active_mem_usage / _active_writers.size();
+    for (auto writer : _active_writers) {
+        int64_t mem = _flush_memtable(writer, avg_mem);
+        mem_flushed += mem;
+        num_flushed += (mem > 0);
+        if (mem_flushed >= need_flush) {
+            break;
+        }
+    }
+    LOG(INFO) << "flushed " << num_flushed << " out of " << _active_writers.size()
+              << " active writers, flushed size: " << PrettyPrinter::print_bytes(mem_flushed);
+}
+
+int64_t MemTableMemoryLimiter::_flush_memtable(std::weak_ptr<MemTableWriter> writer_to_flush, int64_t threshold) {
+    auto writer = writer_to_flush.lock();
     if (!writer) {
-        LOG(INFO) << "flusing active memtables, but largest writer is already destoryed, skipping";
         return;
     }
     auto mem_usage = writer->active_memtable_mem_consumption();
     // if the memtable writer just got flushed, don't flush it again
-    if (mem_usage < _largest_active_mem / 2) {
-        LOG(INFO) << "flusing active memtables, largest writer mem usage "
-                  << PrettyPrinter::print_bytes(_largest_active_mem) << " is shrinked to "
-                  << mem_usage << ", skipping";
-        return;
+    if (mem_usage < threshold) {
+        LOG(INFO) << "flusing active memtables, active mem usage "
+                  << PrettyPrinter::print_bytes(mem_usage) << " is less than "
+                  << PrettyPrinter::print_bytes(threshold) << ", skipping";
+        return 0;
     }
-    LOG(INFO) << "flusing active memtables, largest writer mem usage "
-              << PrettyPrinter::print_bytes(_largest_active_mem) << ", current "
-              << PrettyPrinter::print_bytes(mem_usage);
+    LOG(INFO) << "flusing active memtables, active mem usage "
+                << PrettyPrinter::print_bytes(mem_usage);
     Status st = writer->flush_async();
     if (!st.ok()) {
         auto err_msg = fmt::format(
@@ -166,9 +182,9 @@ void MemTableMemoryLimiter::_flush_active_memtables() {
                 writer->tablet_id(), st.to_string());
         LOG(WARNING) << err_msg;
         static_cast<void>(writer->cancel_with_status(st));
-        return;
+        return 0;
     }
-    LOG(INFO) << "flushed 1 memtable (mem: " << PrettyPrinter::print_bytes(mem_usage) << ")";
+    return mem_usage;
 }
 
 void MemTableMemoryLimiter::refresh_mem_tracker() {
@@ -194,13 +210,13 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     _flush_mem_usage = 0;
     _write_mem_usage = 0;
     _active_mem_usage = 0;
+    _active_writers.clear();
     for (auto it = _writers.begin(); it != _writers.end();) {
         if (auto writer = it->lock()) {
             auto active_usage = writer->active_memtable_mem_consumption();
             _active_mem_usage += active_usage;
-            if (active_usage > _largest_active_mem) {
-                _largest_active_mem = active_usage;
-                _largest_active_writer = writer;
+            if (active_usage > 0) {
+                _active_writers.push_back(writer);
             }
             _flush_mem_usage += writer->mem_consumption(MemType::FLUSH);
             _write_mem_usage += writer->mem_consumption(MemType::WRITE);
