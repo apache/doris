@@ -463,6 +463,7 @@ void MemInfo::init() {
     std::ifstream sys_transparent_hugepage("/sys/kernel/mm/transparent_hugepage/enabled",
                                            std::ios::in);
     std::string hugepage_enable;
+    // If file not exist, getline returns an empty string.
     getline(sys_transparent_hugepage, hugepage_enable);
     if (sys_transparent_hugepage.is_open()) sys_transparent_hugepage.close();
     if (hugepage_enable == "[always] madvise never") {
@@ -480,7 +481,7 @@ void MemInfo::init() {
     std::string vm_overcommit;
     getline(sys_vm, vm_overcommit);
     if (sys_vm.is_open()) sys_vm.close();
-    if (std::stoi(vm_overcommit) == 2) {
+    if (vm_overcommit != "" && std::stoi(vm_overcommit) == 2) {
         std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
                   << ", expect is 1, memory limit check is handed over to Doris Allocator, "
                      "otherwise BE may crash even with remaining memory"
