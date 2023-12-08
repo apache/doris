@@ -404,7 +404,7 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos) {
     try {
         // Parse each variant column from raw string column
-        vectorized::schema_util::parse_variant_columns(block, variant_pos);
+        RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_pos));
         vectorized::schema_util::finalize_variant_columns(block, variant_pos,
                                                           false /*not ingore sparse*/);
         vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos);
@@ -416,7 +416,7 @@ Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& va
     return Status::OK();
 }
 
-void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         const auto& column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
@@ -426,14 +426,23 @@ void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
             // already parsed
             continue;
         }
-        const auto& root = *var.get_root();
-        const auto& raw_json_column =
-                root.is_nullable()
-                        ? static_cast<const ColumnString&>(
-                                  static_cast<const ColumnNullable&>(root).get_nested_column())
-                        : static_cast<const ColumnString&>(root);
+        ColumnPtr raw_json_column;
+        if (WhichDataType(remove_nullable(var.get_root_type())).is_json()) {
+            // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
+            // json str and parse them into variant
+            RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},
+                                        std::make_shared<DataTypeString>(), &raw_json_column));
+        } else {
+            const auto& root = *var.get_root();
+            raw_json_column =
+                    root.is_nullable()
+                            ? static_cast<const ColumnNullable&>(root).get_nested_column_ptr()
+                            : var.get_root();
+        }
+
         MutableColumnPtr variant_column = ColumnObject::create(true);
-        parse_json_to_variant(*variant_column.get(), raw_json_column);
+        parse_json_to_variant(*variant_column.get(),
+                              assert_cast<const ColumnString&>(*raw_json_column));
         // Wrap variant with nullmap if it is nullable
         ColumnPtr result = variant_column->get_ptr();
         if (is_nullable) {
@@ -444,6 +453,7 @@ void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
         block.get_by_position(variant_pos[i]).column = result;
         // block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
     }
+    return Status::OK();
 }
 
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
