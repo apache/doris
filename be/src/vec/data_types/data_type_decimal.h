@@ -514,7 +514,9 @@ void convert_decimal_cols(
                             } else {
                                 if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
                                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                    "Arithmetic overflow");
+                                                    "Arithmetic overflow, convert failed from {}, "
+                                                    "expected data is [{}, {}]",
+                                                    res, -max_result.value, max_result.value);
                                 } else {
                                     vec_to[i] = ToFieldType(res);
                                 }
@@ -524,7 +526,9 @@ void convert_decimal_cols(
                             if constexpr (narrow_integral) {
                                 if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
                                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                    "Arithmetic overflow");
+                                                    "Arithmetic overflow, convert failed from {}, "
+                                                    "expected data is [{}, {}]",
+                                                    res, -max_result.value, max_result.value);
                                 }
                             }
                             vec_to[i] = ToFieldType(res);
@@ -540,7 +544,10 @@ void convert_decimal_cols(
                             if (UNLIKELY(vec_from[i].value > max_result.value ||
                                          vec_from[i].value < -max_result.value)) {
                                 throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                "Arithmetic overflow");
+                                                "Arithmetic overflow, convert failed from {}, "
+                                                "expected data is [{}, {}]",
+                                                vec_from[i].value, -max_result.value,
+                                                max_result.value);
                             }
                         }
                         vec_to[i] = ToFieldType(vec_from[i].value);
@@ -559,7 +566,9 @@ void convert_decimal_cols(
                                 res = (vec_from[i].value + multiplier / 2) / multiplier;
                                 if (UNLIKELY(res > max_result.value)) {
                                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                    "Arithmetic overflow");
+                                                    "Arithmetic overflow, convert failed from {}, "
+                                                    "expected data is [{}, {}]",
+                                                    res, -max_result.value, max_result.value);
                                 }
                                 vec_to[i] = ToFieldType(res);
                             } else {
@@ -571,7 +580,9 @@ void convert_decimal_cols(
                                 res = (vec_from[i].value - multiplier / 2) / multiplier;
                                 if (UNLIKELY(res < -max_result.value)) {
                                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                    "Arithmetic overflow");
+                                                    "Arithmetic overflow, convert failed from {}, "
+                                                    "expected data is [{}, {}]",
+                                                    res, -max_result.value, max_result.value);
                                 }
                                 vec_to[i] = ToFieldType(res);
                             } else {
