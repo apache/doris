@@ -181,11 +181,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
             jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault("jdbc_url", ""));
             jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
             jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
-
-            Map<String, String> customizedProperties = Maps.newHashMap();
-            customizedProperties.put("shared_jdbc_url", catalogProperty.getOrDefault("shared_jdbc_url", ""));
-            customizedProperties.put("hive_catalog", catalogProperty.getOrDefault("hive_catalog", ""));
-            jdbcClientConfig.setCustomizedProperties(customizedProperties);
         } else {
             LOG.error("Do not support hive_meta_type = " + hiveMetastoreType);
         }
