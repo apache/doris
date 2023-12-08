@@ -140,13 +140,20 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 void MemTableMemoryLimiter::_flush_active_memtables() {
     auto writer = _largest_active_writer.lock();
     if (!writer) {
+        LOG(INFO) << "flusing active memtables, but largest writer is already destoryed, skipping";
         return;
     }
     auto mem_usage = writer->active_memtable_mem_consumption();
     // if the memtable writer just got flushed, don't flush it again
     if (mem_usage < _largest_active_mem / 2) {
+        LOG(INFO) << "flusing active memtables, largest writer mem usage "
+                  << PrettyPrinter::print_bytes(_largest_active_mem) << " is shrinked to "
+                  << mem_usage << ", skipping";
         return;
     }
+    LOG(INFO) << "flusing active memtables, largest writer mem usage "
+              << PrettyPrinter::print_bytes(_largest_active_mem) << ", current "
+              << PrettyPrinter::print_bytes(mem_usage);
     Status st = writer->flush_async();
     if (!st.ok()) {
         auto err_msg = fmt::format(
