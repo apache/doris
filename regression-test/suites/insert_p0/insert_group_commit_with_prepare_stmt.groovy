@@ -100,6 +100,7 @@ suite("insert_group_commit_with_prepare_stmt") {
             """
 
             sql """ set group_commit = async_mode; """
+            sql """ set enable_insert_strict = false; """
 
             // 1. insert into
             def insert_stmt = prepareStatement """ INSERT INTO ${table} VALUES(?, ?, ?) """
@@ -159,6 +160,7 @@ suite("insert_group_commit_with_prepare_stmt") {
             """
 
             sql """ set group_commit = async_mode; """
+            sql """ set enable_insert_strict = false; """
 
             // 1. insert into
             def insert_stmt = prepareStatement """ INSERT INTO ${table} VALUES(?, ?, ?) """
