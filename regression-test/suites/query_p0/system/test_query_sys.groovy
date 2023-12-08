@@ -27,6 +27,12 @@ suite("test_query_sys", "query,p0") {
     sql "select rand(20);"
     sql "select random();"
     sql "select random(20);"
+    sql "select rand(1, 10);"
+    sql "select random(-5, -3);"
+    test{
+        sql "select rand(10,1);"
+        exception "random's lower bound should less than upper bound"
+    }
     sql "SELECT CONNECTION_ID();"
     sql "SELECT CURRENT_USER();"
     sql "SELECT CURRENT_CATALOG();"

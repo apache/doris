@@ -1373,6 +1373,7 @@ visible_functions = {
         [['radians'], 'DOUBLE', ['DOUBLE'], ''],
         [['rand', 'random'], 'DOUBLE', [], 'ALWAYS_NOT_NULLABLE'],
         [['rand', 'random'], 'DOUBLE', ['BIGINT'], ''],
+        [['rand', 'random'], 'BIGINT', ['BIGINT', 'BIGINT'], ''],
         [['round', 'dround'], 'DOUBLE', ['DOUBLE'], ''],
         [['round', 'dround'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
         [['round', 'dround'], 'DECIMAL32', ['DECIMAL32'], ''],
