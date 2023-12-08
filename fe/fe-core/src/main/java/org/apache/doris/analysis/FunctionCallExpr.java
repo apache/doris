@@ -1577,7 +1577,6 @@ public class FunctionCallExpr extends Expr {
             uncheckedCastChild(((ArrayType) children.get(0).getType()).getItemType(), 2);
             fn = getBuiltinFunction(fnName.getFunction(), collectChildReturnTypes(),
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            fn.getArgs()[2] = this.getChild(2).getType(); // before have cast child(2) type
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
