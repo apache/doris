@@ -483,17 +483,13 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
                                              const NullMap* null_map,
                                              orc::ColumnVectorBatch* orc_col_batch, int start,
                                              int end, std::vector<StringRef>& buffer_list) const {
-    orc::MapVectorBatch* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
+    auto* cur_batch = dynamic_cast<orc::MapVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
-    auto& map_column = assert_cast<const ColumnMap&>(column);
+    const auto& map_column = assert_cast<const ColumnMap&>(column);
     const ColumnArray::Offsets64& offsets = map_column.get_offsets();
     const IColumn& nested_keys_column = map_column.get_keys();
     const IColumn& nested_values_column = map_column.get_values();
-
-    cur_batch->keys->resize(nested_keys_column.size());
-    cur_batch->elements->resize(nested_values_column.size());
-
     for (size_t row_id = start; row_id < end; row_id++) {
         size_t offset = offsets[row_id - 1];
         size_t next_offset = offsets[row_id];
