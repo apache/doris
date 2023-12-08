@@ -244,6 +244,7 @@ public:
 
     void copy_from_other(IRuntimeFilter* other);
 
+    // insert data to build filter
     void insert_batch(vectorized::ColumnPtr column, size_t start);
 
     // publish filter

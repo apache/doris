@@ -4698,6 +4698,7 @@ public class Env {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
+                .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction();
 
         // need to update partition info meta
@@ -5861,6 +5862,11 @@ public class Env {
             }
             sb.append(frontend.toString()).append("\n");
         }
+
+        long diskUsagePercent = editLog.getEnvDiskUsagePercent();
+        sb.append("Disk usage: ")
+                .append(diskUsagePercent != -1 ? String.valueOf(diskUsagePercent) : "<unknown>")
+                .append("%\n");
 
         if (haProtocol instanceof BDBHA) {
             try {

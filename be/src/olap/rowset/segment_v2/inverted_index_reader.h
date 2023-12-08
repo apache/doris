@@ -286,7 +286,7 @@ public:
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,
-                                    roaring::Roaring* bit_map, bool skip_try = true);
+                                    roaring::Roaring* bit_map, bool skip_try = false);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 

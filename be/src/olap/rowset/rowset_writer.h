@@ -21,6 +21,7 @@
 #include <gen_cpp/types.pb.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 
 #include "common/factory_creator.h"
@@ -29,6 +30,7 @@
 #include "olap/column_mapping.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_schema.h"
 #include "vec/core/block.h"
 
@@ -114,7 +116,8 @@ public:
                 "RowsetWriter not support flush_single_block");
     }
 
-    virtual Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) {
+    virtual Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
+                               TabletSchemaSPtr flush_schema) {
         return Status::NotSupported("RowsetWriter does not support add_segment");
     }
 
