@@ -38,7 +38,6 @@ public class Concat extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE)
     );
 
