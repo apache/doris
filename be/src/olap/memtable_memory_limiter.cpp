@@ -141,7 +141,12 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 }
 
 void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
-    if (need_flush <= 0 || _active_writers.size() == 0) {
+    if (need_flush <= 0) {
+        return;
+    }
+
+    _refresh_mem_tracker();
+    if (_active_writers.size() == 0) {
         return;
     }
     int64_t mem_flushed = 0;
