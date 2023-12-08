@@ -27,7 +27,7 @@
 #include <ostream>
 #include <string>
 
-#include "cloud/config.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exprs/function_filter.h"
@@ -62,8 +62,10 @@ BlockReader::~BlockReader() {
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     auto res = (this->*_next_block_func)(block, eof);
-    if (!res.ok() && !res.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
-        static_cast<Tablet*>(_tablet.get())->report_error(res);
+    if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        if (!res.ok()) [[unlikely]] {
+            static_cast<Tablet*>(_tablet.get())->report_error(res);
+        }
     }
     return res;
 }
@@ -230,11 +232,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
     }
 
     auto status = _init_collect_iter(read_params);
-    if (!status.ok()) {
-        if (!status.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+    if (!status.ok()) [[unlikely]] {
+        if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
-
         return status;
     }
 
