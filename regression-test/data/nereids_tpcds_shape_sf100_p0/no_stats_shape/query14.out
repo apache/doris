@@ -157,12 +157,12 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF20 d_date_sk->[ws_sold_date_sk]
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF19 i_item_sk->[ws_item_sk]
---------------------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((web_sales.ws_item_sk = cross_items.ss_item_sk)) otherCondition=() build RFs:RF18 ss_item_sk->[ws_item_sk]
-----------------------------------------------PhysicalDistribute
-------------------------------------------------PhysicalProject
---------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF18 RF19 RF20
+--------------------------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((web_sales.ws_item_sk = cross_items.ss_item_sk)) otherCondition=() build RFs:RF18 ws_item_sk->[ss_item_sk]
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+----------------------------------------------PhysicalDistribute
+------------------------------------------------PhysicalProject
+--------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF19 RF20
 --------------------------------------------PhysicalDistribute
 ----------------------------------------------PhysicalProject
 ------------------------------------------------PhysicalOlapScan[item]
