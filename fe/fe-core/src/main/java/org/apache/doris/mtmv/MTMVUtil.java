@@ -91,7 +91,7 @@ public class MTMVUtil {
         long result = 0L;
         long visibleVersionTime;
         for (Partition partition : table.getAllPartitions()) {
-            visibleVersionTime = partition.getVisibleVersionTime();
+            visibleVersionTime = partition.getVisibleVersionTimeIgnoreInit();
             if (visibleVersionTime > result) {
                 result = visibleVersionTime;
             }
@@ -207,9 +207,9 @@ public class MTMVUtil {
         Set<Long> ids = Sets.newHashSet();
         Map<Long, Set<Long>> mvToBasePartitions = getMvToBasePartitions(mtmv, relatedTable);
         for (Entry<Long, Set<Long>> entry : mvToBasePartitions.entrySet()) {
-            long mvVersionTime = mtmv.getPartition(entry.getKey()).getVisibleVersionTime();
+            long mvVersionTime = mtmv.getPartition(entry.getKey()).getVisibleVersionTimeIgnoreInit();
             for (Long partitionId : entry.getValue()) {
-                long visibleVersionTime = relatedTable.getPartition(partitionId).getVisibleVersionTime();
+                long visibleVersionTime = relatedTable.getPartition(partitionId).getVisibleVersionTimeIgnoreInit();
                 if (visibleVersionTime > mvVersionTime) {
                     ids.add(entry.getKey());
                     break;
@@ -334,8 +334,8 @@ public class MTMVUtil {
             if (partitionId == -1L) {
                 return false;
             }
-            return mtmv.getPartition(partitionId).getVisibleVersionTime() > relatedTable
-                    .getPartition(relatedPartitionId).getVisibleVersionTime();
+            return mtmv.getPartition(partitionId).getVisibleVersionTimeIgnoreInit() > relatedTable
+                    .getPartition(relatedPartitionId).getVisibleVersionTimeIgnoreInit();
         } catch (AnalysisException e) {
             Log.warn(e.getMessage());
             return false;

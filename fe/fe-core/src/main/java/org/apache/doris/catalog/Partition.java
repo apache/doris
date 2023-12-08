@@ -168,6 +168,13 @@ public class Partition extends MetaObject implements Writable {
         return visibleVersionTime;
     }
 
+    public long getVisibleVersionTimeIgnoreInit() {
+        if (visibleVersion == 1) {
+            return 0L;
+        }
+        return visibleVersionTime;
+    }
+
     // The method updateVisibleVersionAndVersionHash is called when fe restart, the visibleVersionTime is updated
     private void setVisibleVersion(long visibleVersion) {
         this.visibleVersion = visibleVersion;
