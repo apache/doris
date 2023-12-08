@@ -54,7 +54,6 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
         : _profile("Fragment " + print_id(fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), RuntimeFilterparams::create(this))),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _is_cancelled(false),
@@ -71,6 +70,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _error_log_file(nullptr) {
     Status status = init(fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
+    _runtime_filter_mgr.reset(new RuntimeFilterMgr(TUniqueId(), RuntimeFilterparams::create(this)));
 }
 
 RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
@@ -79,8 +79,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(new RuntimeFilterMgr(fragment_exec_params.query_id,
-                                                   RuntimeFilterparams::create(this))),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(fragment_exec_params.query_id),
@@ -95,12 +93,14 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _normal_row_number(0),
           _error_row_number(0),
           _error_log_file(nullptr) {
-    if (fragment_exec_params.__isset.runtime_filter_params) {
-        _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
-    }
     Status status =
             init(fragment_exec_params.fragment_instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
+    _runtime_filter_mgr.reset(
+            new RuntimeFilterMgr(fragment_exec_params.query_id, RuntimeFilterparams::create(this)));
+    if (fragment_exec_params.__isset.runtime_filter_params) {
+        _runtime_filter_mgr->set_runtime_filter_params(fragment_exec_params.runtime_filter_params);
+    }
 }
 
 RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id,
@@ -109,7 +109,6 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
         : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, RuntimeFilterparams::create(this))),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
@@ -128,6 +127,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
           _error_log_file(nullptr) {
     [[maybe_unused]] auto status = init(instance_id, query_options, query_globals, exec_env);
     DCHECK(status.ok());
+    _runtime_filter_mgr.reset(new RuntimeFilterMgr(query_id, RuntimeFilterparams::create(this)));
 }
 
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
@@ -136,7 +136,6 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
         : _profile("PipelineX  " + std::to_string(fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, RuntimeFilterparams::create(this))),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
@@ -156,6 +155,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
     // TODO: do we really need instance id?
     Status status = init(TUniqueId(), query_options, query_globals, exec_env);
     DCHECK(status.ok());
+    _runtime_filter_mgr.reset(new RuntimeFilterMgr(query_id, RuntimeFilterparams::create(this)));
 }
 
 RuntimeState::RuntimeState(const TQueryGlobals& query_globals)
