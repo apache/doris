@@ -44,19 +44,19 @@ PROPERTIES ("key"="value", ...)
 
 ## Parameter Description
 
-| Parameter                  | Required or Not | Default Value | Description                                                                                                              |
-|----------------------------|-----------------|---------------|--------------------------------------------------------------------------------------------------------------------------|
-| `user`                     | Yes             |               | Username in relation to the corresponding database                                                                       |
-| `password`                 | Yes             |               | Password for the corresponding database                                                                                  |
-| `jdbc_url `                | Yes             |               | JDBC connection string                                                                                                   |
-| `driver_url `              | Yes             |               | JDBC Driver Jar                                                                                                          |
-| `driver_class `            | Yes             |               | JDBC Driver Class                                                                                                        |
-| `only_specified_database`  | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
-| `lower_case_table_names`   | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
-| `include_database_list`    | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
-| `exclude_database_list`    | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
-| `remove_abandoned_timeout` | No              | "false"       | Idle time. If `remove_abandoned` is "true", connections whose idle time exceeds this value will be released.             |
-| `remove_abandoned`         | No              | "false"       | Automatic release switch if not connected for a long time                                                                |
+| Parameter                  | Required or Not | Default Value | Description                                                                                                               |
+|----------------------------|-----------------|---------------|---------------------------------------------------------------------------------------------------------------------------|
+| `user`                     | Yes             |               | Username in relation to the corresponding database                                                                        |
+| `password`                 | Yes             |               | Password for the corresponding database                                                                                   |
+| `jdbc_url `                | Yes             |               | JDBC connection string                                                                                                    |
+| `driver_url `              | Yes             |               | JDBC Driver Jar                                                                                                           |
+| `driver_class `            | Yes             |               | JDBC Driver Class                                                                                                         |
+| `only_specified_database`  | No              | "false"       | Whether only the database specified to be synchronized.                                                                   |
+| `lower_case_table_names`   | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.           |
+| `include_database_list`    | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.    |
+| `exclude_database_list`    | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive.  |
+| `remove_abandoned`         | No              | "false"       | Automatic release switch if not connected for a long time                                                                 |
+| `remove_abandoned_timeout` | No              | "600"         | Idle time, unit second. If `remove_abandoned` is "true", connections whose idle time exceeds this value will be released. |
 
 ### Driver path
 

@@ -130,7 +130,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getRemoveAbandonedTimeout() {
-        return catalogProperty.getOrDefault(JdbcResource.REMOVE_ABANDONED_TIMEOUT, "false");
+        return catalogProperty.getOrDefault(JdbcResource.REMOVE_ABANDONED_TIMEOUT, "600");
     }
 
     public String getLowerCaseTableNames() {

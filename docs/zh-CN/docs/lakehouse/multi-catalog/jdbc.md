@@ -55,8 +55,8 @@ PROPERTIES ("key"="value", ...)
 | `only_specified_database`  | 否  | "false" | 指定是否只同步指定的 database                                                   |
 | `include_database_list`    | 否  | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。     |
 | `exclude_database_list`    | 否  | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
-| `remove_abandoned_timeout` | 否  | "false" | 空闲时间，如果`remove_abandoned`为"true",则空闲时间超过该值的连接将被释放                     |
 | `remove_abandoned`         | 否  | "false" | 长时间不用连接自动释放开关                                                         |
+| `remove_abandoned_timeout` | 否  | "600"   | 空闲时间，单位秒。如果`remove_abandoned`为"true",则空闲时间超过该值的连接将被释放                 |
 
 ### 驱动包路径
 
