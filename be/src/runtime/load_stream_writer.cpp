@@ -86,7 +86,7 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
         if (!_is_init) {
             RETURN_IF_ERROR(init());
         }
-        if (segid + 1 > _segment_file_writers.size()) {
+        if (segid >= _segment_file_writers.size()) {
             for (size_t i = _segment_file_writers.size(); i <= segid; i++) {
                 Status st;
                 io::FileWriterPtr file_writer;
@@ -103,41 +103,76 @@ Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOB
         file_writer = _segment_file_writers[segid].get();
     }
     VLOG_DEBUG << " file_writer " << file_writer << "seg id " << segid;
+    if (file_writer == nullptr) {
+        return Status::Corruption("append_data failed, segment {} is already done", segid);
+    }
     if (file_writer->bytes_appended() != offset) {
-        return Status::Corruption("append_data out-of-order, expected offset={}, actual={}",
-                                  file_writer->bytes_appended(), offset);
+        return Status::Corruption(
+                "append_data out-of-order in segment={}, expected offset={}, actual={}",
+                file_writer->path().native(), offset, file_writer->bytes_appended());
     }
     return file_writer->append(buf.to_string());
 }
 
 Status LoadStreamWriter::close_segment(uint32_t segid, uint64_t offset) {
-    if (_segment_file_writers.size() <= segid || _segment_file_writers[segid] == nullptr) {
-        return Status::Corruption("segment not open when close_segment, segid={}", segid);
+    io::FileWriter* file_writer = nullptr;
+    {
+        std::lock_guard lock_guard(_lock);
+        if (!_is_init) {
+            return Status::Corruption("close_segment failed, LoadStreamWriter is not inited");
+        }
+        if (segid >= _segment_file_writers.size()) {
+            return Status::Corruption("close_segment failed, segment {} is never opened", segid);
+        }
+        file_writer = _segment_file_writers[segid].get();
     }
-    auto file_writer = _segment_file_writers[segid];
+    if (file_writer == nullptr) {
+        return Status::Corruption("close_segment failed, segment {} is already done", segid);
+    }
     if (file_writer->bytes_appended() != offset) {
-        return Status::Corruption("close_segment check failed, expected length={}, actual={}",
-                                  file_writer->bytes_appended(), offset);
+        return Status::Corruption("segment {} is incomplete, expected length={}, actual={}",
+                                  file_writer->path().native(), offset, file_writer->bytes_appended());
     }
     auto st = file_writer->close();
     if (!st.ok()) {
         _is_canceled = true;
         return st;
     }
-    LOG(INFO) << "segid " << segid << "path " << file_writer->path() << " written "
-              << file_writer->bytes_appended() << " bytes";
+    LOG(INFO) << "segment " << segid << " path " << file_writer->path().native()
+              << "closed, written " << file_writer->bytes_appended() << " bytes";
     return Status::OK();
 }
 
 Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
                                      TabletSchemaSPtr flush_schema) {
-    if (_segment_file_writers[segid]->bytes_appended() != stat.data_size) {
-        LOG(WARNING) << _segment_file_writers[segid]->path() << " is incomplete, actual size: "
-                     << _segment_file_writers[segid]->bytes_appended()
-                     << ", expected size: " << stat.data_size;
-        return Status::Corruption("segment {} is incomplete, actual size: {}, expected size: {}",
-                                  _segment_file_writers[segid]->path().native(),
-                                  _segment_file_writers[segid]->bytes_appended(), stat.data_size);
+    io::FileWriter* file_writer = nullptr;
+    {
+        std::lock_guard lock_guard(_lock);
+        if (!_is_init) {
+            return Status::Corruption("add_segment failed, LoadStreamWriter is not inited");
+        }
+        if (segid >= _segment_file_writers.size()) {
+            return Status::Corruption("add_segment failed, segment {} is never opened", segid);
+        }
+        file_writer = _segment_file_writers[segid].get();
+    }
+    if (file_writer == nullptr) {
+        return Status::Corruption("add_segment failed, segment {} is already done", segid);
+    }
+    if (!file_writer->is_closed()) {
+        return Status::Corruption("add_segment failed, segment {} is not closed",
+                                  file_writer->path().native());
+    }
+    if (file_writer->bytes_appended() != stat.data_size) {
+        return Status::Corruption(
+                "add_segment failed, segment stat {} does not match, file size={}, "
+                "stat.data_size={}",
+                file_writer->path().native(), file_writer->bytes_appended(), stat.data_size);
+    }
+    // reset file writer to nullptr once it's added to the rowset
+    {
+        std::lock_guard lock_guard(_lock);
+        _segment_file_writers[segid].reset();
     }
     return _rowset_writer->add_segment(segid, stat, flush_schema);
 }
@@ -157,12 +192,13 @@ Status LoadStreamWriter::close() {
             << "rowset builder is supposed be to initialized before close_wait() being called";
 
     if (_is_canceled) {
-        return Status::Error<ErrorCode::INTERNAL_ERROR>("flush segment failed");
+        return Status::InternalError("flush segment failed");
     }
 
     for (const auto& writer : _segment_file_writers) {
-        if (!writer->is_closed()) {
-            return Status::Corruption("segment {} is not closed", writer->path().native());
+        if (writer != nullptr) {
+            return Status::Corruption("LoadStreamWriter close failed, segment {} is not done",
+                                      writer->path().native());
         }
     }
 
