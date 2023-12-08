@@ -39,7 +39,7 @@ Doris Job 是根据既定计划运行的任务，用于在特定时间或指定�
 Job 有两种类型：`ONE_TIME` 和 `RECURRING`。其中 `ONE_TIME` 类型的 Job 会在指定的时间点触发，它主要用于一次性任务，而 `RECURRING` 类型的 Job 会在指定的时间间隔内循环触发, 此方式主要用于周期性执行的任务。
 `RECURRING` 类型的 Job 可指定开始时间，结束时间，即 `STARTS\ENDS`, 如果不指定开始时间，则默认首次执行时间为当前时间 + 一次调度周期。如果指定结束时间，则 task 执行完成如果达到结束时间（或超过，或下次执行周期会超过结束时间）则更新为FINISHED状态，此时不会再产生 Task。
 
-JOB 共4种状态（`RUNNING`,`STOPPED`,`PAUSED`,`FINISHED`,），初始状态为RUNNING，RUNNING状态的JOB会根据既定的调度周期去生成 TASK 执行，Job 执行完成达到结束时间则状态变更为 `FINISHED`.
+JOB 共4种状态（`RUNNING`,`STOPPED`,`PAUSED`,`FINISHED`,），初始状态为RUNNING，RUNNING 状态的JOB会根据既定的调度周期去生成 TASK 执行，Job 执行完成达到结束时间则状态变更为 `FINISHED`.
 
 RUNNING 状态的JOB 可以被 pause，即暂停，此时不会再生成 Task。
 
@@ -82,7 +82,7 @@ interval:
 
 - 关键字 CREATE JOB 加上作业名称，它在一个 db 中标识唯一事件。
 - ON SCHEDULE 子句，它指定了 Job 作业的类型和触发时间以及频率。
-- DO 子句，它指定了 Job 作业触发时需要执行的操作。
+- DO 子句，它指定了 Job 作业触发时需要执行的操作, 即一条 SQL 语句。
 
 这是一个最简单的例子：
 
@@ -92,7 +92,7 @@ CREATE JOB my_job ON SCHEDULE EVERY 1 MINUTE DO INSERT INTO db1.tbl1 SELECT * FR
 
 该语句表示创建一个名为 my_job 的作业，每分钟执行一次，执行的操作是将 db2.tbl2 中的数据导入到 db1.tbl1 中。
 
-SCHEDULER 语句用于定义作业的执行时间，频率以及持续时间，它可以指定一次性作业或者周期性作业。
+SCHEDULE 语句用于定义作业的执行时间，频率以及持续时间，它可以指定一次性作业或者周期性作业。
 - AT timestamp
 
   用于一次性事件，它指定事件仅在 给定的日期和时间执行一次 timestamp，该日期和时间必须包含日期和时间
@@ -135,7 +135,7 @@ CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01 00:00:00' DO INSERT
 创建一个周期性的 Job，它会在 2020-01-01 00:00:00 时开始执行，每天执行一次，执行的操作是将 db2.tbl2 中的数据导入到 db1.tbl1 中，该 Job 在 2020-01-01 00:10:00 时结束。
 
 ```sql
-CREATE JOB my_job ON SCHEDULER EVERY 1 DAY STARTS '2020-01-01 00:00:00' ENDS '2020-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 create_time >=  days_add(now(),-1);
+CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01 00:00:00' ENDS '2020-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 create_time >=  days_add(now(),-1);
 ```
 ### INSERT JOB
 目前仅支持 ***INSERT 内表***
