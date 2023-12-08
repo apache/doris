@@ -159,7 +159,8 @@ void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
               << " active writers, flushed size: " << PrettyPrinter::print_bytes(mem_flushed);
 }
 
-int64_t MemTableMemoryLimiter::_flush_memtable(std::weak_ptr<MemTableWriter> writer_to_flush, int64_t threshold) {
+int64_t MemTableMemoryLimiter::_flush_memtable(std::weak_ptr<MemTableWriter> writer_to_flush,
+                                               int64_t threshold) {
     auto writer = writer_to_flush.lock();
     if (!writer) {
         return 0;
