@@ -54,7 +54,7 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
         : _profile("Fragment " + print_id(fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
+          _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), RuntimeFilterparams::create(this))),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _is_cancelled(false),
@@ -79,7 +79,8 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
         : _profile("Fragment " + print_id(fragment_exec_params.fragment_instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(new RuntimeFilterMgr(fragment_exec_params.query_id, this)),
+          _runtime_filter_mgr(new RuntimeFilterMgr(fragment_exec_params.query_id,
+                                                   RuntimeFilterparams::create(this))),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(fragment_exec_params.query_id),
@@ -108,7 +109,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
         : _profile("Fragment " + print_id(instance_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
+          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, RuntimeFilterparams::create(this))),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
@@ -163,7 +164,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
         : _profile("PipelineX  " + std::to_string(fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
-          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),
+          _runtime_filter_mgr(new RuntimeFilterMgr(query_id, RuntimeFilterparams::create(this))),
           _data_stream_recvrs_pool(new ObjectPool()),
           _unreported_error_idx(0),
           _query_id(query_id),
@@ -513,4 +514,21 @@ bool RuntimeState::enable_page_cache() const {
            (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
 }
 
+RuntimeFilterparams* RuntimeFilterparams::create(RuntimeState* state) {
+    RuntimeFilterparams* params = state->obj_pool()->add(new RuntimeFilterparams());
+    params->runtime_filter_wait_infinitely = state->runtime_filter_wait_infinitely();
+    params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
+    params->enable_pipeline_exec = state->enable_pipeline_exec();
+    params->execution_timeout = state->execution_timeout();
+    params->runtime_filter_mgr = state->runtime_filter_mgr();
+    params->exec_env = state->exec_env();
+    params->query_id.set_hi(state->query_id().hi);
+    params->query_id.set_lo(state->query_id().lo);
+
+    params->fragment_instance_id.set_hi(state->fragment_instance_id().hi);
+    params->fragment_instance_id.set_lo(state->fragment_instance_id().lo);
+    params->be_exec_version = state->be_exec_version();
+    params->query_ctx = state->get_query_ctx();
+    return params;
+}
 } // end namespace doris

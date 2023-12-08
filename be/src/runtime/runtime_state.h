@@ -648,6 +648,24 @@ private:
     RuntimeState(const RuntimeState&);
 };
 
+// from runtime state
+struct RuntimeFilterparams {
+    RuntimeFilterparams() = default;
+    static RuntimeFilterparams* create(RuntimeState* state);
+
+    bool runtime_filter_wait_infinitely;
+    int32_t runtime_filter_wait_time_ms;
+    bool enable_pipeline_exec;
+    int32_t execution_timeout;
+    RuntimeFilterMgr* runtime_filter_mgr;
+    ExecEnv* exec_env;
+    PUniqueId query_id;
+    PUniqueId fragment_instance_id;
+    int be_exec_version;
+    QueryContext* query_ctx;
+    QueryContext* get_query_ctx() const { return query_ctx; }
+};
+
 #define RETURN_IF_CANCELLED(state)                                                    \
     do {                                                                              \
         if (UNLIKELY((state)->is_cancelled())) return Status::Cancelled("Cancelled"); \
