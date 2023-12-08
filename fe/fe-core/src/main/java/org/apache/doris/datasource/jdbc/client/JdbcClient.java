@@ -116,10 +116,10 @@ public abstract class JdbcClient {
                 Optional.ofNullable(jdbcClientConfig.getExcludeDatabaseMap()).orElse(Collections.emptyMap());
         String jdbcUrl = jdbcClientConfig.getJdbcUrl();
         this.dbType = parseDbType(jdbcUrl);
-        initializeDataSource(jdbcClientConfig.getPassword(), jdbcUrl, jdbcClientConfig.getDriverUrl(),
-                jdbcClientConfig.getDriverClass());
         this.removeAbandoned = jdbcClientConfig.getRemoveAbandoned();
         this.removeAbandonedTimeout = jdbcClientConfig.getRemoveAbandonedTimeout();
+        initializeDataSource(jdbcClientConfig.getPassword(), jdbcUrl, jdbcClientConfig.getDriverUrl(),
+                jdbcClientConfig.getDriverClass());
     }
 
     // Initialize DruidDataSource
