@@ -112,6 +112,7 @@ public:
 
     [[noreturn]] Field operator[](size_t n) const override {
         LOG(FATAL) << "operator[] not supported";
+        __builtin_unreachable();
     }
 
     void get(size_t n, Field& res) const override { LOG(FATAL) << "get not supported"; }
@@ -176,19 +177,23 @@ public:
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported";
+        __builtin_unreachable();
     }
 
     [[noreturn]] size_t filter(const IColumn::Filter&) override {
         LOG(FATAL) << "filter not supported";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported";
+        __builtin_unreachable();
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported";
+        __builtin_unreachable();
     }
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -235,6 +240,7 @@ public:
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
         LOG(FATAL) << "scatter not supported";
+        __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res,
