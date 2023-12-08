@@ -67,9 +67,9 @@ public:
 
     Status init();
 
-    Status append_data(uint32_t segid, butil::IOBuf buf);
+    Status append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf);
 
-    Status close_segment(uint32_t segid);
+    Status close_segment(uint32_t segid, uint64_t offset);
 
     Status add_segment(uint32_t segid, const SegmentStatistics& stat, TabletSchemaSPtr flush_chema);
 

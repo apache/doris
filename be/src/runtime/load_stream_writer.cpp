@@ -79,7 +79,7 @@ Status LoadStreamWriter::init() {
     return Status::OK();
 }
 
-Status LoadStreamWriter::append_data(uint32_t segid, butil::IOBuf buf) {
+Status LoadStreamWriter::append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf) {
     io::FileWriter* file_writer = nullptr;
     {
         std::lock_guard lock_guard(_lock);
@@ -103,20 +103,29 @@ Status LoadStreamWriter::append_data(uint32_t segid, butil::IOBuf buf) {
         file_writer = _segment_file_writers[segid].get();
     }
     VLOG_DEBUG << " file_writer " << file_writer << "seg id " << segid;
+    if (file_writer->bytes_appended() != offset) {
+        return Status::Corruption("append_data out-of-order, expected offset={}, actual={}",
+                                  file_writer->bytes_appended(), offset);
+    }
     return file_writer->append(buf.to_string());
 }
 
-Status LoadStreamWriter::close_segment(uint32_t segid) {
-    auto st = _segment_file_writers[segid]->close();
+Status LoadStreamWriter::close_segment(uint32_t segid, uint64_t offset) {
+    if (_segment_file_writers.size() <= segid || _segment_file_writers[segid] == nullptr) {
+        return Status::Corruption("segment not open when close_segment, segid={}", segid);
+    }
+    auto file_writer = _segment_file_writers[segid];
+    if (file_writer->bytes_appended() != offset) {
+        return Status::Corruption("close_segment check failed, expected length={}, actual={}",
+                                  file_writer->bytes_appended(), offset);
+    }
+    auto st = file_writer->close();
     if (!st.ok()) {
         _is_canceled = true;
         return st;
     }
-    if (_segment_file_writers[segid]->bytes_appended() == 0) {
-        return Status::Corruption("segment {} is zero bytes", segid);
-    }
-    LOG(INFO) << "segid " << segid << "path " << _segment_file_writers[segid]->path() << " written "
-              << _segment_file_writers[segid]->bytes_appended() << " bytes";
+    LOG(INFO) << "segid " << segid << "path " << file_writer->path() << " written "
+              << file_writer->bytes_appended() << " bytes";
     return Status::OK();
 }
 
