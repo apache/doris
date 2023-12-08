@@ -61,7 +61,7 @@ class RowGroup;
 namespace doris::vectorized {
 
 // TODO: we need to determine it by test.
-static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
+static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = 4064;
 
 class RowGroupReader {
 public:

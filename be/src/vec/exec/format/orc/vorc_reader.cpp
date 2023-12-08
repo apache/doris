@@ -92,7 +92,7 @@ enum class FileCachePolicy : uint8_t;
 namespace doris::vectorized {
 
 // TODO: we need to determine it by test.
-static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
+static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = 4064;
 static constexpr char EMPTY_STRING_FOR_OVERFLOW[ColumnString::MAX_STRINGS_OVERFLOW_SIZE] = "";
 
 #define FOR_FLAT_ORC_COLUMNS(M)                            \
@@ -1842,14 +1842,13 @@ Status OrcReader::on_string_dicts_loaded(
         }
 
         // 1. Get dictionary values to a string column.
-        MutableColumnPtr dict_value_column = ColumnString::create();
         orc::StringDictionary* dict = file_column_name_to_dict_map_iter->second;
 
         std::vector<StringRef> dict_values;
         std::unordered_map<StringRef, int64_t> dict_value_to_code;
         size_t max_value_length = 0;
         uint64_t dictionaryCount = dict->dictionaryOffset.size() - 1;
-        if (dictionaryCount == 0) {
+        if (dictionaryCount == 0 || dictionaryCount > MAX_DICT_CODE_PREDICATE_TO_REWRITE) {
             it = _dict_filter_cols.erase(it);
             for (auto& ctx : ctxs) {
                 _non_dict_filter_conjuncts.emplace_back(ctx);
@@ -1868,6 +1867,7 @@ Status OrcReader::on_string_dicts_loaded(
             dict_values.emplace_back(dict_value);
             dict_value_to_code[dict_value] = i;
         }
+        MutableColumnPtr dict_value_column = ColumnString::create();
         dict_value_column->insert_many_strings_overflow(&dict_values[0], dict_values.size(),
                                                         max_value_length);
         size_t dict_value_column_size = dict_value_column->size();

@@ -769,12 +769,33 @@ Status RowGroupReader::_rewrite_dict_predicates() {
     for (auto it = _dict_filter_cols.begin(); it != _dict_filter_cols.end();) {
         std::string& dict_filter_col_name = it->first;
         int slot_id = it->second;
+
+        VExprContextSPtrs ctxs;
+        auto iter = _slot_id_to_filter_conjuncts->find(slot_id);
+        if (iter != _slot_id_to_filter_conjuncts->end()) {
+            for (auto& ctx : iter->second) {
+                ctxs.push_back(ctx);
+            }
+        } else {
+            std::stringstream msg;
+            msg << "_slot_id_to_filter_conjuncts: slot_id [" << slot_id << "] not found";
+            return Status::NotFound(msg.str());
+        }
+
         // 1. Get dictionary values to a string column.
         MutableColumnPtr dict_value_column = ColumnString::create();
         bool has_dict = false;
         RETURN_IF_ERROR(_column_readers[dict_filter_col_name]->read_dict_values_to_column(
                 dict_value_column, &has_dict));
         size_t dict_value_column_size = dict_value_column->size();
+        if (dict_value_column_size == 0 ||
+            dict_value_column_size > MAX_DICT_CODE_PREDICATE_TO_REWRITE) {
+            it = _dict_filter_cols.erase(it);
+            for (auto& ctx : ctxs) {
+                _filter_conjuncts.push_back(ctx);
+            }
+            continue;
+        }
         DCHECK(has_dict);
         // 2. Build a temp block from the dict string column, then execute conjuncts and filter block.
         // 2.1 Build a temp block from the dict string column to match the conjuncts executing.
@@ -809,17 +830,6 @@ Status RowGroupReader::_rewrite_dict_predicates() {
         }
 
         // 2.2 Execute conjuncts and filter block.
-        VExprContextSPtrs ctxs;
-        auto iter = _slot_id_to_filter_conjuncts->find(slot_id);
-        if (iter != _slot_id_to_filter_conjuncts->end()) {
-            for (auto& ctx : iter->second) {
-                ctxs.push_back(ctx);
-            }
-        } else {
-            std::stringstream msg;
-            msg << "_slot_id_to_filter_conjuncts: slot_id [" << slot_id << "] not found";
-            return Status::NotFound(msg.str());
-        }
 
         std::vector<uint32_t> columns_to_filter(1, dict_pos);
         int column_to_keep = temp_block.columns();
