@@ -33,10 +33,11 @@ class Block;
 } // namespace vectorized
 
 // for vertical compaction
-class VerticalBetaRowsetWriter : public BetaRowsetWriter {
+// TODO(plat1ko): Inherited from template type `T`, `T` is `BetaRowsetWriter` or `CloudBetaRowsetWriter`
+class VerticalBetaRowsetWriter final : public BetaRowsetWriter {
 public:
-    VerticalBetaRowsetWriter() : BetaRowsetWriter() {}
-    ~VerticalBetaRowsetWriter();
+    VerticalBetaRowsetWriter(StorageEngine& engine);
+    ~VerticalBetaRowsetWriter() override;
 
     Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
                        bool is_key, uint32_t max_rows_per_segment) override;
