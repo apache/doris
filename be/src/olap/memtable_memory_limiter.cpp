@@ -162,7 +162,7 @@ void MemTableMemoryLimiter::_flush_active_memtables(int64_t need_flush) {
 int64_t MemTableMemoryLimiter::_flush_memtable(std::weak_ptr<MemTableWriter> writer_to_flush, int64_t threshold) {
     auto writer = writer_to_flush.lock();
     if (!writer) {
-        return;
+        return 0;
     }
     auto mem_usage = writer->active_memtable_mem_consumption();
     // if the memtable writer just got flushed, don't flush it again
