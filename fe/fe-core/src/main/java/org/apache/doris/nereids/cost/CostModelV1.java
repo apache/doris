@@ -265,8 +265,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
 
         double leftRowCount = probeStats.getRowCount();
         double rightRowCount = buildStats.getRowCount();
-        // if the diff of the left side and right side row count is
-        // less than this threshold, we will consider their connectivity
         if (leftRowCount == rightRowCount
                 && physicalHashJoin.getGroupExpression().isPresent()
                 && physicalHashJoin.getGroupExpression().get().getOwnerGroup() != null
@@ -274,7 +272,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             int leftConnectivity = computeConnectivity(physicalHashJoin.left(), context);
             int rightConnectivity = computeConnectivity(physicalHashJoin.right(), context);
             if (rightConnectivity < leftConnectivity) {
-                leftRowCount += ignorableDiffBetweenLeftAndRightThreshold;
+                leftRowCount += 1;
             }
         }
 
