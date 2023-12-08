@@ -203,4 +203,13 @@ public class JdbcExternalCatalog extends ExternalCatalog {
             }
         }
     }
+
+    /**
+     * Execute stmt direct via jdbc
+     * @param stmt, the raw stmt string
+     */
+    public void executeStmt(String stmt) {
+        makeSureInitialized();
+        jdbcClient.executeStmt(stmt);
+    }
 }
