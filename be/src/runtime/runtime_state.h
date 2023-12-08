@@ -47,6 +47,7 @@ namespace doris {
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
+class PipelineXFragmentContext;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -73,6 +74,11 @@ public:
     RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
+
+    // for only use in pipelineX
+    RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
@@ -437,7 +443,17 @@ public:
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
 
-    RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+    RuntimeFilterMgr* runtime_filter_mgr() {
+        if (_pipeline_x_runtime_filter_mgr) {
+            return _pipeline_x_runtime_filter_mgr;
+        } else {
+            return _runtime_filter_mgr.get();
+        }
+    }
+
+    void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
+        _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
+    }
 
     void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
@@ -513,6 +529,8 @@ public:
 
     void resize_op_id_to_local_state(int operator_size, int sink_size);
 
+    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
+
 private:
     Status create_error_log_file();
 
@@ -530,6 +548,9 @@ private:
 
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
+
+    // owned by PipelineXFragmentContext
+    RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
     // Protects _data_stream_recvrs_pool
     std::mutex _data_stream_recvrs_lock;

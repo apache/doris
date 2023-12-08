@@ -236,32 +236,44 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         }
         if (req.is_pipeline_x) {
             params.__isset.detailed_report = true;
-            for (auto* rs : req.runtime_states) {
-                TDetailedReportParams detailed_param;
-                detailed_param.__set_fragment_instance_id(rs->fragment_instance_id());
-                detailed_param.__isset.fragment_instance_id = true;
-
-                if (rs->enable_profile()) {
-                    detailed_param.__isset.profile = true;
-                    detailed_param.__isset.loadChannelProfile = true;
-
-                    rs->runtime_profile()->to_thrift(&detailed_param.profile);
+            DCHECK(!req.runtime_states.empty());
+            const bool enable_profile = (*req.runtime_states.begin())->enable_profile();
+            if (enable_profile) {
+                params.__isset.profile = true;
+                params.__isset.loadChannelProfile = false;
+                for (auto* rs : req.runtime_states) {
+                    DCHECK(req.load_channel_profile);
+                    TDetailedReportParams detailed_param;
                     rs->load_channel_profile()->to_thrift(&detailed_param.loadChannelProfile);
+                    // merge all runtime_states.loadChannelProfile to req.load_channel_profile
+                    req.load_channel_profile->update(detailed_param.loadChannelProfile);
                 }
-
-                params.detailed_report.push_back(detailed_param);
-            }
-        }
-
-        if (req.profile != nullptr) {
-            req.profile->to_thrift(&params.profile);
-            if (req.load_channel_profile) {
                 req.load_channel_profile->to_thrift(&params.loadChannelProfile);
+            } else {
+                params.__isset.profile = false;
             }
-            params.__isset.profile = true;
-            params.__isset.loadChannelProfile = true;
+
+            if (enable_profile) {
+                for (auto& pipeline_profile : req.runtime_state->_pipeline_id_to_profile) {
+                    TDetailedReportParams detailed_param;
+                    detailed_param.__isset.fragment_instance_id = false;
+                    detailed_param.__isset.profile = true;
+                    detailed_param.__isset.loadChannelProfile = false;
+                    pipeline_profile->to_thrift(&detailed_param.profile);
+                    params.detailed_report.push_back(detailed_param);
+                }
+            }
         } else {
-            params.__isset.profile = false;
+            if (req.profile != nullptr) {
+                req.profile->to_thrift(&params.profile);
+                if (req.load_channel_profile) {
+                    req.load_channel_profile->to_thrift(&params.loadChannelProfile);
+                }
+                params.__isset.profile = true;
+                params.__isset.loadChannelProfile = true;
+            } else {
+                params.__isset.profile = false;
+            }
         }
 
         if (!req.runtime_state->output_files().empty()) {
@@ -1055,23 +1067,50 @@ void FragmentMgr::cancel_instance_unlocked(const TUniqueId& instance_id,
     }
 }
 
+void FragmentMgr::cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
+                                  const PPlanFragmentCancelReason& reason, const std::string& msg) {
+    std::unique_lock<std::mutex> state_lock(_lock);
+    return cancel_fragment_unlocked(query_id, fragment_id, reason, state_lock, msg);
+}
+
+void FragmentMgr::cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fragment_id,
+                                           const PPlanFragmentCancelReason& reason,
+                                           const std::unique_lock<std::mutex>& state_lock,
+                                           const std::string& msg) {
+    auto q_ctx = _query_ctx_map.find(query_id)->second;
+    auto f_context = q_ctx->fragment_id_to_pipeline_ctx.find(fragment_id);
+    if (f_context != q_ctx->fragment_id_to_pipeline_ctx.end()) {
+        f_context->second->cancel(reason, msg);
+    } else {
+        LOG(WARNING) << "Could not find the pipeline query id:" << print_id(query_id)
+                     << " fragment id:" << fragment_id << " to cancel";
+    }
+}
+
 bool FragmentMgr::query_is_canceled(const TUniqueId& query_id) {
     std::lock_guard<std::mutex> lock(_lock);
     auto ctx = _query_ctx_map.find(query_id);
 
     if (ctx != _query_ctx_map.end()) {
         const bool is_pipeline_version = ctx->second->enable_pipeline_exec();
-        for (auto itr : ctx->second->fragment_instance_ids) {
-            if (is_pipeline_version) {
-                auto pipeline_ctx_iter = _pipeline_map.find(itr);
-                if (pipeline_ctx_iter != _pipeline_map.end() && pipeline_ctx_iter->second) {
-                    return pipeline_ctx_iter->second->is_canceled();
-                }
-            } else {
-                auto fragment_instance_itr = _fragment_instance_map.find(itr);
-                if (fragment_instance_itr != _fragment_instance_map.end() &&
-                    fragment_instance_itr->second) {
-                    return fragment_instance_itr->second->is_canceled();
+        const bool is_pipeline_x = ctx->second->enable_pipeline_x_exec();
+        if (is_pipeline_x) {
+            for (auto& [id, f_context] : ctx->second->fragment_id_to_pipeline_ctx) {
+                return f_context->is_canceled();
+            }
+        } else {
+            for (auto itr : ctx->second->fragment_instance_ids) {
+                if (is_pipeline_version) {
+                    auto pipeline_ctx_iter = _pipeline_map.find(itr);
+                    if (pipeline_ctx_iter != _pipeline_map.end() && pipeline_ctx_iter->second) {
+                        return pipeline_ctx_iter->second->is_canceled();
+                    }
+                } else {
+                    auto fragment_instance_itr = _fragment_instance_map.find(itr);
+                    if (fragment_instance_itr != _fragment_instance_map.end() &&
+                        fragment_instance_itr->second) {
+                        return fragment_instance_itr->second->is_canceled();
+                    }
                 }
             }
         }
@@ -1307,8 +1346,7 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         pip_context = iter->second;
 
         DCHECK(pip_context != nullptr);
-        runtime_filter_mgr =
-                pip_context->get_runtime_state(fragment_instance_id)->runtime_filter_mgr();
+        runtime_filter_mgr = pip_context->get_runtime_filter_mgr(fragment_instance_id);
     } else {
         std::unique_lock<std::mutex> lock(_lock);
         auto iter = _fragment_instance_map.find(tfragment_instance_id);
@@ -1350,9 +1388,7 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
             pip_context = iter->second;
 
             DCHECK(pip_context != nullptr);
-            runtime_filter_mgr = pip_context->get_runtime_state(fragment_instance_id)
-                                         ->get_query_ctx()
-                                         ->runtime_filter_mgr();
+            runtime_filter_mgr = pip_context->get_query_ctx()->runtime_filter_mgr();
             pool = &pip_context->get_query_context()->obj_pool;
         } else {
             std::unique_lock<std::mutex> lock(_lock);

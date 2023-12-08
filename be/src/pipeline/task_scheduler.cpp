@@ -40,6 +40,7 @@
 #include "pipeline_fragment_context.h"
 #include "runtime/query_context.h"
 #include "util/debug_util.h"
+#include "util/defer_op.h"
 #include "util/sse_util.hpp"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -76,16 +77,15 @@ Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
     if (this->_shutdown) {
         return Status::InternalError("BlockedTaskScheduler shutdown");
     }
+    Defer _set([&]() { task->set_running(false); });
     std::unique_lock<std::mutex> lock(_task_mutex);
     if (task->is_pipelineX()) {
         // put this task into current dependency's blocking queue and wait for event notification
         // instead of using a separate BlockedTaskScheduler.
-        task->set_running(false);
         return Status::OK();
     }
     _blocked_tasks.push_back(task);
     _task_cond.notify_one();
-    task->set_running(false);
     return Status::OK();
 }
 
@@ -357,6 +357,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
                                       Status::Cancelled(status.to_string()));
         state = PipelineTaskState::CANCELED;
     };
+    Defer _set([&]() { task->set_running(false); });
 
     auto try_close_failed = !status.ok() && state != PipelineTaskState::CANCELED;
     if (try_close_failed) {
@@ -368,11 +369,9 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
         // and the task maybe released in the other thread. And will core at
         // task set running.
         static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
-        task->set_running(false);
         return;
     } else if (task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
-        task->set_running(false);
         return;
     }
 
@@ -383,7 +382,6 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     task->set_state(state);
     task->set_close_pipeline_time();
     task->finalize();
-    task->set_running(false);
     task->fragment_context()->close_a_pipeline();
 }
 
