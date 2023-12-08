@@ -21,6 +21,7 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -672,7 +673,7 @@ public class PlannerTest extends TestWithFeService {
             }
 
             // success case 5
-            {
+        {
             String sql1 = "explain select tbl1.k1 from db1.tbl1 join db1.tbl2 on tbl1.k1 = tbl2.k1"
                     + " where tbl1.k1 = 1 and tbl2.k1 = 2 and tbl1.k2 = 3 order by tbl1.k1, tbl2.k1";
             StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
@@ -680,6 +681,38 @@ public class PlannerTest extends TestWithFeService {
             Planner planner1 = stmtExecutor1.planner();
             String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
             Assertions.assertFalse(plan1.contains("order by:"));
-            }
+        }
+    }
+
+    @Test
+    public void testInsertPlan() throws Exception {
+        FeConstants.runningUnitTest = true;
+        // 1. should not contains exchange node in old planner
+        boolean v = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        try {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+            String sql1 = "explain insert into db1.tbl1 select * from db1.tbl1";
+            StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+            stmtExecutor1.execute();
+            Planner planner1 = stmtExecutor1.planner();
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("VEXCHANGE"));
+        } finally {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(v);
+        }
+
+        // 1. should not contains exchange node in new planner
+        v = connectContext.getSessionVariable().isEnableNereidsPlanner();
+        try {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(true);
+            String sql1 = "explain insert into db1.tbl1 select * from db1.tbl1";
+            StmtExecutor stmtExecutor1 = new StmtExecutor(connectContext, sql1);
+            stmtExecutor1.execute();
+            Planner planner1 = stmtExecutor1.planner();
+            String plan1 = planner1.getExplainString(new ExplainOptions(false, false, false));
+            Assertions.assertFalse(plan1.contains("VEXCHANGE"));
+        } finally {
+            connectContext.getSessionVariable().setEnableNereidsPlanner(v);
+        }
     }
 }
