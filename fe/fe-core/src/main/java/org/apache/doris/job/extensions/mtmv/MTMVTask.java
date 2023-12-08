@@ -139,14 +139,19 @@ public class MTMVTask extends AbstractTask {
             } else if (refreshMode == MTMVTaskRefreshMode.PARTITION) {
                 OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
                 MTMVUtil.dealMvPartition(mtmv, relatedTable);
-                refreshPartitionIds = MTMVUtil.getMTMVStalePartitions(mtmv, relatedTable);
+                if (CollectionUtils.isEmpty(taskContext.getPartitions())) {
+                    refreshPartitionIds = MTMVUtil.getMTMVStalePartitions(mtmv, relatedTable);
+                } else {
+                    refreshPartitionIds = MTMVUtil.getPartitionsIdsByName(mtmv, taskContext.getPartitions());
+                }
                 tableWithPartKey.put(relatedTable, mtmv.getMvPartitionInfo().getRelatedCol());
             }
             refreshPartitions = MTMVUtil.getPartitionNamesByIds(mtmv, refreshPartitionIds);
             UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                    .from(mtmv, MTMVUtil.getPartitionItemsByIds(mtmv, refreshPartitionIds), tableWithPartKey);
+                    .from(mtmv, refreshPartitionIds, tableWithPartKey);
             executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
-            executor.execute(queryId);
+            ctx.setQueryId(queryId);
+            command.run(ctx, executor);
         } catch (Throwable e) {
             e.printStackTrace();
             throw new JobException(e);

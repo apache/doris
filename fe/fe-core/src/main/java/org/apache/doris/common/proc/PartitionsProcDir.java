@@ -305,8 +305,8 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                 partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
                 partitionInfo
-                        .add(olapTable instanceof MTMV ? MTMVUtil.isSyncWithOlapTables((MTMV) olapTable, partitionId)
-                                : true);
+                        .add(olapTable instanceof MTMV ? !MTMVUtil.isSyncWithOlapTables((MTMV) olapTable, partitionId)
+                                : false);
                 partitionInfos.add(partitionInfo);
             }
         } finally {

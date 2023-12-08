@@ -235,6 +235,18 @@ public class MTMVUtil {
         return res;
     }
 
+    public static Set<Long> getPartitionsIdsByName(MTMV mtmv, List<String> partitions) throws AnalysisException {
+        Set<Long> res = Sets.newHashSet();
+        for (String partitionName : partitions) {
+            Partition partition = mtmv.getPartition(partitionName);
+            if (partition == null) {
+                throw new AnalysisException("partition not found: " + partitionName);
+            }
+            res.add(partition.getId());
+        }
+        return res;
+    }
+
     public static ConnectContext createMTMVContext(MTMV mtmv) throws AnalysisException {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
