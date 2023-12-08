@@ -90,6 +90,7 @@ import org.apache.doris.analysis.ShowTableStatsStmt;
 import org.apache.doris.analysis.ShowTableStatusStmt;
 import org.apache.doris.analysis.ShowTableStmt;
 import org.apache.doris.analysis.ShowTabletStmt;
+import org.apache.doris.analysis.ShowTabletsBelongStmt;
 import org.apache.doris.analysis.ShowTransactionStmt;
 import org.apache.doris.analysis.ShowTrashDiskStmt;
 import org.apache.doris.analysis.ShowTrashStmt;
@@ -156,6 +157,7 @@ import org.apache.doris.common.proc.TrashProcDir;
 import org.apache.doris.common.proc.TrashProcNode;
 import org.apache.doris.common.profile.ProfileTreeNode;
 import org.apache.doris.common.profile.ProfileTreePrinter;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -215,8 +217,10 @@ import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -384,6 +388,8 @@ public class ShowExecutor {
             handleShowCreateCatalog();
         } else if (stmt instanceof ShowAnalyzeStmt) {
             handleShowAnalyze();
+        } else if (stmt instanceof ShowTabletsBelongStmt) {
+            handleShowTabletsBelong();
         } else if (stmt instanceof AdminCopyTabletStmt) {
             handleCopyTablet();
         } else if (stmt instanceof ShowCatalogRecycleBinStmt) {
@@ -2341,6 +2347,68 @@ public class ShowExecutor {
         StatisticsJobManager jobManager = Env.getCurrentEnv().getStatisticsJobManager();
         List<List<String>> results = jobManager.getAnalyzeJobInfos(showStmt);
         resultSet = new ShowResultSet(showStmt.getMetaData(), results);
+    }
+
+    private void handleShowTabletsBelong() {
+        ShowTabletsBelongStmt showStmt = (ShowTabletsBelongStmt) stmt;
+        List<List<String>> rows = new ArrayList<>();
+
+        Env env = Env.getCurrentEnv();
+
+        TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
+        Map<String, HashSet<Long>> tableToTabletIdsMap = new HashMap<>();
+        for (long tabletId : showStmt.getTabletIds()) {
+            TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+            if (tabletMeta == null) {
+                continue;
+            }
+            long dbId = tabletMeta.getDbId();
+            Database db = env.getInternalCatalog().getDbNullable(dbId);
+            if (db == null) {
+                continue;
+            }
+            long tableId = tabletMeta.getTableId();
+            Table table = db.getTableNullable(tableId);
+            if (table == null) {
+                continue;
+            }
+
+            String idString = String.format("%d_%d", dbId, tableId);
+            if (!tableToTabletIdsMap.containsKey(idString)) {
+                tableToTabletIdsMap.put(idString, new HashSet<>());
+            }
+            tableToTabletIdsMap.get(idString).add(tabletId);
+        }
+
+        for (String idString : tableToTabletIdsMap.keySet()) {
+            long dbId = new Long(idString.split("_")[0]).longValue();
+            long tableId = new Long(idString.split("_")[1]).longValue();
+            Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+            OlapTable table = (OlapTable) db.getTableNullable(tableId);
+
+            List<String> line = new ArrayList<>();
+            line.add(db.getFullName());
+            line.add(table.getName());
+
+            OlapTable olapTable = (OlapTable) table;
+            Pair<Double, String> tableSizePair = DebugUtil.getByteUint((long) olapTable.getDataSize());
+            String readableSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(tableSizePair.first) + " "
+                    + tableSizePair.second;
+            line.add(readableSize);
+            line.add(new Long(olapTable.getPartitionKeys().size()).toString());
+            int totalBucketNum = 0;
+            Set<String> partitionNamesSet = table.getPartitionNames();
+            for (String partitionName : partitionNamesSet) {
+                totalBucketNum += table.getPartition(partitionName).getDistributionInfo().getBucketNum();
+            }
+            line.add(new Long(totalBucketNum).toString());
+            line.add(new Long(olapTable.getReplicaCount()).toString());
+            line.add(tableToTabletIdsMap.get(idString).toString());
+
+            rows.add(line);
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleCopyTablet() throws AnalysisException {

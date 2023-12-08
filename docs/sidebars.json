@@ -945,6 +945,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS-BELONG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",
