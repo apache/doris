@@ -55,6 +55,7 @@ private:
     bool _soft_limit_reached();
     bool _hard_limit_reached();
     void _flush_active_memtables();
+    void _refresh_mem_tracker();
 
     std::mutex _lock;
     std::condition_variable _hard_limit_end_cond;

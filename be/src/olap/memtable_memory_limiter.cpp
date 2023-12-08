@@ -115,6 +115,9 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
             _write_mem_usage * config::memtable_hard_limit_active_percent / 100) {
             _flush_active_memtables();
         }
+        if (!_hard_limit_reached()) {
+            break;
+        }
         auto st = _hard_limit_end_cond.wait_for(l, std::chrono::milliseconds(1000));
         if (st == std::cv_status::timeout) {
             LOG(INFO) << "timeout when waiting for memory hard limit end, try again";
@@ -138,6 +141,7 @@ void MemTableMemoryLimiter::handle_memtable_flush() {
 }
 
 void MemTableMemoryLimiter::_flush_active_memtables() {
+    _refresh_mem_tracker();
     auto writer = _largest_active_writer.lock();
     if (!writer) {
         LOG(INFO) << "flusing active memtables, but largest writer is already destoryed, skipping";
@@ -169,6 +173,24 @@ void MemTableMemoryLimiter::_flush_active_memtables() {
 
 void MemTableMemoryLimiter::refresh_mem_tracker() {
     std::lock_guard<std::mutex> l(_lock);
+    _refresh_mem_tracker();
+    if (_soft_limit_reached()) {
+        LOG(INFO) << "reached " << (_hard_limit_reached() ? "hard" : "soft") << " limit"
+                  << ", process mem: " << PerfCounters::get_vm_rss_str()
+                  << " (without allocator cache: "
+                  << PrettyPrinter::print_bytes(MemInfo::proc_mem_no_allocator_cache())
+                  << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+                  << ", memtable writers num: " << _writers.size()
+                  << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
+                  << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
+                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
+    }
+    if (!_hard_limit_reached()) {
+        _hard_limit_end_cond.notify_all();
+    }
+}
+
+void MemTableMemoryLimiter::_refresh_mem_tracker() {
     _flush_mem_usage = 0;
     _write_mem_usage = 0;
     _active_mem_usage = 0;
@@ -195,20 +217,6 @@ void MemTableMemoryLimiter::refresh_mem_tracker() {
     g_memtable_load_memory.set_value(_mem_usage);
     VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
     THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
-    if (_soft_limit_reached()) {
-        LOG(INFO) << "reached " << (_hard_limit_reached() ? "hard" : "soft") << " limit"
-                  << ", process mem: " << PerfCounters::get_vm_rss_str()
-                  << " (without allocator cache: "
-                  << PrettyPrinter::print_bytes(MemInfo::proc_mem_no_allocator_cache())
-                  << "), load mem: " << PrettyPrinter::print_bytes(_mem_tracker->consumption())
-                  << ", memtable writers num: " << _writers.size()
-                  << " (active: " << PrettyPrinter::print_bytes(_active_mem_usage)
-                  << ", write: " << PrettyPrinter::print_bytes(_write_mem_usage)
-                  << ", flush: " << PrettyPrinter::print_bytes(_flush_mem_usage) << ")";
-    }
-    if (!_hard_limit_reached()) {
-        _hard_limit_end_cond.notify_all();
-    }
 }
 
 } // namespace doris
