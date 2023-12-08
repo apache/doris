@@ -2070,8 +2070,16 @@ private:
             if (!variant.is_finalized()) {
                 variant.assume_mutable()->finalize();
             }
-
-            if (variant.is_scalar_variant()) {
+            // It's important to convert as many elements as possible in this context. For instance,
+            // if the root of this variant column is a number column, converting it to a number column
+            // is acceptable. However, if the destination type is a string and root is none scalar root, then
+            // we should convert the entire tree to a string.
+            bool is_root_valuable =
+                    variant.is_scalar_variant() ||
+                    (!variant.is_null_root() &&
+                     !WhichDataType(remove_nullable(variant.get_root_type())).is_nothing() &&
+                     !WhichDataType(data_type_to).is_string());
+            if (is_root_valuable) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
                 // DCHECK(nested_from_type->is_nullable());
@@ -2104,12 +2112,6 @@ private:
                     col_to = make_nullable(col_to, true);
                 } else if (!data_type_to->is_nullable() &&
                            !WhichDataType(data_type_to).is_string()) {
-                    // Could not cast to any other types when it hierarchical like '{"a" : 1}'
-                    // TODO we should convert as many as possible here, for examle
-                    // this variant column's root is a number column, to convert to number column
-                    // is also acceptable
-                    // return Status::InvalidArgument(fmt::format("Could not cast from variant to {}",
-                    //                                            data_type_to->get_name()));
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
                 } else if (WhichDataType(data_type_to).is_string()) {
