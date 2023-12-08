@@ -938,15 +938,7 @@ public class ShowExecutor {
 
         StringBuilder sb = new StringBuilder();
         CatalogIf catalog = ctx.getCurrentCatalog();
-        if (catalog.isInternalCatalog()) {
-            DatabaseIf db = catalog.getDbOrAnalysisException(showStmt.getDb());
-            sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
-            if (db.getDbProperties().getProperties().size() > 0) {
-                sb.append("\nPROPERTIES (\n");
-                sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
-                sb.append("\n)");
-            }
-        } else if (catalog instanceof HMSExternalCatalog) {
+        if (catalog instanceof HMSExternalCatalog) {
             String simpleDBName = ClusterNamespace.getNameFromFullName(showStmt.getDb());
             org.apache.hadoop.hive.metastore.api.Database db = ((HMSExternalCatalog) catalog).getClient()
                     .getDatabase(simpleDBName);
@@ -955,7 +947,13 @@ public class ShowExecutor {
                 .append(db.getLocationUri())
                 .append("'");
         } else {
-            throw new AnalysisException("Only support internal catalog and hms catalog");
+            DatabaseIf db = catalog.getDbOrAnalysisException(showStmt.getDb());
+            sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
+            if (db.getDbProperties().getProperties().size() > 0) {
+                sb.append("\nPROPERTIES (\n");
+                sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
+                sb.append("\n)");
+            }
         }
 
 
