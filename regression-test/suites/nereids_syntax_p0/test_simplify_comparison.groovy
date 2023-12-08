@@ -37,6 +37,7 @@ suite("test_simplify_comparison") {
             "in_memory" = "false",
             "compression" = "LZ4"
             );"""
+    sql """insert into simple_test_table_t values( 10, 100, 1000, 10000, 100000);"""
 
     explain {
         sql "verbose select * from simple_test_table_t where a = cast(1.0 as double) and b = cast(1.0 as double) and c = cast(1.0 as double) and d = cast(1.0 as double);"
@@ -269,4 +270,5 @@ suite("test_simplify_comparison") {
         sql "verbose select * from simple_test_table_t where e <= 1.1;"
         contains "CAST(e[#4] AS DOUBLE) <= 1.1"
     }
+    qt_select1 """select * from simple_test_table_t where cast(a as decimal(5,1)) = 10.0;"""
 }
