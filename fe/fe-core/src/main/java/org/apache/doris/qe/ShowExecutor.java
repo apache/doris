@@ -1035,26 +1035,34 @@ public class ShowExecutor {
                 final String isKey = col.isKey() ? "YES" : "NO";
                 final String defaultValue = col.getDefaultValue();
                 final String aggType = col.getAggregationType() == null ? "" : col.getAggregationType().toSql();
-                if (showStmt.isVerbose()) {
-                    // Field Type Collation Null Key Default Extra
-                    // Privileges Comment
-                    rows.add(Lists.newArrayList(columnName,
-                            columnType,
-                            "",
-                            isAllowNull,
-                            isKey,
-                            defaultValue,
-                            aggType,
-                            "",
-                            col.getComment()));
-                } else {
-                    // Field Type Null Key Default Extra
-                    rows.add(Lists.newArrayList(columnName,
-                            columnType,
-                            isAllowNull,
-                            isKey,
-                            defaultValue,
-                            aggType));
+                try {
+                    Env.getCurrentEnv().getAccessManager()
+                            .checkColumnsPriv(ConnectContext.get().getCurrentUserIdentity(), showStmt.getCtl(),
+                                ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, showStmt.getDb()),
+                                showStmt.getTable(), Sets.newHashSet(columnName), PrivPredicate.SHOW);
+                    if (showStmt.isVerbose()) {
+                        // Field Type Collation Null Key Default Extra
+                        // Privileges Comment
+                        rows.add(Lists.newArrayList(columnName,
+                                columnType,
+                                "",
+                                isAllowNull,
+                                isKey,
+                                defaultValue,
+                                aggType,
+                                "",
+                                col.getComment()));
+                    } else {
+                        // Field Type Null Key Default Extra
+                        rows.add(Lists.newArrayList(columnName,
+                                columnType,
+                                isAllowNull,
+                                isKey,
+                                defaultValue,
+                                aggType));
+                    }
+                } catch (Exception e) {
+                    LOG.debug(e.getMessage());
                 }
             }
         } finally {
