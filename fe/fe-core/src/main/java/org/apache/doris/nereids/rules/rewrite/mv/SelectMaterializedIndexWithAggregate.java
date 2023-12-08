@@ -1210,8 +1210,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                 Expression expr = new ToBitmapWithCheck(castIfNeed(count.child(0), BigIntType.INSTANCE));
                 // count distinct a value column.
-                if (slotOpt.isPresent() && !context.checkContext.keyNameToColumn.containsKey(
-                        normalizeName(expr.toSql()))) {
+                if (slotOpt.isPresent()) {
                     String bitmapUnionColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(
                             AggregateType.BITMAP_UNION, CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
 
@@ -1237,7 +1236,6 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             Expression child = null;
             if (!count.isDistinct() && count.arity() == 1) {
                 // count(col) -> sum(mva_SUM__CASE WHEN col IS NULL THEN 0 ELSE 1 END)
-
                 Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(count.child(0));
                 if (slotOpt.isPresent()) {
                     child = slotOpt.get();
@@ -1247,7 +1245,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 child = new TinyIntLiteral((byte) 1);
             }
 
-            if (child != null && !context.checkContext.keyNameToColumn.containsKey(normalizeName(child.toSql()))) {
+            if (child != null) {
                 String countColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
                         CreateMaterializedViewStmt.mvColumnBuilder(slotToCaseWhen(child).toSql())));
 
@@ -1424,8 +1422,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             }
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(ndv.child(0));
             // ndv on a value column.
-            if (slotOpt.isPresent() && !context.checkContext.keyNameToColumn.containsKey(
-                    normalizeName(slotOpt.get().toSql()))) {
+            if (slotOpt.isPresent()) {
                 Expression expr = castIfNeed(ndv.child(), VarcharType.SYSTEM_DEFAULT);
                 String hllUnionColumn = normalizeName(
                         CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.HLL_UNION,
@@ -1458,8 +1455,7 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
                 return result;
             }
             Optional<Slot> slotOpt = ExpressionUtils.extractSlotOrCastOnSlot(sum.child(0));
-            if (!sum.isDistinct() && slotOpt.isPresent()
-                    && !context.checkContext.keyNameToColumn.containsKey(normalizeName(slotOpt.get().toSql()))) {
+            if (!sum.isDistinct() && slotOpt.isPresent()) {
                 Expression expr = castIfNeed(sum.child(), BigIntType.INSTANCE);
                 String sumColumn = normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM,
                         CreateMaterializedViewStmt.mvColumnBuilder(expr.toSql())));
@@ -1495,10 +1491,8 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                 Set<Slot> slots = aggregateFunction.collect(SlotReference.class::isInstance);
                 for (Slot slot : slots) {
-                    if (!context.checkContext.keyNameToColumn.containsKey(normalizeName(slot.toSql()))) {
-                        context.exprRewriteMap.slotMap.put(slot, aggStateSlot);
-                        context.exprRewriteMap.projectExprMap.put(slot, aggStateSlot);
-                    }
+                    context.exprRewriteMap.slotMap.put(slot, aggStateSlot);
+                    context.exprRewriteMap.projectExprMap.put(slot, aggStateSlot);
                 }
 
                 MergeCombinator mergeCombinator = new MergeCombinator(Arrays.asList(aggStateSlot), aggregateFunction);
