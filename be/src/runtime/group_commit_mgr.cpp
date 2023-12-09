@@ -412,7 +412,7 @@ GroupCommitMgr::GroupCommitMgr(ExecEnv* exec_env) : _exec_env(exec_env) {
 }
 
 GroupCommitMgr::~GroupCommitMgr() {
-    LOG(INFO) << "GroupCommitMgr is destroied";
+    LOG(INFO) << "GroupCommitMgr is destroyed";
 }
 
 void GroupCommitMgr::stop() {
