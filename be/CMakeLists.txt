@@ -303,9 +303,9 @@ if (RECORD_COMPILER_SWITCHES)
 endif()
 
 if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86_64")
-    add_compile_options(-msse4.2)
+    add_compile_options(-msse4.2 -DLIBDIVIDE_SSE2)
     if (USE_AVX2)
-        add_compile_options(-mavx2)
+        add_compile_options(-mavx2 -DLIBDIVIDE_AVX2)
     endif()
 endif()
 
