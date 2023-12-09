@@ -525,8 +525,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
                 LOG(WARNING) << "version not found in cloned tablet meta when do single compaction";
                 return Status::InternalError("version not found in cloned tablet meta");
             }
-            res = RowsetFactory::create_rowset(_tablet->tablet_schema(), _tablet->tablet_path(),
-                                               output_rs_meta, &_output_rowset);
+            res = _tablet->create_rowset(output_rs_meta, &_output_rowset);
             if (!res.ok()) {
                 LOG(WARNING) << "fail to init rowset. version=" << output_version;
                 return res;
