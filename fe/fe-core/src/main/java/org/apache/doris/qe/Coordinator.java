@@ -3628,7 +3628,8 @@ public class Coordinator implements CoordInterface {
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
                     instanceIdx.put(instanceExecParam.host, 0);
                 }
-                // Set each bucket belongs to which instance on this BE. This is used for LocalExchange(BUCKET_HASH_SHUFFLE)
+                // Set each bucket belongs to which instance on this BE.
+                // This is used for LocalExchange(BUCKET_HASH_SHUFFLE).
                 for (int bucket : instanceExecParam.bucketSeqSet) {
                     int instanceId = instanceIdx.get(instanceExecParam.host);
                     res.get(instanceExecParam.host).getBucketSeqToInstanceIdx().put(bucket, instanceId);
