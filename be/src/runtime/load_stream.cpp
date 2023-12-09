@@ -127,7 +127,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
     auto flush_func = [this, new_segid, eos, buf, header]() {
-        auto st = _load_stream_writer->append_data(new_segid, buf);
+        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf);
         if (eos && st.ok()) {
             st = _load_stream_writer->close_segment(new_segid);
         }

@@ -185,7 +185,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
 
 // APPEND_DATA
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, std::span<const Slice> data,
+                                   int64_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos) {
     PStreamHeader header;
     header.set_src_id(_src_id);
@@ -195,6 +195,7 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
     header.set_tablet_id(tablet_id);
     header.set_segment_id(segment_id);
     header.set_segment_eos(segment_eos);
+    header.set_offset(offset);
     header.set_opcode(doris::PStreamHeader::APPEND_DATA);
     return _encode_and_send(header, data);
 }
