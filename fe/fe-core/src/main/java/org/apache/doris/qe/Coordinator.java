@@ -3630,11 +3630,12 @@ public class Coordinator implements CoordInterface {
                 }
                 // Set each bucket belongs to which instance on this BE.
                 // This is used for LocalExchange(BUCKET_HASH_SHUFFLE).
+                int instanceId = instanceIdx.get(instanceExecParam.host);
                 for (int bucket : instanceExecParam.bucketSeqSet) {
-                    int instanceId = instanceIdx.get(instanceExecParam.host);
                     res.get(instanceExecParam.host).getBucketSeqToInstanceIdx().put(bucket, instanceId);
-                    instanceIdx.replace(instanceExecParam.host, ++instanceId);
+
                 }
+                instanceIdx.replace(instanceExecParam.host, ++instanceId);
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);
                 TPipelineInstanceParams localParams = new TPipelineInstanceParams();
 
