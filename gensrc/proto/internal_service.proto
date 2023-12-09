@@ -791,6 +791,7 @@ message PStreamHeader {
     optional SegmentStatisticsPB segment_statistics = 9;
     repeated PTabletID tablets = 10;
     optional TabletSchemaPB flush_schema = 11;
+    optional uint64 offset = 12;
 }
 
 message PGetWalQueueSizeRequest{
