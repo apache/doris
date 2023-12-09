@@ -41,7 +41,7 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.util.Objects;
 
-public class DecimalLiteral extends LiteralExpr {
+public class DecimalLiteral extends NumericLiteralExpr {
     private static final Logger LOG = LogManager.getLogger(DecimalLiteral.class);
     private BigDecimal value;
 
