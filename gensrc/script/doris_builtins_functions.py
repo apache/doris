@@ -1583,6 +1583,7 @@ visible_functions = {
         [['regexp_replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['regexp_replace_one'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['regexp_extract_all'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+        [['concat'], 'VARCHAR', ['VARCHAR', '...'], ''],
         [['elt'], 'VARCHAR', ['INT', 'VARCHAR', '...'], 'ALWAYS_NULLABLE'],
         [['elt'], 'STRING', ['INT', 'STRING', '...'], 'ALWAYS_NULLABLE'],
         [['replace'], 'VARCHAR', ['VARCHAR', 'VARCHAR', 'VARCHAR'], ''],
