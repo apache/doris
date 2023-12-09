@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -67,21 +68,40 @@ public class Divide extends BinaryArithmetic implements AlwaysNullable {
 
     @Override
     public DecimalV3Type getDataTypeForDecimalV3(DecimalV3Type t1, DecimalV3Type t2) {
-        int retPercision = t1.getPrecision() + t2.getScale() + Config.div_precision_increment;
-        Preconditions.checkState(retPercision <= DecimalV3Type.MAX_DECIMAL256_PRECISION,
-                "target precision " + retPercision + " larger than precision "
-                        + DecimalV3Type.MAX_DECIMAL256_PRECISION + " in Divide return type");
-        int retScale = t1.getScale() + t2.getScale()
-                + Config.div_precision_increment;
-        int targetPercision = retPercision;
-        int targetScale = t1.getScale() + t2.getScale();
-        Preconditions.checkState(targetPercision >= targetScale,
-                "target scale " + targetScale + " larger than precision " + retPercision
-                        + " in Divide return type");
-        Preconditions.checkState(retPercision >= retScale,
-                "scale " + retScale + " larger than precision " + retPercision
-                        + " in Divide return type");
-        return DecimalV3Type.createDecimalV3Type(retPercision, retScale);
+        int precision = t1.getPrecision() + t2.getScale() + Config.div_precision_increment;
+        int scale = t1.getScale();
+        boolean enableDecimal256 = false;
+        int defaultScale = 6;
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null) {
+            enableDecimal256 = connectContext.getSessionVariable().isEnableDecimal256();
+            defaultScale = connectContext.getSessionVariable().decimalOverflowScale;
+        }
+        if (enableDecimal256 && precision > DecimalV3Type.MAX_DECIMAL256_PRECISION) {
+            int integralPartBoundary = DecimalV3Type.MAX_DECIMAL256_PRECISION - defaultScale;
+            if (precision - scale < integralPartBoundary) {
+                // retains more int part
+                scale = DecimalV3Type.MAX_DECIMAL256_PRECISION - (precision - scale);
+            } else if (precision - scale > integralPartBoundary && scale < defaultScale) {
+                // scale not change, retains more scale part
+            } else {
+                scale = defaultScale;
+            }
+            precision = DecimalV3Type.MAX_DECIMAL256_PRECISION;
+        } else if (!enableDecimal256 && precision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
+            int integralPartBoundary = DecimalV3Type.MAX_DECIMAL128_PRECISION - defaultScale;
+            if (precision - scale < integralPartBoundary) {
+                // retains more int part
+                scale = DecimalV3Type.MAX_DECIMAL128_PRECISION - (precision - scale);
+            } else if (precision - scale > integralPartBoundary && scale < defaultScale) {
+                // scale not change, retains more scale part
+            } else {
+                scale = defaultScale;
+            }
+            precision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
+        }
+        scale = Math.min(precision, scale + t2.getScale() + Config.div_precision_increment);
+        return DecimalV3Type.createDecimalV3Type(precision, scale);
     }
 
     @Override

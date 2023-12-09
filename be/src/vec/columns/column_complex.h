@@ -123,6 +123,7 @@ public:
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
+        __builtin_unreachable();
     }
 
     void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
@@ -131,6 +132,7 @@ public:
     }
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
+        __builtin_unreachable();
     }
 
     void reserve(size_t n) override { data.reserve(n); }
@@ -158,22 +160,27 @@ public:
 
     [[noreturn]] UInt64 get64(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Float64 get_float64(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] UInt64 get_uint(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
         LOG(FATAL) << "get field not implemented";
+        __builtin_unreachable();
     }
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
@@ -200,10 +207,12 @@ public:
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not implemented";
+        __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not implemented";
+        __builtin_unreachable();
     }
 
     // maybe we do not need to impl the function
@@ -261,6 +270,7 @@ public:
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
         LOG(FATAL) << "scatter not implemented";
+        __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res,

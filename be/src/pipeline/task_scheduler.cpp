@@ -77,7 +77,7 @@ Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
         return Status::InternalError("BlockedTaskScheduler shutdown");
     }
     std::unique_lock<std::mutex> lock(_task_mutex);
-    if (!static_cast<PipelineXTask*>(task)->push_blocked_task_to_queue()) {
+    if (task->is_pipelineX()) {
         // put this task into current dependency's blocking queue and wait for event notification
         // instead of using a separate BlockedTaskScheduler.
         task->set_running(false);
@@ -144,11 +144,6 @@ void BlockedTaskScheduler::_schedule() {
             } else if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
                 if (task->source_can_read()) {
                     _make_task_run(local_blocked_tasks, iter);
-                } else if (!task->push_blocked_task_to_queue()) {
-                    // TODO(gabriel): This condition means this task is in blocking queue now and we should
-                    //  remove it because this new dependency should not be put into blocking queue. We
-                    //  will delete this strange behavior after ScanDependency and UnionDependency done.
-                    local_blocked_tasks.erase(iter++);
                 } else {
                     iter++;
                 }

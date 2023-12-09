@@ -187,6 +187,7 @@ class ScanLocalState : public ScanLocalStateBase {
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
+    std::string debug_string(int indentation_level) const override;
 
     bool ready_to_read() override;
 
@@ -362,7 +363,7 @@ protected:
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx;
+    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
 
     vectorized::FilterPredicates _filter_predicates {};
 
@@ -404,7 +405,7 @@ protected:
     // "_colname_to_value_range" and in "_not_in_value_ranges"
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
-    bool _eos = false;
+    std::atomic<bool> _eos = false;
 
     std::mutex _block_lock;
 };
@@ -426,6 +427,13 @@ public:
     }
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
+
+    bool need_to_local_shuffle() const override {
+        // If _col_distribute_ids is not empty, we prefer to not do local shuffle.
+        return _col_distribute_ids.empty();
+    }
+
+    bool is_bucket_shuffle_scan() const override { return !_col_distribute_ids.empty(); }
 
     int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;

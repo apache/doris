@@ -194,11 +194,15 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
     return pipeline;
 }
 
-PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent) {
+PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
     auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
-    _pipelines.emplace_back(pipeline);
+    if (idx >= 0) {
+        _pipelines.insert(_pipelines.begin() + idx, pipeline);
+    } else {
+        _pipelines.emplace_back(pipeline);
+    }
     parent->set_children(pipeline);
     return pipeline;
 }
@@ -875,6 +879,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
     }
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
+    _runtime_state->runtime_profile()->total_time_counter()->update(
+            _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());

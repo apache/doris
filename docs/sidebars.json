@@ -867,7 +867,8 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
                                 "sql-manual/sql-reference/Database-Administration-Statements/KILL",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK",
+                                "sql-manual/sql-reference/Database-Administration-Statements/UNSET-VARIABLE"
                             ]
                         },
                         {
@@ -1068,6 +1069,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS-BELONG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",

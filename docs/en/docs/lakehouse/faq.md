@@ -269,6 +269,12 @@ under the License.
 
      Note that the value here is the cumulative value of a single HDFS Client, not the value of a single query. The same HDFS Client will be reused by multiple queries.
 
+3. `Couldn't create proxy provider class org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`
+
+    In the start scripts of FE and BE, the environment variable `HADOOP_CONF_DIR` will be added to CLASSPATH. If `HADOOP_CONF_DIR` is set incorrectly, such as pointing to a non-existent path or an incorrect path, the wrong xxx-site.xml file may be loaded and incorrect information may be read.
+
+    You need to check whether `HADOOP_CONF_DIR` is configured correctly, or unset this environment variable.
+
 ## DLF Catalog
 
 1. When using DLF Catalog, BE reads `Invalid address` when fetching JindoFS data and needs to add the domain name to IP mapping that appears in the log in `/ets/hosts`.

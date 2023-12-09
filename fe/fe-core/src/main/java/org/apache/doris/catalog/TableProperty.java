@@ -131,6 +131,7 @@ public class TableProperty implements Writable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildDisableAutoCompaction();
                 break;
             default:
                 break;

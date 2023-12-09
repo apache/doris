@@ -47,8 +47,8 @@ import java.util.Optional;
 /**
  * Logical Check Policy
  */
-public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements
-        PropagateFuncDeps {
+public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements PropagateFuncDeps {
 
     public LogicalCheckPolicy(CHILD_TYPE child) {
         super(PlanType.LOGICAL_CHECK_POLICY, child);

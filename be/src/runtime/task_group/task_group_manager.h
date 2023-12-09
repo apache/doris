@@ -77,10 +77,14 @@ private:
 
     // map for workload group id and task scheduler pool
     // used for cpu hard limit
-    std::mutex _task_scheduler_lock;
+    std::shared_mutex _task_scheduler_lock;
     std::map<uint64_t, std::unique_ptr<doris::pipeline::TaskScheduler>> _tg_sche_map;
     std::map<uint64_t, std::unique_ptr<vectorized::SimplifiedScanScheduler>> _tg_scan_sche_map;
     std::map<uint64_t, std::unique_ptr<CgroupCpuCtl>> _cgroup_ctl_map;
+
+    std::shared_mutex _init_cg_ctl_lock;
+    std::unique_ptr<CgroupCpuCtl> _cg_cpu_ctl;
+    bool _is_init_succ = false;
 };
 
 } // namespace taskgroup

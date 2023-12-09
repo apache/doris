@@ -34,6 +34,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -45,11 +47,33 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Data
 @Slf4j
-public class InsertJob extends AbstractJob<InsertTask> {
+public class InsertJob extends AbstractJob<InsertTask, Map> {
+
+    public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
+            new Column("Id", ScalarType.createStringType()),
+            new Column("Name", ScalarType.createStringType()),
+            new Column("Definer", ScalarType.createStringType()),
+            new Column("ExecuteType", ScalarType.createStringType()),
+            new Column("RecurringStrategy", ScalarType.createStringType()),
+            new Column("Status", ScalarType.createStringType()),
+            new Column("ExecuteSql", ScalarType.createStringType()),
+            new Column("CreateTime", ScalarType.createStringType()),
+            new Column("Comment", ScalarType.createStringType()));
+
+    public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        for (int i = 0; i < SCHEMA.size(); i++) {
+            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        COLUMN_TO_INDEX = builder.build();
+    }
 
     @SerializedName(value = "lp")
     String labelPrefix;
@@ -64,11 +88,11 @@ public class InsertJob extends AbstractJob<InsertTask> {
     ConcurrentLinkedQueue<Long> taskIdList;
 
     // max save task num, do we need to config it?
-    private static final int MAX_SAVE_TASK_NUM = 50;
-
+    private static final int MAX_SAVE_TASK_NUM = 100;
 
     @Override
-    public List<InsertTask> createTasks(TaskType taskType) {
+    public List<InsertTask> createTasks(TaskType taskType, Map taskContext) {
+        //nothing need to do in insert job
         InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql(), getCreateUser());
         task.setJobId(getJobId());
         task.setTaskType(taskType);
@@ -100,15 +124,15 @@ public class InsertJob extends AbstractJob<InsertTask> {
         super.cancelTaskById(taskId);
     }
 
+    @Override
+    public boolean isReadyForScheduling(Map taskContext) {
+        return CollectionUtils.isEmpty(getRunningTasks());
+    }
+
 
     @Override
     public void cancelAllTasks() throws JobException {
         super.cancelAllTasks();
-    }
-
-    @Override
-    public boolean isReadyForScheduling() {
-        return true;
     }
 
 
@@ -139,8 +163,9 @@ public class InsertJob extends AbstractJob<InsertTask> {
             InsertTask task;
             try {
                 task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
+                task.setCreateTimeMs(loadJob.getCreateTimestamp());
             } catch (MetaNotFoundException e) {
-                log.warn("load job not found,job id is {}", loadJob.getId());
+                log.warn("load job not found, job id is {}", loadJob.getId());
                 return;
             }
             task.setJobId(getJobId());
@@ -172,7 +197,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
     }
 
     @Override
-    public void onTaskSuccess(InsertTask task) {
+    public void onTaskSuccess(InsertTask task) throws JobException {
         super.onTaskSuccess(task);
     }
 

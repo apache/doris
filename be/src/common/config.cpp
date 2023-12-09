@@ -570,7 +570,13 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
-DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "100");
+DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
+
+// percent of (active memtables size / all memtables size) when reach hard limit
+DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
+
+// percent of (active memtables size / all memtables size) when reach soft limit
+DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
 
 // Alignment
 DEFINE_Int32(memory_max_alignment, "16");
@@ -757,6 +763,8 @@ DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
 DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 // brpc streaming messages_in_batch
 DEFINE_Int32(load_stream_messages_in_batch, "128");
+// brpc streaming StreamWait seconds on EAGAIN
+DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -997,7 +1005,6 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
-DEFINE_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
@@ -1105,7 +1112,7 @@ DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
 DEFINE_mString(doris_cgroup_cpu_path, "");
-DEFINE_mBool(enable_cgroup_cpu_soft_limit, "true");
+DEFINE_mBool(enable_cgroup_cpu_soft_limit, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 

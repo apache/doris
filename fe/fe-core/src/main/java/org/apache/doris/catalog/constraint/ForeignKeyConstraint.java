@@ -69,6 +69,11 @@ public class ForeignKeyConstraint extends Constraint {
         return referencedTable.toTableIf();
     }
 
+    public Boolean isReferringPK(TableIf table, PrimaryKeyConstraint constraint) {
+        return constraint.getPrimaryKeyNames().equals(getForeignKeyNames())
+                && getReferencedTable().equals(table);
+    }
+
     @Override
     public int hashCode() {
         return Objects.hash(foreignToReference, referencedTable);

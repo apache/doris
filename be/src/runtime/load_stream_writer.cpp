@@ -48,6 +48,7 @@
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset_builder.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
@@ -67,14 +68,17 @@
 namespace doris {
 using namespace ErrorCode;
 
-LoadStreamWriter::LoadStreamWriter(WriteRequest* req, RuntimeProfile* profile)
-        : _req(*req), _rowset_builder(*req, profile), _rowset_writer(nullptr) {}
+LoadStreamWriter::LoadStreamWriter(WriteRequest* context, RuntimeProfile* profile)
+        : _req(*context), _rowset_writer(nullptr) {
+    _rowset_builder =
+            std::make_unique<RowsetBuilder>(*StorageEngine::instance(), *context, profile);
+}
 
 LoadStreamWriter::~LoadStreamWriter() = default;
 
 Status LoadStreamWriter::init() {
-    RETURN_IF_ERROR(_rowset_builder.init());
-    _rowset_writer = _rowset_builder.rowset_writer();
+    RETURN_IF_ERROR(_rowset_builder->init());
+    _rowset_writer = _rowset_builder->rowset_writer();
     _is_init = true;
     return Status::OK();
 }
@@ -120,7 +124,8 @@ Status LoadStreamWriter::close_segment(uint32_t segid) {
     return Status::OK();
 }
 
-Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat) {
+Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& stat,
+                                     TabletSchemaSPtr flush_schema) {
     if (_segment_file_writers[segid]->bytes_appended() != stat.data_size) {
         LOG(WARNING) << _segment_file_writers[segid]->path() << " is incomplete, actual size: "
                      << _segment_file_writers[segid]->bytes_appended()
@@ -129,7 +134,7 @@ Status LoadStreamWriter::add_segment(uint32_t segid, const SegmentStatistics& st
                                   _segment_file_writers[segid]->path().native(),
                                   _segment_file_writers[segid]->bytes_appended(), stat.data_size);
     }
-    return _rowset_writer->add_segment(segid, stat);
+    return _rowset_writer->add_segment(segid, stat, flush_schema);
 }
 
 Status LoadStreamWriter::close() {
@@ -156,10 +161,10 @@ Status LoadStreamWriter::close() {
         }
     }
 
-    RETURN_IF_ERROR(_rowset_builder.build_rowset());
-    RETURN_IF_ERROR(_rowset_builder.submit_calc_delete_bitmap_task());
-    RETURN_IF_ERROR(_rowset_builder.wait_calc_delete_bitmap());
-    RETURN_IF_ERROR(_rowset_builder.commit_txn());
+    RETURN_IF_ERROR(_rowset_builder->build_rowset());
+    RETURN_IF_ERROR(_rowset_builder->submit_calc_delete_bitmap_task());
+    RETURN_IF_ERROR(_rowset_builder->wait_calc_delete_bitmap());
+    RETURN_IF_ERROR(_rowset_builder->commit_txn());
 
     return Status::OK();
 }

@@ -204,6 +204,10 @@ public:
                              const PGroupCommitInsertRequest* request,
                              PGroupCommitInsertResponse* response,
                              google::protobuf::Closure* done) override;
+    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override;
 
     void get_wal_queue_size(google::protobuf::RpcController* controller,
                             const PGetWalQueueSizeRequest* request,

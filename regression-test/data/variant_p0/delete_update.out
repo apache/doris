@@ -7,4 +7,10 @@
 
 -- !sql --
 2	{"updated_value":123}	{"updated_value":123}
+6	{"c":4.0,"a":4,"b":[4]}	{"updated_value" : 123}
+7	{"updated_value":1111}	yyy
+
+-- !sql --
+2	{"updated_value":123}	{"updated_value":123}
+6	{"c":4.0,"a":4,"b":[4]}	{"updated_value" : 123}
 
