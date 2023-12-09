@@ -425,7 +425,7 @@ BlockRowPos VAnalyticEvalNode::_get_partition_by_end() {
 
     BlockRowPos cal_end = _all_block_end;
     for (size_t i = 0; i < _partition_by_eq_expr_ctxs.size();
-         ++i) { //have partition_by, binary search the partiton end
+         ++i) { //have partition_by, binary search the partition end
         cal_end =
                 _compare_row_to_find_end(_partition_by_column_idxs[i], _partition_by_end, cal_end);
     }

@@ -3605,7 +3605,7 @@ class PaloClient(object):
     def show_tablet(self, table_name=None, database_name=None, tablet_id=None, partition_list=None):
         """
         SHOW TABLETS
-        [FROM [db_name.]table_name | tablet_id] [partiton(partition_name_1, partition_name_1)]
+        [FROM [db_name.]table_name | tablet_id] [partition(partition_name_1, partition_name_1)]
         [where [version=1] [and backendid=10000] [and state="NORMAL|ROLLUP|CLONE|DECOMMISSION"]]
         [order by order_column]
         [limit [offset,]size]

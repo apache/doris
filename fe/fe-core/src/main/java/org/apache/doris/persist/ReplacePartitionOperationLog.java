@@ -52,14 +52,14 @@ public class ReplacePartitionOperationLog implements Writable {
 
     public ReplacePartitionOperationLog(long dbId, String dbName, long tblId, String tblName,
                                         List<String> partitionNames,
-                                        List<String> tempPartitonNames, boolean strictRange,
+                                        List<String> tempPartitionNames, boolean strictRange,
                                         boolean useTempPartitionName) {
         this.dbId = dbId;
         this.dbName = dbName;
         this.tblId = tblId;
         this.tblName = tblName;
         this.partitions = partitionNames;
-        this.tempPartitions = tempPartitonNames;
+        this.tempPartitions = tempPartitionNames;
         this.strictRange = strictRange;
         this.useTempPartitionName = useTempPartitionName;
     }

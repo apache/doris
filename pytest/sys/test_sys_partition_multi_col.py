@@ -165,12 +165,12 @@ def test_partition_multi_col_value():
     """
     {
     "title": "test_sys_partition_multi_col.test_partition_multi_col_value",
-    "describe": "partiton columns should be key, 分区列只能是key列",
+    "describe": "partition columns should be key, 分区列只能是key列",
     "tag": "function,p1,fuzz"
     }
     """
     """
-    partiton columns should be key
+    partition columns should be key
     分区列只能是key列
     """
     database_name, table_name, index_name = util.gen_num_format_name_list()
@@ -201,10 +201,10 @@ def test_partition_multi_col_value():
     client.clean(database_name)
 
 
-def test_partiton_multi_col_range_1():
+def test_partition_multi_col_range_1():
     """
     {
-    "title": "test_sys_partition_multi_col.test_partiton_multi_col_range_1",
+    "title": "test_sys_partition_multi_col.test_partition_multi_col_range_1",
     "describe": "test the range of partition column, 多列分区的范围",
     "tag": "function,p1"
     }
@@ -255,12 +255,12 @@ def test_partition_multi_col_range_default():
     """
     {
     "title": "test_sys_partition_multi_col.test_partition_multi_col_range_default",
-    "describe": "test the default value of partiton value, 分区列的缺省值是minvalue",
+    "describe": "test the default value of partition value, 分区列的缺省值是minvalue",
     "tag": "function,p1"
     }
     """
     """
-    test the default value of partiton value
+    test the default value of partition value
     分区列的缺省值是minvalue
     """
     database_name, table_name, index_name = util.gen_num_format_name_list()
@@ -717,12 +717,12 @@ def test_partition_drop_rollup():
     """
     {
     "title": "test_sys_partition_multi_col.test_partition_drop_rollup",
-    "describe": "test partiton drop rollup, 多列分区，删除rollup",
+    "describe": "test partition drop rollup, 多列分区，删除rollup",
     "tag": "function,p1"
     }
     """
     """
-    test partiton drop rollup
+    test partition drop rollup
     多列分区，删除rollup
     """
     database_name, table_name, index_name = util.gen_num_format_name_list()
@@ -854,12 +854,12 @@ def test_partition_fixed_range_2():
     """
     {
     "title": "test_sys_partition_multi_col.test_partition_fixed_range_2",
-    "describe": "partiton has hole, 区间不连续",
+    "describe": "partition has hole, 区间不连续",
     "tag": "function,p1"
     }
     """
     """
-    partiton has hole
+    partition has hole
     区间不连续
     """
     database_name, table_name, index_name = util.gen_num_format_name_list()

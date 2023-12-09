@@ -71,9 +71,9 @@ def test_list_partition_load():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('-2147483647', '2147483647'), ('1001', '3021'), ('1002', '25699', '103', '5014', '1992')]
-    partition_info = palo_client.PartitionInfo('k3', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k3', partition_name, partition_value_list, partition_type='LIST')
     agg_table = table_name + '_agg'
     dup_table = table_name + '_dup'
     uniq_table = table_name + '_uniq'
@@ -127,9 +127,9 @@ def test_list_partition_routine_load():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [('-2147483647', '2147483647'), ('1001', '3021'), ('1002', '25699', '103', '5014', '1992')]
-    partition_info = palo_client.PartitionInfo('k3', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k3', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_list, partition_info=partition_info)
     # create routine load
@@ -174,9 +174,9 @@ def test_list_partition_add():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p2', 'p3']
+    partition_name = ['p2', 'p3']
     partition_value_list = [('1001', '3021'), ('1002', '25699', '103', '5014', '1992')]
-    partition_info = palo_client.PartitionInfo('k3', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k3', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_no_agg_list, partition_info=partition_info)
     load_data_info = palo_client.LoadDataInfo(FILE.baseall_hdfs_file, table_name, partition_list=['p2', 'p3'])
@@ -220,10 +220,10 @@ def test_list_partition_drop():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3', 'p4']
+    partition_name = ['p1', 'p2', 'p3', 'p4']
     partition_value_list = [('1001', '3021'), ('1002', '25699', '103', '5014', '1992'),
                             ('0'), ('2147483647', '-2147483647')]
-    partition_info = palo_client.PartitionInfo('k3', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k3', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_no_agg_list, partition_info=partition_info)
     load_data_info = palo_client.LoadDataInfo(FILE.baseall_hdfs_file, table_name)
@@ -262,9 +262,9 @@ def test_list_partition_rename():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p0']
+    partition_name = ['p0']
     partition_value_list = [('1', )]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_no_agg_list, partition_info=partition_info)
     ret = client.add_partition(table_name, 'p1', util.gen_tuple_num_str(2, 16), partition_type='LIST')
@@ -300,9 +300,9 @@ def test_list_partition_modify():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p0']
+    partition_name = ['p0']
     partition_value_list = [('1',)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_no_agg_list, partition_info=partition_info)
     ret = client.add_partition(table_name, 'p1', util.gen_tuple_num_str(2, 16), 
@@ -339,10 +339,10 @@ def test_list_partition_alter_partition_col():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 15), 
                             util.gen_tuple_num_str(15, 16)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_no_agg_list, partition_info=partition_info)
     msg = 'Can not modify partition column'
@@ -363,10 +363,10 @@ def test_list_partition_temp():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 16),
                             util.gen_tuple_num_str(16, 20)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_no_agg_list, partition_info=partition_info)
     client.add_temp_partition(table_name, 'tp1', util.gen_tuple_num_str(5, 10), partition_type='LIST')
@@ -402,10 +402,10 @@ def test_list_partition_rollup():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 16),
                             util.gen_tuple_num_str(16, 20)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_list, partition_info=partition_info)
     assert client.stream_load(table_name, FILE.baseall_local_file)
@@ -428,10 +428,10 @@ def test_list_partition_backup_restore():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 16),
                             util.gen_tuple_num_str(16, 20)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_list, partition_info=partition_info)
     assert client.stream_load(table_name, FILE.baseall_local_file)
@@ -475,10 +475,10 @@ def test_list_partition_export():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 16),
                             util.gen_tuple_num_str(16, 20)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_list, partition_info=partition_info)
     assert client.stream_load(table_name, FILE.baseall_local_file)
@@ -503,10 +503,10 @@ def test_list_partition_drop_recover():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 16),
                             util.gen_tuple_num_str(16, 20)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_list, partition_info=partition_info)
     assert client.stream_load(table_name, FILE.baseall_local_file)
@@ -534,10 +534,10 @@ def test_list_partition_delete():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 16),
                             util.gen_tuple_num_str(16, 20)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_list, partition_info=partition_info)
     assert client.stream_load(table_name, FILE.baseall_local_file)
@@ -574,10 +574,10 @@ def test_list_partition_truncate():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3']
+    partition_name = ['p1', 'p2', 'p3']
     partition_value_list = [util.gen_tuple_num_str(1, 5), util.gen_tuple_num_str(5, 16),
                             util.gen_tuple_num_str(16, 20)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_list, partition_info=partition_info)
     assert client.stream_load(table_name, FILE.baseall_local_file)
@@ -603,10 +603,10 @@ def test_list_partition_select():
     LOG.info(L('', database_name=database_name,
                table_name=table_name, index_name=index_name))
 
-    partiton_name = ['p1', 'p2', 'p3', 'p4']
+    partition_name = ['p1', 'p2', 'p3', 'p4']
     partition_value_list = [util.gen_tuple_num_str(-128, -64), util.gen_tuple_num_str(-64, 0),
                             util.gen_tuple_num_str(0, 64), util.gen_tuple_num_str(64, 128)]
-    partition_info = palo_client.PartitionInfo('k1', partiton_name, partition_value_list, partition_type='LIST')
+    partition_info = palo_client.PartitionInfo('k1', partition_name, partition_value_list, partition_type='LIST')
     client = common.create_workspace(database_name)
     assert client.create_table(table_name, DATA.baseall_column_list, partition_info=partition_info)
     assert client.stream_load(table_name, FILE.baseall_local_file)

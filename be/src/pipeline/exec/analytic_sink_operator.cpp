@@ -178,7 +178,7 @@ vectorized::BlockRowPos AnalyticSinkLocalState::_get_partition_by_end() {
 
     vectorized::BlockRowPos cal_end = shared_state.all_block_end;
     for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
-         ++i) { //have partition_by, binary search the partiton end
+         ++i) { //have partition_by, binary search the partition end
         cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
                                            shared_state.partition_by_end, cal_end);
     }

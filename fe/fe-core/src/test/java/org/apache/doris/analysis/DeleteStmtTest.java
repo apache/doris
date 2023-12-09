@@ -182,7 +182,7 @@ public class DeleteStmtTest {
 
         // multi partition
         deleteStmt = new DeleteStmt(new TableName(internalCtl, "testDb", "testTbl"),
-                new PartitionNames(false, Lists.newArrayList("partition1", "partiton2")), compoundPredicate);
-        Assert.assertEquals(Lists.newArrayList("partition1", "partiton2"), deleteStmt.getPartitionNames());
+                new PartitionNames(false, Lists.newArrayList("partition1", "partition2")), compoundPredicate);
+        Assert.assertEquals(Lists.newArrayList("partition1", "partition2"), deleteStmt.getPartitionNames());
     }
 }

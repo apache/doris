@@ -82,7 +82,7 @@ def create_kafka_topic(topic_name, partition_num):
                                                                  partition_num, topic_name)
     print(cmd)
     status, output = util.exec_cmd(cmd, user, password, host)
-    LOG.info(L('CREATE KAFKA TOPIC', zookeeper=zookeeper, partiton_num=partition_num, 
+    LOG.info(L('CREATE KAFKA TOPIC', zookeeper=zookeeper, partition_num=partition_num, 
                topic=topic_name, status=status))
     print(status, output)
     assert status == 0, output

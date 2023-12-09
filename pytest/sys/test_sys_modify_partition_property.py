@@ -358,7 +358,7 @@ def test_modify_s_tb_reduce_replication():
     """
     {
     "title": "test_modify_s_tb_reduce_replication",
-    "describe": "修改单分区表分区属性replication_num，由3变为2，修改成功，show partitons，replication num为2",
+    "describe": "修改单分区表分区属性replication_num，由3变为2，修改成功，show partitions，replication num为2",
     "tag": "p1,system"
     }
     """
@@ -384,7 +384,7 @@ def test_modify_s_tb_add_replication():
     """
     {
     "title": "test_modify_s_tb_add_replication",
-    "describe": "修改单分区表分区属性replication_num，由3变为4，修改成功，show partitons，replication num为4",
+    "describe": "修改单分区表分区属性replication_num，由3变为4，修改成功，show partitions，replication num为4",
     "tag": "p1,system"
     }
     """

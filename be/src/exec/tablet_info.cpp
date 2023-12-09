@@ -583,7 +583,7 @@ Status VOlapTablePartitionParam::add_partitions(
             }
         }
         _partitions.emplace_back(part);
-        // after _creating_partiton_keys
+        // after _creating_partition_keys
         if (_is_in_partition) {
             for (auto& in_key : part->in_keys) {
                 _partitions_map->emplace(std::tuple {in_key.first, in_key.second, false}, part);
