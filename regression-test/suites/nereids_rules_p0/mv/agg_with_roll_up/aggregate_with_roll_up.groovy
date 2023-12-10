@@ -144,6 +144,30 @@ suite("aggregate_with_roll_up") {
         }
     }
 
+    def check_rewrite_with_force_analyze = { mv_sql, query_sql, mv_name ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        sql "analyze table ${mv_name} with sync;"
+        sql "analyze table lineitem with sync;"
+        sql "analyze table orders with sync;"
+        sql "analyze table partsupp with sync;"
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            contains "(${mv_name})"
+        }
+    }
+
     def check_not_match = { mv_sql, query_sql, mv_name ->
 
         sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
@@ -162,71 +186,6 @@ suite("aggregate_with_roll_up") {
             notContains "(${mv_name})"
         }
     }
-
-    // single table
-    // filter + use roll up dimension
-    def mv1_1 = "select o_orderdate, o_shippriority, o_comment, " +
-            "sum(o_totalprice) as sum_total, " +
-            "max(o_totalprice) as max_total, " +
-            "min(o_totalprice) as min_total, " +
-            "count(*) as count_all, " +
-            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, " +
-            "bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 " +
-            "from orders " +
-            "group by " +
-            "o_orderdate, " +
-            "o_shippriority, " +
-            "o_comment "
-    def query1_1 = "select o_shippriority, o_comment, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*) " +
-            "from orders " +
-            "where o_orderdate = '2023-12-09' " +
-            "group by " +
-            "o_shippriority, " +
-            "o_comment "
-    // rewrite success but cbo not chose, tmp
-//     order_qt_query1_1_before "${query1_1}"
-//     check_rewrite(mv1_1, query1_1, "mv1_1")
-//     order_qt_query1_1_after "${query1_1}"
-//     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
-
-
-    // filter + not use roll up dimension
-    def mv2_0 = "select o_orderdate, o_shippriority, o_comment, " +
-            "sum(o_totalprice) as sum_total, " +
-            "max(o_totalprice) as max_total, " +
-            "min(o_totalprice) as min_total, " +
-            "count(*) as count_all, " +
-            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, " +
-            "bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 " +
-            "from orders " +
-            "group by " +
-            "o_orderdate, " +
-            "o_shippriority, " +
-            "o_comment "
-    def query2_0 = "select o_shippriority, o_comment, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*) " +
-            "from orders " +
-            "where o_shippriority = 2 " +
-            "group by " +
-            "o_shippriority, " +
-            "o_comment "
-    // rewrite success but cbo not chose, tmp
-//    order_qt_query2_0_before "${query2_0}"
-//    check_rewrite(mv2_0, query2_0, "mv2_0")
-//    order_qt_query2_0_after "${query2_0}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
-
 
     // multi table
     // filter inside + left + use roll up dimension
@@ -709,6 +668,73 @@ suite("aggregate_with_roll_up") {
     check_rewrite(mv25_0, query25_0, "mv25_0")
     order_qt_query25_0_after "${query25_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv25_0"""
+
+    // single table
+    // filter + use roll up dimension
+    def mv1_1 = "select o_orderdate, o_shippriority, o_comment, " +
+            "sum(o_totalprice) as sum_total, " +
+            "max(o_totalprice) as max_total, " +
+            "min(o_totalprice) as min_total, " +
+            "count(*) as count_all, " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 " +
+            "from orders " +
+            "group by " +
+            "o_orderdate, " +
+            "o_shippriority, " +
+            "o_comment "
+    def query1_1 = "select o_shippriority, o_comment, " +
+            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
+            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, " +
+            "sum(o_totalprice), " +
+            "max(o_totalprice), " +
+            "min(o_totalprice), " +
+            "count(*) " +
+            "from orders " +
+            "where o_orderdate = '2023-12-09' " +
+            "group by " +
+            "o_shippriority, " +
+            "o_comment "
+    order_qt_query1_1_before "${query1_1}"
+    // rewrite success, for cbo chose, should force analyze
+    // because data volume is small and mv plan is almost same to query plan
+    check_rewrite_with_force_analyze(mv1_1, query1_1, "mv1_1")
+    order_qt_query1_1_after "${query1_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
+
+
+    // filter + not use roll up dimension
+    def mv2_0 = "select o_orderdate, o_shippriority, o_comment, " +
+            "sum(o_totalprice) as sum_total, " +
+            "max(o_totalprice) as max_total, " +
+            "min(o_totalprice) as min_total, " +
+            "count(*) as count_all, " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) cnt_1, " +
+            "bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 " +
+            "from orders " +
+            "group by " +
+            "o_orderdate, " +
+            "o_shippriority, " +
+            "o_comment "
+    def query2_0 = "select o_shippriority, o_comment, " +
+            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
+            "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2, " +
+            "sum(o_totalprice), " +
+            "max(o_totalprice), " +
+            "min(o_totalprice), " +
+            "count(*) " +
+            "from orders " +
+            "where o_shippriority = 2 " +
+            "group by " +
+            "o_shippriority, " +
+            "o_comment "
+
+    order_qt_query2_0_before "${query2_0}"
+    // rewrite success, for cbo chose, should force analyze
+    // because data volume is small and mv plan is almost same to query plan
+    check_rewrite_with_force_analyze(mv2_0, query2_0, "mv2_0")
+    order_qt_query2_0_after "${query2_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv2_0"""
 
     // can not rewrite, todo
 }

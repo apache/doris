@@ -387,11 +387,10 @@ suite("inner_join") {
             "from lineitem t1 " +
             "inner join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate "
-    // should passed but not as isGraphLogicalEquals is false
-//    order_qt_query6_0_before "${query6_0}"
-//    check_rewrite(mv6_0, query6_0, "mv6_0")
-//    order_qt_query6_0_after "${query6_0}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
+    order_qt_query6_0_before "${query6_0}"
+    check_rewrite(mv6_0, query6_0, "mv6_0")
+    order_qt_query6_0_after "${query6_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
 
     // filter inside + inner + right
@@ -405,11 +404,10 @@ suite("inner_join") {
             "inner join (select * from orders where o_orderdate = '2023-12-08') t2 " +
             "on t1.l_orderkey = o_orderkey and t1.l_shipdate = o_orderdate " +
             "where l_partkey = 3"
-    // should passed but not, because isGraphLogicalEquals is false
-//    order_qt_query7_0_before "${query7_0}"
-//    check_rewrite(mv7_0, query7_0, "mv7_0")
-//    order_qt_query7_0_after "${query7_0}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
+    order_qt_query7_0_before "${query7_0}"
+    check_rewrite(mv7_0, query7_0, "mv7_0")
+    order_qt_query7_0_after "${query7_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 
 
     // check not match, because use a filed orders.O_SHIPPRIORITY which not in mv

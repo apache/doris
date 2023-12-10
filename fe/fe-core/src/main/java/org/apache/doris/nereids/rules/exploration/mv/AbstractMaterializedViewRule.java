@@ -159,10 +159,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     logger.info(currentClassName + " predicate compensate fail so continue");
                     continue;
                 }
-                Plan rewritedPlan;
+                Plan rewrittenPlan;
                 Plan mvScan = materializationContext.getMvScanPlan();
                 if (compensatePredicates.isAlwaysTrue()) {
-                    rewritedPlan = mvScan;
+                    rewrittenPlan = mvScan;
                 } else {
                     // Try to rewrite compensate predicates by using mv scan
                     List<Expression> rewriteCompensatePredicates = rewriteExpression(
@@ -175,16 +175,16 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         logger.info(currentClassName + " compensate predicate rewrite by view fail so continue");
                         continue;
                     }
-                    rewritedPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
+                    rewrittenPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
                 }
                 // Rewrite query by view
-                rewritedPlan = rewriteQueryByView(matchMode,
+                rewrittenPlan = rewriteQueryByView(matchMode,
                         queryStructInfo,
                         viewStructInfo,
                         queryToViewSlotMapping,
-                        rewritedPlan,
+                        rewrittenPlan,
                         materializationContext);
-                if (rewritedPlan == null) {
+                if (rewrittenPlan == null) {
                     logger.info(currentClassName + " rewrite query by view fail so continue");
                     continue;
                 }
@@ -192,17 +192,29 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     logger.info(currentClassName + " check partition validation fail so continue");
                     continue;
                 }
+                if (!checkOutput(queryPlan, rewrittenPlan)) {
+                    continue;
+                }
                 // run rbo job on mv rewritten plan
                 CascadesContext rewrittenPlanContext =
-                        CascadesContext.initContext(cascadesContext.getStatementContext(), rewritedPlan,
+                        CascadesContext.initContext(cascadesContext.getStatementContext(), rewrittenPlan,
                                 cascadesContext.getCurrentJobContext().getRequiredProperties());
                 Rewriter.getWholeTreeRewriter(cascadesContext).execute();
-                rewritedPlan = rewrittenPlanContext.getRewritePlan();
+                rewrittenPlan = rewrittenPlanContext.getRewritePlan();
                 logger.info(currentClassName + "rewrite by materialized view success");
-                rewriteResults.add(rewritedPlan);
+                rewriteResults.add(rewrittenPlan);
             }
         }
         return rewriteResults;
+    }
+
+    protected boolean checkOutput(Plan sourcePlan, Plan rewrittenPlan) {
+        if (sourcePlan.getGroupExpression().isPresent() && !rewrittenPlan.getLogicalProperties().equals(
+                sourcePlan.getGroupExpression().get().getOwnerGroup().getLogicalProperties())) {
+            logger.error("rewrittenPlan output logical properties is not same with target group");
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -279,7 +291,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
     private MTMVCache getCacheFromMTMV(MTMV mtmv, CascadesContext cascadesContext) {
         MTMVCache cache;
         try {
-            cache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
+            cache = mtmv.getOrGenerateCache();
         } catch (AnalysisException analysisException) {
             logger.warn(this.getClass().getSimpleName() + " get mtmv cache analysisException", analysisException);
             return null;

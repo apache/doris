@@ -43,6 +43,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
@@ -199,7 +201,9 @@ public class CreateMTMVInfo {
     public void analyzeQuery(ConnectContext ctx) {
         // create table as select
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        // this is for column infer
+        LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
+        Plan plan = planner.plan(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
         if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
             throw new AnalysisException("at least contain one table");
         }
@@ -302,6 +306,8 @@ public class CreateMTMVInfo {
         if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != slots.size()) {
             throw new AnalysisException("simpleColumnDefinitions size is not equal to the query's");
         }
+        // slots = BindExpression.inferColumnNames(plan).stream()
+        //         .map(NamedExpression::toSlot).collect(Collectors.toList());
         Set<String> colNames = Sets.newHashSet();
         for (int i = 0; i < slots.size(); i++) {
             String colName = CollectionUtils.isEmpty(simpleColumnDefinitions) ? slots.get(i).getName()

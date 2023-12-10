@@ -67,7 +67,7 @@ public class MaterializationContext {
 
         MTMVCache mtmvCache = null;
         try {
-            mtmvCache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
+            mtmvCache = mtmv.getOrGenerateCache();
         } catch (AnalysisException e) {
             LOG.warn("MaterializationContext init mv cache generate fail", e);
         }
