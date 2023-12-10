@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
@@ -49,7 +50,8 @@ public class MTMVRelationManager implements MTMVHookService {
     private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
-        return tableMTMVs.get(table);
+        Set<BaseTableInfo> baseTableInfos = tableMTMVs.get(table);
+        return baseTableInfos == null ? ImmutableSet.of() : baseTableInfos;
     }
 
     public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos) {

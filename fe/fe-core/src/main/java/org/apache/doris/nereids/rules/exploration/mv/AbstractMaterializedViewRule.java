@@ -17,8 +17,20 @@
 
 package org.apache.doris.nereids.rules.exploration.mv;
 
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVCache;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.executor.Rewriter;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassSetMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
@@ -36,16 +48,21 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Sets;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -53,9 +70,10 @@ import java.util.stream.Collectors;
  * The abstract class for all materialized view rules
  */
 public abstract class AbstractMaterializedViewRule {
-
     public static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET =
             Sets.newHashSet(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN);
+    protected final String currentClassName = this.getClass().getSimpleName();
+    private final Logger logger = LogManager.getLogger(this.getClass());
 
     /**
      * The abstract template method for query rewrite, it contains the main logic and different query
@@ -65,6 +83,7 @@ public abstract class AbstractMaterializedViewRule {
         List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
         List<Plan> rewriteResults = new ArrayList<>();
         if (materializationContexts.isEmpty()) {
+            logger.info(currentClassName + " materializationContexts is empty so return");
             return rewriteResults;
         }
 
@@ -72,6 +91,7 @@ public abstract class AbstractMaterializedViewRule {
         // TODO Just Check query queryPlan firstly, support multi later.
         StructInfo queryStructInfo = queryStructInfos.get(0);
         if (!checkPattern(queryStructInfo)) {
+            logger.info(currentClassName + " queryStructInfo is not valid so return");
             return rewriteResults;
         }
 
@@ -80,40 +100,51 @@ public abstract class AbstractMaterializedViewRule {
             if (queryPlan.getGroupExpression().isPresent()
                     && materializationContext.alreadyRewrite(
                     queryPlan.getGroupExpression().get().getOwnerGroup().getGroupId())) {
+                logger.info(currentClassName + " this group is already rewritten so skip");
                 continue;
             }
-            Plan mvPlan = materializationContext.getMtmv().getCache().getLogicalPlan();
-            List<StructInfo> viewStructInfos = extractStructInfo(mvPlan, cascadesContext);
+            MTMV mtmv = materializationContext.getMtmv();
+            MTMVCache mtmvCache = getCacheFromMTMV(mtmv, cascadesContext);
+            if (mtmvCache == null) {
+                logger.info(currentClassName + " mv cache is null so return");
+                return rewriteResults;
+            }
+            List<StructInfo> viewStructInfos = extractStructInfo(mtmvCache.getLogicalPlan(), cascadesContext);
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one
+                logger.info(currentClassName + " the num of view struct info is more then one so return");
                 return rewriteResults;
             }
             StructInfo viewStructInfo = viewStructInfos.get(0);
             if (!checkPattern(viewStructInfo)) {
+                logger.info(currentClassName + " viewStructInfo is not valid so return");
                 continue;
             }
             MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations());
             if (MatchMode.COMPLETE != matchMode) {
+                logger.info(currentClassName + " match mode is not complete so return");
                 continue;
             }
             List<RelationMapping> queryToViewTableMappings =
                     RelationMapping.generate(queryStructInfo.getRelations(), viewStructInfo.getRelations());
             // if any relation in query and view can not map, bail out.
             if (queryToViewTableMappings == null) {
+                logger.info(currentClassName + " query to view table mapping null so return");
                 return rewriteResults;
             }
             for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
                 SlotMapping queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
                 if (queryToViewSlotMapping == null) {
+                    logger.info(currentClassName + " query to view slot mapping null so continue");
                     continue;
                 }
                 LogicalCompatibilityContext compatibilityContext =
                         LogicalCompatibilityContext.from(queryToViewTableMapping, queryToViewSlotMapping,
                                 queryStructInfo, viewStructInfo);
-                // todo outer join compatibility check
                 List<Expression> pulledUpExpressions = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
                         compatibilityContext);
                 if (pulledUpExpressions == null) {
+                    logger.info(currentClassName + " graph logical is not equals so continue");
                     continue;
                 }
                 // set pulled up expression to queryStructInfo predicates and update related predicates
@@ -124,6 +155,7 @@ public abstract class AbstractMaterializedViewRule {
                         queryToViewSlotMapping);
                 // Can not compensate, bail out
                 if (compensatePredicates.isEmpty()) {
+                    logger.info(currentClassName + " predicate compensate fail so continue");
                     continue;
                 }
                 Plan rewritedPlan;
@@ -139,6 +171,7 @@ public abstract class AbstractMaterializedViewRule {
                             queryToViewSlotMapping,
                             true);
                     if (rewriteCompensatePredicates.isEmpty()) {
+                        logger.info(currentClassName + " compensate predicate rewrite by view fail so continue");
                         continue;
                     }
                     rewritedPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
@@ -151,12 +184,99 @@ public abstract class AbstractMaterializedViewRule {
                         rewritedPlan,
                         materializationContext);
                 if (rewritedPlan == null) {
+                    logger.info(currentClassName + " rewrite query by view fail so continue");
                     continue;
                 }
+                if (!checkPartitionIsValid(queryStructInfo, materializationContext, cascadesContext)) {
+                    logger.info(currentClassName + " check partition validation fail so continue");
+                    continue;
+                }
+                // run rbo job on mv rewritten plan
+                CascadesContext rewrittenPlanContext =
+                        CascadesContext.initContext(cascadesContext.getStatementContext(), rewritedPlan,
+                                cascadesContext.getCurrentJobContext().getRequiredProperties());
+                Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                rewritedPlan = rewrittenPlanContext.getRewritePlan();
+                logger.info(currentClassName + "rewrite by materialized view success");
                 rewriteResults.add(rewritedPlan);
             }
         }
         return rewriteResults;
+    }
+
+    protected boolean checkPartitionIsValid(
+            StructInfo queryInfo,
+            MaterializationContext materializationContext,
+            CascadesContext cascadesContext) {
+        // check partition is valid or not
+        MTMV mtmv = materializationContext.getMtmv();
+        PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
+        if (PartitionType.UNPARTITIONED.equals(mvPartitionInfo.getType())) {
+            // if not partition, if rewrite success, it means mv is available
+            return true;
+        }
+        // check mv related table partition is valid or not
+        MTMVPartitionInfo mvCustomPartitionInfo = mtmv.getMvPartitionInfo();
+        BaseTableInfo relatedPartitionTable = mvCustomPartitionInfo.getRelatedTable();
+        if (relatedPartitionTable == null) {
+            return true;
+        }
+        Optional<LogicalOlapScan> relatedTableRelation = queryInfo.getRelations().stream()
+                .filter(relation -> relatedPartitionTable.equals(new BaseTableInfo(relation.getTable()))
+                        && relation instanceof LogicalOlapScan)
+                .map(relation -> (LogicalOlapScan) relation)
+                .findFirst();
+        if (!relatedTableRelation.isPresent()) {
+            logger.warn("mv is partition update, but related table relation is null");
+            return false;
+        }
+        OlapTable relatedTable = relatedTableRelation.get().getTable();
+        Map<Long, Set<Long>> mvToBasePartitionMap;
+        try {
+            mvToBasePartitionMap = MTMVUtil.getMvToBasePartitions(mtmv, relatedTable);
+        } catch (AnalysisException e) {
+            logger.error("mvRewriteSuccess getMvToBasePartitions fail", e);
+            return false;
+        }
+        // get mv valid partitions
+        Collection<Partition> mvDataValidPartitions = MTMVUtil.getMTMVCanRewritePartitions(mtmv,
+                cascadesContext.getConnectContext());
+        Map<Long, PartitionItem> allPartitions = mvPartitionInfo.getAllPartitions();
+        if (!allPartitions.isEmpty() && mvDataValidPartitions.isEmpty()) {
+            // do not have valid partition
+            return false;
+        }
+        // get mv related table valid partitions
+        Set<Long> relatedTalbeValidSet = mvDataValidPartitions.stream()
+                .map(partition -> {
+                    Set<Long> relatedBaseTablePartitions = mvToBasePartitionMap.get(partition.getId());
+                    if (relatedBaseTablePartitions == null || relatedBaseTablePartitions.isEmpty()) {
+                        return ImmutableList.of();
+                    } else {
+                        return relatedBaseTablePartitions;
+                    }
+                })
+                .flatMap(Collection::stream)
+                .map(Long.class::cast)
+                .collect(Collectors.toSet());
+        // get query selected partitions to make the partitions is valid or not
+        Set<Long> relatedTableSelectedPartitionToCheck =
+                new HashSet<>(relatedTableRelation.get().getSelectedPartitionIds());
+        if (relatedTableSelectedPartitionToCheck.isEmpty()) {
+            relatedTableSelectedPartitionToCheck.addAll(relatedTable.getPartitionIds());
+        }
+        return relatedTalbeValidSet.containsAll(relatedTableSelectedPartitionToCheck);
+    }
+
+    private MTMVCache getCacheFromMTMV(MTMV mtmv, CascadesContext cascadesContext) {
+        MTMVCache cache;
+        try {
+            cache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
+        } catch (AnalysisException analysisException) {
+            logger.warn(this.getClass().getSimpleName() + " get mtmv cache analysisException", analysisException);
+            return null;
+        }
+        return cache;
     }
 
     /**
@@ -221,6 +341,7 @@ public abstract class AbstractMaterializedViewRule {
                     targetToTargetReplacementMapping);
             if (replacedExpression.anyMatch(slotsToRewrite::contains)) {
                 // if contains any slot to rewrite, which means can not be rewritten by target, bail out
+                logger.info(currentClassName + "any slot can not rewrite by view so rewrite expression fail");
                 return ImmutableList.of();
             }
             Expression sourceExpression = sourceExpressionsToWrite.get(index);
@@ -268,6 +389,7 @@ public abstract class AbstractMaterializedViewRule {
                 .toSlotReferenceMap();
         EquivalenceClass viewEquivalenceClassQueryBased = viewEquivalenceClass.permute(viewToQuerySlotMapping);
         if (viewEquivalenceClassQueryBased == null) {
+            logger.info(currentClassName + " permute view equivalence class by query fail so return empty");
             return SplitPredicate.empty();
         }
         final List<Expression> equalCompensateConjunctions = new ArrayList<>();
@@ -276,6 +398,7 @@ public abstract class AbstractMaterializedViewRule {
         }
         if (queryEquivalenceClass.isEmpty()
                 && !viewEquivalenceClass.isEmpty()) {
+            logger.info(currentClassName + " view has equivalence class but query not so return empty");
             return SplitPredicate.empty();
         }
         EquivalenceClassSetMapping queryToViewEquivalenceMapping =
@@ -283,6 +406,7 @@ public abstract class AbstractMaterializedViewRule {
         // can not map all target equivalence class, can not compensate
         if (queryToViewEquivalenceMapping.getEquivalenceClassSetMap().size()
                 < viewEquivalenceClass.getEquivalenceSetList().size()) {
+            logger.info(currentClassName + " view has more equivalence than query so return empty");
             return SplitPredicate.empty();
         }
         // do equal compensate
@@ -330,6 +454,7 @@ public abstract class AbstractMaterializedViewRule {
         // query range predicate can not contain all view range predicate when view have range predicate, bail out
         if (!viewRangePredicateQueryBased.equals(BooleanLiteral.TRUE)
                 && !queryRangeSet.containsAll(viewRangeQueryBasedSet)) {
+            logger.info(currentClassName + " query range predicate set can not contains all view range predicate");
             return SplitPredicate.empty();
         }
         queryRangeSet.removeAll(viewRangeQueryBasedSet);
@@ -349,6 +474,8 @@ public abstract class AbstractMaterializedViewRule {
         // bail out
         if (!viewResidualPredicateQueryBased.equals(BooleanLiteral.TRUE)
                 && !queryResidualSet.containsAll(viewResidualQueryBasedSet)) {
+            logger.info(
+                    currentClassName + " query residual predicate set can not contains all view residual predicate");
             return SplitPredicate.empty();
         }
         queryResidualSet.removeAll(viewResidualQueryBasedSet);

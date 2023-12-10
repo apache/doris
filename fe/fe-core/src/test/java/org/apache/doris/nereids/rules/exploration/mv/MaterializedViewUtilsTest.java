@@ -41,46 +41,90 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         useDatabase("mv_util_test");
 
         createTable("CREATE TABLE IF NOT EXISTS lineitem (\n"
-                + "  L_ORDERKEY    INTEGER NOT NULL,\n"
-                + "  L_PARTKEY     INTEGER NOT NULL,\n"
-                + "  L_SUPPKEY     INTEGER NOT NULL,\n"
-                + "  L_LINENUMBER  INTEGER NOT NULL,\n"
-                + "  L_QUANTITY    DECIMALV3(15,2) NOT NULL,\n"
-                + "  L_EXTENDEDPRICE  DECIMALV3(15,2) NOT NULL,\n"
-                + "  L_DISCOUNT    DECIMALV3(15,2) NOT NULL,\n"
-                + "  L_TAX         DECIMALV3(15,2) NOT NULL,\n"
-                + "  L_RETURNFLAG  CHAR(1) NOT NULL,\n"
-                + "  L_LINESTATUS  CHAR(1) NOT NULL,\n"
-                + "  L_SHIPDATE    DATE NOT NULL,\n"
-                + "  L_COMMITDATE  DATE NOT NULL,\n"
-                + "  L_RECEIPTDATE DATE NOT NULL,\n"
-                + "  L_SHIPINSTRUCT CHAR(25) NOT NULL,\n"
-                + "  L_SHIPMODE     CHAR(10) NOT NULL,\n"
-                + "  L_COMMENT      VARCHAR(44) NOT NULL\n"
+                + "  l_orderkey    integer not null,\n"
+                + "  l_partkey     integer not null,\n"
+                + "  l_suppkey     integer not null,\n"
+                + "  l_linenumber  integer not null,\n"
+                + "  l_quantity    decimalv3(15,2) not null,\n"
+                + "  l_extendedprice  decimalv3(15,2) not null,\n"
+                + "  l_discount    decimalv3(15,2) not null,\n"
+                + "  l_tax         decimalv3(15,2) not null,\n"
+                + "  l_returnflag  char(1) not null,\n"
+                + "  l_linestatus  char(1) not null,\n"
+                + "  l_shipdate    date not null,\n"
+                + "  l_commitdate  date not null,\n"
+                + "  l_receiptdate date not null,\n"
+                + "  l_shipinstruct char(25) not null,\n"
+                + "  l_shipmode     char(10) not null,\n"
+                + "  l_comment      varchar(44) not null\n"
                 + ")\n"
-                + "DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)\n"
-                + "PARTITION BY RANGE(L_SHIPDATE) (PARTITION `day_1` VALUES LESS THAN ('2017-02-01'))\n"
-                + "DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3\n"
+                + "DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)\n"
+                + "PARTITION BY RANGE(l_shipdate) \n"
+                + "(FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)\n"
+                + "DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3\n"
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
-                + ")");
+                + ");");
+        // createTable("CREATE TABLE IF NOT EXISTS lineitem (\n"
+        //         + "  L_ORDERKEY    INTEGER NOT NULL,\n"
+        //         + "  L_PARTKEY     INTEGER NOT NULL,\n"
+        //         + "  L_SUPPKEY     INTEGER NOT NULL,\n"
+        //         + "  L_LINENUMBER  INTEGER NOT NULL,\n"
+        //         + "  L_QUANTITY    DECIMALV3(15,2) NOT NULL,\n"
+        //         + "  L_EXTENDEDPRICE  DECIMALV3(15,2) NOT NULL,\n"
+        //         + "  L_DISCOUNT    DECIMALV3(15,2) NOT NULL,\n"
+        //         + "  L_TAX         DECIMALV3(15,2) NOT NULL,\n"
+        //         + "  L_RETURNFLAG  CHAR(1) NOT NULL,\n"
+        //         + "  L_LINESTATUS  CHAR(1) NOT NULL,\n"
+        //         + "  L_SHIPDATE    DATE NOT NULL,\n"
+        //         + "  L_COMMITDATE  DATE NOT NULL,\n"
+        //         + "  L_RECEIPTDATE DATE NOT NULL,\n"
+        //         + "  L_SHIPINSTRUCT CHAR(25) NOT NULL,\n"
+        //         + "  L_SHIPMODE     CHAR(10) NOT NULL,\n"
+        //         + "  L_COMMENT      VARCHAR(44) NOT NULL\n"
+        //         + ")\n"
+        //         + "DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)\n"
+        //         + "PARTITION BY RANGE(L_SHIPDATE) (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)\n"
+        //         + "DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3\n"
+        //         + "PROPERTIES (\n"
+        //         + "  \"replication_num\" = \"1\"\n"
+        //         + ")");
+        // createTable("CREATE TABLE IF NOT EXISTS orders  (\n"
+        //         + "  O_ORDERKEY       INTEGER NOT NULL,\n"
+        //         + "  O_CUSTKEY        INTEGER NOT NULL,\n"
+        //         + "  O_ORDERSTATUS    CHAR(1) NOT NULL,\n"
+        //         + "  O_TOTALPRICE     DECIMALV3(15,2) NOT NULL,\n"
+        //         + "  O_ORDERDATE      DATE NOT NULL,\n"
+        //         + "  O_ORDERPRIORITY  CHAR(15) NOT NULL,  \n"
+        //         + "  O_CLERK          CHAR(15) NOT NULL, \n"
+        //         + "  O_SHIPPRIORITY   INTEGER NOT NULL,\n"
+        //         + "  O_COMMENT        VARCHAR(79) NOT NULL\n"
+        //         + ")\n"
+        //         + "DUPLICATE KEY(O_ORDERKEY, O_CUSTKEY)\n"
+        //         + "PARTITION BY RANGE(O_ORDERDATE) (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)\n"
+        //         + "DISTRIBUTED BY HASH(O_ORDERKEY) BUCKETS 3\n"
+        //         + "PROPERTIES (\n"
+        //         + "  \"replication_num\" = \"1\"\n"
+        //         + ")");
         createTable("CREATE TABLE IF NOT EXISTS orders  (\n"
-                + "  O_ORDERKEY       INTEGER NOT NULL,\n"
-                + "  O_CUSTKEY        INTEGER NOT NULL,\n"
-                + "  O_ORDERSTATUS    CHAR(1) NOT NULL,\n"
-                + "  O_TOTALPRICE     DECIMALV3(15,2) NOT NULL,\n"
-                + "  O_ORDERDATE      DATE NOT NULL,\n"
-                + "  O_ORDERPRIORITY  CHAR(15) NOT NULL,  \n"
-                + "  O_CLERK          CHAR(15) NOT NULL, \n"
-                + "  O_SHIPPRIORITY   INTEGER NOT NULL,\n"
-                + "  O_COMMENT        VARCHAR(79) NOT NULL\n"
-                + ")\n"
-                + "DUPLICATE KEY(O_ORDERKEY, O_CUSTKEY)\n"
-                + "PARTITION BY RANGE(O_ORDERDATE) (PARTITION `day_2` VALUES LESS THAN ('2017-03-01'))\n"
-                + "DISTRIBUTED BY HASH(O_ORDERKEY) BUCKETS 3\n"
-                + "PROPERTIES (\n"
-                + "  \"replication_num\" = \"1\"\n"
-                + ")");
+                + "      o_orderkey       integer not null,\n"
+                + "      o_custkey        integer not null,\n"
+                + "      o_orderstatus    char(1) not null,\n"
+                + "      o_totalprice     decimalv3(15,2) not null,\n"
+                + "      o_orderdate      date not null,\n"
+                + "      o_orderpriority  char(15) not null,  \n"
+                + "      o_clerk          char(15) not null, \n"
+                + "      o_shippriority   integer not null,\n"
+                + "      o_comment        varchar(79) not null\n"
+                + "    )\n"
+                + "    DUPLICATE KEY(o_orderkey, o_custkey)\n"
+                + "    PARTITION BY RANGE(o_orderdate)(\n"
+                + "    FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY\n"
+                + "    )\n"
+                + "    DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3\n"
+                + "    PROPERTIES (\n"
+                + "      \"replication_num\" = \"1\"\n"
+                + "    );");
         createTable("CREATE TABLE IF NOT EXISTS partsupp (\n"
                 + "  PS_PARTKEY     INTEGER NOT NULL,\n"
                 + "  PS_SUPPKEY     INTEGER NOT NULL,\n"
@@ -93,6 +137,8 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")");
+
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
     }
 
     @Test
@@ -122,7 +168,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
-    public void getRelatedTableInfoTestWithAliasAndGroupTest() {
+    public void getRelatedTableInfoTestWithSubqueryTest() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT l.L_SHIPDATE AS ship_data_alias, o.O_ORDERDATE, count(*) "
                                 + "FROM "
@@ -140,6 +186,36 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("ship_data_alias", rewrittenPlan);
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
+                                    "L_SHIPDATE",
+                                    true);
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithAliasAndGroupTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT t1.L_SHIPDATE, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
+                                + "count(distinct case when t1.L_SUPPKEY > 0 then t2.O_ORDERSTATUS else null end) as cnt_1 "
+                                + "from "
+                                + "  (select * from "
+                                + "  lineitem "
+                                + "  where L_SHIPDATE in ('2017-01-30')) t1 "
+                                + "left join "
+                                + "  (select * from "
+                                + "  orders "
+                                + "  where O_ORDERDATE in ('2017-01-30')) t2 "
+                                + "on t1.L_ORDERKEY = t2.O_ORDERKEY "
+                                + "group by "
+                                + "t1.L_SHIPDATE, "
+                                + "t2.O_ORDERDATE, "
+                                + "t1.L_QUANTITY, "
+                                + "t2.O_ORDERSTATUS;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", rewrittenPlan);
                             checkRelatedTableInfo(relatedTableInfo,
                                     "lineitem",
                                     "L_SHIPDATE",
@@ -210,6 +286,28 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                             Optional<RelatedTableInfo> relatedTableInfo =
                                     MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", rewrittenPlan);
                             Assertions.assertFalse(relatedTableInfo.isPresent());
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoWithLeftJoinTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total\n"
+                                + "            from lineitem\n"
+                                + "            left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate\n"
+                                + "            group by\n"
+                                + "            l_shipdate,\n"
+                                + "            o_orderdate,\n"
+                                + "            l_partkey,\n"
+                                + "            l_suppkey;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("o_orderdate", rewrittenPlan);
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "orders",
+                                    "o_orderdate",
+                                    true);
                         });
     }
 

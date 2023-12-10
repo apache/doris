@@ -318,7 +318,9 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public List<MaterializationContext> getMaterializationContexts() {
-        return materializationContexts;
+        return materializationContexts.stream()
+                .filter(MaterializationContext::isAvailable)
+                .collect(Collectors.toList());
     }
 
     public void addMaterializationContext(MaterializationContext materializationContext) {
