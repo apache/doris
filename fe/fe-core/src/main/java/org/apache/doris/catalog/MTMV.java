@@ -128,10 +128,6 @@ public class MTMV extends OlapTable {
         return relation;
     }
 
-    public MTMVCache getCache() {
-        return cache;
-    }
-
     public void setCache(MTMVCache cache) {
         this.cache = cache;
     }

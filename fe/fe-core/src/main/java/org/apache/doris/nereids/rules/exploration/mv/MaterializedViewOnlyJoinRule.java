@@ -20,24 +20,25 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/**MaterializedViewProjectAggregateRule*/
-public class MaterializedViewProjectAggregateRule extends AbstractMaterializedViewAggregateRule {
+/**
+ * This is responsible for join  pattern such as only join
+ */
+public class MaterializedViewOnlyJoinRule extends AbstractMaterializedViewJoinRule {
 
-    public static final MaterializedViewProjectAggregateRule INSTANCE = new MaterializedViewProjectAggregateRule();
+    public static final MaterializedViewOnlyJoinRule INSTANCE = new MaterializedViewOnlyJoinRule();
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalProject(logicalAggregate(any())).thenApplyMultiNoThrow(ctx -> {
-                    LogicalProject<LogicalAggregate<Plan>> root = ctx.root;
+                logicalJoin(any(), any()).thenApplyMulti(ctx -> {
+                    LogicalJoin<Plan, Plan> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_AGGREGATE));
+                }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_JOIN));
     }
 }

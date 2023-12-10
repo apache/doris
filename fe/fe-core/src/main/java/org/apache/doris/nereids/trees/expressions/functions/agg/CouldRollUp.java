@@ -15,19 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration.mv;
+package org.apache.doris.nereids.trees.expressions.functions.agg;
 
-import org.apache.doris.nereids.rules.Rule;
-
-import java.util.List;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 
 /**
- * This is responsible for single table rewriting according to different pattern
- * */
-public class MaterializedViewScanRule extends AbstractMaterializedViewRule {
+ * Could roll up trait, if a function could roll up in aggregate, it will implement the interface
+ */
+public interface CouldRollUp {
 
-    @Override
-    public List<Rule> buildRules() {
-        return null;
-    }
+    /**
+     * construct the roll up function with custom param
+     */
+    Function constructRollUp(Expression param, Expression... varParams);
 }
