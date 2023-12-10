@@ -62,6 +62,7 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
     for (auto& op : _operators) {
         _source_dependency.insert({op->operator_id(), op->get_dependency(state->get_query_ctx())});
     }
+    pipeline->incr_created_tasks();
 }
 
 Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
