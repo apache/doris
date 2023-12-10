@@ -1499,9 +1499,10 @@ public class SessionVariable implements Serializable, Writable {
                 "use other health replica when the use_fix_replica meet error" })
     public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
 
-    @VariableMgr.VarAttr(name = QUERY_MAX_SCAN_BYTES, needForward = true, description = {"Query 在单个 BE 最大扫描的数据量",
-            "Query largest scan bytes in single BE"})
-    private int queryMaxScanBytes = -1;
+    @VariableMgr.VarAttr(name = QUERY_MAX_SCAN_BYTES, needForward = true,
+            description = {"Query 在单个 BE 最大扫描的数据量, 单位字节",
+                    "Query largest scan bytes in single BE, Unit bytes"})
+    private long queryMaxScanBytes = -1;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
