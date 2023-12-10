@@ -179,6 +179,11 @@ public:
         return _query_options.be_exec_version;
     }
 
+    int64_t query_max_scan_bytes() const {
+        return _query_options.__isset.query_max_scan_bytes ? _query_options.query_max_scan_bytes
+                                                           : -1;
+    }
+
     [[nodiscard]] int64_t get_fe_process_uuid() const { return _query_options.fe_process_uuid; }
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
@@ -198,6 +203,17 @@ public:
     vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+
+    Status add_scan_bytes(uint64_t bytes) {
+        _scan_bytes.fetch_add(bytes, std::memory_order_relaxed);
+        if (query_max_scan_bytes() != -1 &&
+            _scan_bytes.load(std::memory_order_relaxed) > query_max_scan_bytes()) {
+            return Status::Cancelled(
+                    "Scan bytes: {} exceed session veriable query_max_scan_bytes: {}",
+                    _scan_bytes.load(std::memory_order_relaxed), query_max_scan_bytes());
+        }
+        return Status::OK();
+    }
 
 public:
     DescriptorTbl* desc_tbl = nullptr;
@@ -265,6 +281,8 @@ private:
     pipeline::TaskScheduler* _task_scheduler = nullptr;
     vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
+
+    std::atomic<uint64_t> _scan_bytes {0};
 };
 
 } // namespace doris

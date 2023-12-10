@@ -96,6 +96,9 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 }
                 _num_rows_read += block->rows();
                 _num_byte_read += block->allocated_bytes();
+                if (_num_rows_read % 10 == 0) {
+                    RETURN_IF_ERROR(state->get_query_ctx()->add_scan_bytes(block->allocated_bytes()));
+                }
             }
 
             // 2. Filter the output block finally.

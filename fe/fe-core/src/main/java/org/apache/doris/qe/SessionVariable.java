@@ -485,6 +485,8 @@ public class SessionVariable implements Serializable, Writable {
     );
 
     public static final String ENABLE_STATS = "enable_stats";
+
+    public static final String QUERY_MAX_SCAN_BYTES = "query_max_scan_bytes";
     /**
      * If set false, user couldn't submit analyze SQL and FE won't allocate any related resources.
      */
@@ -1496,6 +1498,10 @@ public class SessionVariable implements Serializable, Writable {
             description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
                 "use other health replica when the use_fix_replica meet error" })
     public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
+
+    @VariableMgr.VarAttr(name = QUERY_MAX_SCAN_BYTES, needForward = true, description = {"Query 在单个 BE 最大扫描的数据量",
+            "Query largest scan bytes in single BE"})
+    private int queryMaxScanBytes = -1;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2693,6 +2699,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableDecimal256(enableNereidsPlanner && enableDecimal256);
 
+        tResult.setQueryMaxScanBytes(queryMaxScanBytes);
+
         tResult.setSkipMissingVersion(skipMissingVersion);
 
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
@@ -2889,6 +2897,7 @@ public class SessionVariable implements Serializable, Writable {
         queryOptions.setQueryTimeout(queryTimeoutS);
         queryOptions.setInsertTimeout(insertTimeoutS);
         queryOptions.setAnalyzeTimeout(analyzeTimeoutS);
+        queryOptions.setQueryMaxScanBytes(queryMaxScanBytes);
         return queryOptions;
     }
 

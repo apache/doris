@@ -263,6 +263,8 @@ struct TQueryOptions {
   93: optional i32 inverted_index_max_expansions = 50;
 
   94: optional i32 inverted_index_skip_threshold = 50;
+
+  95: optional i64 query_max_scan_bytes;
 }
 
 
