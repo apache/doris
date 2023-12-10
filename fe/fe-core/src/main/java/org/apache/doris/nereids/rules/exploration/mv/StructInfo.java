@@ -32,9 +32,11 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -47,6 +49,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -56,6 +59,7 @@ import javax.annotation.Nullable;
  */
 public class StructInfo {
     public static final JoinPatternChecker JOIN_PATTERN_CHECKER = new JoinPatternChecker();
+    public static final AggregatePatternChecker AGGREGATE_PATTERN_CHECKER = new AggregatePatternChecker();
     // struct info splitter
     public static final PlanSplitter PLAN_SPLITTER = new PlanSplitter();
     private static final RelationCollector RELATION_COLLECTOR = new RelationCollector();
@@ -129,7 +133,8 @@ public class StructInfo {
             // if inner join add where condition
             Set<Expression> predicates = new HashSet<>();
             nodePlan.accept(PREDICATE_COLLECTOR, predicates);
-            predicates.forEach(this.predicates::addPredicate);
+            predicates.forEach(predicate ->
+                    ExpressionUtils.extractConjunction(predicate).forEach(this.predicates::addPredicate));
         });
 
         // TODO Collect predicate from top plan not in hyper graph, should optimize, twice now
@@ -166,6 +171,7 @@ public class StructInfo {
         // TODO only consider the inner join currently, Should support outer join
         // Split plan by the boundary which contains multi child
         PlanSplitContext planSplitContext = new PlanSplitContext(Sets.newHashSet(LogicalJoin.class));
+        // if single table without join, the bottom is
         originalPlan.accept(PLAN_SPLITTER, planSplitContext);
 
         List<HyperGraph> structInfos = HyperGraph.toStructInfo(planSplitContext.getBottomPlan());
@@ -267,13 +273,17 @@ public class StructInfo {
 
     /**
      * Split the plan into bottom and up, the boundary is given by context,
-     * the bottom contains the boundary.
+     * the bottom contains the boundary, and top plan doesn't contain the boundary.
      */
     public static class PlanSplitter extends DefaultPlanVisitor<Void, PlanSplitContext> {
         @Override
         public Void visit(Plan plan, PlanSplitContext context) {
             if (context.getTopPlan() == null) {
                 context.setTopPlan(plan);
+            }
+            if (plan.children().isEmpty() && context.getBottomPlan() == null) {
+                context.setBottomPlan(plan);
+                return null;
             }
             if (context.isBoundary(plan)) {
                 context.setBottomPlan(plan);
@@ -347,6 +357,30 @@ public class StructInfo {
                 }
             }
             return true;
+        }
+    }
+
+    /**
+     * AggregatePatternChecker
+     */
+    public static class AggregatePatternChecker extends DefaultPlanVisitor<Boolean, Void> {
+        @Override
+        public Boolean visit(Plan plan, Void context) {
+            if (plan instanceof LogicalAggregate) {
+                LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) plan;
+                Optional<LogicalRepeat<?>> sourceRepeat = aggregate.getSourceRepeat();
+                if (sourceRepeat.isPresent()) {
+                    return false;
+                }
+                super.visit(aggregate, context);
+                return true;
+            }
+            if (plan instanceof LogicalProject) {
+                super.visit(plan, context);
+                return true;
+            }
+            super.visit(plan, context);
+            return false;
         }
     }
 }

@@ -23,24 +23,24 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/**
- * This is responsible for aggregate rewriting according to different pattern
- * */
-public class MaterializedViewAggregateRule extends AbstractMaterializedViewAggregateRule implements RewriteRuleFactory {
+/**MaterializedViewProjectAggregateRule*/
+public class MaterializedViewProjectAggregateRule extends AbstractMaterializedViewAggregateRule implements
+        RewriteRuleFactory {
 
-    public static final MaterializedViewAggregateRule INSTANCE = new MaterializedViewAggregateRule();
+    public static final MaterializedViewProjectAggregateRule INSTANCE = new MaterializedViewProjectAggregateRule();
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalAggregate(any()).thenApplyMulti(ctx -> {
-                    LogicalAggregate<Plan> root = ctx.root;
+                logicalProject(logicalAggregate(any())).thenApplyMulti(ctx -> {
+                    LogicalProject<LogicalAggregate<Plan>> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_AGGREGATE, RulePromise.EXPLORE));
+                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_AGGREGATE, RulePromise.EXPLORE));
     }
 }

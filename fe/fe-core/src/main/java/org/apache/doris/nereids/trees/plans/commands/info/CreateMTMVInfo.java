@@ -209,7 +209,7 @@ public class CreateMTMVInfo {
                 colNames.add(colName);
             }
             columns.add(new ColumnDefinition(
-                    colName, slots.get(i).getDataType(), true,
+                    colName, slots.get(i).getDataType(), slots.get(i).nullable(),
                     CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
                             : simpleColumnDefinitions.get(i).getComment()));
         }

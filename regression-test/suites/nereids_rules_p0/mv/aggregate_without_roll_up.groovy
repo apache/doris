@@ -1,21 +1,4 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
-
-suite("inner_join") {
+suite("aggregate_without_roll_up") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
@@ -127,63 +110,17 @@ suite("inner_join") {
         }
     }
 
-    // select + from + inner join
-    def mv1_0 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
+    // select + from + inner join + group by
+    def mv1_0 = "select lineitem.L_LINENUMBER, orders.O_CUSTKEY, sum(O_TOTALPRICE) as sum_alias " +
             "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
-    def query1_0 = "select lineitem.L_LINENUMBER " +
+            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
+            "group by lineitem.L_LINENUMBER, orders.O_CUSTKEY "
+    def query1_0 = "select lineitem.L_LINENUMBER, orders.O_CUSTKEY, sum(O_TOTALPRICE) as sum_alias " +
             "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
+            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
+            "group by lineitem.L_LINENUMBER, orders.O_CUSTKEY "
     check_rewrite(mv1_0, query1_0, "mv1_0")
     order_qt_query1_0 "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
-
-
-    def mv1_1 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY, partsupp.PS_AVAILQTY " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY " +
-            "and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY"
-    def query1_1 = "select  lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "inner join partsupp on lineitem.L_PARTKEY = partsupp.PS_PARTKEY " +
-            "and lineitem.L_SUPPKEY = partsupp.PS_SUPPKEY"
-    check_rewrite(mv1_1, query1_1, "mv1_1")
-    order_qt_query1_1 "${query1_1}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
-
-
-    def mv1_2 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
-            "from orders " +
-            "inner join lineitem on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
-    def query1_2 = "select lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
-    check_rewrite(mv1_2, query1_2, "mv1_2")
-    order_qt_query1_2 "${query1_2}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_2"""
-
-    // select + from + inner join + filter
-    def mv1_3 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
-            "from orders " +
-            "inner join lineitem on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
-    def query1_3 = "select lineitem.L_LINENUMBER " +
-            "from lineitem " +
-            "inner join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "where lineitem.L_LINENUMBER > 10"
-    check_rewrite(mv1_3, query1_3, "mv1_3")
-    order_qt_query1_3 "${query1_3}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_3"""
-
-    // select with complex expression + from + inner join
-    def mv1_4 = "select  lineitem.L_LINENUMBER, orders.O_CUSTKEY " +
-            "from orders " +
-            "inner join lineitem on lineitem.L_ORDERKEY = orders.O_ORDERKEY "
-    def query1_4 = "select IFNULL(orders.O_CUSTKEY, 0) as custkey_not_null " +
-            "from orders " +
-            "inner join lineitem on orders.O_ORDERKEY = lineitem.L_ORDERKEY"
-    check_rewrite(mv1_4, query1_4, "mv1_4")
-    order_qt_query1_4 "${query1_4}"
-    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_4"""
 }
+
