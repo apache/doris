@@ -225,6 +225,7 @@ protected:
     report_status_callback _report_status_cb;
 
     DescriptorTbl* _desc_tbl = nullptr;
+    int _num_instances = 1;
 
 private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
