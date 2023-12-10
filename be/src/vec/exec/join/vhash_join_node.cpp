@@ -595,7 +595,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
              (_join_op != TJoinOp::LEFT_ANTI_JOIN) && i < _right_output_slot_flags.size(); ++i) {
             auto type = remove_nullable(_right_table_data_types[i]);
             auto column = type->create_column();
-            column->resize(block_rows);
+            column->insert_many_defaults(block_rows);
             auto null_map_column = ColumnVector<UInt8>::create(block_rows, 1);
             auto nullable_column =
                     ColumnNullable::create(std::move(column), std::move(null_map_column));
