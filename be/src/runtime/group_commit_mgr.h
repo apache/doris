@@ -25,6 +25,7 @@
 #include "common/status.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
+#include "vec/sink/writer/vwal_writer.h"
 
 namespace doris {
 class ExecEnv;
@@ -53,6 +54,10 @@ public:
     Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
+    Status create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id, const std::string& import_label,
+                      WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
+                      int be_exe_version);
+    Status close_wal();
 
     static constexpr size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
     UniqueId load_instance_id;
@@ -80,6 +85,7 @@ private:
     std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
     // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
     int64_t _group_commit_interval_ms;
+    std::shared_ptr<vectorized::VWalWriter> _v_wal_writer;
 };
 
 class GroupCommitTable {
@@ -94,12 +100,14 @@ public:
     Status get_first_block_load_queue(int64_t table_id, int64_t base_schema_version,
                                       const UniqueId& load_id,
                                       std::shared_ptr<vectorized::Block> block,
-                                      std::shared_ptr<LoadBlockQueue>& load_block_queue);
+                                      std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                      int be_exe_version);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    Status _create_group_commit_load(std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status _create_group_commit_load(std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                     int be_exe_version);
     Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
                                int64_t txn_id, bool is_pipeline,
                                const TExecPlanFragmentParams& params,
@@ -134,7 +142,8 @@ public:
     Status get_first_block_load_queue(int64_t db_id, int64_t table_id, int64_t base_schema_version,
                                       const UniqueId& load_id,
                                       std::shared_ptr<vectorized::Block> block,
-                                      std::shared_ptr<LoadBlockQueue>& load_block_queue);
+                                      std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                      int be_exe_version);
 
 private:
     ExecEnv* _exec_env = nullptr;

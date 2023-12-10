@@ -122,6 +122,17 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
+    if (_block_convertor->num_filtered_rows() > 0) {
+        auto cloneBlock = block->clone_without_columns();
+        auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+        for (int i = 0; i < rows; ++i) {
+            if (_block_convertor->filter_map()[i]) {
+                continue;
+            }
+            res_block.add_row(block.get(), i);
+        }
+        block->swap(res_block.to_block());
+    }
     // add block into block queue
     return _add_block(state, block);
 }
@@ -153,10 +164,15 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
     load_id.__set_hi(_load_id.hi);
     load_id.__set_lo(_load_id.lo);
     if (_load_block_queue == nullptr) {
-        RETURN_IF_ERROR(state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
-                _db_id, _table_id, _base_schema_version, load_id, block, _load_block_queue));
-        state->set_import_label(_load_block_queue->label);
-        state->set_wal_id(_load_block_queue->txn_id);
+        if (state->exec_env()->wal_mgr()->is_running()) {
+            RETURN_IF_ERROR(state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
+                    _db_id, _table_id, _base_schema_version, load_id, block, _load_block_queue,
+                    state->be_exec_version()));
+            state->set_import_label(_load_block_queue->label);
+            state->set_wal_id(_load_block_queue->txn_id);
+        } else {
+            return Status::InternalError("be is stopping");
+        }
     }
     RETURN_IF_ERROR(_load_block_queue->add_block(output_block));
     return Status::OK();
