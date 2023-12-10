@@ -76,9 +76,6 @@ template <typename DependencyType>
 std::string PipelineXLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
-    if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, " Dependency: {}", _dependency->debug_string());
-    }
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -86,9 +83,6 @@ template <typename DependencyType>
 std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}", _parent->debug_string(indentation_level));
-    if constexpr (!std::is_same_v<DependencyType, FakeDependency>) {
-        fmt::format_to(debug_string_buffer, ", Dependency: {}", _dependency->debug_string());
-    }
     return fmt::to_string(debug_string_buffer);
 }
 
@@ -336,8 +330,7 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
 
 template <typename DependencyType>
 Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalStateInfo& info) {
-    _runtime_profile.reset(new RuntimeProfile(_parent->get_name() +
-                                              " (id=" + std::to_string(_parent->node_id()) + ")"));
+    _runtime_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _runtime_profile->set_metadata(_parent->node_id());
     _runtime_profile->set_is_sink(false);
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
@@ -347,7 +340,7 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
         auto& deps = info.upstream_dependencies;
         if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
-            _dependency->set_shared_state(info.local_exchange_state);
+            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()]);
         } else {
             _dependency->set_shared_state(deps.front()->shared_state());
         }
@@ -397,6 +390,9 @@ Status PipelineXLocalState<DependencyType>::close(RuntimeState* state) {
     if (_rows_returned_counter != nullptr) {
         COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    }
     _closed = true;
     return Status::OK();
 }
@@ -405,7 +401,7 @@ template <typename DependencyType>
 Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
                                                      LocalSinkStateInfo& info) {
     // create profile
-    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + id_name()));
+    _profile = state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + name_suffix()));
     _profile->set_metadata(_parent->node_id());
     _profile->set_is_sink(true);
     _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
@@ -413,7 +409,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
         auto& deps = info.dependencys;
         _dependency = (DependencyType*)deps.front().get();
         if constexpr (std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
-            _dependency->set_shared_state(info.local_exchange_state);
+            _dependency->set_shared_state(info.le_state_map[_parent->dests_id().front()]);
         }
         if (_dependency) {
             _shared_state =
@@ -433,6 +429,9 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     _exec_timer = ADD_TIMER_WITH_LEVEL(_profile, "ExecTime", 1);
     info.parent_profile->add_child(_profile, true, nullptr);
     _mem_tracker = std::make_unique<MemTracker>(_parent->get_name());
+    _memory_used_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
+    _peak_memory_usage_counter =
+            _profile->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES, "MemoryUsage");
     return Status::OK();
 }
 
@@ -448,6 +447,9 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
         COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     }
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    }
     _closed = true;
     return Status::OK();
 }
@@ -526,11 +528,6 @@ template <typename Writer, typename Parent>
 Status AsyncWriterSink<Writer, Parent>::sink(RuntimeState* state, vectorized::Block* block,
                                              SourceState source_state) {
     return _writer->sink(block, source_state == SourceState::FINISHED);
-}
-
-template <typename Writer, typename Parent>
-Dependency* AsyncWriterSink<Writer, Parent>::write_blocked_by(PipelineXTask* task) {
-    return _writer->write_blocked_by(task);
 }
 
 template <typename Writer, typename Parent>

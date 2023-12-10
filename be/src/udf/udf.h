@@ -156,7 +156,7 @@ private:
 
     // We use the query's runtime state to report errors and warnings. nullptr for test
     // contexts.
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
 
     // Empty if there's no error
     std::string _error_msg;

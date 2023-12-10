@@ -237,7 +237,7 @@ public:
         void destroy();
 
     private:
-        ValueType_internal* _p_value_internal;
+        ValueType_internal* _p_value_internal = nullptr;
     };
 };
 

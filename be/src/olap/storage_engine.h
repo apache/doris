@@ -35,7 +35,6 @@
 #include <unordered_set>
 #include <vector>
 
-#include "agent/task_worker_pool.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
@@ -69,6 +68,7 @@ class TabletManager;
 class Thread;
 class ThreadPool;
 class TxnManager;
+class ReportWorker;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -135,12 +135,10 @@ public:
     Status load_header(const std::string& shard_path, const TCloneReq& request,
                        bool restore = false);
 
-    void register_report_listener(TaskWorkerPool* listener);
-    void deregister_report_listener(TaskWorkerPool* listener);
+    void register_report_listener(ReportWorker* listener);
+    void deregister_report_listener(ReportWorker* listener);
     void notify_listeners();
-    void notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
-
-    Status execute_task(EngineTask* task);
+    void notify_listener(std::string_view name);
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
@@ -419,7 +417,7 @@ private:
 
     // For tablet and disk-stat report
     std::mutex _report_mtx;
-    std::set<TaskWorkerPool*> _report_listeners;
+    std::vector<ReportWorker*> _report_listeners;
 
     std::mutex _engine_task_mutex;
 
@@ -435,7 +433,7 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    HeartbeatFlags* _heartbeat_flags;
+    HeartbeatFlags* _heartbeat_flags = nullptr;
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;

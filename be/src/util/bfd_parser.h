@@ -66,8 +66,8 @@ private:
 
     std::string _file_name;
     std::mutex _mutex;
-    bfd* _abfd;
-    bfd_symbol** _syms;
+    bfd* _abfd = nullptr;
+    bfd_symbol** _syms = nullptr;
     long _num_symbols;
     unsigned int _symbol_size;
 };

@@ -75,11 +75,20 @@ public class StatisticsCleaner extends MasterDaemon {
     }
 
     public synchronized void clear() {
-        if (!init()) {
-            return;
+        try {
+            if (!init()) {
+                return;
+            }
+            clearStats(colStatsTbl);
+            clearStats(histStatsTbl);
+        } finally {
+            colStatsTbl = null;
+            histStatsTbl = null;
+            idToCatalog = null;
+            idToDb = null;
+            idToTbl = null;
+            idToMVIdx = null;
         }
-        clearStats(colStatsTbl);
-        clearStats(histStatsTbl);
     }
 
     private void clearStats(OlapTable statsTbl) {

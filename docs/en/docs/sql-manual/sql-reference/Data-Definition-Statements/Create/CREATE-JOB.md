@@ -76,7 +76,7 @@ CREATE JOB my_job ON SCHEDULE EVERY 1 MINUTE DO INSERT INTO db1.tbl1 SELECT * FR
 
 This statement means to create a job named my_job to be executed every minute, and the operation performed is to import the data in db2.tbl2 into db1.tbl1.
 
-The SCHEDULER statement is used to define the execution time, frequency and duration of the job, which can specify a one-time job or a periodic job.
+The SCHEDULE statement is used to define the execution time, frequency and duration of the job, which can specify a one-time job or a periodic job.
 - AT timestamp
 
   For one-time events, it specifies that the event is only executed once at a given date and time timestamp, which must contain the date and time
@@ -119,7 +119,7 @@ CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01 00:00:00' DO INSERT
 Create a periodic Job, which will start to execute at 2020-01-01 00:00:00, and execute once a day. The operation performed is to import the data in db2.tbl2 into db1.tbl1. This Job will be executed in 2020 Ends at -01-01 00:10:00.
 
 ```sql
-CREATE JOB my_job ON SCHEDULER EVERY 1 DAY STARTS '2020-01-01 00:00:00' ENDS '2020-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 create_time >= days_add (now(),-1);
+CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01 00:00:00' ENDS '2020-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 create_time >= days_add (now(),-1);
 ```
 
 ### Keywords

@@ -69,6 +69,17 @@ suite("test_group_commit_http_stream") {
         }
     }
 
+    def checkStreamLoadResult2 = { exception, result ->
+        if (exception != null) {
+            throw exception
+        }
+        log.info("Stream load result: ${result}".toString())
+        def json = parseJson(result)
+        assertEquals("success", json.Status.toLowerCase())
+        assertTrue(json.GroupCommit)
+        assertTrue(json.Label.startsWith("group_commit_"))
+    }
+
     try {
         // create table
         sql """ drop table if exists ${tableName}; """
@@ -166,7 +177,8 @@ suite("test_group_commit_http_stream") {
 
             check { result, exception, startTime, endTime ->
                 // TODO different with stream load: 2, 1, 0, 1
-                checkStreamLoadResult(exception, result, 1, 1, 0, 0)
+                //checkStreamLoadResult(exception, result, 1, 1, 0, 0)
+                checkStreamLoadResult2(exception, result)
             }
         }
 

@@ -70,10 +70,10 @@ public:
     void check_and_update_cpu_share(const TaskGroupInfo& tg_info);
 
 private:
-    QueueType* _task_queue;
+    QueueType* _task_queue = nullptr;
 
     uint64_t _vruntime_ns = 0;
-    taskgroup::TaskGroup* _tg;
+    taskgroup::TaskGroup* _tg = nullptr;
 
     std::string _type;
 
@@ -173,7 +173,7 @@ struct TaskGroupInfo {
     bool enable_cpu_hard_limit;
     // log cgroup cpu info
     uint64_t cgroup_cpu_shares = 0;
-    uint64_t cgroup_cpu_hard_limit = 0;
+    int cgroup_cpu_hard_limit = 0;
 
     static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
                                    taskgroup::TaskGroupInfo* task_group_info);

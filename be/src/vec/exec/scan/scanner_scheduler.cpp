@@ -123,9 +123,12 @@ Status ScannerScheduler::init(ExecEnv* env) {
             config::doris_scanner_thread_pool_queue_size, "local_scan");
 
     // 3. remote scan thread pool
+    _remote_thread_pool_max_size = config::doris_max_remote_scanner_thread_pool_thread_num != -1
+                                           ? config::doris_max_remote_scanner_thread_pool_thread_num
+                                           : std::max(512, CpuInfo::num_cores() * 10);
     _remote_scan_thread_pool = std::make_unique<PriorityThreadPool>(
-            config::doris_remote_scanner_thread_pool_thread_num,
-            config::doris_remote_scanner_thread_pool_queue_size, "RemoteScanThreadPool");
+            _remote_thread_pool_max_size, config::doris_remote_scanner_thread_pool_queue_size,
+            "RemoteScanThreadPool");
 
     // 4. limited scan thread pool
     static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
@@ -347,8 +350,18 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     bool should_stop = false;
     // Has to wait at least one full block, or it will cause a lot of schedule task in priority
     // queue, it will affect query latency and query concurrency for example ssb 3.3.
-    while (!eos && raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold &&
-           num_rows_in_block < state->batch_size()) {
+    auto should_do_scan = [&, batch_size = state->batch_size(),
+                           time = state->wait_full_block_schedule_times()]() {
+        if (raw_bytes_read < raw_bytes_threshold && raw_rows_read < raw_rows_threshold) {
+            return true;
+        } else if (num_rows_in_block < batch_size) {
+            return raw_bytes_read < raw_bytes_threshold * time &&
+                   raw_rows_read < raw_rows_threshold * time;
+        }
+        return false;
+    };
+
+    while (!eos && should_do_scan()) {
         // TODO llj task group should should_yield?
         if (UNLIKELY(ctx->done())) {
             // No need to set status on error here.
@@ -360,7 +373,6 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         BlockUPtr block = ctx->get_free_block();
 
         status = scanner->get_block(state, block.get(), &eos);
-        VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         // The VFileScanner for external table may try to open not exist files,
         // Because FE file cache for external table may out of date.
         // So, NOT_FOUND for VFileScanner is not a fail case.
@@ -371,6 +383,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             LOG(WARNING) << "Scan thread read VScanner failed: " << status.to_string();
             break;
         }
+        VLOG_ROW << "VScanNode input rows: " << block->rows() << ", eos: " << eos;
         if (status.is<ErrorCode::NOT_FOUND>()) {
             // The only case in this "if" branch is external table file delete and fe cache has not been updated yet.
             // Set status to OK.
@@ -384,10 +397,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
             ctx->return_free_block(std::move(block));
         } else {
             if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
-                status = vectorized::MutableBlock(blocks.back().get()).merge(*block);
-                if (!status.ok()) {
-                    break;
-                }
+                static_cast<void>(vectorized::MutableBlock(blocks.back().get()).merge(*block));
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));

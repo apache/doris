@@ -302,8 +302,7 @@ Status Tablet::_init_once_action() {
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), _tablet_path, rs_meta,
-                                           &rowset);
+        res = create_rowset(rs_meta, &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init rowset. tablet_id=" << tablet_id()
                          << ", schema_hash=" << schema_hash() << ", version=" << version
@@ -314,11 +313,10 @@ Status Tablet::_init_once_action() {
     }
 
     // init stale rowset
-    for (auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
+    for (const auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
         Version version = stale_rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), _tablet_path,
-                                           stale_rs_meta, &rowset);
+        res = create_rowset(stale_rs_meta, &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash() << ", version=" << version
@@ -641,9 +639,8 @@ TabletSchemaSPtr Tablet::tablet_schema_with_merged_max_schema_version(
         std::vector<TabletSchemaSPtr> schemas;
         std::transform(rowset_metas.begin(), rowset_metas.end(), std::back_inserter(schemas),
                        [](const RowsetMetaSharedPtr& rs_meta) { return rs_meta->tablet_schema(); });
-        target_schema = std::make_shared<TabletSchema>();
-        // TODO(lhy) maybe slow?
-        vectorized::schema_util::get_least_common_schema(schemas, target_schema);
+        static_cast<void>(
+                vectorized::schema_util::get_least_common_schema(schemas, nullptr, target_schema));
         VLOG_DEBUG << "dump schema: " << target_schema->dump_structure();
     }
     return target_schema;
@@ -1342,7 +1339,7 @@ std::vector<RowsetSharedPtr> Tablet::pick_candidate_rowsets_to_build_inverted_in
         std::shared_lock rlock(_meta_lock);
         auto has_alter_inverted_index = [&](RowsetSharedPtr rowset) -> bool {
             for (const auto& index_id : alter_index_uids) {
-                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id)) {
+                if (rowset->tablet_schema()->has_inverted_index_with_index_id(index_id, "")) {
                     return true;
                 }
             }
@@ -1450,6 +1447,20 @@ void Tablet::get_compaction_status(std::string* json_result) {
                                            _last_base_compaction_status.length(),
                                            root.GetAllocator());
     root.AddMember("last base status", base_compaction_status_value, root.GetAllocator());
+
+    TReplicaInfo replica_info;
+    std::string dummp_token;
+    rapidjson::Value fetch_addr;
+    if (tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
+        StorageEngine::instance()->get_peer_replica_info(tablet_id(), &replica_info,
+                                                         &dummp_token)) {
+        std::string addr = replica_info.host + ":" + std::to_string(replica_info.brpc_port);
+        fetch_addr.SetString(addr.c_str(), addr.length(), root.GetAllocator());
+    } else {
+        // -1 means do compaction locally
+        fetch_addr.SetString("-1", root.GetAllocator());
+    }
+    root.AddMember("fetch from peer", fetch_addr, root.GetAllocator());
 
     // print all rowsets' version as an array
     rapidjson::Document versions_arr;
@@ -2061,8 +2072,10 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {
-    return RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), tablet_path(), rowset_meta,
-                                        rowset);
+    return RowsetFactory::create_rowset(
+            _tablet_meta->tablet_schema(),
+            rowset_meta->is_local() ? _tablet_path : remote_tablet_path(tablet_id()), rowset_meta,
+            rowset);
 }
 
 Status Tablet::cooldown() {
@@ -2358,8 +2371,8 @@ Status Tablet::_follow_cooldowned_data() {
             auto rs_meta = std::make_shared<RowsetMeta>();
             rs_meta->init_from_pb(*rs_pb_it);
             RowsetSharedPtr rs;
-            RETURN_IF_ERROR(RowsetFactory::create_rowset(_tablet_meta->tablet_schema(),
-                                                         _tablet_path, rs_meta, &rs));
+            RETURN_IF_ERROR(RowsetFactory::create_rowset(
+                    _tablet_meta->tablet_schema(), remote_tablet_path(tablet_id()), rs_meta, &rs));
             to_add.push_back(std::move(rs));
         }
         // Note: We CANNOT call `modify_rowsets` here because `modify_rowsets` cannot process version graph correctly.
@@ -2667,7 +2680,7 @@ Status Tablet::_get_segment_column_iterator(
                                             rowset->rowset_id().to_string(), segid));
     }
     segment_v2::SegmentSharedPtr segment = *it;
-    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator));
+    RETURN_IF_ERROR(segment->new_column_iterator(target_column, column_iterator, nullptr));
     segment_v2::ColumnIteratorOptions opt {
             .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = segment->file_reader().get(),
@@ -2900,7 +2913,7 @@ void Tablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_b
                                      << " r_pos: " << r->_row_pos;
                   return value < 0;
               });
-    std::vector<int> row_pos_vec;
+    std::vector<uint32_t> row_pos_vec;
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < row_in_blocks.size(); i++) {
         row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);

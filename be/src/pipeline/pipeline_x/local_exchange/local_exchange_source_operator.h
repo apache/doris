@@ -28,8 +28,13 @@ public:
     LocalExchangeSourceDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "LocalExchangeSourceDependency", query_ctx) {}
     ~LocalExchangeSourceDependency() override = default;
+
+    void block() override;
 };
 
+class Exchanger;
+class ShuffleExchanger;
+class PassthroughExchanger;
 class LocalExchangeSourceOperatorX;
 class LocalExchangeSourceLocalState final
         : public PipelineXLocalState<LocalExchangeSourceDependency> {
@@ -43,7 +48,10 @@ public:
 
 private:
     friend class LocalExchangeSourceOperatorX;
+    friend class ShuffleExchanger;
+    friend class PassthroughExchanger;
 
+    Exchanger* _exchanger = nullptr;
     int _channel_id;
     RuntimeProfile::Counter* _get_block_failed_counter = nullptr;
     RuntimeProfile::Counter* _copy_data_timer = nullptr;
@@ -52,9 +60,9 @@ private:
 class LocalExchangeSourceOperatorX final : public OperatorX<LocalExchangeSourceLocalState> {
 public:
     using Base = OperatorX<LocalExchangeSourceLocalState>;
-    LocalExchangeSourceOperatorX(ObjectPool* pool, int id) : Base(pool, -1, id) {}
-    Status init(const TPlanNode& tnode, RuntimeState* state) override {
-        _op_name = "LOCAL_EXCHANGE_OPERATOR";
+    LocalExchangeSourceOperatorX(ObjectPool* pool, int id) : Base(pool, id, id) {}
+    Status init(ExchangeType type) override {
+        _op_name = "LOCAL_EXCHANGE_OPERATOR (" + get_exchange_type_name(type) + ")";
         return Status::OK();
     }
     Status prepare(RuntimeState* state) override { return Status::OK(); }

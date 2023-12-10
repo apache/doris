@@ -17,11 +17,32 @@
 
 suite("test_crud_wlg") {
     def table_name = "wlg_test_table"
+    def table_name2 = "wlg_test_table2"
+    def table_name3 = "wlg_test_table3"
 
     sql "drop table if exists ${table_name}"
+    sql "drop table if exists ${table_name2}"
+    sql "drop table if exists ${table_name3}"
 
     sql """
         CREATE TABLE IF NOT EXISTS `${table_name}` (
+          `siteid` int(11) NOT NULL COMMENT "",
+          `citycode` int(11) NOT NULL COMMENT "",
+          `userid` int(11) NOT NULL COMMENT "",
+          `pv` int(11) NOT NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`siteid`)
+        COMMENT "OLAP"
+        DISTRIBUTED BY HASH(`siteid`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2"
+        )
+    """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS `${table_name2}` (
           `siteid` int(11) NOT NULL COMMENT "",
           `citycode` int(11) NOT NULL COMMENT "",
           `userid` int(11) NOT NULL COMMENT "",
@@ -46,13 +67,13 @@ suite("test_crud_wlg") {
 
     sql "create workload group if not exists normal " +
             "properties ( " +
-            "    'cpu_share'='10', " +
+            "    'cpu_share'='1024', " +
             "    'memory_limit'='50%', " +
             "    'enable_memory_overcommit'='true' " +
             ");"
 
     // reset normal group property
-    sql "alter workload group normal properties ( 'cpu_share'='10' );"
+    sql "alter workload group normal properties ( 'cpu_share'='1024' );"
     sql "alter workload group normal properties ( 'memory_limit'='50%' );"
     sql "alter workload group normal properties ( 'enable_memory_overcommit'='true' );"
     sql "alter workload group normal properties ( 'max_concurrency'='2147483647' );"
@@ -143,14 +164,6 @@ suite("test_crud_wlg") {
         sql "alter workload group test_group properties ( 'queue_timeout'='-1' );"
     } catch (Exception e) {
         assertTrue(e.getMessage().contains("requires a positive integer"));
-    }
-    sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
-    sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
-    sql "alter workload group test_group properties ( 'queue_timeout'='0' );"
-    try {
-        sql "select count(1) from ${table_name}"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("queue failed"));
     }
 
     sql "alter workload group test_group properties ( 'max_concurrency'='100' );"
@@ -258,4 +271,45 @@ suite("test_crud_wlg") {
         sql """ select 1; """
     }
 
+    // test query queue limit
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '1000');"
+    sql "set workload_group=test_group;"
+    sql "alter workload group test_group properties ( 'max_concurrency'='0' );"
+    sql "alter workload group test_group properties ( 'max_queue_size'='0' );"
+    Thread.sleep(3000);
+    try {
+        sql "select * from ${table_name};"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("query waiting queue is full"));
+    }
+
+    // test insert into select will go to queue
+    try {
+        sql "insert into ${table_name2} select * from ${table_name};"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("query waiting queue is full"));
+    }
+
+    // test create table as select will go to queue
+    try {
+        sql "create table ${table_name3} PROPERTIES('replication_num' = '1') as select * from ${table_name};"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("query waiting queue is full"));
+    }
+
+    sql "alter workload group test_group properties ( 'max_queue_size'='1' );"
+    sql "alter workload group test_group properties ( 'queue_timeout'='500' );"
+    Thread.sleep(3000);
+    try {
+        sql "select * from ${table_name};"
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("query wait timeout"));
+    }
+
+    sql "alter workload group test_group properties ( 'max_concurrency'='10' );"
+    Thread.sleep(3000);
+    sql "select 1;"
+    sql "set workload_group=normal;"
+    sql "drop workload group test_group;"
+    sql "ADMIN SET FRONTEND CONFIG ('query_queue_update_interval_ms' = '5000');"
 }

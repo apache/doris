@@ -160,13 +160,13 @@ protected:
         _conjuncts.clear();
     }
 
-    RuntimeState* _state;
-    VScanNode* _parent;
-    pipeline::ScanLocalStateBase* _local_state;
+    RuntimeState* _state = nullptr;
+    VScanNode* _parent = nullptr;
+    pipeline::ScanLocalStateBase* _local_state = nullptr;
     // Set if scan node has sort limit info
     int64_t _limit = -1;
 
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
 
     const TupleDescriptor* _output_tuple_desc = nullptr;
 

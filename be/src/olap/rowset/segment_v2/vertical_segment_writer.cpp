@@ -26,7 +26,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -45,10 +44,12 @@
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
@@ -106,12 +107,18 @@ VerticalSegmentWriter::~VerticalSegmentWriter() {
 void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
                                               const TabletColumn& column) {
     meta->set_column_id(column_id);
-    meta->set_unique_id(column.unique_id());
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
+    meta->set_default_value(column.default_value());
+    meta->set_precision(column.precision());
+    meta->set_frac(column.frac());
+    if (!column.path_info().empty()) {
+        column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    }
+    meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
@@ -148,7 +155,12 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         skip_inverted_index = true;
     }
     // indexes for this column
-    opts.indexes = _tablet_schema->get_indexes_for_column(column.unique_id());
+    opts.indexes = _tablet_schema->get_indexes_for_column(column);
+    if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
+        (column.is_extracted_column() && column.is_array_type())) {
+        // variant and jsonb type skip write index
+        opts.indexes.clear();
+    }
     for (auto index : opts.indexes) {
         if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
             opts.inverted_index = index;
@@ -156,57 +168,31 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
             break;
         }
     }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for struct type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for struct type");
-        }
+
+#define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
+        opts.need_zone_map = false;                                                            \
+        if (opts.need_bloom_filter) {                                                          \
+            return Status::NotSupported("Do not support bloom filter for " type_name " type"); \
+        }                                                                                      \
+        if (opts.need_bitmap_index) {                                                          \
+            return Status::NotSupported("Do not support bitmap index for " type_name " type"); \
+        }                                                                                      \
     }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for array type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for array type");
-        }
-    }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_JSONB) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for jsonb type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for jsonb type");
-        }
-    }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for agg_state type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for agg_state type");
-        }
-    }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for map type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for map type");
-        }
-    }
+
+    CHECK_FIELD_TYPE(STRUCT, "struct")
+    CHECK_FIELD_TYPE(ARRAY, "array")
+    CHECK_FIELD_TYPE(JSONB, "jsonb")
+    CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
+    CHECK_FIELD_TYPE(MAP, "map")
+    CHECK_FIELD_TYPE(VARIANT, "variant")
+
+#undef CHECK_FIELD_TYPE
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column
         opts.data_page_size = config::row_column_page_size;
     }
-
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -298,10 +284,11 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data) {
-    if (config::cloud_mode) {
-        // TODO(plat1ko)
+    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        // TODO(plat1ko): CloudStorageEngine
         return Status::NotSupported("append_block_with_partial_content");
     }
+
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
     DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
 
@@ -358,6 +345,31 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     {
         std::shared_lock rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        DBUG_EXECUTE_IF("_append_block_with_partial_content.clear_specified_rowsets",
+                        { specified_rowsets.clear(); });
+        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
+            // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
+            // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_mow_context->rowset_ids`
+            // to the latest value and re-request the correspoding rowsets.
+            LOG(INFO) << fmt::format(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
+                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
+                    "transaction_id: {}",
+                    specified_rowsets.size(), _mow_context->rowset_ids.size(), tablet->tablet_id(),
+                    _mow_context->max_version, _mow_context->txn_id);
+            Status st {Status::OK()};
+            _mow_context->update_rowset_ids_with_lock([&]() {
+                _mow_context->rowset_ids.clear();
+                st = tablet->all_rs_id(_mow_context->max_version, &_mow_context->rowset_ids);
+            });
+            if (!st.ok()) {
+                return st;
+            }
+            specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+            DCHECK(specified_rowsets.size() == _mow_context->rowset_ids.size());
+        }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
@@ -510,7 +522,8 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         vectorized::MutableColumns& mutable_full_columns,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const size_t& segment_start_pos) {
-    if (config::cloud_mode) [[unlikely]] {
+    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        // TODO(plat1ko): CloudStorageEngine
         return Status::NotSupported("fill_missing_columns");
     }
     auto tablet = static_cast<Tablet*>(_tablet.get());

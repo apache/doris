@@ -253,7 +253,7 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTable olapTable = (OlapTable) table;
             tblName.setDb(olapTable.getDatabase().getFullName());
             tblName.setTbl(olapTable.getName());
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS || olapTable.getTableProperty().storeRowColumn()) {
                 List<Column> columns = Lists.newArrayList(olapTable.getBaseSchema(true));
                 targetColumnNames = columns.stream().map(c -> c.getName()).collect(Collectors.toList());
             }
@@ -441,16 +441,43 @@ public class NativeInsertStmt extends InsertStmt {
                 }
             }
 
-            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null && targetColumnNames != null) {
-                Optional<String> foundCol = targetColumnNames.stream()
-                            .filter(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol())).findAny();
-                Optional<Column> seqCol = olapTable.getFullSchema().stream()
-                                .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
-                                .findFirst();
-                if (seqCol.isPresent() && !foundCol.isPresent() && !isPartialUpdate && !isFromDeleteOrUpdateStmt
+            // For Unique Key table with sequence column (which default value is not CURRENT_TIMESTAMP),
+            // user MUST specify the sequence column while inserting data
+            //
+            // case1: create table by `function_column.sequence_col`
+            //        a) insert with column list, must include the sequence map column
+            //        b) insert without column list, already contains the column, don't need to check
+            // case2: create table by `function_column.sequence_type`
+            //        a) insert with column list, must include the hidden column __DORIS_SEQUENCE_COL__
+            //        b) insert without column list, don't include the hidden column __DORIS_SEQUENCE_COL__
+            //           by default, will fail.
+            if (olapTable.hasSequenceCol()) {
+                boolean haveInputSeqCol = false;
+                Optional<Column> seqColInTable = Optional.empty();
+                if (olapTable.getSequenceMapCol() != null) {
+                    if (targetColumnNames != null) {
+                        if (targetColumnNames.stream()
+                                .anyMatch(c -> c.equalsIgnoreCase(olapTable.getSequenceMapCol()))) {
+                            haveInputSeqCol = true; // case1.a
+                        }
+                    } else {
+                        haveInputSeqCol = true; // case1.b
+                    }
+                    seqColInTable = olapTable.getFullSchema().stream()
+                            .filter(col -> col.getName().equals(olapTable.getSequenceMapCol())).findFirst();
+                } else {
+                    if (targetColumnNames != null) {
+                        if (targetColumnNames.stream()
+                                .anyMatch(c -> c.equalsIgnoreCase(Column.SEQUENCE_COL))) {
+                            haveInputSeqCol = true; // case2.a
+                        } // else case2.b
+                    }
+                }
+
+                if (!haveInputSeqCol && !isPartialUpdate && !isFromDeleteOrUpdateStmt
                         && !analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
-                    if (seqCol.get().getDefaultValue() == null
-                                    || !seqCol.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                    if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
+                            || !seqColInTable.get().getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
                         throw new AnalysisException("Table " + olapTable.getName()
                                 + " has sequence column, need to specify the sequence column");
                     }
@@ -851,7 +878,7 @@ public class NativeInsertStmt extends InsertStmt {
         }
         for (String hint : planHints) {
             if (SHUFFLE_HINT.equalsIgnoreCase(hint)) {
-                if (!targetTable.isPartitioned()) {
+                if (!targetTable.isPartitionedTable()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_INSERT_HINT_NOT_SUPPORT);
                 }
                 if (isRepartition != null && !isRepartition) {
@@ -859,7 +886,7 @@ public class NativeInsertStmt extends InsertStmt {
                 }
                 isRepartition = Boolean.TRUE;
             } else if (NOSHUFFLE_HINT.equalsIgnoreCase(hint)) {
-                if (!targetTable.isPartitioned()) {
+                if (!targetTable.isPartitionedTable()) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_INSERT_HINT_NOT_SUPPORT);
                 }
                 if (isRepartition != null && isRepartition) {
@@ -971,12 +998,18 @@ public class NativeInsertStmt extends InsertStmt {
                     brokerDesc);
             dataPartition = dataSink.getOutputPartition();
         } else if (targetTable instanceof JdbcTable) {
-            //for JdbcTable,we need to pass the currently written column to `JdbcTableSink`
-            //to generate the prepare insert statment
-            List<String> insertCols = Lists.newArrayList();
-            for (Column column : targetColumns) {
-                insertCols.add(column.getName());
+            // For JdbcTable, reorder targetColumns to match the order in targetTable.getFullSchema()
+            List<String> insertCols = new ArrayList<>();
+            Set<String> targetColumnNames = targetColumns.stream()
+                    .map(Column::getName)
+                    .collect(Collectors.toSet());
+
+            for (Column column : targetTable.getFullSchema()) {
+                if (targetColumnNames.contains(column.getName())) {
+                    insertCols.add(column.getName());
+                }
             }
+
             dataSink = new JdbcTableSink((JdbcTable) targetTable, insertCols);
             dataPartition = DataPartition.UNPARTITIONED;
         } else {

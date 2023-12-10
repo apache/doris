@@ -24,7 +24,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_returns]
+------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
@@ -38,20 +38,19 @@ PhysicalResultSink
 --------------------------hashAgg[LOCAL]
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.page_sk = catalog_page.cp_catalog_page_sk)) otherCondition=()
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk,cr_returned_date_sk]
---------------------------------------PhysicalUnion
-----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1
-----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[catalog_returns]
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((salesreturns.date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[cs_sold_date_sk,cr_returned_date_sk]
+------------------------------------PhysicalUnion
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
---------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF1
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
+------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[catalog_page]
@@ -73,7 +72,7 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[web_returns]
+----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF4
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))

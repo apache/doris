@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/internal_service.pb.h>
-#include <runtime/load_stream.h>
-#include <stdint.h>
-
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -29,8 +25,12 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/load_stream.h"
+#include "util/threadpool.h"
 
 namespace doris {
+
+class POpenStreamSinkRequest;
 
 class LoadStreamMgr {
 public:
@@ -56,8 +56,8 @@ private:
     std::unordered_map<UniqueId, LoadStreamSharedPtr> _load_streams_map;
     std::unique_ptr<ThreadPool> _file_writer_thread_pool;
 
-    FifoThreadPool* _heavy_work_pool;
-    FifoThreadPool* _light_work_pool;
+    FifoThreadPool* _heavy_work_pool = nullptr;
+    FifoThreadPool* _light_work_pool = nullptr;
 };
 
 } // namespace doris

@@ -29,6 +29,7 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
@@ -247,7 +248,8 @@ public class AnalysisManager implements Writable {
 
     public AnalysisManager() {
         if (!Env.isCheckpointThread()) {
-            this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num);
+            this.taskExecutor = new AnalysisTaskExecutor(Config.statistics_simultaneously_running_task_num,
+                    Integer.MAX_VALUE);
             this.statisticsCache = new StatisticsCache();
         }
     }
@@ -335,6 +337,12 @@ public class AnalysisManager implements Writable {
         if (jobInfo.colToPartitions.isEmpty()) {
             // No statistics need to be collected or updated
             return null;
+        }
+        // Only OlapTable and Hive HMSExternalTable support sample analyze.
+        if ((stmt.getSamplePercent() > 0 || stmt.getSampleRows() > 0) && !canSample(stmt.getTable())) {
+            String message = String.format("Table %s doesn't support sample analyze.", stmt.getTable().getName());
+            LOG.info(message);
+            throw new DdlException(message);
         }
 
         boolean isSync = stmt.isSync();
@@ -536,7 +544,9 @@ public class AnalysisManager implements Writable {
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
             if (jobInfo.analysisType != AnalysisType.HISTOGRAM) {
                 colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
-                colTaskInfoBuilder.setColToPartitions(Collections.singletonMap(colName, entry.getValue()));
+                Map<String, Set<String>> colToParts = new HashMap<>();
+                colToParts.put(colName, entry.getValue());
+                colTaskInfoBuilder.setColToPartitions(colToParts);
             }
             AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
                     .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
@@ -613,7 +623,10 @@ public class AnalysisManager implements Writable {
             tableStats.update(jobInfo, tbl);
             logCreateTableStats(tableStats);
         }
-
+        jobInfo.colToPartitions.clear();
+        if (jobInfo.partitionNames != null) {
+            jobInfo.partitionNames.clear();
+        }
     }
 
     public List<AnalysisInfo> showAnalysisJob(ShowAnalyzeStmt stmt) {
@@ -708,13 +721,30 @@ public class AnalysisManager implements Writable {
             tableStats.reset();
         } else {
             dropStatsStmt.getColumnNames().forEach(tableStats::removeColumn);
+            StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
             for (String col : cols) {
-                Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
+                statisticsCache.syncInvalidate(tblId, -1L, col);
             }
             tableStats.updatedTime = 0;
         }
         logCreateTableStats(tableStats);
         StatisticsRepository.dropStatistics(tblId, cols);
+    }
+
+    public void dropStats(TableIf table) throws DdlException {
+        TableStatsMeta tableStats = findTableStatsStatus(table.getId());
+        if (tableStats == null) {
+            return;
+        }
+        Set<String> cols = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
+        for (String col : cols) {
+            tableStats.removeColumn(col);
+            statisticsCache.syncInvalidate(table.getId(), -1L, col);
+        }
+        tableStats.updatedTime = 0;
+        logCreateTableStats(tableStats);
+        StatisticsRepository.dropStatistics(table.getId(), cols);
     }
 
     public void handleKillAnalyzeStmt(KillAnalysisJobStmt killAnalysisJobStmt) throws DdlException {
@@ -778,12 +808,18 @@ public class AnalysisManager implements Writable {
         while (analysisJobInfoMap.size() >= Config.analyze_record_limit) {
             analysisJobInfoMap.remove(analysisJobInfoMap.pollFirstEntry().getKey());
         }
+        if (jobInfo.message != null && jobInfo.message.length() >= StatisticConstants.MSG_LEN_UPPER_BOUND) {
+            jobInfo.message = jobInfo.message.substring(0, StatisticConstants.MSG_LEN_UPPER_BOUND);
+        }
         this.analysisJobInfoMap.put(jobInfo.jobId, jobInfo);
     }
 
     public void replayCreateAnalysisTask(AnalysisInfo taskInfo) {
         while (analysisTaskInfoMap.size() >= Config.analyze_record_limit) {
             analysisTaskInfoMap.remove(analysisTaskInfoMap.pollFirstEntry().getKey());
+        }
+        if (taskInfo.message != null && taskInfo.message.length() >= StatisticConstants.MSG_LEN_UPPER_BOUND) {
+            taskInfo.message = taskInfo.message.substring(0, StatisticConstants.MSG_LEN_UPPER_BOUND);
         }
         this.analysisTaskInfoMap.put(taskInfo.taskId, taskInfo);
     }
@@ -1036,7 +1072,7 @@ public class AnalysisManager implements Writable {
                 a -> {
                     // DO NOTHING
                     return null;
-                }, null);
+                }, collection);
     }
 
     // Remove col stats status from TableStats if failed load some col stats after analyze corresponding column so that
@@ -1084,5 +1120,21 @@ public class AnalysisManager implements Writable {
 
     public boolean hasUnFinished() {
         return !analysisJobIdToTaskMap.isEmpty();
+    }
+
+    /**
+     * Only OlapTable and Hive HMSExternalTable can sample for now.
+     * @param table
+     * @return Return true if the given table can do sample analyze. False otherwise.
+     */
+    public boolean canSample(TableIf table) {
+        if (table instanceof OlapTable) {
+            return true;
+        }
+        if (table instanceof HMSExternalTable
+                && ((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+            return true;
+        }
+        return false;
     }
 }

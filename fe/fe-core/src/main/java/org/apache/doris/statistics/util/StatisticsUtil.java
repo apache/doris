@@ -31,6 +31,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -89,12 +90,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -521,10 +524,13 @@ public class StatisticsUtil {
      *
      * @param updatedRows The number of rows updated by the table
      * @param totalRows The current number of rows in the table
-     *         the healthier the statistics of the table
-     * @return Health, the value range is [0, 100], the larger the value,
+     * @return Health, the value range is [0, 100], the larger the value, the healthier the statistics of the table.
      */
     public static int getTableHealth(long totalRows, long updatedRows) {
+        // Avoid analyze empty table every time.
+        if (totalRows == 0 && updatedRows == 0) {
+            return 100;
+        }
         if (updatedRows >= totalRows) {
             return 0;
         } else {
@@ -761,7 +767,8 @@ public class StatisticsUtil {
         return type instanceof ArrayType
                 || type instanceof StructType
                 || type instanceof MapType
-                || type instanceof VariantType;
+                || type instanceof VariantType
+                || type instanceof AggStateType;
     }
 
     public static void sleep(long millis) {
@@ -785,7 +792,8 @@ public class StatisticsUtil {
         if (str == null) {
             return null;
         }
-        return org.apache.commons.lang3.StringUtils.replace(str, "'", "''");
+        return str.replace("'", "''")
+                .replace("\\", "\\\\");
     }
 
     public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
@@ -906,6 +914,16 @@ public class StatisticsUtil {
         return StatisticConstants.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
     }
 
+    public static long getExternalTableAutoAnalyzeIntervalInMillis() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
+                .externalTableAutoAnalyzeIntervalInMillis;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of externalTableAutoAnalyzeIntervalInMillis, return default", e);
+        }
+        return StatisticConstants.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
+    }
+
     public static long getTableStatsHealthThreshold() {
         try {
             return findConfigFromGlobalSessionVar(SessionVariable.TABLE_STATS_HEALTH_THRESHOLD)
@@ -924,6 +942,31 @@ public class StatisticsUtil {
             LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
         }
         return StatisticConstants.ANALYZE_TIMEOUT_IN_SEC;
+    }
+
+    public static int getAutoAnalyzeTableWidthThreshold() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD)
+                .autoAnalyzeTableWidthThreshold;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of auto_analyze_table_width_threshold, return default", e);
+        }
+        return StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD;
+    }
+
+    public static String encodeValue(ResultRow row, int index) {
+        if (row == null || row.getValues().size() <= index) {
+            return "NULL";
+        }
+        return encodeString(row.get(index));
+    }
+
+    public static String encodeString(String value) {
+        if (value == null) {
+            return "NULL";
+        } else {
+            return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        }
     }
 
 }

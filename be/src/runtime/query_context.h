@@ -22,7 +22,6 @@
 
 #include <atomic>
 #include <memory>
-#include <sstream>
 #include <string>
 
 #include "common/config.h"
@@ -30,6 +29,7 @@
 #include "common/object_pool.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "task_group/task_group.h"
@@ -49,8 +49,8 @@ struct ReportStatusRequest {
     bool is_pipeline_x;
     const Status status;
     std::vector<RuntimeState*> runtime_states;
-    RuntimeProfile* profile;
-    RuntimeProfile* load_channel_profile;
+    RuntimeProfile* profile = nullptr;
+    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -60,6 +60,7 @@ struct ReportStatusRequest {
     RuntimeState* runtime_state;
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+    std::shared_ptr<QueryStatistics> query_statistics;
 };
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
@@ -199,7 +200,7 @@ public:
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
 public:
-    DescriptorTbl* desc_tbl;
+    DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
     std::string group;
@@ -227,9 +228,11 @@ public:
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
+    std::atomic<bool> use_task_group_for_cpu_limit = false;
+
 private:
     TUniqueId _query_id;
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",

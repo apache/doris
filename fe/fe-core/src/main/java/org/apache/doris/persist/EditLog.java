@@ -151,6 +151,13 @@ public class EditLog {
         return journal == null ? 0 : 1;
     }
 
+    public long getEnvDiskUsagePercent() {
+        if (journal instanceof BDBJEJournal) {
+            return ((BDBJEJournal) journal).getEnvDiskUsagePercent();
+        }
+        return -1;
+    }
+
     /**
      * Load journal.
      **/
@@ -1183,6 +1190,9 @@ public class EditLog {
         } catch (Throwable t) {
             // Throwable contains all Exception and Error, such as IOException and
             // OutOfMemoryError
+            if (journal instanceof BDBJEJournal) {
+                LOG.error("BDBJE stats : {}", ((BDBJEJournal) journal).getBDBStats());
+            }
             LOG.error("Fatal Error : write stream Exception", t);
             System.exit(-1);
         }

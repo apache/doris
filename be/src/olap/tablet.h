@@ -612,7 +612,7 @@ public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
 private:
-    DataDir* _data_dir;
+    DataDir* _data_dir = nullptr;
     TimestampedVersionTracker _timestamped_version_tracker;
 
     DorisCallOnce<Status> _init_once;

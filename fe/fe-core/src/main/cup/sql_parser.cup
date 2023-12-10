@@ -267,6 +267,7 @@ terminal String
     KW_BACKENDS,
     KW_BACKUP,
     KW_BEGIN,
+    KW_BELONG,
     KW_BETWEEN,
     KW_BIGINT,
     KW_BIN,
@@ -440,6 +441,7 @@ terminal String
     KW_JOIN,
     KW_JSON,
     KW_JSONB,
+    KW_VARIANT,
     KW_KEY,
     KW_KEYS,
     KW_KILL,
@@ -477,6 +479,7 @@ terminal String
     KW_MATCH_ANY,
     KW_MATCH_ALL,
     KW_MATCH_PHRASE,
+    KW_MATCH_PHRASE_PREFIX,
     KW_MATCH_ELEMENT_EQ,
     KW_MATCH_ELEMENT_LT,
     KW_MATCH_ELEMENT_GT,
@@ -566,7 +569,7 @@ terminal String
     KW_ROWS,
     KW_S3,
     KW_SAMPLE,
-    KW_SCHEDULER,    
+    KW_SCHEDULE,    
     KW_SCHEMA,
     KW_SCHEMAS,
     KW_SECOND,
@@ -631,6 +634,7 @@ terminal String
     KW_UNION,
     KW_UNIQUE,
     KW_UNLOCK,
+    KW_UNSET,
     KW_UNSIGNED,
     KW_UPDATE,
     KW_USE,
@@ -639,6 +643,7 @@ terminal String
     KW_VALUE,
     KW_VALUES,
     KW_VARCHAR,
+    KW_VARIABLE,
     KW_VARIABLES,
     KW_VERBOSE,
     KW_VERSION,
@@ -683,8 +688,8 @@ nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
-    describe_stmt, alter_stmt,
-    create_job_stmt,pause_job_stmt,resume_job_stmt,stop_job_stmt,show_job_stmt,
+    describe_stmt, alter_stmt, unset_var_stmt,
+    create_job_stmt, pause_job_stmt, resume_job_stmt,stop_job_stmt, cancel_job_task_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     switch_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
     import_columns_stmt, import_delete_on_stmt, import_sequence_stmt, import_where_stmt, install_plugin_stmt, uninstall_plugin_stmt,
@@ -764,6 +769,7 @@ nonterminal String sequence_col_clause;
 nonterminal Predicate predicate, between_predicate, comparison_predicate,
   compound_predicate, in_predicate, like_predicate, exists_predicate, match_predicate;
 nonterminal ArrayList<Expr> opt_partition_by_clause;
+nonterminal ArrayList<String> sub_column_path;
 nonterminal Expr having_clause;
 nonterminal ArrayList<OrderByElement> order_by_elements, order_by_clause;
 nonterminal OrderByElement order_by_element;
@@ -964,13 +970,14 @@ precedence nonassoc KW_WITH;
 
 precedence left KW_FULL, KW_MERGE;
 precedence left DOT;
+precedence left COLON;
 precedence left SET_VAR;
 precedence left KW_OR;
 precedence left KW_AND;
 precedence left KW_NOT, NOT;
 precedence left KW_BETWEEN, KW_IN, KW_IS, KW_EXISTS;
 precedence left KW_LIKE, KW_REGEXP;
-precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
+precedence left KW_MATCH_ANY, KW_MATCH_ALL, KW_MATCH_PHRASE, KW_MATCH_PHRASE_PREFIX, KW_MATCH, KW_MATCH_ELEMENT_EQ, KW_MATCH_ELEMENT_LT, KW_MATCH_ELEMENT_GT, KW_MATCH_ELEMENT_LE, KW_MATCH_ELEMENT_GE;
 precedence left EQUAL, LESSTHAN, GREATERTHAN;
 precedence left ADD, SUBTRACT;
 precedence left AT, STAR, DIVIDE, MOD, KW_DIV;
@@ -1109,6 +1116,8 @@ stmt ::=
     {: RESULT = use; :}
     | set_stmt:set
     {: RESULT = set; :}
+    | unset_var_stmt:stmt
+    {: RESULT = stmt; :}
     | kill_stmt:kill
     {: RESULT = kill; :}
     | kill_analysis_job_stmt: k
@@ -1149,8 +1158,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | pause_job_stmt : stmt   
     {: RESULT = stmt; :}
-    | show_job_stmt : stmt   
-    {: RESULT = stmt; :}
+    | cancel_job_task_stmt : stmt
+    {: RESULT = stmt; :}       
     | stop_job_stmt : stmt   
     {: RESULT = stmt; :}
     | resume_job_stmt : stmt                    
@@ -2547,17 +2556,17 @@ resource_desc ::=
     :}                                                                               
     ; 
 create_job_stmt ::=
-     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
+     KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_EVERY INTEGER_LITERAL:time_interval ident:time_unit opt_job_starts:startsTime opt_job_ends:endsTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.RECURRING,null,time_interval,time_unit, startsTime, endsTime,comment,executeSql);
         RESULT = stmt;
     :}
-/*  support in future  | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+/*  support in future  | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_STREAMING KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.STREAMING,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
     :}   */ 
-    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULER KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
+    | KW_CREATE KW_JOB job_label:jobLabel KW_ON KW_SCHEDULE KW_AT STRING_LITERAL:atTime opt_comment:comment KW_DO stmt:executeSql  
     {:
         CreateJobStmt stmt = new CreateJobStmt(jobLabel,org.apache.doris.job.base.JobExecuteType.ONE_TIME,atTime,null,null,null,null,comment,executeSql);
         RESULT = stmt;
@@ -2581,52 +2590,32 @@ create_job_stmt ::=
      {:  
           RESULT = endTime;  
      :}
-     ;       
-resume_job_stmt ::=
-    KW_RESUME KW_JOB  KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ResumeJobStmt(jobLabel);
-    :}
-    ;    
-show_job_stmt ::=
-    KW_SHOW KW_JOBS
-    {:
-        RESULT = new ShowJobStmt(null,null);
-    :}
-    | KW_SHOW KW_MTMV KW_JOBS
-    {:
-        RESULT = new ShowJobStmt(null,org.apache.doris.job.common.JobType.MTMV);
-    :}
-    | KW_SHOW KW_MTMV KW_JOB KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
-    :}
-    | KW_SHOW  KW_JOB KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowJobStmt(jobLabel,org.apache.doris.job.common.JobType.INSERT);
-    :}    
-    | KW_SHOW KW_JOB KW_TASKS KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.INSERT);
-    :}    
-    | KW_SHOW KW_MTMV KW_JOB KW_TASKS KW_FOR job_label:jobLabel
-    {:
-        RESULT = new ShowJobTaskStmt(jobLabel,org.apache.doris.job.common.JobType.MTMV);
-    :}       
-    ;
+     ;        
 pause_job_stmt ::=
-    KW_PAUSE KW_JOB KW_FOR job_label:jobLabel
+    KW_PAUSE KW_JOB opt_wild_where
     {:
-        RESULT = new PauseJobStmt(jobLabel);
+       RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.PAUSED);
     :}
     ;
 
 stop_job_stmt ::=
-    KW_STOP KW_JOB KW_FOR job_label:jobLabel
+    KW_DROP KW_JOB opt_wild_where
     {:
-        RESULT = new StopJobStmt(jobLabel);
+      RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.STOPPED);
     :}
-    ;                       
+    ;    
+resume_job_stmt ::=
+    KW_RESUME KW_JOB  opt_wild_where
+    {:
+        RESULT = new AlterJobStatusStmt(parser.where,org.apache.doris.job.common.JobStatus.RUNNING);
+    :}
+    ;    
+cancel_job_task_stmt ::=
+   KW_CANCEL KW_TASK opt_wild_where
+    {:
+      RESULT = new CancelJobTaskStmt(parser.where);
+    :}
+    ;                          
 // Routine load statement
 create_routine_load_stmt ::=
     KW_CREATE KW_ROUTINE KW_LOAD job_label:jobLabel optional_on_ident:tableName
@@ -3974,6 +3963,10 @@ show_param ::=
     {:
         RESULT = new ShowTabletStmt(null, tabletId);
     :}
+    | KW_TABLETS KW_BELONG integer_list:tabletIds
+    {:
+        RESULT = new ShowTabletsBelongStmt(tabletIds);
+    :}
     | KW_TABLETS KW_FROM table_name:dbTblName opt_partition_names:partitionNames opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowTabletStmt(dbTblName, -1L, partitionNames, parser.where, orderByClause, limitClause);
@@ -4352,9 +4345,9 @@ opt_explain_options ::=
 
 // Describe statement
 describe_stmt ::=
-    describe_command table_name:table
+    describe_command table_name:table opt_partition_names:partitionNames
     {:
-        RESULT = new DescribeStmt(table, false);
+        RESULT = new DescribeStmt(table, false, partitionNames);
     :}
     | KW_SHOW KW_FIELDS KW_FROM table_name:table
     {:
@@ -4932,6 +4925,18 @@ set_stmt ::=
     | KW_SET KW_PROPERTY opt_user:user user_property_list:property_list
     {:
         RESULT = new SetUserPropertyStmt(user, property_list);
+    :}
+    ;
+
+// Unset variable statement
+unset_var_stmt ::=
+    KW_UNSET opt_var_type:type KW_VARIABLE variable_name:variable
+    {:
+        RESULT = new UnsetVariableStmt(type, variable);
+    :}
+    | KW_UNSET opt_var_type:type KW_VARIABLE KW_ALL
+    {:
+        RESULT = new UnsetVariableStmt(type, true);
     :}
     ;
 
@@ -6254,6 +6259,8 @@ type ::=
   {: RESULT = ScalarType.createJsonbType(); :}
   | KW_TEXT
   {: RESULT = ScalarType.createStringType(); :}
+  | KW_VARIANT
+  {: RESULT = ScalarType.createVariantType(); :}
   | KW_VARCHAR LPAREN INTEGER_LITERAL:len RPAREN
   {: ScalarType type = ScalarType.createVarcharType(len.intValue());
      RESULT = type;
@@ -7001,6 +7008,8 @@ match_predicate ::=
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ALL, e1, e2); :}
   | expr:e1 KW_MATCH_PHRASE expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE, e1, e2); :}
+  | expr:e1 KW_MATCH_PHRASE_PREFIX expr:e2
+  {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_PHRASE_PREFIX, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_EQ expr:e2
   {: RESULT = new MatchPredicate(MatchPredicate.Operator.MATCH_ELEMENT_EQ, e1, e2); :}
   | expr:e1 KW_MATCH_ELEMENT_LT expr:e2
@@ -7055,6 +7064,18 @@ compound_predicate ::=
   {: RESULT = new CompoundPredicate(CompoundPredicate.Operator.NOT, e, null); :}
   ;
 
+sub_column_path ::=
+    ident: subcol
+    {:
+        RESULT = Lists.newArrayList(subcol);
+    :}
+    | sub_column_path:list DOT ident:subcol
+    {:
+        list.add(subcol);
+        RESULT = list;
+    :}
+    ;
+
 column_ref ::=
   ident:col
   {: RESULT = new SlotRef(null, col); :}
@@ -7065,6 +7086,16 @@ column_ref ::=
   {: RESULT = new SlotRef(new TableName(null, db, tbl), col); :}
   | ident:ctl DOT ident:db DOT ident:tbl DOT ident:col
   {: RESULT = new SlotRef(new TableName(ctl, db, tbl), col); :}
+
+  | ident:pcol COLON sub_column_path:lables
+  {: RESULT = new SlotRef(null, pcol, lables); :} 
+  // table_name:tblName DOT IDENT:pcol causes reduce/reduce conflicts
+  | ident:tbl DOT ident:pcol COLON sub_column_path:lables
+  {: RESULT = new SlotRef(new TableName(null, null, tbl), pcol, lables); :}
+  | ident:db DOT ident:tbl DOT ident:pcol COLON sub_column_path:lables
+  {: RESULT = new SlotRef(new TableName(null, db, tbl), pcol, lables); :}
+  | ident:ctl DOT ident:db DOT ident:tbl DOT ident:pcol COLON sub_column_path:lables
+  {: RESULT = new SlotRef(new TableName(ctl, db, tbl), pcol, lables); :}
   ;
 
 column_ref_list ::=
@@ -7641,7 +7672,7 @@ keyword ::=
     {: RESULT = id; :}
     | KW_ROLLBACK:id
     {: RESULT = id; :}
-    | KW_SCHEDULER:id
+    | KW_SCHEDULE:id
     {: RESULT = id; :}
     | KW_SCHEMA:id
     {: RESULT = id; :}
@@ -7700,6 +7731,8 @@ keyword ::=
     | KW_UNCOMMITTED:id
     {: RESULT = id; :}
     | KW_USER:id
+    {: RESULT = id; :}
+    | KW_VARIABLE:id
     {: RESULT = id; :}
     | KW_VARIABLES:id
     {: RESULT = id; :}
@@ -7806,6 +7839,8 @@ keyword ::=
     | KW_PERCENT:id
     {: RESULT = id; :}
     | KW_CRON:id
+    {: RESULT = id; :}
+    | KW_UNSET:id
     {: RESULT = id; :}
     ;
 

@@ -50,6 +50,7 @@ jobs:
             "${COMMENT_BODY}" == *'run tpch'* ]]; then
             echo "comment_trigger=true" | tee -a "$GITHUB_OUTPUT"
         else
+            echo "comment_trigger=false" | tee -a "$GITHUB_OUTPUT"
             echo "find no keyword in comment body, skip this action."
             exit
         fi
@@ -63,17 +64,17 @@ jobs:
         echo "COMMENT_BODY='${COMMENT_BODY}'" | tee -a "$GITHUB_OUTPUT"
 
         reg="run (buildall|compile|p0|p1|feut|beut|external|clickbench|pipelinex_p0|arm|tpch)( [1-9]*[0-9]+)*"
-        COMMENT_TRIGGER_TYPE="$(echo "${COMMENT_BODY}" | xargs | grep -E "${reg}" | awk -F' ' '{print $2}' | sed -n 1p)"
-        COMMENT_REPEAT_TIMES="$(echo "${COMMENT_BODY}" | xargs | grep -E "${reg}" | awk -F' ' '{print $3}' | sed -n 1p)"
+        COMMENT_TRIGGER_TYPE="$(echo -e "${COMMENT_BODY}" | xargs | grep -E "${reg}" | awk -F' ' '{print $2}' | sed -n 1p | sed 's/\r//g')"
+        COMMENT_REPEAT_TIMES="$(echo -e "${COMMENT_BODY}" | xargs | grep -E "${reg}" | awk -F' ' '{print $3}' | sed -n 1p | sed 's/\r//g')"
         echo "COMMENT_TRIGGER_TYPE=${COMMENT_TRIGGER_TYPE}" | tee -a "$GITHUB_OUTPUT"
         echo "COMMENT_REPEAT_TIMES=${COMMENT_REPEAT_TIMES}" | tee -a "$GITHUB_OUTPUT"
 
     - name: "Checkout master"
-      if: ${{ steps.parse.outputs.comment_trigger }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) }}
       uses: actions/checkout@v4
 
     - name: "Check if pr need run build"
-      if: ${{ steps.parse.outputs.comment_trigger }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) }}
       id: changes
       run: |
         source regression-test/pipeline/common/github-utils.sh
@@ -130,7 +131,7 @@ jobs:
     #   uses: mxschmitt/action-tmate@v3
 
     - name: "Trigger or Skip feut"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["feut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["feut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
@@ -143,7 +144,7 @@ jobs:
 
 
     - name: "Trigger or Skip beut"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["beut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["beut", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
@@ -155,7 +156,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip compile"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["compile", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["compile", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
@@ -167,7 +168,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip p0"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
@@ -182,7 +183,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip p1"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["p1", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["p1", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         COMMIT_ID_FROM_TRIGGER=${{ steps.parse.outputs.COMMIT_ID_FROM_TRIGGER }}
@@ -198,7 +199,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip external"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["external", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["external", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
@@ -213,7 +214,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip pipelinex_p0"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["pipelinex_p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["pipelinex_p0", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then
@@ -228,7 +229,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip arm"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["arm", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["arm", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
@@ -240,7 +241,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip clickbench"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["clickbench", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["clickbench", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         set -x
@@ -252,7 +253,7 @@ jobs:
           "${{ steps.parse.outputs.COMMENT_REPEAT_TIMES }}"
 
     - name: "Trigger or Skip tpch"
-      if: ${{ steps.parse.outputs.comment_trigger && contains(fromJSON('["tpch", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
+      if: ${{ fromJSON(steps.parse.outputs.comment_trigger) && contains(fromJSON('["tpch", "buildall"]'), steps.parse.outputs.COMMENT_TRIGGER_TYPE) }}
       run: |
         source ./regression-test/pipeline/common/teamcity-utils.sh
         if [[ ${{ steps.parse.outputs.COMMENT_TRIGGER_TYPE }} == "buildall" ]]; then

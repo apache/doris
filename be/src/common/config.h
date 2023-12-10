@@ -100,6 +100,11 @@ DECLARE_Int32(brpc_port);
 // Default -1, do not start arrow flight sql server.
 DECLARE_Int32(arrow_flight_sql_port);
 
+// If priority_networks is incorrect but cannot be modified, set public_access_ip as BE’s real IP.
+// For ADBC client fetch result, default is empty, the ADBC client uses the backend ip to fetch the result.
+// If ADBC client cannot access the backend ip, can set public_access_ip to modify the fetch result ip.
+DECLARE_mString(public_access_ip);
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DECLARE_Int32(brpc_num_threads);
@@ -626,6 +631,12 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
 DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
+// percent of (active memtables size / all memtables size) when reach hard limit
+DECLARE_mInt32(memtable_hard_limit_active_percent);
+
+// percent of (active memtables size / all memtables size) when reach soft limit
+DECLARE_mInt32(memtable_soft_limit_active_percent);
+
 // Alignment
 DECLARE_Int32(memory_max_alignment);
 
@@ -804,6 +815,8 @@ DECLARE_mDouble(tablet_version_graph_orphan_vertex_ratio);
 DECLARE_Bool(share_delta_writers);
 // timeout for open load stream rpc in ms
 DECLARE_Int64(open_load_stream_timeout_ms);
+// timeout for load stream close wait in ms
+DECLARE_Int64(close_load_stream_timeout_ms);
 
 // idle timeout for load stream in ms
 DECLARE_Int64(load_stream_idle_timeout_ms);
@@ -811,6 +824,8 @@ DECLARE_Int64(load_stream_idle_timeout_ms);
 DECLARE_Int64(load_stream_max_buf_size);
 // brpc streaming messages_in_batch
 DECLARE_Int32(load_stream_messages_in_batch);
+// brpc streaming StreamWait seconds on EAGAIN
+DECLARE_Int32(load_stream_eagain_wait_seconds);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -1035,7 +1050,6 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
-DECLARE_Int32(query_bkd_inverted_index_limit_percent); // 5%
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
@@ -1124,10 +1138,13 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 DECLARE_mInt64(LZ4_HC_compression_level);
 // Whether flatten nested arrays in variant column
 // Notice: TEST ONLY
-DECLARE_mBool(enable_flatten_nested_for_variant);
+DECLARE_mBool(variant_enable_flatten_nested);
 // Threshold of a column as sparse column
 // Notice: TEST ONLY
-DECLARE_mDouble(ratio_of_defaults_as_sparse_column);
+DECLARE_mDouble(variant_ratio_of_defaults_as_sparse_column);
+// Threshold to estimate a column is sparsed
+// Notice: TEST ONLY
+DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table
@@ -1198,6 +1215,12 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 DECLARE_Int32(download_binlog_rate_limit_kbs);
 
 DECLARE_mInt32(buffered_reader_read_timeout_ms);
+
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
+
+// The max columns size for a tablet schema
+DECLARE_mInt32(variant_max_merged_tablet_schema_size);
 
 #ifdef BE_TEST
 // test s3

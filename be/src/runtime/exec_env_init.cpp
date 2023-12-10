@@ -283,20 +283,22 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     // TODO pipeline task group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
     _without_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    _pipeline_task_scheduler = new pipeline::TaskScheduler(
+    _without_group_task_scheduler = new pipeline::TaskScheduler(
             this, _without_group_block_scheduler, t_queue, "WithoutGroupTaskSchePool", nullptr);
-    RETURN_IF_ERROR(_pipeline_task_scheduler->start());
+    RETURN_IF_ERROR(_without_group_task_scheduler->start());
     RETURN_IF_ERROR(_without_group_block_scheduler->start("WithoutGroupBlockSche"));
 
     auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
     _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    _pipeline_task_group_scheduler = new pipeline::TaskScheduler(
+    _with_group_task_scheduler = new pipeline::TaskScheduler(
             this, _with_group_block_scheduler, tg_queue, "WithGroupTaskSchePool", nullptr);
-    RETURN_IF_ERROR(_pipeline_task_group_scheduler->start());
+    RETURN_IF_ERROR(_with_group_task_scheduler->start());
     RETURN_IF_ERROR(_with_group_block_scheduler->start("WithGroupBlockSche"));
 
     _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
     RETURN_IF_ERROR(_global_block_scheduler->start("GlobalBlockSche"));
+    _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
+    _runtime_filter_timer_queue->run();
     return Status::OK();
 }
 
@@ -539,14 +541,24 @@ void ExecEnv::destroy() {
     SAFE_STOP(_group_commit_mgr);
     // _routine_load_task_executor should be stopped before _new_load_stream_mgr.
     SAFE_STOP(_routine_load_task_executor);
-    SAFE_STOP(_pipeline_task_scheduler);
-    SAFE_STOP(_pipeline_task_group_scheduler);
+    // stop pipline step 1, non-cgroup execution
+    SAFE_SHUTDOWN(_without_group_block_scheduler.get());
+    SAFE_STOP(_without_group_task_scheduler);
+    SAFE_SHUTDOWN(_with_group_block_scheduler.get());
+    SAFE_STOP(_with_group_task_scheduler);
+    // stop pipline step 2, cgroup execution
+    SAFE_SHUTDOWN(_global_block_scheduler.get());
     SAFE_STOP(_task_group_manager);
+
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
+    SAFE_STOP(_runtime_filter_timer_queue);
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
     _new_load_stream_mgr.reset();
     _stream_load_executor.reset();
+    _memtable_memory_limiter.reset();
+    _delta_writer_v2_pool.reset();
+    _load_stream_stub_pool.reset();
     SAFE_STOP(_storage_engine);
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
@@ -563,9 +575,6 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
-    _memtable_memory_limiter.reset(nullptr);
-    _load_stream_stub_pool.reset();
-    _delta_writer_v2_pool.reset();
 
     // shared_ptr maybe no need to be reset
     // _brpc_iobuf_block_memory_tracker.reset();
@@ -608,9 +617,10 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_result_cache);
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_task_group_manager);
-    SAFE_DELETE(_pipeline_task_group_scheduler);
-    SAFE_DELETE(_pipeline_task_scheduler);
+    SAFE_DELETE(_with_group_task_scheduler);
+    SAFE_DELETE(_without_group_task_scheduler);
     SAFE_DELETE(_file_cache_factory);
+    SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
@@ -638,10 +648,6 @@ void ExecEnv::destroy() {
     // access master_info.backend id to access some info. If there is a running query and master
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
-
-    SAFE_SHUTDOWN(_global_block_scheduler.get());
-    SAFE_SHUTDOWN(_without_group_block_scheduler.get());
-    SAFE_SHUTDOWN(_with_group_block_scheduler.get());
 
     LOG(INFO) << "Doris exec envorinment is destoried.";
 }

@@ -27,7 +27,6 @@ import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
-import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidTxnWriteIdList;
@@ -43,6 +42,7 @@ import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LockComponent;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
@@ -126,9 +126,15 @@ public class PooledHiveMetaStoreClient {
     }
 
     public List<String> listPartitionNames(String dbName, String tblName) {
+        return listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
+    }
+
+    public List<String> listPartitionNames(String dbName, String tblName, long max) {
+        // list all parts when the limit is greater than the short maximum
+        short limited = max <= Short.MAX_VALUE ? (short) max : MAX_LIST_PARTITION_NUM;
         try (CachedClient client = getClient()) {
             try {
-                return client.client.listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
+                return client.client.listPartitionNames(dbName, tblName, limited);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -177,6 +183,19 @@ public class PooledHiveMetaStoreClient {
         } catch (Exception e) {
             throw new HMSClientException("failed to get partition by filter for table %s in db %s", e, tblName,
                     dbName);
+        }
+    }
+
+    public Database getDatabase(String dbName) {
+        try (CachedClient client = getClient()) {
+            try {
+                return client.client.getDatabase(dbName);
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get database %s from hms client", e, dbName);
         }
     }
 

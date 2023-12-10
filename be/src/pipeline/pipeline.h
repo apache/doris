@@ -126,6 +126,18 @@ public:
         return _collect_query_statistics_with_every_batch;
     }
 
+    bool need_to_local_shuffle() const { return _need_to_local_shuffle; }
+    void set_need_to_local_shuffle(bool need_to_local_shuffle) {
+        _need_to_local_shuffle = need_to_local_shuffle;
+    }
+    void init_need_to_local_shuffle_by_source() {
+        set_need_to_local_shuffle(operatorXs.front()->need_to_local_shuffle());
+    }
+
+    std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
+    void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
+    void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
+
 private:
     void _init_profile();
 
@@ -136,6 +148,8 @@ private:
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;
     std::vector<std::pair<int, std::shared_ptr<Pipeline>>> _dependencies;
 
+    std::vector<std::shared_ptr<Pipeline>> _children;
+
     PipelineId _pipeline_id;
     std::weak_ptr<PipelineFragmentContext> _context;
     int _previous_schedule_id = -1;
@@ -145,7 +159,7 @@ private:
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
     OperatorXs operatorXs;
-    DataSinkOperatorXPtr _sink_x;
+    DataSinkOperatorXPtr _sink_x = nullptr;
 
     std::shared_ptr<ObjectPool> _obj_pool;
 
@@ -178,6 +192,13 @@ private:
     bool _always_can_write = false;
     bool _is_root_pipeline = false;
     bool _collect_query_statistics_with_every_batch = false;
+
+    // If source operator meets one of all conditions below:
+    // 1. is scan operator with Hash Bucket
+    // 2. is exchange operator with Hash/BucketHash partition
+    // then set `_need_to_local_shuffle` to false which means we should use local shuffle in this fragment
+    // because data already be partitioned by storage/shuffling.
+    bool _need_to_local_shuffle = true;
 };
 
 } // namespace doris::pipeline

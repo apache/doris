@@ -35,8 +35,6 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
@@ -186,6 +184,9 @@ public class StatisticsRepository {
     }
 
     public static void dropStatistics(long tblId, Set<String> colNames) throws DdlException {
+        if (colNames == null) {
+            return;
+        }
         dropStatisticsByColName(tblId, colNames, StatisticConstants.STATISTIC_TBL_NAME);
         dropStatisticsByColName(tblId, colNames, StatisticConstants.HISTOGRAM_TBL_NAME);
     }
@@ -271,10 +272,8 @@ public class StatisticsRepository {
         params.put("count", String.valueOf(columnStatistic.count));
         params.put("ndv", String.valueOf(columnStatistic.ndv));
         params.put("nullCount", String.valueOf(columnStatistic.numNulls));
-        params.put("min", min == null ? "NULL" :
-                Base64.getEncoder().encodeToString(min.getBytes(StandardCharsets.UTF_8)));
-        params.put("max", max == null ? "NULL" :
-                Base64.getEncoder().encodeToString(max.getBytes(StandardCharsets.UTF_8)));
+        params.put("min", StatisticsUtil.escapeSQL(min));
+        params.put("max", StatisticsUtil.escapeSQL(max));
         params.put("dataSize", String.valueOf(columnStatistic.dataSize));
 
         if (partitionIds.isEmpty()) {

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -251,10 +252,21 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             }
             return new StructType(commonFields.build());
         }
-        return DataType.fromCatalogType(Type.getAssignmentCompatibleType(
-                left.toCatalogDataType(),
-                right.toCatalogDataType(),
-                false,
-                SessionVariable.getEnableDecimal256()));
+        boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
+        Type resultType = Type.getAssignmentCompatibleType(left.toCatalogDataType(),
+                right.toCatalogDataType(), false, enableDecimal256);
+        if (resultType.isDecimalV3()) {
+            int oldPrecision = resultType.getPrecision();
+            int oldScale = resultType.getDecimalDigits();
+            int integerPart = oldPrecision - oldScale;
+            int maxPrecision = enableDecimal256 ? ScalarType.MAX_DECIMAL256_PRECISION
+                    : ScalarType.MAX_DECIMAL128_PRECISION;
+            if (oldPrecision > maxPrecision) {
+                int newScale = maxPrecision - integerPart;
+                resultType =
+                        ScalarType.createDecimalType(maxPrecision, newScale < 0 ? 0 : newScale);
+            }
+        }
+        return DataType.fromCatalogType(resultType);
     }
 }

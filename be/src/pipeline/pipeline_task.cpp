@@ -59,10 +59,11 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _root(_operators.back()),
           _sink(sink) {
     _pipeline_task_watcher.start();
-    _query_statistics.reset(new QueryStatistics());
+    _query_statistics.reset(new QueryStatistics(state->query_options().query_type));
     _sink->set_query_statistics(_query_statistics);
     _collect_query_statistics_with_every_batch =
             _pipeline->collect_query_statistics_with_every_batch();
+    fragment_context->set_query_statistics(_query_statistics);
 }
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,

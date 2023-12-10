@@ -34,12 +34,11 @@ OPERATOR_CODE_GENERATOR(NestLoopJoinProbeOperator, StatefulOperator)
 
 Status NestLoopJoinProbeOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_left_block());
+    _child_block = _node->get_left_block();
     return StatefulOperator::prepare(state);
 }
 
 Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 
@@ -255,7 +254,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::MutableB
                             .data();
             const auto num_rows = cur_block.rows();
 
-            std::vector<int> selector(num_rows);
+            std::vector<uint32_t> selector(num_rows);
             size_t selector_idx = 0;
             for (size_t j = 0; j < num_rows; j++) {
                 if constexpr (IsSemi) {

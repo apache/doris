@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -36,15 +37,13 @@ import java.util.Optional;
 /**
  * All DDL and DML commands' super class.
  */
-public abstract class Command extends AbstractPlan implements LogicalPlan {
+public abstract class Command extends AbstractPlan implements LogicalPlan, BlockFuncDepsPropagation {
 
     protected Command(PlanType type) {
         super(type, Optional.empty(), Optional.empty(), null, ImmutableList.of());
     }
 
-    public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // all command should impl this interface.
-    }
+    public abstract void run(ConnectContext ctx, StmtExecutor executor) throws Exception;
 
     @Override
     public Optional<GroupExpression> getGroupExpression() {

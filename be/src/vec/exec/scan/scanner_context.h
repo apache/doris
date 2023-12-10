@@ -116,12 +116,16 @@ public:
 
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
+    bool is_finished() { return _is_finished.load(); }
+    bool should_stop() { return _should_stop.load(); }
 
     void inc_num_running_scanners(int32_t scanner_inc);
 
     void set_ready_to_finish();
 
     int get_num_running_scanners() const { return _num_running_scanners; }
+
+    int get_num_unfinished_scanners() const { return _num_unfinished_scanners; }
 
     void dec_num_scheduling_ctx();
 
@@ -188,12 +192,12 @@ protected:
 
     void _set_scanner_done();
 
-    RuntimeState* _state;
-    VScanNode* _parent;
-    pipeline::ScanLocalStateBase* _local_state;
+    RuntimeState* _state = nullptr;
+    VScanNode* _parent = nullptr;
+    pipeline::ScanLocalStateBase* _local_state = nullptr;
 
     // the comment of same fields in VScanNode
-    const TupleDescriptor* _output_tuple_desc;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
 
     // _transfer_lock is used to protect the critical section
     // where the ScanNode and ScannerScheduler interact.
@@ -282,8 +286,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
-    std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
+    std::shared_ptr<pipeline::ScanDependency> _dependency;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency;
 };
 } // namespace vectorized
 } // namespace doris

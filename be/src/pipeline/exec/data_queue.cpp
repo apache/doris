@@ -120,9 +120,7 @@ Status DataQueue::get_block_from_queue(std::unique_ptr<vectorized::Block>* outpu
             _cur_blocks_nums_in_queue[_flag_queue_idx] -= 1;
             auto old_value = _cur_blocks_total_nums.fetch_sub(1);
             if (old_value == 1 && _source_dependency) {
-                if (!is_all_finish()) {
-                    _source_dependency->block();
-                }
+                set_source_block();
                 _sink_dependencies[_flag_queue_idx]->set_ready();
             }
         } else {
@@ -145,7 +143,7 @@ void DataQueue::push_block(std::unique_ptr<vectorized::Block> block, int child_i
         _cur_blocks_nums_in_queue[child_idx] += 1;
         _cur_blocks_total_nums++;
         if (_source_dependency) {
-            _source_dependency->set_ready();
+            set_source_ready();
             _sink_dependencies[child_idx]->block();
         }
         //this only use to record the queue[0] for profile
@@ -160,12 +158,10 @@ void DataQueue::set_finish(int child_idx) {
         return;
     }
     _is_finished[child_idx] = true;
-    if (_source_dependency) {
-        _source_dependency->set_ready();
-    }
     if (_un_finished_counter.fetch_sub(1) == 1) {
         _is_all_finished = true;
     }
+    set_source_ready();
 }
 
 void DataQueue::set_canceled(int child_idx) {
@@ -173,9 +169,10 @@ void DataQueue::set_canceled(int child_idx) {
     DCHECK(!_is_finished[child_idx]);
     _is_canceled[child_idx] = true;
     _is_finished[child_idx] = true;
-    if (_source_dependency) {
-        _source_dependency->set_ready();
+    if (_un_finished_counter.fetch_sub(1) == 1) {
+        _is_all_finished = true;
     }
+    set_source_ready();
 }
 
 bool DataQueue::is_finish(int child_idx) {
@@ -184,6 +181,23 @@ bool DataQueue::is_finish(int child_idx) {
 
 bool DataQueue::is_all_finish() {
     return _is_all_finished;
+}
+
+void DataQueue::set_source_ready() {
+    if (_source_dependency) {
+        std::unique_lock lc(_source_lock);
+        _source_dependency->set_ready();
+    }
+}
+
+void DataQueue::set_source_block() {
+    if (_cur_blocks_total_nums == 0 && !is_all_finish()) {
+        std::unique_lock lc(_source_lock);
+        // Performing the judgment twice, attempting to avoid blocking the source as much as possible.
+        if (_cur_blocks_total_nums == 0 && !is_all_finish()) {
+            _source_dependency->block();
+        }
+    }
 }
 
 } // namespace pipeline

@@ -22,6 +22,11 @@
 
 namespace doris::pipeline {
 
+std::string JDBCScanLocalState::name_suffix() const {
+    return fmt::format(" (id={}. table name = {})", std::to_string(_parent->node_id()),
+                       _parent->cast<JDBCScanOperatorX>()._table_name);
+}
+
 Status JDBCScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     auto& p = _parent->cast<JDBCScanOperatorX>();
     std::unique_ptr<vectorized::NewJdbcScanner> scanner = vectorized::NewJdbcScanner::create_unique(

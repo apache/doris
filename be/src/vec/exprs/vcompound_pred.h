@@ -114,7 +114,7 @@ public:
             return res_id;
         };
 
-        auto create_null_map_column = [&](ColumnPtr null_map_column,
+        auto create_null_map_column = [&](ColumnPtr& null_map_column,
                                           uint8* __restrict null_map_data) {
             if (null_map_data == nullptr) {
                 null_map_column = ColumnUInt8::create(size, 0);

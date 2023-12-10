@@ -16,19 +16,18 @@ PhysicalResultSink
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=()
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[item]
-------------------------------------PhysicalDistribute
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 --------------------------------------PhysicalProject
-----------------------------------------filter((date_dim.d_month_seq <= 1217) and (date_dim.d_month_seq >= 1206))
-------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_month_seq <= 1217) and (date_dim.d_month_seq >= 1206))
+--------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------------PhysicalDistribute
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[item]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[store]

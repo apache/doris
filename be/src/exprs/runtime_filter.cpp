@@ -52,6 +52,7 @@
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/wide_integer.h"
 #include "vec/core/wide_integer_to_string.h"
@@ -286,10 +287,7 @@ public:
               _pool(pool),
               _column_return_type(params->column_return_type),
               _filter_type(params->filter_type),
-              _filter_id(params->filter_id),
-              _use_batch(
-                      IRuntimeFilter::enable_use_batch(_be_exec_version > 0, _column_return_type)),
-              _use_new_hash(_be_exec_version >= 2) {}
+              _filter_id(params->filter_id) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
     RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool, PrimitiveType column_type,
@@ -299,10 +297,7 @@ public:
               _pool(pool),
               _column_return_type(column_type),
               _filter_type(type),
-              _filter_id(filter_id),
-              _use_batch(
-                      IRuntimeFilter::enable_use_batch(_be_exec_version > 0, _column_return_type)),
-              _use_new_hash(_be_exec_version >= 2) {}
+              _filter_id(filter_id) {}
 
     RuntimePredicateWrapper(QueryContext* query_ctx, ObjectPool* pool,
                             const RuntimeFilterParams* params)
@@ -311,10 +306,7 @@ public:
               _pool(pool),
               _column_return_type(params->column_return_type),
               _filter_type(params->filter_type),
-              _filter_id(params->filter_id),
-              _use_batch(
-                      IRuntimeFilter::enable_use_batch(_be_exec_version > 0, _column_return_type)),
-              _use_new_hash(_be_exec_version >= 2) {}
+              _filter_id(params->filter_id) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
     RuntimePredicateWrapper(QueryContext* query_ctx, ObjectPool* pool, PrimitiveType column_type,
@@ -324,10 +316,7 @@ public:
               _pool(pool),
               _column_return_type(column_type),
               _filter_type(type),
-              _filter_id(filter_id),
-              _use_batch(
-                      IRuntimeFilter::enable_use_batch(_be_exec_version > 0, _column_return_type)),
-              _use_new_hash(_be_exec_version >= 2) {}
+              _filter_id(filter_id) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
@@ -389,98 +378,40 @@ public:
 
     void insert_to_bloom_filter(BloomFilterFuncBase* bloom_filter) const {
         if (_context.hybrid_set->size() > 0) {
-            auto it = _context.hybrid_set->begin();
-
-            if (_use_batch) {
-                while (it->has_next()) {
-                    bloom_filter->insert_fixed_len((char*)it->get_value());
-                    it->next();
-                }
-            } else {
-                while (it->has_next()) {
-                    if (_use_new_hash) {
-                        bloom_filter->insert_crc32_hash(it->get_value());
-                    } else {
-                        bloom_filter->insert(it->get_value());
-                    }
-
-                    it->next();
-                }
+            auto* it = _context.hybrid_set->begin();
+            while (it->has_next()) {
+                bloom_filter->insert(it->get_value());
+                it->next();
             }
         }
     }
 
     BloomFilterFuncBase* get_bloomfilter() const { return _context.bloom_filter_func.get(); }
 
-    void insert(const void* data) {
+    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) {
         switch (_filter_type) {
         case RuntimeFilterType::IN_FILTER: {
             if (_is_ignored_in_filter) {
                 break;
             }
-            _context.hybrid_set->insert(data);
+            _context.hybrid_set->insert_fixed_len(column, start);
             break;
         }
         case RuntimeFilterType::MIN_FILTER:
         case RuntimeFilterType::MAX_FILTER:
         case RuntimeFilterType::MINMAX_FILTER: {
-            _context.minmax_func->insert(data);
+            _context.minmax_func->insert_fixed_len(column, start);
             break;
         }
         case RuntimeFilterType::BLOOM_FILTER: {
-            if (_use_new_hash) {
-                _context.bloom_filter_func->insert_crc32_hash(data);
-            } else {
-                _context.bloom_filter_func->insert(data);
-            }
+            _context.bloom_filter_func->insert_fixed_len(column, start);
             break;
         }
         case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
             if (_is_bloomfilter) {
-                if (_use_new_hash) {
-                    _context.bloom_filter_func->insert_crc32_hash(data);
-                } else {
-                    _context.bloom_filter_func->insert(data);
-                }
+                _context.bloom_filter_func->insert_fixed_len(column, start);
             } else {
-                _context.hybrid_set->insert(data);
-            }
-            break;
-        }
-        case RuntimeFilterType::BITMAP_FILTER: {
-            _context.bitmap_filter_func->insert(data);
-            break;
-        }
-        default:
-            DCHECK(false);
-            break;
-        }
-    }
-
-    void insert_fixed_len(const char* data, const int* offsets, int number) {
-        switch (_filter_type) {
-        case RuntimeFilterType::IN_FILTER: {
-            if (_is_ignored_in_filter) {
-                break;
-            }
-            _context.hybrid_set->insert_fixed_len(data, offsets, number);
-            break;
-        }
-        case RuntimeFilterType::MIN_FILTER:
-        case RuntimeFilterType::MAX_FILTER:
-        case RuntimeFilterType::MINMAX_FILTER: {
-            _context.minmax_func->insert_fixed_len(data, offsets, number);
-            break;
-        }
-        case RuntimeFilterType::BLOOM_FILTER: {
-            _context.bloom_filter_func->insert_fixed_len(data, offsets, number);
-            break;
-        }
-        case RuntimeFilterType::IN_OR_BLOOM_FILTER: {
-            if (_is_bloomfilter) {
-                _context.bloom_filter_func->insert_fixed_len(data, offsets, number);
-            } else {
-                _context.hybrid_set->insert_fixed_len(data, offsets, number);
+                _context.hybrid_set->insert_fixed_len(column, start);
             }
             break;
         }
@@ -490,42 +421,33 @@ public:
         }
     }
 
-    void insert(const StringRef& value) {
-        switch (_column_return_type) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_HLL:
-        case TYPE_STRING: {
-            // StringRef->StringRef
-            StringRef data = StringRef(value.data, value.size);
-            insert(reinterpret_cast<const void*>(&data));
-            break;
-        }
-
-        default:
-            insert(reinterpret_cast<const void*>(value.data));
-            break;
-        }
-    }
-
-    void insert_batch(const vectorized::ColumnPtr column, const std::vector<int>& rows) {
+    void insert_batch(const vectorized::ColumnPtr& column, size_t start) {
         if (get_real_type() == RuntimeFilterType::BITMAP_FILTER) {
-            bitmap_filter_insert_batch(column, rows);
-        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version > 0, _column_return_type)) {
-            insert_fixed_len(column->get_raw_data().data, rows.data(), rows.size());
+            bitmap_filter_insert_batch(column, start);
         } else {
-            for (int index : rows) {
-                insert(column->get_data_at(index));
-            }
+            insert_fixed_len(column, start);
         }
     }
 
-    void bitmap_filter_insert_batch(const vectorized::ColumnPtr column,
-                                    const std::vector<int>& rows) {
+    void bitmap_filter_insert_batch(const vectorized::ColumnPtr column, size_t start) {
         std::vector<const BitmapValue*> bitmaps;
-        auto* col = assert_cast<const vectorized::ColumnComplexType<BitmapValue>*>(column.get());
-        for (int index : rows) {
-            bitmaps.push_back(&(col->get_data()[index]));
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto& col =
+                    assert_cast<const vectorized::ColumnBitmap&>(nullable->get_nested_column());
+            const auto& nullmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
+                            .get_data();
+            for (size_t i = start; i < column->size(); i++) {
+                if (!nullmap[i]) {
+                    bitmaps.push_back(&(col.get_data()[i]));
+                }
+            }
+        } else {
+            const auto* col = assert_cast<const vectorized::ColumnBitmap*>(column.get());
+            for (size_t i = start; i < column->size(); i++) {
+                bitmaps.push_back(&(col->get_data()[i]));
+            }
         }
         _context.bitmap_filter_func->insert_many(bitmaps);
     }
@@ -1039,13 +961,6 @@ private:
     bool _is_ignored_in_filter = false;
     std::string* _ignored_in_filter_msg = nullptr;
     uint32_t _filter_id;
-
-    // When _column_return_type is invalid, _use_batch will be always false.
-    bool _use_batch;
-
-    // When _use_new_hash is set to true, use the new hash method.
-    // This is only to be used if the be_exec_version may be less than 2. If updated, please delete it.
-    const bool _use_new_hash;
 };
 
 Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
@@ -1080,22 +995,9 @@ void IRuntimeFilter::copy_from_other(IRuntimeFilter* other) {
     _wrapper->_context = other->_wrapper->_context;
 }
 
-void IRuntimeFilter::insert(const void* data) {
+void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t start) {
     DCHECK(is_producer());
-    if (!_is_ignored) {
-        _wrapper->insert(data);
-    }
-}
-
-void IRuntimeFilter::insert(const StringRef& value) {
-    DCHECK(is_producer());
-    _wrapper->insert(value);
-}
-
-void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column,
-                                  const std::vector<int>& rows) {
-    DCHECK(is_producer());
-    _wrapper->insert_batch(column, rows);
+    _wrapper->insert_batch(column, start);
 }
 
 Status IRuntimeFilter::publish() {

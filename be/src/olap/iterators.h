@@ -39,6 +39,10 @@ namespace vectorized {
 struct IteratorRowRef;
 };
 
+namespace segment_v2 {
+struct StreamReader;
+}
+
 class StorageReadOptions {
 public:
     struct KeyRange {
@@ -56,11 +60,11 @@ public:
                   include_upper(include_upper_) {}
 
         // the lower bound of the range, nullptr if not existed
-        const RowCursor* lower_key;
+        const RowCursor* lower_key = nullptr;
         // whether `lower_key` is included in the range
         bool include_lower;
         // the upper bound of the range, nullptr if not existed
-        const RowCursor* upper_key;
+        const RowCursor* upper_key = nullptr;
         // whether `upper_key` is included in the range
         bool include_upper;
     };
@@ -109,6 +113,8 @@ public:
     RowsetId rowset_id;
     Version version;
     int32_t tablet_id = 0;
+    // slots that cast may be eliminated in storage layer
+    std::map<std::string, PrimitiveType> target_cast_type_for_variants;
 };
 
 class RowwiseIterator;

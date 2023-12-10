@@ -149,9 +149,9 @@ struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
             : request(req), data(data_stream), pool(obj_pool) {}
-    const PPublishFilterRequest* request;
-    butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool;
+    const PPublishFilterRequest* request = nullptr;
+    butil::IOBufAsZeroCopyInputStream* data = nullptr;
+    ObjectPool* pool = nullptr;
 };
 
 struct UpdateRuntimeFilterParamsV2 {
@@ -161,15 +161,15 @@ struct UpdateRuntimeFilterParamsV2 {
             : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequestV2* request;
     butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool;
+    ObjectPool* pool = nullptr;
 };
 
 struct MergeRuntimeFilterParams {
     MergeRuntimeFilterParams(const PMergeFilterRequest* req,
                              butil::IOBufAsZeroCopyInputStream* data_stream)
             : request(req), data(data_stream) {}
-    const PMergeFilterRequest* request;
-    butil::IOBufAsZeroCopyInputStream* data;
+    const PMergeFilterRequest* request = nullptr;
+    butil::IOBufAsZeroCopyInputStream* data = nullptr;
 };
 
 enum RuntimeFilterState {
@@ -245,10 +245,7 @@ public:
     void copy_from_other(IRuntimeFilter* other);
 
     // insert data to build filter
-    // only used for producer
-    void insert(const void* data);
-    void insert(const StringRef& data);
-    void insert_batch(vectorized::ColumnPtr column, const std::vector<int>& rows);
+    void insert_batch(vectorized::ColumnPtr column, size_t start);
 
     // publish filter
     // push filter to remote node or push down it to scan_node
@@ -335,10 +332,6 @@ public:
     std::string& get_name() { return _name; }
 
     void update_runtime_filter_type_to_profile();
-
-    static bool enable_use_batch(bool use_batch, PrimitiveType type) {
-        return use_batch && (is_int_or_bool(type) || is_float_or_double(type));
-    }
 
     int filter_id() const { return _filter_id; }
 
@@ -428,10 +421,10 @@ protected:
 
     RuntimeState* _state = nullptr;
     QueryContext* _query_ctx = nullptr;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
-    RuntimePredicateWrapper* _wrapper;
+    RuntimePredicateWrapper* _wrapper = nullptr;
     // runtime filter id
     int _filter_id;
     // Specific types BoardCast or Shuffle

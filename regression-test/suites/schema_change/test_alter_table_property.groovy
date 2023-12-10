@@ -46,6 +46,16 @@ suite("test_alter_table_property") {
     logger.info("${showResult2}")
     assertTrue(showResult2.toString().containsIgnoreCase('"enable_single_replica_compaction" = "true"'))
 
+    assertTrue(showResult1.toString().containsIgnoreCase('"disable_auto_compaction" = "false"'))
+    sql """
+        alter table ${tableName} set ("disable_auto_compaction" = "true")
+        """
+    sql """sync"""
+
+    def showResult3 = sql """show create table ${tableName}"""
+    logger.info("${showResult3}")
+    assertTrue(showResult3.toString().containsIgnoreCase('"disable_auto_compaction" = "true"'))
+
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """sync"""
 }

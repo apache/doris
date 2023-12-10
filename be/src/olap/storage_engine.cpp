@@ -45,6 +45,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -1201,36 +1202,37 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
     return res;
 }
 
-void StorageEngine::register_report_listener(TaskWorkerPool* listener) {
+void StorageEngine::register_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    CHECK(_report_listeners.find(listener) == _report_listeners.end());
-    _report_listeners.insert(listener);
+    if (std::find(_report_listeners.begin(), _report_listeners.end(), listener) !=
+        _report_listeners.end()) [[unlikely]] {
+        return;
+    }
+    _report_listeners.push_back(listener);
 }
 
-void StorageEngine::deregister_report_listener(TaskWorkerPool* listener) {
+void StorageEngine::deregister_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    _report_listeners.erase(listener);
+    if (auto it = std::find(_report_listeners.begin(), _report_listeners.end(), listener);
+        it != _report_listeners.end()) {
+        _report_listeners.erase(it);
+    }
 }
 
 void StorageEngine::notify_listeners() {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        listener->notify_thread();
+        listener->notify();
     }
 }
 
-void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+void StorageEngine::notify_listener(std::string_view name) {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        if (listener->task_worker_type() == task_worker_type) {
-            listener->notify_thread();
+        if (listener->name() == name) {
+            listener->notify();
         }
     }
-}
-
-Status StorageEngine::execute_task(EngineTask* task) {
-    RETURN_IF_ERROR(task->execute());
-    return task->finish();
 }
 
 // check whether any unused rowsets's id equal to rowset_id

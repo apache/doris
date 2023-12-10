@@ -57,6 +57,25 @@ suite("test_build_mtmv") {
     sql """drop materialized view if exists ${mvName};"""
     sql """drop materialized view if exists ${mvNameRenamed};"""
 
+    // show create table
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        (aa comment "aaa",bb)
+        BUILD DEFERRED REFRESH COMPLETE ON MANUAL
+        COMMENT "comment1"
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS
+        SELECT id, username FROM ${tableName};
+        """
+
+    def showCreateTableResult = sql """show create table ${mvName}"""
+    logger.info("showCreateTableResult: " + showCreateTableResult.toString())
+    assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 10\nPROPERTIES"))
+    sql """
+        DROP MATERIALIZED VIEW ${mvName}
+    """
+
     // IMMEDIATE MANUAL
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
@@ -269,11 +288,11 @@ suite("test_build_mtmv") {
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
-    def jobs = sql """show mtmv job for ${jobName}"""
+    def jobs = sql """select count(1) from jobs("type"="mv")  where name= '${jobName}'"""
     println jobs
-    assertEquals(jobs.size(), 0);
-    def tasks = sql """show mtmv job tasks for ${jobName}"""
+    assertEquals(jobs.get(0).get(0), 0);
+    def tasks = sql """select count(1) from tasks("type"="mv") where jobname = '${jobName}'"""
     println tasks
-    assertEquals(tasks.size(), 0);
+    assertEquals(tasks.get(0).get(0), 0);
 
 }

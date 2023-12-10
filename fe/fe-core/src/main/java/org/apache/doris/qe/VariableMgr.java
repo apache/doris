@@ -20,6 +20,8 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.analysis.SetVar;
+import org.apache.doris.analysis.SetVar.SetVarType;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.VariableExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Type;
@@ -50,6 +52,7 @@ import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -151,6 +154,7 @@ public class VariableMgr {
     // Set value to a variable
     private static boolean setValue(Object obj, Field field, String value) throws DdlException {
         VarAttr attr = field.getAnnotation(VarAttr.class);
+
         if (VariableVarConverters.hasConverter(attr.name())) {
             value = VariableVarConverters.encode(attr.name(), value).toString();
         }
@@ -167,6 +171,8 @@ public class VariableMgr {
             Preconditions.checkArgument(obj instanceof SessionVariable);
             try {
                 SessionVariable.class.getDeclaredMethod(attr.setter(), String.class).invoke(obj, value);
+            } catch (InvocationTargetException e) {
+                ErrorReport.reportDdlException(((InvocationTargetException) e).getTargetException().getMessage());
             } catch (Exception e) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
             }
@@ -648,6 +654,33 @@ public class VariableMgr {
         return ImmutableMap.copyOf(result);
     }
 
+    public static void setAllVarsToDefaultValue(SessionVariable sessionVariable, SetType setType)
+            throws DdlException {
+        for (Map.Entry<String, VarContext> entry : ctxByDisplayVarName.entrySet()) {
+            VarContext varCtx = entry.getValue();
+
+            SetType newSetType = null;
+            // some variables are GLOBAL only or SESSION only
+            if ((varCtx.getFlag() & GLOBAL) != 0) {
+                newSetType = SetType.GLOBAL;
+            } else if ((varCtx.getFlag() & SESSION_ONLY) != 0) {
+                newSetType = SetType.SESSION;
+            }
+
+            SetVar setVar = new SetVar(newSetType != null ? newSetType : setType, entry.getKey(),
+                    new StringLiteral(varCtx.defaultValue), SetVarType.SET_SESSION_VAR);
+            //skip read only variables
+            if ((varCtx.getFlag() & READ_ONLY) == 0) {
+                setVar(sessionVariable, setVar);
+            }
+        }
+    }
+
+    public static String getDefaultValue(String key) {
+        VarContext varContext = ctxByDisplayVarName.get(key);
+        return varContext == null ? null : varContext.defaultValue;
+    }
+
     // Dump all fields. Used for `show variables`
     public static List<List<String>> dump(SetType type, SessionVariable sessionVar, PatternMatcher matcher) {
         List<List<String>> rows = Lists.newArrayList();
@@ -680,14 +713,18 @@ public class VariableMgr {
                     }
                 }
 
-                VarContext varContext = ctxByVarName.get(entry.getKey());
-                if (varContext != null) {
-                    row.add(varContext.defaultValue);
-                    row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
+                VarContext varContext = ctxByDisplayVarName.get(entry.getKey());
+                if (VariableVarConverters.hasConverter(row.get(0))) {
+                    try {
+                        row.add(VariableVarConverters.decode(row.get(0), Long.valueOf(varContext.defaultValue)));
+                    } catch (DdlException e) {
+                        row.add(varContext.defaultValue);
+                        LOG.warn(String.format("encode session variable %s failed", row.get(0)));
+                    }
                 } else {
-                    row.add("-");
-                    row.add("-");
+                    row.add(varContext.defaultValue);
                 }
+                row.add(row.get(1).equals(row.get(2)) ? "0" : "1");
 
                 rows.add(row);
             }

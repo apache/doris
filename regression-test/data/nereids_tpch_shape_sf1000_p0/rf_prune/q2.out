@@ -25,9 +25,8 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[supplier] apply RFs: RF1
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((nation.n_regionkey = region.r_regionkey)) otherCondition=() build RFs:RF0 r_regionkey->[n_regionkey]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[nation] apply RFs: RF0
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[nation] apply RFs: RF0
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------filter((region.r_name = 'EUROPE'))

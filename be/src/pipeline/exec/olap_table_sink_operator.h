@@ -39,7 +39,7 @@ public:
     OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return true; } // TODO: need use mem_limit
+    bool can_write() override { return _sink->can_write(); }
 };
 
 class OlapTableSinkOperatorX;
@@ -108,7 +108,7 @@ private:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
     const bool _group_commit;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 };
 
 } // namespace pipeline

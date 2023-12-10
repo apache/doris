@@ -205,7 +205,7 @@ private:
     size_t _num_hit_segments = 0;
     size_t _num_removed_segments = 0;
 
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::shared_ptr<MetricEntity> _entity;
 
     DoubleGauge* file_cache_hits_ratio = nullptr;
     UIntGauge* file_cache_removed_elements = nullptr;

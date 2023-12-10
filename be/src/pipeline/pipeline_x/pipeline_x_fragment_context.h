@@ -35,6 +35,7 @@
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_task.h"
+#include "pipeline/pipeline_x/local_exchange/local_exchanger.h"
 #include "pipeline/pipeline_x/pipeline_x_task.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
@@ -104,7 +105,7 @@ public:
 
     RuntimeState* get_runtime_state(UniqueId fragment_instance_id) override {
         std::lock_guard<std::mutex> l(_state_map_lock);
-        if (_instance_id_to_runtime_state.count(fragment_instance_id) > 0) {
+        if (_instance_id_to_runtime_state.contains(fragment_instance_id)) {
             return _instance_id_to_runtime_state[fragment_instance_id];
         } else {
             return _runtime_state.get();
@@ -115,13 +116,19 @@ public:
 
     [[nodiscard]] int max_operator_id() const { return _operator_id; }
 
+    [[nodiscard]] int next_sink_operator_id() { return _sink_operator_id++; }
+
+    [[nodiscard]] int max_sink_operator_id() const { return _sink_operator_id; }
+
     std::string debug_string() override;
 
 private:
     void _close_fragment_instance() override;
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request) override;
-    Status _add_local_exchange(ObjectPool* pool, OperatorXPtr& op, PipelinePtr& cur_pipe,
-                               const std::vector<TExpr>& texprs);
+    Status _add_local_exchange(int pip_idx, int idx, int node_id, ObjectPool* pool,
+                               PipelinePtr cur_pipe, const std::vector<TExpr>& texprs,
+                               ExchangeType exchange_type, bool* do_local_exchange, int num_buckets,
+                               const std::map<int, int>& bucket_seq_to_instance_idx);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -147,6 +154,10 @@ private:
                              const TPipelineFragmentParams& params, const RowDescriptor& row_desc,
                              RuntimeState* state, DescriptorTbl& desc_tbl,
                              PipelineId cur_pipeline_id);
+    Status _plan_local_exchange(int num_buckets,
+                                const std::map<int, int>& bucket_seq_to_instance_idx);
+    Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
+                                const std::map<int, int>& bucket_seq_to_instance_idx);
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
 
@@ -166,7 +177,7 @@ private:
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wshadow-field"
 #endif
-    DataSinkOperatorXPtr _sink;
+    DataSinkOperatorXPtr _sink = nullptr;
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
@@ -203,11 +214,10 @@ private:
 
     std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
-    // We can guarantee that a plan node ID can correspond to an operator ID,
-    // but some operators do not have a corresponding plan node ID.
-    // We set these IDs as negative numbers, which are not visible to the user.
-    int _operator_id = 0;
 
+    int _operator_id = 0;
+    int _sink_operator_id = 0;
+    int _num_instances = 0;
     std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
 };
 

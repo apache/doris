@@ -150,11 +150,18 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
     return hash.low ^ hash.high;
 }
 
-PathInData PathInData::pop_front() const {
+PathInData PathInData::copy_pop_front() const {
+    return copy_pop_nfront(1);
+}
+
+PathInData PathInData::copy_pop_nfront(size_t n) const {
+    if (n >= parts.size()) {
+        return {};
+    }
     PathInData new_path;
     Parts new_parts;
     if (!parts.empty()) {
-        std::copy(parts.begin() + 1, parts.end(), std::back_inserter(new_parts));
+        std::copy(parts.begin() + n, parts.end(), std::back_inserter(new_parts));
     }
     new_path.build_path(new_parts);
     new_path.build_parts(new_parts);

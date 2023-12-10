@@ -234,6 +234,10 @@ lucene::store::Directory* DorisCompoundReader::getDirectory() {
     return dir;
 }
 
+std::string DorisCompoundReader::getPath() const {
+    return ((DorisCompoundDirectory*)dir)->getCfsDirName();
+}
+
 int64_t DorisCompoundReader::fileModified(const char* name) const {
     return dir->fileModified(name);
 }

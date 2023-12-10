@@ -53,6 +53,7 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -143,7 +144,8 @@ Status NewOlapScanner::init() {
                 _parent ? parent->_olap_scan_node : local_state->olap_scan_node();
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+            olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
+            tablet->tablet_schema()->num_variant_columns() == 0) {
             schema_key = SchemaCache::get_schema_key(
                     tablet->tablet_id(), olap_scan_node.columns_desc, olap_scan_node.schema_version,
                     SchemaCache::Type::TABLET_SCHEMA);
@@ -256,6 +258,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
                                              push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
     }
 
+    RETURN_IF_ERROR(_init_variant_columns());
     RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
@@ -277,7 +280,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.output_columns =
             _parent ? ((NewOlapScanNode*)_parent)->_maybe_read_column_ids
                     : ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
-
+    _tablet_reader_params.target_cast_type_for_variants =
+            _parent ? ((NewOlapScanNode*)_parent)->_cast_types_for_variants
+                    : ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants;
     // Condition
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
@@ -406,6 +411,47 @@ Status NewOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
+vectorized::PathInData NewOlapScanner::_build_path(SlotDescriptor* slot,
+                                                   const std::string& root_name) {
+    PathInDataBuilder path_builder;
+    path_builder.append(root_name, false);
+    for (const std::string& path : slot->column_paths()) {
+        path_builder.append(path, false);
+    }
+    return path_builder.build();
+}
+
+Status NewOlapScanner::_init_variant_columns() {
+    auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    // Parent column has path info to distinction from each other
+    for (auto slot : _output_tuple_desc->slots()) {
+        if (!slot->is_materialized()) {
+            continue;
+        }
+        if (!slot->need_materialize()) {
+            continue;
+        }
+        if (slot->type().is_variant_type()) {
+            // Such columns are not exist in frontend schema info, so we need to
+            // add them into tablet_schema for later column indexing.
+            TabletColumn subcol;
+            subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+            subcol.set_is_nullable(true);
+            subcol.set_unique_id(-1);
+            subcol.set_parent_unique_id(slot->col_unique_id());
+            PathInData path = _build_path(
+                    slot, tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case());
+            subcol.set_path_info(path);
+            subcol.set_name(path.get_path());
+            if (tablet_schema->field_index(path) < 0) {
+                tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
+            }
+        }
+        schema_util::inherit_tablet_index(tablet_schema);
+    }
+    return Status::OK();
+}
+
 Status NewOlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -414,10 +460,17 @@ Status NewOlapScanner::_init_return_columns() {
         if (!slot->need_materialize()) {
             continue;
         }
+
+        // variant column using path to index a column
+        int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
-        int32_t index = slot->col_unique_id() >= 0
-                                ? tablet_schema->field_index(slot->col_unique_id())
-                                : tablet_schema->field_index(slot->col_name());
+        if (slot->type().is_variant_type()) {
+            index = tablet_schema->field_index(_build_path(
+                    slot, tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case()));
+        } else {
+            index = slot->col_unique_id() >= 0 ? tablet_schema->field_index(slot->col_unique_id())
+                                               : tablet_schema->field_index(slot->col_name());
+        }
 
         if (index < 0) {
             return Status::InternalError(

@@ -78,7 +78,7 @@ class BlockSerializer {
 public:
     BlockSerializer(Parent* parent, bool is_local = true);
     Status next_serialized_block(Block* src, PBlock* dest, int num_receivers, bool* serialized,
-                                 bool eos, const std::vector<int>* rows = nullptr);
+                                 bool eos, const std::vector<uint32_t>* rows = nullptr);
     Status serialize_block(PBlock* dest, int num_receivers = 1);
     Status serialize_block(const Block* src, PBlock* dest, int num_receivers = 1);
 
@@ -171,8 +171,8 @@ protected:
     // Sender instance id, unique within a fragment.
     int _sender_id;
 
-    RuntimeState* _state;
-    ObjectPool* _pool;
+    RuntimeState* _state = nullptr;
+    ObjectPool* _pool = nullptr;
 
     int _current_channel_idx; // index of current channel to send to if _random == true
 
@@ -211,9 +211,9 @@ protected:
     std::unique_ptr<MemTracker> _mem_tracker;
 
     // Throughput per total time spent in sender
-    RuntimeProfile::Counter* _overall_throughput;
+    RuntimeProfile::Counter* _overall_throughput = nullptr;
     // Used to counter send bytes under local data exchange
-    RuntimeProfile::Counter* _local_bytes_send_counter;
+    RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
     // Identifier of the destination plan node.
     PlanNodeId _dest_node_id;
 
@@ -277,7 +277,7 @@ public:
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
-    virtual Status add_rows(Block* block, const std::vector<int>& row, bool eos);
+    virtual Status add_rows(Block* block, const std::vector<uint32_t>& row, bool eos);
 
     virtual Status send_current_block(bool eos, Status exec_status);
 
@@ -356,7 +356,7 @@ protected:
     Status send_current_batch(bool eos = false);
     Status close_internal(Status exec_status);
 
-    Parent* _parent;
+    Parent* _parent = nullptr;
 
     const RowDescriptor& _row_desc;
     TUniqueId _fragment_instance_id;
@@ -376,14 +376,14 @@ protected:
     PUniqueId _query_id;
     PBlock _pb_block;
     std::shared_ptr<PTransmitDataParams> _brpc_request;
-    std::shared_ptr<PBackendService_Stub> _brpc_stub = nullptr;
-    std::shared_ptr<DummyBrpcCallback<PTransmitDataResult>> _send_remote_block_callback = nullptr;
+    std::shared_ptr<PBackendService_Stub> _brpc_stub;
+    std::shared_ptr<DummyBrpcCallback<PTransmitDataResult>> _send_remote_block_callback;
     Status _receiver_status;
     int32_t _brpc_timeout_ms = 500;
     // whether the dest can be treated as query statistics transfer chain.
     bool _is_transfer_chain;
     bool _send_query_statistics_with_every_batch;
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
 
     bool _is_local;
     std::shared_ptr<VDataStreamRecvr> _local_recvr;
@@ -412,9 +412,9 @@ Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channe
                                            int num_channels,
                                            const HashValueType* __restrict channel_ids, int rows,
                                            Block* block, bool eos) {
-    std::vector<int> channel2rows[num_channels];
+    std::vector<uint32_t> channel2rows[num_channels];
 
-    for (int i = 0; i < rows; i++) {
+    for (uint32_t i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);
     }
 
@@ -503,7 +503,7 @@ public:
         return Status::OK();
     }
 
-    Status add_rows(Block* block, const std::vector<int>& rows, bool eos) override {
+    Status add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) override {
         if (Channel<Parent>::_fragment_instance_id.lo == -1) {
             return Status::OK();
         }
@@ -559,7 +559,7 @@ private:
 
     pipeline::ExchangeSinkBuffer<Parent>* _buffer = nullptr;
     bool _eos_send = false;
-    std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> _send_callback = nullptr;
+    std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> _send_callback;
     std::unique_ptr<PBlock> _pblock;
 };
 

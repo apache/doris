@@ -107,6 +107,9 @@ public:
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     int batch_size() const { return _query_options.batch_size; }
+    int wait_full_block_schedule_times() const {
+        return _query_options.wait_full_block_schedule_times;
+    }
     bool abort_on_error() const { return _query_options.abort_on_error; }
     bool abort_on_default_limit_exceeded() const {
         return _query_options.abort_on_default_limit_exceeded;
@@ -175,14 +178,22 @@ public:
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
     [[nodiscard]] bool is_cancelled() const;
+    std::string cancel_reason() const;
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v, std::string msg) {
-        _is_cancelled.store(v);
-        // Create a error status, so that we could print error stack, and
-        // we could know which path call cancel.
-        LOG(WARNING) << "Task is cancelled, instance: "
-                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                     << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+    void set_is_cancelled(std::string msg) {
+        if (!_is_cancelled.exchange(true)) {
+            _cancel_reason = msg;
+            // Create a error status, so that we could print error stack, and
+            // we could know which path call cancel.
+            LOG(WARNING) << "Task is cancelled, instance: "
+                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                         << ", st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+        } else {
+            LOG(WARNING) << "Task is already cancelled, instance: "
+                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                         << ", original cancel msg: " << _cancel_reason
+                         << ", new cancel msg: " << Status::Error<ErrorCode::CANCELLED>(msg);
+        }
     }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
@@ -500,21 +511,21 @@ public:
 
     Result<SinkLocalState*> get_sink_local_state_result(int id);
 
-    void resize_op_id_to_local_state(int size);
+    void resize_op_id_to_local_state(int operator_size, int sink_size);
 
 private:
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 2048;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
 
-    const DescriptorTbl* _desc_tbl;
+    const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
 
     // runtime filter
@@ -557,6 +568,7 @@ private:
 
     // if true, execution should stop with a CANCELLED status
     std::atomic<bool> _is_cancelled;
+    std::string _cancel_reason;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;

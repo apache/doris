@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_ip_functions") {
+suite("test_ip_functions", "arrow_flight_sql") {
     sql "set batch_size = 4096;"
 
     qt_sql "SELECT ipv4numtostring(-1);"
@@ -26,4 +26,23 @@ suite("test_ip_functions") {
     qt_sql "SELECT ipv4stringtonumornull('');"
     qt_sql "SELECT ipv4stringtonumordefault('');"
     qt_sql "SELECT inet_aton('192.168.0.1');"
+
+    qt_sql "SELECT ipv6numtostring(unhex('0A0005091'));"
+    qt_sql "SELECT ipv6numtostring(unhex('2A0206B8000000000000000000000011'));"
+    qt_sql "SELECT ipv6numtostring(unhex('FDFE0000000000005A55CAFFFEFA9089'));"
+    qt_sql "SELECT ipv6numtostring(unhex(''));"
+    qt_sql "SELECT ipv6numtostring(unhex('KK'));"
+    qt_sql "SELECT ipv6numtostring(unhex('0A000509'));"
+    qt_sql "SELECT ipv6numtostring(unhex('abcd123456'));"
+    qt_sql "SELECT ipv6numtostring(unhex('ffffffffffffffffffffffffffffffffffffffffffffffffffffff'));"
+    qt_sql "SELECT inet6_ntoa(unhex('0A0005091'));"
+    qt_sql "SELECT inet6_ntoa(unhex('2A0206B8000000000000000000000011'));"
+    qt_sql "SELECT inet6_ntoa(unhex(NULL));"
+    qt_sql "SELECT inet6_ntoa(unhex('00000000000000000000000000000000'));"
+    qt_sql "SELECT inet6_ntoa(unhex('0000000000000000000000000000'));"
+    qt_sql "SELECT inet6_ntoa(unhex('000'));"
+    qt_sql "SELECT inet6_ntoa(unhex('aaaaaaaaFFFFFFFFFFFFFFFFaaaaaaaa'));"
+    qt_sql "SELECT inet6_ntoa(unhex('aaaa@#'));"
+    qt_sql "SELECT inet6_ntoa(unhex('\0'));"
+    qt_sql "SELECT inet6_ntoa(unhex('00000000000000000000FFFF7F000001'));"
 }

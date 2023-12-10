@@ -47,14 +47,14 @@ namespace doris::pipeline {
 PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                              PipelineFragmentContext* fragment_context,
                              RuntimeProfile* parent_profile,
-                             std::shared_ptr<LocalExchangeSharedState> local_exchange_state,
+                             std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map,
                              int task_idx)
         : PipelineTask(pipeline, task_id, state, fragment_context, parent_profile),
           _operators(pipeline->operator_xs()),
           _source(_operators.front()),
           _root(_operators.back()),
           _sink(pipeline->sink_shared_pointer()),
-          _local_exchange_state(local_exchange_state),
+          _le_state_map(le_state_map),
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
@@ -76,26 +76,21 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     {
         // set sink local state
         LocalSinkStateInfo info {_parent_profile, local_params.sender_id,
-                                 get_downstream_dependency(), _local_exchange_state, tsink};
+                                 get_downstream_dependency(), _le_state_map, tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(state, info));
     }
 
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->node_id(), no_scan_ranges);
-
+    auto* parent_profile = _parent_profile;
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
-        auto& deps = get_upstream_dependency(_operators[op_idx]->operator_id());
-        LocalStateInfo info {
-                op_idx == _operators.size() - 1
-                        ? _parent_profile
-                        : state->get_local_state(_operators[op_idx + 1]->operator_id())->profile(),
-                scan_ranges,
-                deps,
-                _local_exchange_state,
-                _task_idx,
-                _source_dependency[_operators[op_idx]->operator_id()]};
-        RETURN_IF_ERROR(_operators[op_idx]->setup_local_state(state, info));
+        auto& op = _operators[op_idx];
+        auto& deps = get_upstream_dependency(op->operator_id());
+        LocalStateInfo info {parent_profile, scan_ranges, deps,
+                             _le_state_map,  _task_idx,   _source_dependency[op->operator_id()]};
+        RETURN_IF_ERROR(op->setup_local_state(state, info));
+        parent_profile = state->get_local_state(op->operator_id())->profile();
     }
 
     _block = doris::vectorized::Block::create_unique();
@@ -193,7 +188,6 @@ Status PipelineXTask::_open() {
                 _blocked_dep = _filter_dependency->is_blocked_by(this);
                 if (_blocked_dep) {
                     set_state(PipelineTaskState::BLOCKED_FOR_RF);
-                    set_use_blocking_queue();
                     RETURN_IF_ERROR(st);
                 } else if (i == 1) {
                     CHECK(false) << debug_string();
@@ -296,7 +290,7 @@ void PipelineXTask::finalize() {
     std::vector<DependencySPtr> {}.swap(_downstream_dependency);
     DependencyMap {}.swap(_upstream_dependency);
 
-    _local_exchange_state = nullptr;
+    _le_state_map.clear();
 }
 
 Status PipelineXTask::try_close(Status exec_status) {
@@ -337,19 +331,18 @@ Status PipelineXTask::close(Status exec_status) {
 
 std::string PipelineXTask::debug_string() {
     std::unique_lock<std::mutex> lc(_release_lock);
-    if (_finished) {
-        return "ALREADY FINISHED";
-    }
     fmt::memory_buffer debug_string_buffer;
 
     fmt::format_to(debug_string_buffer, "QueryId: {}\n", print_id(query_context()->query_id()));
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
-    fmt::format_to(
-            debug_string_buffer,
-            "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}]\noperators: ",
-            (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run);
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}, elapse time "
+                   "= {}ns], block dependency = {}, \noperators: ",
+                   (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run,
+                   MonotonicNanos() - _fragment_context->create_time(),
+                   _blocked_dep ? _blocked_dep->debug_string() : "NULL");
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(
                 debug_string_buffer, "\n{}",
@@ -358,6 +351,9 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "\n{}",
                    _opened ? _sink->debug_string(_state, _operators.size())
                            : _sink->debug_string(_operators.size()));
+    if (_finished) {
+        return fmt::to_string(debug_string_buffer);
+    }
     fmt::format_to(debug_string_buffer, "\nRead Dependency Information: \n");
     size_t i = 0;
     for (; i < _read_dependencies.size(); i++) {

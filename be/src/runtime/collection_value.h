@@ -69,12 +69,12 @@ public:
 
 private:
     // child column data
-    void* _data;
+    void* _data = nullptr;
     uint64_t _length;
     // item has no null value if has_null is false.
     // item ```may``` has null value if has_null is true.
     bool _has_null;
     // null bitmap
-    bool* _null_signs;
+    bool* _null_signs = nullptr;
 };
 } // namespace doris

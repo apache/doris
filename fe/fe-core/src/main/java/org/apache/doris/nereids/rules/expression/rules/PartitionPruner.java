@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.catalog.ListPartitionItem;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
@@ -99,15 +98,6 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
     }
 
     /**
-     * prune partition with `partitionInfo` as parameter.
-     */
-    public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
-            PartitionInfo partitionInfo, CascadesContext cascadesContext, PartitionTableType partitionTableType) {
-        return prune(partitionSlots, partitionPredicate, partitionInfo.getIdToItem(false), cascadesContext,
-                partitionTableType);
-    }
-
-    /**
      * prune partition with `idToPartitions` as parameter.
      */
     public static List<Long> prune(List<Slot> partitionSlots, Expression partitionPredicate,
@@ -115,7 +105,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             PartitionTableType partitionTableType) {
         partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
-
+        partitionPredicate = PredicateRewriteForPartitionPrune.rewrite(partitionPredicate, cascadesContext);
         List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
                 .stream()
                 .map(kv -> toPartitionEvaluator(kv.getKey(), kv.getValue(), partitionSlots, cascadesContext,
