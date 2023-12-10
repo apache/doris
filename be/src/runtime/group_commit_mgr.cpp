@@ -420,11 +420,12 @@ void GroupCommitMgr::stop() {
     LOG(INFO) << "GroupCommitMgr is stopped";
 }
 
-Status GroupCommitMgr::get_first_block_load_queue(
-        int64_t db_id, int64_t table_id, int64_t base_schema_version, const UniqueId& load_id,
-        std::shared_ptr<vectorized::Block> block,
-        std::shared_ptr<LoadBlockQueue>& load_block_queue,
-        int be_exe_version) {
+Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_id,
+                                                  int64_t base_schema_version,
+                                                  const UniqueId& load_id,
+                                                  std::shared_ptr<vectorized::Block> block,
+                                                  std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                                  int be_exe_version) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
     {
         std::lock_guard wlock(_lock);
