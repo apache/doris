@@ -221,12 +221,16 @@ public class ConnectContext {
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
+        } else {
+            LOG.warn("try set invalid query timeout {}", queryTimeout, new RuntimeException(""));
         }
     }
 
     public void setUserInsertTimeout(int insertTimeout) {
         if (insertTimeout > 0) {
             sessionVariable.setInsertTimeoutS(insertTimeout);
+        } else {
+            LOG.warn("try set invalid query timeout {}", insertTimeout, new RuntimeException(""));
         }
     }
 
