@@ -230,7 +230,7 @@ public class ConnectContext {
         if (insertTimeout > 0) {
             sessionVariable.setInsertTimeoutS(insertTimeout);
         } else {
-            LOG.warn("try set invalid query timeout {}", insertTimeout, new RuntimeException(""));
+            LOG.warn("try set invalid insert timeout {}", insertTimeout, new RuntimeException(""));
         }
     }
 
