@@ -20,6 +20,14 @@ INSERT INTO doris_test.type VALUES
 INSERT INTO doris_test.type VALUES
 (false, '2022-01-02','2022-01-02','2022-01-02 00:00:00','2022-01-02 00:00:00.000000000',2.2,2.2,2,2,2,2,2,2,2,2,2,2,2,2,2.2,2.2,2.2,2.2,2,'116.253.40.133','2a02:aa08:e000:3100::2','61f0c404-5cb3-11e7-907b-a6006ad3dba0','String','T');
 
+
+INSERT INTO doris_test.type_null VALUES
+('1',true, '2022-01-01','2022-01-01','2022-01-01 00:00:00','2022-01-01 00:00:00.000000000',1.1,1.1,1,1,1,1,1,1,1,1,1,1,1,1,1.1,1.1,1.1,1.1,1,'116.253.40.133','2a02:aa08:e000:3100::2','61f0c404-5cb3-11e7-907b-a6006ad3dba0','String','F');
+INSERT INTO doris_test.type_null VALUES
+('2',false, '2022-01-02','2022-01-02','2022-01-02 00:00:00','2022-01-02 00:00:00.000000000',2.2,2.2,2,2,2,2,2,2,2,2,2,2,2,2,2.2,2.2,2.2,2.2,2,'116.253.40.133','2a02:aa08:e000:3100::2','61f0c404-5cb3-11e7-907b-a6006ad3dba0','String','T');
+INSERT INTO doris_test.type_null VALUES
+('3',NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL);
+
 INSERT INTO doris_test.number
 (`k6`, `k7`, `k8`, `k9`, `k10`, `k11`, `k12`, `k13`, `k14`, `k15`, `k16`, `k17`, `k18`, `k19`)
 VALUES
@@ -34,8 +42,16 @@ INSERT INTO doris_test.student values (1, 'doris', 18), (2, 'alice', 19), (3, 'b
 INSERT INTO doris_test.arr values
 ('1',[true],['2022-01-01'],['2022-01-01'],[1.1],[1.1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[2.2],[1],['116.253.40.133'],['2a02:aa08:e000:3100::2'],['61f0c404-5cb3-11e7-907b-a6006ad3dba0'],[1],['string'],['string'],['2022-01-01 00:00:00'],['2022-01-01 00:00:00']);
 
+INSERT INTO doris_test.arr_null values
+('1',[true],['2022-01-01'],['2022-01-01'],[1.1],[1.1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[1],[2.2],[1],['116.253.40.133'],['2a02:aa08:e000:3100::2'],['61f0c404-5cb3-11e7-907b-a6006ad3dba0'],[1],['string'],['string'],['2022-01-01 00:00:00'],['2022-01-01 00:00:00']);
+INSERT INTO doris_test.arr_null values
+('2', [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL], [NULL]);
+
 INSERT INTO doris_test.json VALUES ('1','{"a": 1, "b": { "c": 2, "d": [1, 2, 3] }}');
 
 INSERT INTO doris_test.final_test Values (1, 'first');
 INSERT INTO doris_test.final_test Values (1, 'second');
 
+INSERT INTO doris_test.ts values (1,1694438743);
+
+INSERT INTO doris_test.dt_with_tz values(1, '2022-01-02 00:00:00','2022-01-02 00:00:00.000000');

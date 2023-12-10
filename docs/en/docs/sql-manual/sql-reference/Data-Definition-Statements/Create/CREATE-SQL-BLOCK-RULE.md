@@ -107,6 +107,46 @@ Parameter Description:
     "sql" = "select \\* from db1.tbl1"
     );
     ```
+4. In SQL_BLOCK_RULE, SQL matching is based on regular expressions. If want to match more patterns of SQL, need to write the corresponding regex. For example, to ignore spaces in SQL and not query tables that start with 'order_', as shown below:   
+
+    ```sql
+     CREATE SQL_BLOCK_RULE test_rule4 
+     PROPERTIES(
+       "sql"="\\s*select\\s*\\*\\s*from order_\\w*\\s*",
+       "global"="false",
+       "enable"="true"
+     );
+    ```
+
+### APPENDIX
+Here are some commonly used regular expressions:
+>     . ：Matches any single character except for a newline character \n.
+>
+>     * ：Matches the preceding element zero or more times. For example, a matches zero or more 'a'.
+>
+>     + ：Matches the preceding element one or more times. For example, a+ matches one or more 'a'.
+>
+>     ? ：Matches the preceding element zero or one time. For example, a? matches zero or one 'a'.
+>
+>     [] ：Used to define a character set. For example, [aeiou] matches any one vowel letter.
+>
+>     [^] ：In a character set, use ^ to indicate negation, matching characters that are not in the set. For example, [^0-9] matches any non-digit character.
+>
+>     () ：Used for grouping expressions and applying quantifiers. For example, (ab)+ matches consecutive 'ab'.
+>
+>     | ：Represents logical OR. For example, a|b matches 'a' or 'b'.
+>
+>     ^ ：Matches the beginning of a string. For example, ^abc matches a string that starts with 'abc'.
+>
+>     $ ：Matches the end of a string. For example, xyz$ matches a string that ends with 'xyz'.
+>
+>     \ ：Used to escape special characters to treat them as ordinary characters. For example, \\. matches the period character '.'.
+>
+>     \s ：Matches any whitespace character, including spaces, tabs, newline characters, etc.
+>
+>     \d ：Matches any digit character, equivalent to [0-9].
+>
+>     \w ：Matches any word character, including letters, digits, and underscores, equivalent to [a-zA-Z0-9_].
 
 ### Keywords
 

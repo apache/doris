@@ -38,31 +38,45 @@
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t size) const {
-    if (doris::thread_context()->skip_memory_check) return;
+    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+        return;
+    }
     if (doris::MemTrackerLimiter::sys_mem_exceed_limit_check(size)) {
         // Only thread attach query, and has not completely waited for thread_wait_gc_max_milliseconds,
         // will wait for gc, asynchronous cancel or throw bad::alloc.
         // Otherwise, if the external catch, directly throw bad::alloc.
-        auto err_msg = fmt::format(
-                "Allocator sys memory check failed: Cannot alloc:{}, consuming "
-                "tracker:<{}>, exec node:<{}>, {}.",
-                size, doris::thread_context()->thread_mem_tracker()->label(),
-                doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
-                doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        std::string err_msg;
+        if (doris::is_thread_context_init()) {
+            err_msg += fmt::format(
+                    "Allocator sys memory check failed: Cannot alloc:{}, consuming "
+                    "tracker:<{}>, peak used {}, current used {}, exec node:<{}>, {}.",
+                    size, doris::thread_context()->thread_mem_tracker()->label(),
+                    doris::thread_context()->thread_mem_tracker()->peak_consumption(),
+                    doris::thread_context()->thread_mem_tracker()->consumption(),
+                    doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
+                    doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        } else {
+            err_msg += fmt::format(
+                    "Allocator sys memory check failed: Cannot alloc:{}, consuming "
+                    "tracker:<{}>, {}.",
+                    size, "Orphan", doris::MemTrackerLimiter::process_limit_exceeded_errmsg_str());
+        }
+
         if (size > 1024l * 1024 * 1024 && !doris::enable_thread_catch_bad_alloc &&
             !doris::config::disable_memory_gc) { // 1G
             err_msg += "\nAlloc Stacktrace:\n" + doris::get_stack_trace();
         }
 
         // TODO, Save the query context in the thread context, instead of finding whether the query id is canceled in fragment_mgr.
-        if (doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
+        if (doris::is_thread_context_init() &&
+            doris::ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
                     doris::thread_context()->task_id())) {
             if (doris::enable_thread_catch_bad_alloc) {
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
             }
             return;
         }
-        if (!doris::config::disable_memory_gc &&
+        if (doris::is_thread_context_init() && !doris::config::disable_memory_gc &&
             doris::thread_context()->thread_mem_tracker_mgr->is_attach_query() &&
             doris::thread_context()->thread_mem_tracker_mgr->wait_gc()) {
             int64_t wait_milliseconds = 0;
@@ -96,7 +110,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
                             "Query:{} canceled asyn, after waiting for memory {}ms, {}.",
                             print_id(doris::thread_context()->task_id()), wait_milliseconds,
                             err_msg);
-                    doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
+                    doris::thread_context()->thread_mem_tracker_mgr->cancel_instance(err_msg);
                 } else {
                     LOG(INFO) << fmt::format(
                             "Query:{} throw exception, after waiting for memory {}ms, {}.",
@@ -107,39 +121,45 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::sys_memory_check(size_t 
             }
             // else, enough memory is available, the query continues execute.
         } else if (doris::enable_thread_catch_bad_alloc) {
-            LOG(INFO) << fmt::format("throw exception, {}.", err_msg);
+            LOG(INFO) << fmt::format("sys memory check failed, throw exception, {}.", err_msg);
             doris::MemTrackerLimiter::print_log_process_usage();
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+        } else {
+            LOG(INFO) << fmt::format("sys memory check failed, no throw exception, {}.", err_msg);
         }
     }
 }
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void Allocator<clear_memory_, mmap_populate, use_mmap>::memory_tracker_check(size_t size) const {
-    if (doris::thread_context()->skip_memory_check) return;
+    if (doris::is_thread_context_init() && doris::thread_context()->skip_memory_check != 0) {
+        return;
+    }
+    if (!doris::is_thread_context_init()) {
+        return;
+    }
     auto st = doris::thread_context()->thread_mem_tracker()->check_limit(size);
     if (!st) {
-        auto err_msg =
-                doris::thread_context()->thread_mem_tracker()->query_tracker_limit_exceeded_str(
-                        st.to_string(),
-                        doris::thread_context()->thread_mem_tracker_mgr->last_consumer_tracker(),
-                        "Allocator mem tracker check failed");
+        auto err_msg = fmt::format("Allocator mem tracker check failed, {}", st.to_string());
         doris::thread_context()->thread_mem_tracker()->print_log_usage(err_msg);
         // If the external catch, throw bad::alloc first, let the query actively cancel. Otherwise asynchronous cancel.
         if (doris::thread_context()->thread_mem_tracker_mgr->is_attach_query()) {
             doris::thread_context()->thread_mem_tracker_mgr->disable_wait_gc();
             if (!doris::enable_thread_catch_bad_alloc) {
-                LOG(INFO) << fmt::format("Query:{} canceled asyn, {}.",
+                LOG(INFO) << fmt::format("query/load:{} canceled asyn, {}.",
                                          print_id(doris::thread_context()->task_id()), err_msg);
-                doris::thread_context()->thread_mem_tracker_mgr->cancel_fragment(err_msg);
+                doris::thread_context()->thread_mem_tracker_mgr->cancel_instance(err_msg);
             } else {
-                LOG(INFO) << fmt::format("Query:{} throw exception, {}.",
+                LOG(INFO) << fmt::format("query/load:{} throw exception, {}.",
                                          print_id(doris::thread_context()->task_id()), err_msg);
                 throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
             }
-        } else {
-            LOG(INFO) << fmt::format("throw exception, {}.", err_msg);
+        } else if (doris::enable_thread_catch_bad_alloc) {
+            LOG(INFO) << fmt::format("memory tracker check failed, throw exception, {}.", err_msg);
             throw doris::Exception(doris::ErrorCode::MEM_ALLOC_FAILED, err_msg);
+        } else {
+            LOG(INFO) << fmt::format("memory tracker check failed, no throw exception, {}.",
+                                     err_msg);
         }
     }
 }
@@ -165,7 +185,7 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
         const std::string& err) const {
     LOG(WARNING) << err
                  << fmt::format(
-                            " OS physical memory {}. Process memory usage {}, Sys available memory "
+                            " os physical memory {}. process memory used {}, sys available memory "
                             "{}, Stacktrace: {}",
                             doris::PrettyPrinter::print(doris::MemInfo::physical_mem(),
                                                         doris::TUnit::BYTES),
@@ -177,8 +197,6 @@ void Allocator<clear_memory_, mmap_populate, use_mmap>::throw_bad_alloc(
 
 template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void* Allocator<clear_memory_, mmap_populate, use_mmap>::alloc(size_t size, size_t alignment) {
-    doris::thread_context()->large_memory_check = false;
-    DEFER({ doris::thread_context()->large_memory_check = true; });
     return alloc_impl(size, alignment);
 }
 
@@ -186,8 +204,6 @@ template <bool clear_memory_, bool mmap_populate, bool use_mmap>
 void* Allocator<clear_memory_, mmap_populate, use_mmap>::realloc(void* buf, size_t old_size,
                                                                  size_t new_size,
                                                                  size_t alignment) {
-    doris::thread_context()->large_memory_check = false;
-    DEFER({ doris::thread_context()->large_memory_check = true; });
     return realloc_impl(buf, old_size, new_size, alignment);
 }
 

@@ -22,6 +22,8 @@
 #include "common/utils.h"
 #include "http/http_request.h"
 
+struct bufferevent_rate_limit_group;
+
 namespace doris {
 
 struct AuthInfo;
@@ -34,9 +36,12 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth);
 
-void do_file_response(const std::string& dir_path, HttpRequest* req);
+void do_file_response(const std::string& dir_path, HttpRequest* req,
+                      bufferevent_rate_limit_group* rate_limit_group = nullptr);
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req);
 
 std::string get_content_type(const std::string& file_name);
+
+bool load_size_smaller_than_wal_limit(HttpRequest* req);
 } // namespace doris

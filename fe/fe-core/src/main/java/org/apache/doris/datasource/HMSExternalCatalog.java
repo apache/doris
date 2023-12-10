@@ -61,6 +61,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private long lastSyncedEventId = -1L;
     public static final String ENABLE_SELF_SPLITTER = "enable.self.splitter";
     public static final String FILE_META_CACHE_TTL_SECOND = "file.meta.cache.ttl-second";
+    // broker name for file split and query scan.
+    public static final String BIND_BROKER_NAME = "broker.name";
     private static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
 
     // -1 means file cache no ttl set
@@ -68,19 +70,16 @@ public class HMSExternalCatalog extends ExternalCatalog {
     // 0 means file cache is disabled; >0 means file cache with ttl;
     public static final int FILE_META_CACHE_TTL_DISABLE_CACHE = 0;
 
+    public HMSExternalCatalog() {
+        catalogProperty = new CatalogProperty(null, null);
+    }
+
     /**
      * Default constructor for HMSExternalCatalog.
      */
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
             String comment) {
         super(catalogId, name, InitCatalogLog.Type.HMS, comment);
-        props = PropertyConverter.convertToMetaProperties(props);
-        catalogProperty = new CatalogProperty(resource, props);
-    }
-
-    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
-            String comment, InitCatalogLog.Type type) {
-        super(catalogId, name, type, comment);
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
     }

@@ -28,6 +28,8 @@ under the License.
 
 本文档介绍如何使用 [SELECT INTO OUTFILE](../../sql-manual/sql-reference/Data-Manipulation-Statements/OUTFILE.md) 命令进行查询结果的导出操作。
 
+`SELECT INTO OUTFILE` 是一个同步命令，命令返回即表示操作结束，同时会返回一行结果来展示导出的执行结果。
+
 ## 示例
 
 ### 导出到HDFS
@@ -150,7 +152,7 @@ ERROR 1064 (HY000): errCode = 2, detailMessage = Open broker writer failed ...
 * 导出命令不会检查文件及文件路径是否存在。是否会自动创建路径、或是否会覆盖已存在文件，完全由远端存储系统的语义决定。
 * 如果在导出过程中出现错误，可能会有导出文件残留在远端存储系统上。Doris 不会清理这些文件。需要用户手动清理。
 * 导出命令的超时时间同查询的超时时间。可以通过 `SET query_timeout=xxx` 进行设置。
-* 对于结果集为空的查询，依然会产生一个大小为0的文件。
+* 对于结果集为空的查询，依然会产生一个文件。
 * 文件切分会保证一行数据完整的存储在单一文件中。因此文件的大小并不严格等于 `max_file_size`。
 * 对于部分输出为非可见字符的函数，如 BITMAP、HLL 类型，输出为 `\N`，即 NULL。
 * 目前部分地理信息函数，如 `ST_Point` 的输出类型为 VARCHAR，但实际输出值为经过编码的二进制字符。当前这些函数会输出乱码。对于地理函数，请使用 `ST_AsText` 进行输出。

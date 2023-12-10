@@ -56,6 +56,11 @@ public:
                  const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
                  RuntimeProfile* profile);
 
+    NewEsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+                 TupleId tuple_id, const std::map<std::string, std::string>& properties,
+                 const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
+                 RuntimeProfile* profile);
+
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
@@ -69,7 +74,6 @@ private:
     Status _get_next(std::vector<vectorized::MutableColumnPtr>& columns);
 
 private:
-    bool _is_init;
     bool _es_eof;
 
     const std::map<std::string, std::string>& _properties;
@@ -78,7 +82,7 @@ private:
     bool _batch_eof;
 
     TupleId _tuple_id;
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
 
     std::unique_ptr<ESScanReader> _es_reader;
     std::unique_ptr<ScrollParser> _es_scroll_parser;

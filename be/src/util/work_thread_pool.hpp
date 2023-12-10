@@ -22,7 +22,6 @@
 
 #include "util/blocking_priority_queue.hpp"
 #include "util/blocking_queue.hpp"
-#include "util/lock.h"
 #include "util/thread.h"
 #include "util/thread_group.h"
 
@@ -107,7 +106,7 @@ public:
 
     // Blocks until all threads are finished. shutdown does not need to have been called,
     // since it may be called on a separate thread.
-    virtual void join() { _threads.join_all(); }
+    virtual void join() { static_cast<void>(_threads.join_all()); }
 
     virtual uint32_t get_queue_size() const { return _work_queue.get_size(); }
     virtual uint32_t get_active_threads() const { return _active_threads; }
@@ -142,10 +141,10 @@ protected:
     ThreadGroup _threads;
 
     // Guards _empty_cv
-    doris::Mutex _lock;
+    std::mutex _lock;
 
     // Signalled when the queue becomes empty
-    doris::ConditionVariable _empty_cv;
+    std::condition_variable _empty_cv;
 
 private:
     // Driver method for each thread in the pool. Continues to read work from the queue

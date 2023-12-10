@@ -26,8 +26,10 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import lombok.Getter;
@@ -38,7 +40,7 @@ import java.util.Map;
 
 @Getter
 public class JdbcExternalCatalog extends ExternalCatalog {
-    private static final List<String> REQUIRED_PROPERTIES = Lists.newArrayList(
+    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
             JdbcResource.JDBC_URL,
             JdbcResource.DRIVER_URL,
             JdbcResource.DRIVER_CLASS
@@ -124,6 +126,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     public String getLowerCaseTableNames() {
+        // Forced to true if Config.lower_case_table_names has a value of 1 or 2
+        if (GlobalVariable.lowerCaseTableNames == 1 || GlobalVariable.lowerCaseTableNames == 2) {
+            return "true";
+        }
+
+        // Otherwise, it defaults to false
         return catalogProperty.getOrDefault(JdbcResource.LOWER_CASE_TABLE_NAMES, "false");
     }
 
@@ -194,5 +202,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                         + "only_specified_database is false");
             }
         }
+    }
+
+    /**
+     * Execute stmt direct via jdbc
+     * @param stmt, the raw stmt string
+     */
+    public void executeStmt(String stmt) {
+        makeSureInitialized();
+        jdbcClient.executeStmt(stmt);
     }
 }

@@ -46,7 +46,7 @@ The cold and hot separation supports all doris functions, but only places some d
 - Remote object space recycling recycler. If the table and partition are deleted, or the space is wasted due to abnormal conditions in the cold and hot separation process, the recycler thread will periodically recycle, saving storage resources
 - Cache optimization, which caches the accessed cold data to be local, achieving the query performance of non cold and hot separation
 - Be thread pool optimization, distinguish whether the data source is local or object storage, and prevent the delay of reading objects from affecting query performance
-- newly created materialized view would inherit storage policy from it's base table's correspoding partition
+- newly created materialized view would inherit storage policy from it's base table's corresponding partition
 
 ## Storage policy
 
@@ -58,7 +58,7 @@ In addition, fe configuration needs to be added: `enable_storage_policy=true`
 
 Note: This property will not be synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, this property will be erased in this table.
 
-For example:
+This is an instance that how to create S3 RESOURCE：
 
 ```
 CREATE RESOURCE "remote_s3"
@@ -93,6 +93,36 @@ DISTRIBUTED BY HASH (k1) BUCKETS 3
 PROPERTIES(
     "storage_policy" = "test_policy"
 );
+```
+and how to create HDFS RESOURCE：
+```
+CREATE RESOURCE "remote_hdfs" PROPERTIES (
+        "type"="hdfs",
+        "fs.defaultFS"="fs_host:default_fs_port",
+        "hadoop.username"="hive",
+        "hadoop.password"="hive",
+        "dfs.nameservices" = "my_ha",
+        "dfs.ha.namenodes.my_ha" = "my_namenode1, my_namenode2",
+        "dfs.namenode.rpc-address.my_ha.my_namenode1" = "nn1_host:rpc_port",
+        "dfs.namenode.rpc-address.my_ha.my_namenode2" = "nn2_host:rpc_prot",
+        "dfs.client.failover.proxy.provider" = "org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider"
+    );
+
+    CREATE STORAGE POLICY test_policy PROPERTIES (
+        "storage_resource" = "remote_hdfs",
+        "cooldown_ttl" = "300"
+    )
+
+    CREATE TABLE IF NOT EXISTS create_table_use_created_policy (
+    k1 BIGINT,
+    k2 LARGEINT,
+    v1 VARCHAR(2048)
+    )
+    UNIQUE KEY(k1)
+    DISTRIBUTED BY HASH (k1) BUCKETS 3
+    PROPERTIES(
+    "storage_policy" = "test_policy"
+    );
 ```
 Or for an existing table, associate the storage policy
 ```
@@ -153,3 +183,28 @@ The be parameter `remove_unused_remote_files_interval_sec` can set the garbage c
 
 - Currently, there is no way to query the tables associated with a specific storage policy.
 - The acquisition of some remote occupancy indicators is not perfect enough.
+
+## FAQ
+
+1. ERROR 1105 (HY000): errCode = 2, detailMessage = Failed to create repository: connect to s3 failed: Unable to marshall request to JSON: host must not be null.
+
+S3 SDK uses virtual-hosted style by default. However, some object storage systems (such as minio) may not be enabled or support virtual-hosted style access. In this case, we can add the use_path_style parameter to force the use of path style:
+
+```text
+CREATE RESOURCE "remote_s3"
+PROPERTIES
+(
+    "type" = "s3",
+    "s3.endpoint" = "bj.s3.com",
+    "s3.region" = "bj",
+    "s3.bucket" = "test-bucket",
+    "s3.root.path" = "path/to/root",
+    "s3.access_key" = "bbb",
+    "s3.secret_key" = "aaaa",
+    "s3.connection.maximum" = "50",
+    "s3.connection.request.timeout" = "3000",
+    "s3.connection.timeout" = "1000",
+    "use_path_style" = "true"
+);
+```
+

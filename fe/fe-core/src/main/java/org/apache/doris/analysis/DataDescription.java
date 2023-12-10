@@ -28,8 +28,8 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.loadv2.LoadTask;
@@ -46,11 +46,11 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.StringReader;
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -354,6 +354,12 @@ public class DataDescription implements InsertStmt.DataDesc {
                     case FORMAT_JSON:
                         this.fileFormat = "json";
                         break;
+                    case FORMAT_WAL:
+                        this.fileFormat = "wal";
+                        break;
+                    case FORMAT_ARROW:
+                        this.fileFormat = "arrow";
+                        break;
                     default:
                         this.fileFormat = "unknown";
                         break;
@@ -632,10 +638,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         return lineDelimiter;
     }
 
-    public void setLineDelimiter(Separator lineDelimiter) {
-        this.lineDelimiter = lineDelimiter;
-    }
-
     public byte getEnclose() {
         return enclose;
     }
@@ -710,14 +712,6 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public void setJsonRoot(String jsonRoot) {
         this.jsonRoot = jsonRoot;
-    }
-
-    @Deprecated
-    public void addColumnMapping(String functionName, Pair<String, List<String>> pair) {
-        if (Strings.isNullOrEmpty(functionName) || pair == null) {
-            return;
-        }
-        columnToHadoopFunction.put(functionName, pair);
     }
 
     public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
@@ -862,7 +856,7 @@ public class DataDescription implements InsertStmt.DataDesc {
             return;
         }
         String columnsSQL = "COLUMNS (" + columnDef + ")";
-        SqlParser parser = new SqlParser(new SqlScanner(new StringReader(columnsSQL)));
+        SqlParser parser = new SqlParser(new org.apache.doris.analysis.SqlScanner(new StringReader(columnsSQL)));
         ImportColumnsStmt columnsStmt;
         try {
             columnsStmt = (ImportColumnsStmt) SqlParserUtils.getFirstStmt(parser);
@@ -998,6 +992,22 @@ public class DataDescription implements InsertStmt.DataDesc {
         if (analysisMap.containsKey(LoadStmt.KEY_SKIP_LINES)) {
             skipLines = Integer.parseInt(analysisMap.get(LoadStmt.KEY_SKIP_LINES));
         }
+        if (analysisMap.containsKey(LoadStmt.KEY_ENCLOSE)) {
+            String encloseProp = analysisMap.get(LoadStmt.KEY_ENCLOSE);
+            if (encloseProp.length() == 1) {
+                enclose = encloseProp.getBytes(StandardCharsets.UTF_8)[0];
+            } else {
+                throw new AnalysisException("enclose must be single-char");
+            }
+        }
+        if (analysisMap.containsKey(LoadStmt.KEY_ESCAPE)) {
+            String escapeProp = analysisMap.get(LoadStmt.KEY_ESCAPE);
+            if (escapeProp.length() == 1) {
+                escape = escapeProp.getBytes(StandardCharsets.UTF_8)[0];
+            } else {
+                throw new AnalysisException("escape must be single-char");
+            }
+        }
     }
 
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
@@ -1110,63 +1120,18 @@ public class DataDescription implements InsertStmt.DataDesc {
         // file format
         // note(tsy): for historical reason, file format here must be string type rather than TFileFormatType
         if (fileFormat != null) {
-            if (!fileFormat.equalsIgnoreCase("parquet")
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv)
-                    && !fileFormat.equalsIgnoreCase("orc")
-                    && !fileFormat.equalsIgnoreCase("json")
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names)
-                    && !fileFormat.equalsIgnoreCase(FeConstants.csv_with_names_and_types)
-                    && !fileFormat.equalsIgnoreCase("hive_text")) {
+            if (!fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_PARQUET)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_CSV_WITH_NAMES_AND_TYPES)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ORC)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_JSON)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_WAL)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ARROW)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_HIVE_TEXT)) {
                 throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
             }
         }
-    }
-
-    /*
-     * If user does not specify COLUMNS in load stmt, we fill it here.
-     * eg1:
-     *      both COLUMNS and SET clause is empty. after fill:
-     *      (k1,k2,k3)
-     *
-     * eg2:
-     *      COLUMNS is empty, SET is not empty
-     *      SET ( k2 = default_value("2") )
-     *      after fill:
-     *      (k1, k2, k3)
-     *      SET ( k2 = default_value("2") )
-     *
-     * eg3:
-     *      COLUMNS is empty, SET is not empty
-     *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
-     *      after fill:
-     *      (k1,k2,k3)
-     *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
-     *
-     */
-    public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) {
-        if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
-            return;
-        }
-
-        fileFieldNames = Lists.newArrayList();
-
-        Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
-            mappingColNames.add(importColumnDesc.getColumnName());
-        }
-
-        for (Column column : baseSchema) {
-            if (!mappingColNames.contains(column.getName())) {
-                parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
-            }
-            if ("json".equals(this.fileFormat)) {
-                fileFieldNames.add(column.getName());
-            } else {
-                fileFieldNames.add(column.getName().toLowerCase());
-            }
-        }
-
-        LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);
     }
 
     public String toSql() {

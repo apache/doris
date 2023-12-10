@@ -246,6 +246,23 @@ struct TQueryOptions {
   // use is_report_success any more
   84: optional bool enable_profile = false;
   85: optional bool enable_page_cache = false;
+  86: optional i32 analyze_timeout = 43200;
+
+  87: optional bool faster_float_convert = false;
+
+  88: optional bool enable_decimal256 = false;
+
+  89: optional bool enable_local_shuffle = false;
+  // For emergency use, skip missing version when reading rowsets
+  90: optional bool skip_missing_version = false;
+
+  91: optional bool runtime_filter_wait_infinitely = false;
+
+  92: optional i32 wait_full_block_schedule_times = 1;
+  
+  93: optional i32 inverted_index_max_expansions = 50;
+
+  94: optional i32 inverted_index_skip_threshold = 50;
 }
 
 
@@ -444,6 +461,16 @@ struct TExecPlanFragmentParams {
 
   // scan node id -> scan range params, only for external file scan
   24: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
+
+  25: optional i64 wal_id
+
+  // num load stream for each sink backend
+  26: optional i32 load_stream_per_node
+
+  // total num of load streams the downstream backend will see
+  27: optional i32 total_load_streams
+
+  28: optional i32 num_local_sink
 }
 
 struct TExecPlanFragmentParamsList {
@@ -659,6 +686,11 @@ struct TPipelineFragmentParams {
   // scan node id -> scan range params, only for external file scan
   29: optional map<Types.TPlanNodeId, PlanNodes.TFileScanRangeParams> file_scan_params
   30: optional bool group_commit = false;
+  31: optional i32 load_stream_per_node // num load stream for each sink backend
+  32: optional i32 total_load_streams // total num of load streams the downstream backend will see
+  33: optional i32 num_local_sink
+  34: optional i32 num_buckets
+  35: optional map<i32, i32> bucket_seq_to_instance_idx
 }
 
 struct TPipelineFragmentParamsList {

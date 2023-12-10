@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 
 /**
  *  This class is used for MySQL compatibility.
@@ -33,7 +34,7 @@ import org.apache.doris.cluster.ClusterNamespace;
  *  We will add useful system tables in the future.
 */
 public class MysqlDb extends MysqlCompatibleDatabase {
-    public static final String DATABASE_NAME = "mysql";
+    public static final String DATABASE_NAME = Config.mysqldb_replace_name;
     /**
      * Database created by user will have database id starting from 10000 {@link Env#NEXT_ID_INIT_VALUE}.
      * InfoSchemaDb takes id 0, so we assign id 1 to MysqlDb.

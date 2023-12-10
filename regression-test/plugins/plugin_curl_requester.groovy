@@ -16,6 +16,7 @@
 // under the License.
 
 import org.apache.doris.regression.suite.Suite
+import org.apache.doris.regression.util.Http
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 Suite.metaClass.curl = { String method, String url /* param */-> 
@@ -56,14 +57,25 @@ Suite.metaClass.be_get_compaction_status{ String ip, String port, String tablet_
 
 logger.info("Added 'be_get_compaction_status' function to Suite")
 
+Suite.metaClass._be_run_compaction = { String ip, String port, String tablet_id, String compact_type ->
+    return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=%s",
+            ip, port, tablet_id, compact_type))
+}
+
+Suite.metaClass.be_run_base_compaction = { String ip, String port, String tablet_id  /* param */->
+    return _be_run_compaction(ip, port, tablet_id, "base")
+}
+
+logger.info("Added 'be_run_base_compaction' function to Suite")
+
 Suite.metaClass.be_run_cumulative_compaction = { String ip, String port, String tablet_id  /* param */-> 
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=cumulative", ip, port, tablet_id))
+    return _be_run_compaction(ip, port, tablet_id, "cumulative")
 }
 
 logger.info("Added 'be_run_cumulative_compaction' function to Suite")
 
 Suite.metaClass.be_run_full_compaction = { String ip, String port, String tablet_id  /* param */-> 
-    return curl("POST", String.format("http://%s:%s/api/compaction/run?tablet_id=%s&compact_type=full", ip, port, tablet_id))
+    return _be_run_compaction(ip, port, tablet_id, "full")
 }
 
 Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, String table_id  /* param */-> 
@@ -71,3 +83,24 @@ Suite.metaClass.be_run_full_compaction_by_table_id = { String ip, String port, S
 }
 
 logger.info("Added 'be_run_full_compaction' function to Suite")
+
+Suite.metaClass.update_be_config = { String ip, String port, String key, String value /*param */ ->
+    return curl("POST", String.format("http://%s:%s/api/update_config?%s=%s", ip, port, key, value))
+}
+
+logger.info("Added 'update_be_config' function to Suite")
+
+Suite.metaClass.update_all_be_config = { String key, Object value ->
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort);
+    backendId_to_backendIP.each { beId, beIp ->
+        def port = backendId_to_backendHttpPort.get(beId)
+        def url = "http://${beIp}:${port}/api/update_config?${key}=${value}"
+        def result = Http.http_post(url, null, true)
+        assert result.size() == 1, result.toString()
+        assert result[0].status == "OK", result.toString()
+    }
+}
+
+logger.info("Added 'update_all_be_config' function to Suite")

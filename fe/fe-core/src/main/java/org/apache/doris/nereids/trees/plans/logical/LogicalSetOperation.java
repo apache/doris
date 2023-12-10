@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -30,8 +32,13 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
+import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.MapType;
+import org.apache.doris.nereids.types.StructField;
+import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -137,12 +144,9 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         for (int i = 0; i < child(0).getOutput().size(); ++i) {
             Slot left = child(0).getOutput().get(i);
             Slot right = child(1).getOutput().get(i);
-            DataType compatibleType = DataType.fromCatalogType(Type.getAssignmentCompatibleType(
-                    left.getDataType().toCatalogDataType(),
-                    right.getDataType().toCatalogDataType(),
-                    false));
-            Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, compatibleType);
-            Expression newRight = TypeCoercionUtils.castIfNotSameType(right, compatibleType);
+            DataType compatibleType = getAssignmentCompatibleType(left.getDataType(), right.getDataType());
+            Expression newLeft = TypeCoercionUtils.castIfNotSameTypeStrict(left, compatibleType);
+            Expression newRight = TypeCoercionUtils.castIfNotSameTypeStrict(right, compatibleType);
             if (newLeft instanceof Cast) {
                 newLeft = new Alias(newLeft, left.getName());
             }
@@ -210,5 +214,59 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
     @Override
     public int getArity() {
         return children.size();
+    }
+
+    private DataType getAssignmentCompatibleType(DataType left, DataType right) {
+        if (left.isNullType()) {
+            return right;
+        }
+        if (right.isNullType()) {
+            return left;
+        }
+        if (left.equals(right)) {
+            return left;
+        }
+        if (left instanceof ArrayType && right instanceof ArrayType) {
+            return ArrayType.of(getAssignmentCompatibleType(
+                    ((ArrayType) left).getItemType(), ((ArrayType) right).getItemType()));
+        }
+        if (left instanceof MapType && right instanceof MapType) {
+            return MapType.of(
+                    getAssignmentCompatibleType(((MapType) left).getKeyType(), ((MapType) right).getKeyType()),
+                    getAssignmentCompatibleType(((MapType) left).getValueType(), ((MapType) right).getValueType()));
+        }
+        if (left instanceof StructType && right instanceof StructType) {
+            List<StructField> leftFields = ((StructType) left).getFields();
+            List<StructField> rightFields = ((StructType) right).getFields();
+            if (leftFields.size() != rightFields.size()) {
+                throw new AnalysisException(
+                        "could not get common type for two different struct type " + left + ", " + right);
+            }
+            ImmutableList.Builder<StructField> commonFields = ImmutableList.builder();
+            for (int i = 0; i < leftFields.size(); i++) {
+                boolean nullable = leftFields.get(i).isNullable() || rightFields.get(i).isNullable();
+                DataType commonType = getAssignmentCompatibleType(
+                        leftFields.get(i).getDataType(), rightFields.get(i).getDataType());
+                StructField commonField = leftFields.get(i).withDataTypeAndNullable(commonType, nullable);
+                commonFields.add(commonField);
+            }
+            return new StructType(commonFields.build());
+        }
+        boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
+        Type resultType = Type.getAssignmentCompatibleType(left.toCatalogDataType(),
+                right.toCatalogDataType(), false, enableDecimal256);
+        if (resultType.isDecimalV3()) {
+            int oldPrecision = resultType.getPrecision();
+            int oldScale = resultType.getDecimalDigits();
+            int integerPart = oldPrecision - oldScale;
+            int maxPrecision = enableDecimal256 ? ScalarType.MAX_DECIMAL256_PRECISION
+                    : ScalarType.MAX_DECIMAL128_PRECISION;
+            if (oldPrecision > maxPrecision) {
+                int newScale = maxPrecision - integerPart;
+                resultType =
+                        ScalarType.createDecimalType(maxPrecision, newScale < 0 ? 0 : newScale);
+            }
+        }
+        return DataType.fromCatalogType(resultType);
     }
 }

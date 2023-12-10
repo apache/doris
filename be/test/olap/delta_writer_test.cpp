@@ -43,6 +43,7 @@
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset_builder.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
@@ -73,7 +74,8 @@ static void set_up() {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     config::storage_root_path = std::string(buffer) + "/data_test";
-    io::global_local_filesystem()->delete_and_create_directory(config::storage_root_path);
+    static_cast<void>(
+            io::global_local_filesystem()->delete_and_create_directory(config::storage_root_path));
     std::vector<StorePath> paths;
     paths.emplace_back(config::storage_root_path, -1);
 
@@ -85,18 +87,18 @@ static void set_up() {
 
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
-    exec_env->set_storage_engine(k_engine.get());
-    k_engine->start_bg_threads();
+    static_cast<void>(exec_env->set_storage_engine(k_engine.get()));
+    static_cast<void>(k_engine->start_bg_threads());
 }
 
 static void tear_down() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(nullptr);
-    exec_env->set_storage_engine(nullptr);
     k_engine.reset();
+    exec_env->set_storage_engine(nullptr);
     EXPECT_EQ(system("rm -rf ./data_test"), 0);
-    io::global_local_filesystem()->delete_directory(std::string(getenv("DORIS_HOME")) + "/" +
-                                                    UNUSED_PREFIX);
+    static_cast<void>(io::global_local_filesystem()->delete_directory(
+            std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX));
 }
 
 static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
@@ -445,12 +447,12 @@ static void generate_data(vectorized::Block* block, int8_t k1, int16_t k2, int32
     int16_t c2 = k2;
     columns[1]->insert_data((const char*)&c2, sizeof(c2));
 
-    vectorized::VecDateTimeValue c3;
+    VecDateTimeValue c3;
     c3.from_date_str("2020-07-16 19:39:43", 19);
     int64_t c3_int = c3.to_int64();
     columns[2]->insert_data((const char*)&c3_int, sizeof(c3));
 
-    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> c4;
+    DateV2Value<DateV2ValueType> c4;
     c4.set_time(2022, 6, 6, 0, 0, 0, 0);
     uint32_t c4_int = c4.to_date_int_val();
     columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
@@ -482,7 +484,7 @@ TEST_F(TestDeltaWriter, open) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -499,19 +501,18 @@ TEST_F(TestDeltaWriter, open) {
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = true;
     write_req.table_schema_param = &param;
-    DeltaWriter* delta_writer = nullptr;
 
     // test vec delta writer
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
     EXPECT_NE(delta_writer, nullptr);
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
     EXPECT_EQ(Status::OK(), res);
-    SAFE_DELETE(delta_writer);
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
@@ -528,7 +529,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     //     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
     OlapTableSchemaParam param;
@@ -546,10 +547,9 @@ TEST_F(TestDeltaWriter, vec_write) {
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
-    DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
-    ASSERT_NE(delta_writer, nullptr);
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -575,12 +575,12 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t k5 = -90000;
         columns[4]->insert_data((const char*)&k5, sizeof(k5));
 
-        vectorized::VecDateTimeValue k6;
+        VecDateTimeValue k6;
         k6.from_date_str("2048-11-10", 10);
         auto k6_int = k6.to_int64();
         columns[5]->insert_data((const char*)&k6_int, sizeof(k6_int));
 
-        vectorized::VecDateTimeValue k7;
+        VecDateTimeValue k7;
         k7.from_date_str("2636-08-16 19:39:43", 19);
         auto k7_int = k7.to_int64();
         columns[6]->insert_data((const char*)&k7_int, sizeof(k7_int));
@@ -592,7 +592,7 @@ TEST_F(TestDeltaWriter, vec_write) {
         decimal_value.assign_from_double(1.1);
         columns[9]->insert_data((const char*)&decimal_value, sizeof(decimal_value));
 
-        doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType> date_v2;
+        DateV2Value<DateV2ValueType> date_v2;
         date_v2.from_date_str("2048-11-10", 10);
         auto date_v2_int = date_v2.to_date_int_val();
         columns[10]->insert_data((const char*)&date_v2_int, sizeof(date_v2_int));
@@ -612,12 +612,12 @@ TEST_F(TestDeltaWriter, vec_write) {
         int128_t v5 = -90000;
         columns[15]->insert_data((const char*)&v5, sizeof(v5));
 
-        vectorized::VecDateTimeValue v6;
+        VecDateTimeValue v6;
         v6.from_date_str("2048-11-10", 10);
         auto v6_int = v6.to_int64();
         columns[16]->insert_data((const char*)&v6_int, sizeof(v6_int));
 
-        vectorized::VecDateTimeValue v7;
+        VecDateTimeValue v7;
         v7.from_date_str("2636-08-16 19:39:43", 19);
         auto v7_int = v7.to_int64();
         columns[17]->insert_data((const char*)&v7_int, sizeof(v7_int));
@@ -646,7 +646,7 @@ TEST_F(TestDeltaWriter, vec_write) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -679,7 +679,6 @@ TEST_F(TestDeltaWriter, vec_write) {
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
-    delete delta_writer;
 }
 
 TEST_F(TestDeltaWriter, vec_sequence_col) {
@@ -694,7 +693,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -711,10 +710,9 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
-    DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId());
-    ASSERT_NE(delta_writer, nullptr);
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
 
     vectorized::Block block;
     for (const auto& slot_desc : tuple_desc->slots()) {
@@ -741,7 +739,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     ASSERT_TRUE(res.ok());
     res = delta_writer->wait_calc_delete_bitmap();
     ASSERT_TRUE(res.ok());
-    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
     ASSERT_TRUE(res.ok());
 
     // publish version success
@@ -789,7 +787,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
     ASSERT_TRUE(s.ok());
     auto read_block = rowset->tablet_schema()->create_block();
     res = iter->next_batch(&read_block);
-    ASSERT_TRUE(res.ok());
+    ASSERT_TRUE(res.ok()) << res;
     ASSERT_EQ(1, read_block.rows());
     // get the value from sequence column
     auto seq_v = read_block.get_by_position(4).column->get_int(0);
@@ -797,21 +795,20 @@ TEST_F(TestDeltaWriter, vec_sequence_col) {
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
-    delete delta_writer;
 }
 
 TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     RuntimeProfile profile("CreateTablet");
     TCreateTabletReq request;
     sleep(20);
-    create_tablet_request_with_sequence_col(10005, 270068377, &request, true);
+    create_tablet_request_with_sequence_col(10006, 270068377, &request, true);
     Status res = k_engine->create_tablet(request, &profile);
     ASSERT_TRUE(res.ok());
 
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -819,7 +816,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     load_id.set_hi(0);
     load_id.set_lo(0);
     WriteRequest write_req;
-    write_req.tablet_id = 10005;
+    write_req.tablet_id = 10006;
     write_req.schema_hash = 270068377;
     write_req.txn_id = 20003;
     write_req.partition_id = 30003;
@@ -828,16 +825,14 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
-    DeltaWriter* delta_writer1 = nullptr;
-    DeltaWriter* delta_writer2 = nullptr;
     std::unique_ptr<RuntimeProfile> profile1;
     profile1 = std::make_unique<RuntimeProfile>("LoadChannels1");
     std::unique_ptr<RuntimeProfile> profile2;
     profile2 = std::make_unique<RuntimeProfile>("LoadChannels2");
-    DeltaWriter::open(&write_req, &delta_writer1, profile1.get(), TUniqueId());
-    DeltaWriter::open(&write_req, &delta_writer2, profile2.get(), TUniqueId());
-    ASSERT_NE(delta_writer1, nullptr);
-    ASSERT_NE(delta_writer2, nullptr);
+    auto delta_writer1 =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile1.get(), TUniqueId {});
+    auto delta_writer2 =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile2.get(), TUniqueId {});
 
     // write data in delta writer 1
     {
@@ -866,7 +861,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         ASSERT_TRUE(res.ok());
         res = delta_writer1->wait_calc_delete_bitmap();
         ASSERT_TRUE(res.ok());
-        res = delta_writer1->commit_txn(PSlaveTabletNodes(), false);
+        res = delta_writer1->commit_txn(PSlaveTabletNodes());
         ASSERT_TRUE(res.ok());
     }
     // write data in delta writer 2
@@ -942,12 +937,12 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
 
         // verify that delete bitmap calculated correctly
         // since the delete bitmap not published, versions are 0
-        auto delete_bitmap = delta_writer2->get_delete_bitmap();
+        auto delete_bitmap = delta_writer2->_rowset_builder->get_delete_bitmap();
         ASSERT_TRUE(delete_bitmap->contains({rowset1->rowset_id(), 0, 0}, 0));
         // We can't get the rowset id of rowset2 now, will check the delete bitmap
         // contains row 0 of rowset2 at L929.
 
-        res = delta_writer2->commit_txn(PSlaveTabletNodes(), false);
+        res = delta_writer2->commit_txn(PSlaveTabletNodes());
         ASSERT_TRUE(res.ok());
 
         Version version;
@@ -995,12 +990,12 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         std::unique_ptr<RowwiseIterator> iter;
         std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset1->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        ((BetaRowset*)rowset1.get())->load_segments(&segments);
+        static_cast<void>(((BetaRowset*)rowset1.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
         ASSERT_TRUE(s.ok());
         auto read_block = rowset1->tablet_schema()->create_block();
         res = iter->next_batch(&read_block);
-        ASSERT_TRUE(res.ok());
+        ASSERT_TRUE(res.ok()) << res;
         // key of (10, 123) is deleted
         ASSERT_EQ(1, read_block.rows());
         auto k1 = read_block.get_by_position(0).column->get_int(0);
@@ -1023,7 +1018,7 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
         std::unique_ptr<RowwiseIterator> iter;
         std::shared_ptr<Schema> schema = std::make_shared<Schema>(rowset2->tablet_schema());
         std::vector<segment_v2::SegmentSharedPtr> segments;
-        ((BetaRowset*)rowset2.get())->load_segments(&segments);
+        static_cast<void>(((BetaRowset*)rowset2.get())->load_segments(&segments));
         auto s = segments[0]->new_iterator(schema, opts, &iter);
         ASSERT_TRUE(s.ok());
         auto read_block = rowset2->tablet_schema()->create_block();
@@ -1042,7 +1037,5 @@ TEST_F(TestDeltaWriter, vec_sequence_col_concurrent_write) {
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     ASSERT_TRUE(res.ok());
-    delete delta_writer1;
-    delete delta_writer2;
 }
 } // namespace doris

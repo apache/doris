@@ -81,6 +81,11 @@ public:
         }
     }
 
+    void set_version(const int version_) override {
+        IAggregateFunctionHelper<Derived>::set_version(version_);
+        nested_function->set_version(version_);
+    }
+
     String get_name() const override {
         /// This is just a wrapper. The function for Nullable arguments is named the same as the nested function itself.
         return nested_function->get_name();

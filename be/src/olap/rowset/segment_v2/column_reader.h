@@ -44,7 +44,9 @@
 #include "util/once.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h" // ColumnArray
+#include "vec/columns/subcolumn_tree.h"
 #include "vec/data_types/data_type.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 
@@ -82,16 +84,16 @@ struct ColumnReaderOptions {
 };
 
 struct ColumnIteratorOptions {
-    io::FileReader* file_reader = nullptr;
-    // reader statistics
-    OlapReaderStatistics* stats = nullptr;
     bool use_page_cache = false;
+    bool is_predicate_column = false;
     // for page cache allocation
     // page types are divided into DATA_PAGE & INDEX_PAGE
     // INDEX_PAGE including index_page, dict_page and short_key_page
     PageTypePB type;
+    io::FileReader* file_reader = nullptr; // Ref
+    // reader statistics
+    OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
-    bool is_predicate_column = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -162,15 +164,18 @@ public:
 
     bool is_empty() const { return _num_rows == 0; }
 
+    bool prune_predicates_by_zone_map(std::vector<ColumnPredicate*>& predicates,
+                                      const int column_id) const;
+
     CompressionTypePB get_compression() const { return _meta_compression; }
 
     uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
-        _set_dict_encoding_type_once.call([&] {
+        static_cast<void>(_set_dict_encoding_type_once.call([&] {
             _dict_encoding_type = type;
             return Status::OK();
-        });
+        }));
     }
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
@@ -360,10 +365,10 @@ private:
     Status _read_data_page(const OrdinalPageIndexIterator& iter);
     Status _read_dict_data();
 
-    ColumnReader* _reader;
+    ColumnReader* _reader = nullptr;
 
     // iterator owned compress codec, should NOT be shared by threads, initialized in init()
-    BlockCompressionCodec* _compress_codec;
+    BlockCompressionCodec* _compress_codec = nullptr;
 
     // 1. The _page represents current page.
     // 2. We define an operation is one seek and following read,
@@ -461,7 +466,7 @@ public:
     }
 
 private:
-    ColumnReader* _map_reader;
+    ColumnReader* _map_reader = nullptr;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<OffsetFileColumnIterator> _offsets_iterator; //OffsetFileIterator
     std::unique_ptr<ColumnIterator> _key_iterator;
@@ -499,7 +504,7 @@ public:
     }
 
 private:
-    ColumnReader* _struct_reader;
+    ColumnReader* _struct_reader = nullptr;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::vector<std::unique_ptr<ColumnIterator>> _sub_column_iterators;
 };
@@ -534,7 +539,7 @@ public:
     }
 
 private:
-    ColumnReader* _array_reader;
+    ColumnReader* _array_reader = nullptr;
     std::unique_ptr<OffsetFileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
@@ -590,6 +595,38 @@ private:
     int32_t _tablet_id = 0;
     RowsetId _rowset_id;
     int32_t _segment_id = 0;
+};
+
+class VariantRootColumnIterator : public ColumnIterator {
+public:
+    VariantRootColumnIterator() = delete;
+
+    explicit VariantRootColumnIterator(FileColumnIterator* iter) { _inner_iter.reset(iter); }
+
+    ~VariantRootColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override { return _inner_iter->init(opts); }
+
+    Status seek_to_first() override { return _inner_iter->seek_to_first(); }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        return _inner_iter->seek_to_ordinal(ord_idx);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override;
+
+    ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
+
+private:
+    std::unique_ptr<FileColumnIterator> _inner_iter;
 };
 
 // This iterator is used to read default value column

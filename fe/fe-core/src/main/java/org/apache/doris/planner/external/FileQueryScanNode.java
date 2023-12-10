@@ -20,19 +20,19 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
-import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.AcidInfo;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
@@ -48,6 +48,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.system.Backend;
+import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -71,6 +72,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import lombok.Getter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -79,7 +81,6 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -91,6 +92,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
     protected Map<String, SlotDescriptor> destSlotDescByName;
     protected TFileScanRangeParams params;
+
+    @Getter
+    protected TableSample tableSample;
+
+    protected String brokerName;
 
     /**
      * External file scan node for Query hms table
@@ -200,6 +206,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
         setColumnPositionMapping();
     }
 
+    public void setTableSample(TableSample tSample) {
+        this.tableSample = tSample;
+    }
+
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         doFinalize();
@@ -267,11 +277,14 @@ public abstract class FileQueryScanNode extends FileScanNode {
         TFileFormatType fileFormatType = getFileFormatType();
         params.setFormatType(fileFormatType);
         boolean isCsvOrJson = Util.isCsvFormat(fileFormatType) || fileFormatType == TFileFormatType.FORMAT_JSON;
-        if (isCsvOrJson) {
+        boolean isWal = fileFormatType == TFileFormatType.FORMAT_WAL;
+        if (isCsvOrJson || isWal) {
             params.setFileAttributes(getFileAttributes());
             if (getLocationType() == TFileType.FILE_STREAM) {
                 params.setFileType(TFileType.FILE_STREAM);
-                params.setCompressType(TFileCompressType.PLAIN);
+                FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
+                ExternalFileTableValuedFunction tableValuedFunction = (ExternalFileTableValuedFunction) table.getTvf();
+                params.setCompressType(tableValuedFunction.getTFileCompressType());
 
                 TScanRangeLocations curLocations = newLocations();
                 TFileRangeDesc rangeDesc = new TFileRangeDesc();
@@ -304,7 +317,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (Split split : inputSplits) {
             FileSplit fileSplit = (FileSplit) split;
             TFileType locationType = getLocationType(fileSplit.getPath().toString());
-            setLocationPropertiesIfNecessary(locationType, fileSplit, locationProperties);
 
             TScanRangeLocations curLocations = newLocations();
             // If fileSplit has partition values, use the values collected from hive partitions.
@@ -350,6 +362,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 PaimonScanNode.setPaimonParams(rangeDesc, (PaimonSplit) fileSplit);
             } else if (fileSplit instanceof HudiSplit) {
                 HudiScanNode.setHudiParams(rangeDesc, (HudiSplit) fileSplit);
+            } else if (fileSplit instanceof MaxComputeSplit) {
+                MaxComputeScanNode.setScanParams(rangeDesc, (MaxComputeSplit) fileSplit);
             }
 
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
@@ -364,6 +378,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             } else {
                 selectedBackend = backendPolicy.getNextBe();
             }
+            setLocationPropertiesIfNecessary(selectedBackend, locationType, locationProperties);
             location.setBackendId(selectedBackend.getId());
             location.setServer(new TNetworkAddress(selectedBackend.getHost(), selectedBackend.getBePort()));
             curLocations.addToLocations(location);
@@ -380,7 +395,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 scanRangeLocations.size(), (System.currentTimeMillis() - start));
     }
 
-    private void setLocationPropertiesIfNecessary(TFileType locationType, FileSplit fileSplit,
+    private void setLocationPropertiesIfNecessary(Backend selectedBackend, TFileType locationType,
             Map<String, String> locationProperties) throws UserException {
         if (locationType == TFileType.FILE_HDFS || locationType == TFileType.FILE_BROKER) {
             if (!params.isSetHdfsParams()) {
@@ -393,7 +408,15 @@ public abstract class FileQueryScanNode extends FileScanNode {
                 params.setProperties(locationProperties);
 
                 if (!params.isSetBrokerAddresses()) {
-                    FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                    FsBroker broker;
+                    if (brokerName != null) {
+                        broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerName, selectedBackend.getHost());
+                        LOG.debug(String.format(
+                                "Set location for broker [%s], selected BE host: [%s] selected broker host: [%s]",
+                                brokerName, selectedBackend.getHost(), broker.host));
+                    } else {
+                        broker = Env.getCurrentEnv().getBrokerMgr().getAnyAliveBroker();
+                    }
                     if (broker == null) {
                         throw new UserException("No alive broker.");
                     }
@@ -466,40 +489,4 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected abstract TableIf getTargetTable() throws UserException;
 
     protected abstract Map<String, String> getLocationProperties() throws UserException;
-
-    // eg: hdfs://namenode  s3://buckets
-    protected String getFsName(FileSplit split) {
-        String fullPath = split.getPath().toUri().toString();
-        String filePath = split.getPath().toUri().getPath();
-        return fullPath.replace(filePath, "");
-    }
-
-    protected static Optional<TFileType> getTFileType(String location) {
-        if (location != null && !location.isEmpty()) {
-            if (S3Util.isObjStorage(location)) {
-                if (S3Util.isHdfsOnOssEndpoint(location)) {
-                    // if hdfs service is enabled on oss, use hdfs lib to access oss.
-                    return Optional.of(TFileType.FILE_HDFS);
-                }
-                return Optional.of(TFileType.FILE_S3);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_VIEWFS)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_COSN)) {
-                return Optional.of(TFileType.FILE_HDFS);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
-                return Optional.of(TFileType.FILE_LOCAL);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_GFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
-                return Optional.of(TFileType.FILE_BROKER);
-            }
-        }
-        return Optional.empty();
-    }
 }
-
-

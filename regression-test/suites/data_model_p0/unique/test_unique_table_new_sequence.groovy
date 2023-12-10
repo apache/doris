@@ -34,7 +34,7 @@ suite("test_unique_table_new_sequence") {
     "light_schema_change" = "true"
     );
     """
-    // load unique key
+    // test streamload with seq col
     streamLoad {
         table "${tableName}"
 
@@ -60,7 +60,7 @@ suite("test_unique_table_new_sequence") {
     sql "sync"
     order_qt_all "SELECT * from ${tableName}"
 
-    // load unique key
+    // test update data, using streamload with seq col
     streamLoad {
         table "${tableName}"
 
@@ -105,9 +105,17 @@ suite("test_unique_table_new_sequence") {
 
     order_qt_all "SELECT * from ${tableName}"
 
+    // test insert into with column list, which not contains the seq mapping column v2
+    test {
+        sql "INSERT INTO ${tableName} (k1, v1, v3, v4) values(15, 8, 20, 21)"
+        exception "Table ${tableName} has sequence column, need to specify the sequence column"
+    }
+
+    // test insert into without column list
     sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
 
-    sql "INSERT INTO ${tableName} values(15, 9, 18, 21, 22)"
+    // test insert into with column list
+    sql "INSERT INTO ${tableName} (k1, v1, v2, v3, v4) values(15, 9, 18, 21, 22)"
 
     sql "SET show_hidden_columns=true"
 
@@ -120,6 +128,54 @@ suite("test_unique_table_new_sequence") {
     order_qt_all "SELECT * from ${tableName}"
 
     qt_desc "desc ${tableName}"
+
+    sql "DROP TABLE ${tableName}"
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+      `k1` int NULL,
+      `v1` tinyint NULL,
+      `v2` int,
+      `v3` int,
+      `v4` int
+    ) ENGINE=OLAP
+    UNIQUE KEY(k1)
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+    PROPERTIES (
+    "function_column.sequence_col" = "v4",
+    "replication_allocation" = "tag.location.default: 1",
+    "light_schema_change" = "true"
+    );
+    """
+
+    // test insert into with column list, which not contains the seq mapping column v4
+    // in begin/commit
+    sql "begin;"
+    test {
+        sql "INSERT INTO ${tableName} (k1, v1, v2, v3) values(1,1,1,1)"
+        exception "Table ${tableName} has sequence column, need to specify the sequence column"
+    }
+    sql "commit;"
+
+    // test insert into without column list, in begin/commit
+    sql "begin;"
+    sql "insert into ${tableName} values (1,1,1,1,1),(2,2,2,2,2),(3,3,3,3,3);"
+    sql "commit;"
+
+    qt_1 "select * from ${tableName} order by k1;"
+
+    sql "begin;"
+    sql "insert into ${tableName} (k1, v1, v2, v3, v4) values (2,20,20,20,20);"
+    sql "commit;"
+
+    qt_2 "select * from ${tableName} order by k1;"
+
+    sql "begin;"
+    sql "insert into ${tableName} (k1, v1, v2, v3, v4) values (3,30,30,30,1);"
+    sql "commit;"
+
+    qt_3 "select * from ${tableName} order by k1"
 
     sql "DROP TABLE ${tableName}"
 }

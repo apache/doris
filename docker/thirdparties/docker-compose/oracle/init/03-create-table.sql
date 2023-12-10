@@ -124,3 +124,54 @@ create table doris_test.aaad (
      id number(5),
      name varchar2(20)
 );
+
+create table doris_test."student2" (
+id number(5),
+name varchar2(20),
+age number(2),
+score number(3,1)
+);
+
+CREATE TABLE "DORIS_TEST"."student3"
+(
+"id" NUMBER(5,0),
+"NAME" VARCHAR2(20),
+"AGE" NUMBER(2,0),
+"SCORE" NUMBER(3,1)
+);
+
+create table doris_test.test_all_types (
+  id int,
+  n1 number,
+  n2 number(38),
+  n3 number(9,2),
+  n4 int,
+  n5 smallint,
+  n6 decimal(5,2),
+  n7 float,
+  n8 float(2),
+  n9 real,
+  tinyint_value1 number(2,0),
+  smallint_value1 number(4,0),
+  int_value1 number(9,0),
+  bigint_value1 number(18,0),
+  tinyint_value2 number(3,0),
+  smallint_value2 number(5,0),
+  int_value2 number(10,0),
+  bigint_value2 number(19,0),
+  country char,
+  city nchar(6),
+  address varchar2(4000),
+  name nvarchar2(6),
+  remark long,
+  num1 NUMBER(5,2),
+  num2 NUMBER(5, -2),
+  num4 NUMBER(5,7),
+  t1 date,
+  t2 timestamp(3),
+  t3 timestamp(6),
+  t4 timestamp(9),
+  t5 timestamp,
+  t6 interval year(3) to month,
+  t7 interval day(3) to second(6)
+);

@@ -16,7 +16,6 @@
 // under the License.
 
 #pragma once
-#include <stdint.h>
 
 #include <memory>
 #include <vector>
@@ -48,7 +47,7 @@ class SegcompactionWorker {
     friend class BetaRowsetWriter;
 
 public:
-    SegcompactionWorker(BetaRowsetWriter* writer);
+    explicit SegcompactionWorker(BetaRowsetWriter* writer);
 
     void compact_segments(SegCompactionCandidatesSharedPtr segments);
 
@@ -75,7 +74,8 @@ private:
 
 private:
     //TODO(zhengyu): current impl depends heavily on the access to feilds of BetaRowsetWriter
-    BetaRowsetWriter* _writer;
+    // Currently cloud storage engine doesn't need segcompaction
+    BetaRowsetWriter* _writer = nullptr;
     io::FileWriterPtr _file_writer;
     std::atomic<bool> _cancelled = false;
 };

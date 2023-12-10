@@ -291,8 +291,9 @@ public class BackendLoadStatistic {
                 continue;
             }
 
+            // ensure: HIGH - LOW >= 2.5% * 2 = 5%
             if (Math.abs(pathStat.getUsedPercent() - avgUsedPercent)
-                    / avgUsedPercent > Config.balance_load_score_threshold) {
+                    > Math.max(avgUsedPercent * Config.balance_load_score_threshold, 0.025)) {
                 if (pathStat.getUsedPercent() > avgUsedPercent) {
                     pathStat.setClazz(Classification.HIGH);
                     highCounter++;
@@ -379,12 +380,12 @@ public class BackendLoadStatistic {
 
     // the return cofficient:
     // 1. percent <= percentLowWatermark: cofficient = 0.5;
-    // 2. percentLowWatermark < percent < percentHighWatermark: cofficient linear increase from 0.5 to 1.0;
-    // 3. percent >= percentHighWatermark: cofficient = 1.0;
+    // 2. percentLowWatermark < percent < percentHighWatermark: cofficient linear increase from 0.5 to 0.99;
+    // 3. percent >= percentHighWatermark: cofficient = 0.99;
     public static double getSmoothCofficient(double percent, double percentLowWatermark,
             double percentHighWatermark) {
         final double lowCofficient = 0.5;
-        final double highCofficient = 1.0;
+        final double highCofficient = 0.99;
 
         // low watermark and high watermark equal, then return 0.75
         if (Math.abs(percentHighWatermark - percentLowWatermark) < 1e-6) {
@@ -413,7 +414,7 @@ public class BackendLoadStatistic {
         for (int i = 0; i < pathStatistics.size(); i++) {
             RootPathLoadStatistic pathStatistic = pathStatistics.get(i);
             // if this is a supplement task, ignore the storage medium
-            if (!isSupplement && pathStatistic.getStorageMedium() != medium) {
+            if (!isSupplement && medium != null && pathStatistic.getStorageMedium() != medium) {
                 LOG.debug("backend {} path {}'s storage medium {} is not {} storage medium, actual: {}",
                         beId, pathStatistic.getPath(), pathStatistic.getStorageMedium(), medium);
                 continue;

@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
@@ -32,6 +33,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -48,6 +50,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -61,6 +64,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_SHORT_KEY = "short_key";
     public static final String PROPERTIES_REPLICATION_NUM = "replication_num";
     public static final String PROPERTIES_REPLICATION_ALLOCATION = "replication_allocation";
+    public static final String PROPERTIES_MIN_LOAD_REPLICA_NUM = "min_load_replica_num";
     public static final String PROPERTIES_STORAGE_TYPE = "storage_type";
     public static final String PROPERTIES_STORAGE_MEDIUM = "storage_medium";
     public static final String PROPERTIES_STORAGE_COOLDOWN_TIME = "storage_cooldown_time";
@@ -133,13 +137,13 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_COMPACTION_POLICY = "compaction_policy";
 
     public static final String PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES =
-                                                        "time_series_compaction_goal_size_mbytes";
+            "time_series_compaction_goal_size_mbytes";
 
     public static final String PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD =
-                                                        "time_series_compaction_file_count_threshold";
+            "time_series_compaction_file_count_threshold";
 
     public static final String PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS =
-                                                        "time_series_compaction_time_threshold_seconds";
+            "time_series_compaction_time_threshold_seconds";
     public static final String PROPERTIES_MUTABLE = "mutable";
 
     public static final String PROPERTIES_IS_BEING_SYNCED = "is_being_synced";
@@ -152,7 +156,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_BINLOG_MAX_HISTORY_NUMS = "binlog.max_history_nums";
 
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
-                                                                        "enable_duplicate_without_keys_by_default";
+            "enable_duplicate_without_keys_by_default";
+    public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -165,14 +170,15 @@ public class PropertyAnalyzer {
     private static final double MAX_FPP = 0.05;
     private static final double MIN_FPP = 0.0001;
 
+    public static final String PROPERTIES_GROUP_COMMIT_INTERVAL_MS = "group_commit_interval_ms";
+    public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE = 10000;
+
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
     public static final String TIME_SERIES_COMPACTION_POLICY = "time_series";
     public static final long TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE = 1024;
     public static final long TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE = 2000;
     public static final long TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE = 3600;
-
-
 
 
     /**
@@ -345,6 +351,24 @@ public class PropertyAnalyzer {
             properties.remove(propKey);
         }
         return replicationNum;
+    }
+
+    public static short analyzeMinLoadReplicaNum(Map<String, String> properties) throws AnalysisException {
+        short minLoadReplicaNum = -1;
+        if (properties != null && properties.containsKey(PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
+            try {
+                minLoadReplicaNum = Short.parseShort(properties.get(PROPERTIES_MIN_LOAD_REPLICA_NUM));
+            } catch (Exception e) {
+                throw new AnalysisException(e.getMessage());
+            }
+
+            if (minLoadReplicaNum <= 0 && minLoadReplicaNum != -1) {
+                throw new AnalysisException("min_load_replica_num should > 0 or =-1");
+            }
+
+            properties.remove(PROPERTIES_MIN_LOAD_REPLICA_NUM);
+        }
+        return minLoadReplicaNum;
     }
 
     public static String analyzeColumnSeparator(Map<String, String> properties, String oldColumnSeparator) {
@@ -610,7 +634,7 @@ public class PropertyAnalyzer {
     }
 
     public static Boolean analyzeEnableDuplicateWithoutKeysByDefault(Map<String, String> properties)
-                            throws AnalysisException {
+            throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
         }
@@ -675,7 +699,7 @@ public class PropertyAnalyzer {
             compactionPolicy = properties.get(PROPERTIES_COMPACTION_POLICY);
             properties.remove(PROPERTIES_COMPACTION_POLICY);
             if (compactionPolicy != null && !compactionPolicy.equals(TIME_SERIES_COMPACTION_POLICY)
-                                                && !compactionPolicy.equals(SIZE_BASED_COMPACTION_POLICY)) {
+                    && !compactionPolicy.equals(SIZE_BASED_COMPACTION_POLICY)) {
                 throw new AnalysisException(PROPERTIES_COMPACTION_POLICY
                         + " must be " + TIME_SERIES_COMPACTION_POLICY + " or " + SIZE_BASED_COMPACTION_POLICY);
             }
@@ -685,7 +709,7 @@ public class PropertyAnalyzer {
     }
 
     public static long analyzeTimeSeriesCompactionGoalSizeMbytes(Map<String, String> properties)
-                                                                                    throws AnalysisException {
+            throws AnalysisException {
         long goalSizeMbytes = TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES_DEFAULT_VALUE;
         if (properties == null || properties.isEmpty()) {
             return goalSizeMbytes;
@@ -697,7 +721,7 @@ public class PropertyAnalyzer {
                 goalSizeMbytes = Long.parseLong(goalSizeMbytesStr);
                 if (goalSizeMbytes < 10) {
                     throw new AnalysisException("time_series_compaction_goal_size_mbytes can not be"
-                                                                + " less than 10: " + goalSizeMbytesStr);
+                            + " less than 10: " + goalSizeMbytesStr);
                 }
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
@@ -708,31 +732,31 @@ public class PropertyAnalyzer {
     }
 
     public static long analyzeTimeSeriesCompactionFileCountThreshold(Map<String, String> properties)
-                                                                                    throws AnalysisException {
+            throws AnalysisException {
         long fileCountThreshold = TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD_DEFAULT_VALUE;
         if (properties == null || properties.isEmpty()) {
             return fileCountThreshold;
         }
         if (properties.containsKey(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
             String fileCountThresholdStr = properties
-                                            .get(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
+                    .get(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
             properties.remove(PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD);
             try {
                 fileCountThreshold = Long.parseLong(fileCountThresholdStr);
                 if (fileCountThreshold < 10) {
                     throw new AnalysisException("time_series_compaction_file_count_threshold can not be "
-                                                            + "less than 10: " + fileCountThresholdStr);
+                            + "less than 10: " + fileCountThresholdStr);
                 }
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
-                                                                                + fileCountThresholdStr);
+                        + fileCountThresholdStr);
             }
         }
         return fileCountThreshold;
     }
 
     public static long analyzeTimeSeriesCompactionTimeThresholdSeconds(Map<String, String> properties)
-                                                                                        throws AnalysisException {
+            throws AnalysisException {
         long timeThresholdSeconds = TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS_DEFAULT_VALUE;
         if (properties == null || properties.isEmpty()) {
             return timeThresholdSeconds;
@@ -744,11 +768,11 @@ public class PropertyAnalyzer {
                 timeThresholdSeconds = Long.parseLong(timeThresholdSecondsStr);
                 if (timeThresholdSeconds < 60) {
                     throw new AnalysisException("time_series_compaction_time_threshold_seconds can not be"
-                                                                + " less than 60: " + timeThresholdSecondsStr);
+                            + " less than 60: " + timeThresholdSecondsStr);
                 }
             } catch (NumberFormatException e) {
                 throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
-                                                                                + timeThresholdSecondsStr);
+                        + timeThresholdSecondsStr);
             }
         }
         return timeThresholdSeconds;
@@ -926,6 +950,19 @@ public class PropertyAnalyzer {
         return tagMap;
     }
 
+    public static boolean hasBinlogConfig(Map<String, String> properties) {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+
+        for (String key : properties.keySet()) {
+            if (key.startsWith(PROPERTIES_BINLOG_PREFIX)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static Map<String, String> analyzeBinlogConfig(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return null;
@@ -984,6 +1021,18 @@ public class PropertyAnalyzer {
         return defaultValue;
     }
 
+    // analyze replica allocation property without checking if backends can satisfy the allocation
+    // mainly used for metadata replay.
+    public static ReplicaAllocation analyzeReplicaAllocationWithoutCheck(Map<String, String> properties,
+            String prefix) throws AnalysisException {
+        return analyzeReplicaAllocationImpl(properties, prefix, false);
+    }
+
+    public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix)
+            throws AnalysisException {
+        return analyzeReplicaAllocationImpl(properties, prefix, true);
+    }
+
     // There are 2 kinds of replication property:
     // 1. "replication_num" = "3"
     // 2. "replication_allocation" = "tag.location.zone1: 2, tag.location.zone2: 1"
@@ -991,7 +1040,8 @@ public class PropertyAnalyzer {
     // Return ReplicaAllocation.NOT_SET if no replica property is set.
     //
     // prefix is for property key such as "dynamic_partition.replication_num", which prefix is "dynamic_partition"
-    public static ReplicaAllocation analyzeReplicaAllocation(Map<String, String> properties, String prefix)
+    private static ReplicaAllocation analyzeReplicaAllocationImpl(Map<String, String> properties, String prefix,
+            boolean checkBackends)
             throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return ReplicaAllocation.NOT_SET;
@@ -1035,12 +1085,14 @@ public class PropertyAnalyzer {
 
             // Check if the current backends satisfy the ReplicaAllocation condition,
             // to avoid user set it success but failed to create table or dynamic partitions
-            try {
-                SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-                systemInfoService.selectBackendIdsForReplicaCreation(
-                        replicaAlloc, null, false, true);
-            } catch (DdlException ddlException) {
-                throw new AnalysisException(ddlException.getMessage());
+            if (checkBackends) {
+                try {
+                    SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
+                    systemInfoService.selectBackendIdsForReplicaCreation(
+                            replicaAlloc, null, false, true);
+                } catch (DdlException ddlException) {
+                    throw new AnalysisException(ddlException.getMessage());
+                }
             }
         }
         if (totalReplicaNum < Config.min_replication_num_per_tablet
@@ -1101,6 +1153,34 @@ public class PropertyAnalyzer {
     }
 
     /**
+     * Found property with "group_commit_interval_ms" prefix and return a time in ms.
+     * e.g.
+     * "group_commit_interval_ms"="1000"
+     * Returns:
+     * 1000
+     *
+     * @param properties
+     * @param defaultValue
+     * @return
+     * @throws AnalysisException
+     */
+    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties) throws AnalysisException {
+        int groupCommitIntervalMs = PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
+            String groupIntervalCommitMsStr = properties.get(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            try {
+                groupCommitIntervalMs = Integer.parseInt(groupIntervalCommitMsStr);
+            } catch (Exception e) {
+                throw new AnalysisException("schema version format error");
+            }
+
+            properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+        }
+
+        return groupCommitIntervalMs;
+    }
+
+    /**
      * Check the type property of the catalog props.
      */
     public static void checkCatalogProperties(Map<String, String> properties, boolean isAlter)
@@ -1131,4 +1211,73 @@ public class PropertyAnalyzer {
             }
         }
     }
+
+    public static Map<String, String> rewriteReplicaAllocationProperties(
+            String ctl, String db, Map<String, String> properties) {
+        if (Config.force_olap_table_replication_num <= 0) {
+            return rewriteReplicaAllocationPropertiesByDatabase(ctl, db, properties);
+        }
+        // if force_olap_table_replication_num is set, use this value to rewrite the replication_num or
+        // replication_allocation properties
+        Map<String, String> newProperties = properties;
+        if (newProperties == null) {
+            newProperties = Maps.newHashMap();
+        }
+        boolean rewrite = false;
+        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM)) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    String.valueOf(Config.force_olap_table_replication_num));
+            rewrite = true;
+        }
+        if (newProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    new ReplicaAllocation((short) Config.force_olap_table_replication_num).toCreateStmt());
+            rewrite = true;
+        }
+        if (!rewrite) {
+            newProperties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    String.valueOf(Config.force_olap_table_replication_num));
+        }
+        return newProperties;
+    }
+
+    private static Map<String, String> rewriteReplicaAllocationPropertiesByDatabase(
+            String ctl, String database, Map<String, String> properties) {
+        // if table contain `replication_allocation` or `replication_allocation`,not need rewrite by db
+        if (properties != null && (properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
+            return properties;
+        }
+        CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogNullable(ctl);
+        if (catalog == null) {
+            return properties;
+        }
+        DatabaseIf db = catalog.getDbNullable(database);
+        if (db == null) {
+            return properties;
+        }
+        // if db not have properties,not need rewrite
+        if (db.getDbProperties() == null) {
+            return properties;
+        }
+        Map<String, String> dbProperties = db.getDbProperties().getProperties();
+        if (dbProperties == null) {
+            return properties;
+        }
+        if (properties == null) {
+            properties = Maps.newHashMap();
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION))) {
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION,
+                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_ALLOCATION));
+        }
+        if (dbProperties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && StringUtils
+                .isNotEmpty(dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM))) {
+            properties.put(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM,
+                    dbProperties.get(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM));
+        }
+        return properties;
+    }
+
 }

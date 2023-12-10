@@ -2,12 +2,12 @@
 -- !ds_shape_86 --
 PhysicalResultSink
 --PhysicalProject
-----PhysicalTopN
+----PhysicalTopN[MERGE_SORT]
 ------PhysicalDistribute
---------PhysicalTopN
+--------PhysicalTopN[LOCAL_SORT]
 ----------PhysicalProject
 ------------PhysicalWindow
---------------PhysicalQuickSort
+--------------PhysicalQuickSort[LOCAL_SORT]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
@@ -15,15 +15,15 @@ PhysicalResultSink
 ------------------------hashAgg[LOCAL]
 --------------------------PhysicalRepeat
 ----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](item.i_item_sk = web_sales.ws_item_sk)
+------------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = web_sales.ws_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[ws_item_sk]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](d1.d_date_sk = web_sales.ws_sold_date_sk)
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((d1.d_date_sk = web_sales.ws_sold_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ws_sold_date_sk]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[web_sales]
+----------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------filter((d1.d_month_seq <= 1235)(d1.d_month_seq >= 1224))
+------------------------------------------filter((d1.d_month_seq <= 1235) and (d1.d_month_seq >= 1224))
 --------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject

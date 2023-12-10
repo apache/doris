@@ -1,0 +1,13 @@
+diff --git a/src/bthread/task_control.h b/src/bthread/task_control.h
+index fd40d6ce..e966f3e6 100644
+--- a/src/bthread/task_control.h
++++ b/src/bthread/task_control.h
+@@ -111,7 +111,7 @@ private:
+     bvar::PassiveStatus<std::string> _status;
+     bvar::Adder<int64_t> _nbthreads;
+ 
+-    static const int PARKING_LOT_NUM = 4;
++    static const int PARKING_LOT_NUM = 32;
+     ParkingLot _pl[PARKING_LOT_NUM];
+ };
+ 

@@ -29,7 +29,6 @@
 #include "CLucene/SharedHeader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "io/fs/file_system.h"
-#include "util/lock.h"
 
 class CLuceneError;
 
@@ -54,14 +53,14 @@ public:
                   int64_t bufferLength);
 
 private:
-    CL_NS(store)::Directory* directory;
+    CL_NS(store)::Directory* directory = nullptr;
 };
 
 class CLUCENE_EXPORT DorisCompoundDirectory : public lucene::store::Directory {
 private:
     int filemode;
 
-    doris::Mutex _this_lock;
+    std::mutex _this_lock;
 
 protected:
     DorisCompoundDirectory();
@@ -128,13 +127,13 @@ class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndex
         io::FileReaderSPtr _reader;
         uint64_t _length;
         int64_t _fpos;
-        doris::Mutex* _shared_lock;
+        std::mutex* _shared_lock = nullptr;
         char path[4096];
         SharedHandle(const char* path);
         ~SharedHandle() override;
     };
 
-    SharedHandle* _handle;
+    SharedHandle* _handle = nullptr;
     int64_t _pos;
 
     FSIndexInput(SharedHandle* handle, int32_t buffer_size) : BufferedIndexInput(buffer_size) {
@@ -158,7 +157,7 @@ public:
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "FSIndexInput"; }
 
-    doris::Mutex _this_lock;
+    std::mutex _this_lock;
 
 protected:
     // Random-access methods

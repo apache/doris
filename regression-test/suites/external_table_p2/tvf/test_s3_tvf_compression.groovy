@@ -34,6 +34,7 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5 limit 20;
     """
@@ -47,6 +48,7 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "compress_type" ="${compress_type}") order by cast(c1 as int),c4 limit 20;
     """
@@ -62,6 +64,7 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
         "s3.secret_key" = "${sk}",
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "compress_type" ="${compress_type}") order by c1,c2,c3,c4,c5 limit 15;
     """
@@ -75,6 +78,7 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
         "s3.secret_key" = "${sk}",
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "compress_type" ="${compress_type}")  where c1!="100"  order by cast(c4 as date),c1 limit 13;
     """
@@ -90,6 +94,7 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "compress_type" ="${compress_type}FRAME") order by c1,c2,c3,c4,c5  limit 14;
     """
@@ -103,6 +108,7 @@ suite("test_s3_tvf_compression", "p2,external,tvf,external_remote,external_remot
         "s3.secret_key" = "${sk}",     
         "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "compress_type" ="${compress_type}FRAME")  where c3="buHDwfGeNHfpRFdNaogneddi" order by c3,c1  limit 14;
     """

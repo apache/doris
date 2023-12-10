@@ -17,18 +17,13 @@
 
 package org.apache.doris.planner;
 
-import org.apache.doris.analysis.ArrayLiteral;
-import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
-import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.LiteralExpr;
-import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.PlanTreeBuilder;
 import org.apache.doris.common.profile.PlanTreePrinter;
-import org.apache.doris.common.util.LiteralUtils;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -38,7 +33,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 public abstract class Planner {
@@ -67,6 +64,17 @@ public abstract class Planner {
             }
             return PlanTreePrinter.printPlanExplanation(builder.getTreeRoot());
         }
+        if (explainOptions.isTree()) {
+            // print the plan tree
+            PlanTreeBuilder builder = new PlanTreeBuilder(fragments);
+            try {
+                builder.build();
+            } catch (UserException e) {
+                LOG.warn("Failed to build explain plan tree", e);
+                return e.getMessage();
+            }
+            return PlanTreePrinter.printPlanTree(builder.getTreeRoot());
+        }
 
         // print text plan
         org.apache.doris.thrift.TExplainLevel
@@ -89,18 +97,13 @@ public abstract class Planner {
         return str.toString();
     }
 
-    protected void handleLiteralInFe(LiteralExpr literalExpr, List<String> data) {
-        if (literalExpr instanceof NullLiteral) {
-            data.add(null);
-        } else if (literalExpr instanceof FloatLiteral) {
-            data.add(LiteralUtils.getStringValue((FloatLiteral) literalExpr));
-        } else if (literalExpr instanceof DecimalLiteral) {
-            data.add(((DecimalLiteral) literalExpr).getValue().toPlainString());
-        } else if (literalExpr instanceof ArrayLiteral) {
-            data.add(LiteralUtils.getStringValue((ArrayLiteral) literalExpr));
-        } else {
-            data.add(literalExpr.getStringValue());
+    public Map<Integer, String> getExplainStringMap() {
+        Map<Integer, String> planNodeMap = new HashMap<Integer, String>();
+        for (int i = 0; i < fragments.size(); ++i) {
+            PlanFragment fragment = fragments.get(i);
+            fragment.getExplainStringMap(planNodeMap);
         }
+        return planNodeMap;
     }
 
     public void appendTupleInfo(StringBuilder stringBuilder) {}
@@ -120,5 +123,7 @@ public abstract class Planner {
     public abstract List<RuntimeFilter> getRuntimeFilters();
 
     public abstract Optional<ResultSet> handleQueryInFe(StatementBase parsedStmt);
+
+    public abstract void addHook(PlannerHook hook);
 
 }

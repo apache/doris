@@ -17,8 +17,10 @@
 
 #pragma once
 
+#include <condition_variable>
+#include <mutex>
+
 #include "block.h"
-#include "util/lock.h"
 
 namespace doris {
 
@@ -30,12 +32,9 @@ class FutureBlock : public Block {
 public:
     FutureBlock() : Block() {};
     void swap_future_block(std::shared_ptr<FutureBlock> other);
-    void set_info(int64_t block_schema_version, const TUniqueId& load_id, bool first,
-                  bool block_eos);
+    void set_info(int64_t block_schema_version, const TUniqueId& load_id);
     int64_t get_schema_version() { return _schema_version; }
     TUniqueId get_load_id() { return _load_id; }
-    bool is_first() { return _first; }
-    bool is_eos() { return _eos; }
 
     // hold lock before call this function
     void set_result(Status status, int64_t total_rows = 0, int64_t loaded_rows = 0);
@@ -44,14 +43,12 @@ public:
     int64_t get_total_rows() { return std::get<2>(*(_result)); }
     int64_t get_loaded_rows() { return std::get<3>(*(_result)); }
 
-    std::shared_ptr<doris::Mutex> lock = std::make_shared<doris::Mutex>();
-    std::shared_ptr<doris::ConditionVariable> cv = std::make_shared<doris::ConditionVariable>();
+    std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+    std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
 
 private:
     int64_t _schema_version;
     TUniqueId _load_id;
-    bool _first = false;
-    bool _eos = false;
 
     std::shared_ptr<std::tuple<bool, Status, int64_t, int64_t>> _result =
             std::make_shared<std::tuple<bool, Status, int64_t, int64_t>>(false, Status::OK(), 0, 0);

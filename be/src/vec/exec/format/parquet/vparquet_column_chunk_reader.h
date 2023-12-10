@@ -42,7 +42,7 @@ class BlockCompressionCodec;
 
 namespace io {
 class BufferedStreamReader;
-class IOContext;
+struct IOContext;
 } // namespace io
 namespace vectorized {
 class ColumnString;
@@ -186,17 +186,17 @@ private:
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
 
     ColumnChunkReaderState _state = NOT_INIT;
-    FieldSchema* _field_schema;
+    FieldSchema* _field_schema = nullptr;
     level_t _max_rep_level;
     level_t _max_def_level;
     tparquet::LogicalType _parquet_logical_type;
 
-    io::BufferedStreamReader* _stream_reader;
+    io::BufferedStreamReader* _stream_reader = nullptr;
     tparquet::ColumnMetaData _metadata;
-    cctz::time_zone* _ctz;
-    io::IOContext* _io_ctx;
+    //    cctz::time_zone* _ctz;
+    io::IOContext* _io_ctx = nullptr;
 
-    std::unique_ptr<PageReader> _page_reader = nullptr;
+    std::unique_ptr<PageReader> _page_reader;
     BlockCompressionCodec* _block_compress_codec = nullptr;
 
     LevelDecoder _rep_level_decoder;

@@ -249,7 +249,7 @@ MySQL [test]> select * from test_table;
 At this point, you can replace the original data in the table. To sum up, the sequence column will be compared among all the batches, the largest value of the same key will be imported into Doris table.
 
 ## Note
-1. To prevent misuse, in load tasks like StreamLoad/BrokerLoad, user must specify the sequence column; otherwise, user will receive the following error message:
+1. To prevent misuse, in load tasks like StreamLoad/BrokerLoad and row updates with insert statements, user must explicitly specify the sequence column (unless the sequence column's default value is CURRENT_TIMESTAMP); otherwise, user will receive the following error message:
 ```
 Table test_tbl has a sequence column, need to specify the sequence column
 ```

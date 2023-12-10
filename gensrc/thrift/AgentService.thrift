@@ -44,6 +44,7 @@ struct TTabletSchema {
     16: optional bool store_row_column = false
     17: optional bool enable_single_replica_compaction = false
     18: optional bool skip_write_index_on_load = false
+    19: optional list<i32> cluster_key_idxes
 }
 
 // this enum stands for different storage format in src_backends
@@ -59,6 +60,7 @@ enum TTabletType {
     TABLET_TYPE_DISK = 0,
     TABLET_TYPE_MEMORY = 1
 }
+
 
 struct TS3StorageParam {
     1: optional string endpoint
@@ -87,6 +89,7 @@ struct TStorageResource {
     2: optional string name
     3: optional i64 version // alter version
     4: optional TS3StorageParam s3_storage_param
+    5: optional PlanNodes.THdfsParams hdfs_storage_param
     // more storage resource type
 }
 
@@ -255,13 +258,14 @@ struct TCloneReq {
     3: required list<Types.TBackend> src_backends
     4: optional Types.TStorageMedium storage_medium
     // these are visible version(hash) actually
-    5: optional Types.TVersion committed_version
+    5: optional Types.TVersion version
     6: optional Types.TVersionHash committed_version_hash // Deprecated
     7: optional i32 task_version;
     8: optional i64 src_path_hash;
     9: optional i64 dest_path_hash;
     10: optional i32 timeout_s;
     11: optional Types.TReplicaId replica_id = 0
+    12: optional i64 partition_id
 }
 
 struct TCompactionReq {
@@ -414,6 +418,7 @@ struct TTabletMetaInfo {
     13: optional i64 time_series_compaction_time_threshold_seconds
     14: optional bool enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
+    16: optional bool disable_auto_compaction
 }
 
 struct TUpdateTabletMetaInfoReq {
@@ -504,4 +509,3 @@ struct TAgentPublishRequest {
     1: required TAgentServiceVersion protocol_version
     2: required list<TTopicUpdate> updates
 }
-

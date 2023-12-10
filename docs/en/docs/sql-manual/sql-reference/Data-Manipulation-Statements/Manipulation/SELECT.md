@@ -39,6 +39,7 @@ grammar:
 
 ```sql
 SELECT
+    [hint_statement, ...]
     [ALL | DISTINCT | DISTINCTROW | ALL EXCEPT ( col_name1 [, col_name2, col_name3, ...] )]
     select_expr [, select_expr ...]
     [FROM table_references
@@ -77,7 +78,7 @@ SELECT
 
       If you need to return the top N sorted results, you need to use the LIMIT clause; in order to limit memory usage, if the user does not specify the LIMIT clause, the first 65535 sorted results are returned by default.
 
-   9. `Limit n`: limit the number of lines in the output result, `limit m,n` means output n records starting from the mth line.
+   9. `Limit n`: limit the number of lines in the output result, `limit m,n` means output n records starting from the mth line.You should use `order by` before you use `limit m,n`, otherwise the data may be inconsistent each time it is executed.
 
    10. The `Having` clause does not filter the row data in the table, but filters the results produced by the aggregate function.
 
@@ -86,6 +87,8 @@ SELECT
    11. SELECT supports explicit partition selection using PARTITION containing a list of partitions or subpartitions (or both) following the name of the table in `table_reference`
 
    12. `[TABLET tids] TABLESAMPLE n [ROWS | PERCENT] [REPEATABLE seek]`: Limit the number of rows read from the table in the FROM clause, select a number of Tablets pseudo-randomly from the table according to the specified number of rows or percentages, and specify the number of seeds in REPEATABLE to return the selected samples again. In addition, you can also manually specify the TableID, Note that this can only be used for OLAP tables.
+   
+   13. `hint_statement`:  hint in front of the selectlist indicates that hints can be used to influence the behavior of the optimizer in order to obtain the desired execution plan. Details refer to [joinHint using document] (https://doris.apache.org/en/docs/query-acceleration/hint/joinHint.md)
 
 **Syntax constraints:**
 

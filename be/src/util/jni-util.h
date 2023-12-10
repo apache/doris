@@ -119,9 +119,9 @@ public:
     const char* get() { return utf_chars; }
 
 private:
-    JNIEnv* env;
+    JNIEnv* env = nullptr;
     jstring jstr;
-    const char* utf_chars;
+    const char* utf_chars = nullptr;
     DISALLOW_COPY_AND_ASSIGN(JniUtfCharGuard);
 };
 
@@ -143,7 +143,7 @@ public:
 private:
     DISALLOW_COPY_AND_ASSIGN(JniLocalFrame);
 
-    JNIEnv* env_;
+    JNIEnv* env_ = nullptr;
 };
 
 template <class T>
@@ -151,7 +151,7 @@ Status SerializeThriftMsg(JNIEnv* env, T* msg, jbyteArray* serialized_msg) {
     int buffer_size = 100 * 1024; // start out with 100KB
     ThriftSerializer serializer(false, buffer_size);
 
-    uint8_t* buffer = NULL;
+    uint8_t* buffer = nullptr;
     uint32_t size = 0;
     RETURN_IF_ERROR(serializer.serialize(msg, &size, &buffer));
 

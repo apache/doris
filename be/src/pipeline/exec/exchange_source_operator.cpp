@@ -43,22 +43,78 @@ bool ExchangeSourceOperator::is_pending_finish() const {
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : PipelineXLocalState<>(state, parent), num_rows_skipped(0), is_ready(false) {}
 
+std::string ExchangeLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}",
+                   PipelineXLocalState<>::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", Queues: (");
+    const auto& queues = stream_recvr->sender_queues();
+    for (size_t i = 0; i < queues.size(); i++) {
+        fmt::format_to(debug_string_buffer,
+                       "No. {} queue: (_num_remaining_senders = {}, block_queue size = {})", i,
+                       queues[i]->_num_remaining_senders, queues[i]->_block_queue.size());
+    }
+    fmt::format_to(debug_string_buffer, ")");
+    return fmt::to_string(debug_string_buffer);
+}
+
+std::string ExchangeSourceOperatorX::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}",
+                   OperatorX<ExchangeLocalState>::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", Info: (_num_senders = {}, _is_merging = {})",
+                   _num_senders, _is_merging);
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
-            state, p.input_row_desc(), state->fragment_instance_id(), p.id(), p.num_senders(),
+            state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
             profile(), p.is_merging(), p.sub_plan_query_statistics_recvr());
+    source_dependency = AndDependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                     state->get_query_ctx());
+    const auto& queues = stream_recvr->sender_queues();
+    deps.resize(queues.size());
+    metrics.resize(queues.size());
+    for (size_t i = 0; i < queues.size(); i++) {
+        deps[i] = ExchangeDataDependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                                        state->get_query_ctx(), queues[i]);
+        queues[i]->set_dependency(deps[i]);
+        source_dependency->add_child(deps[i]);
+    }
+    static const std::string timer_name =
+            "WaitForDependency[" + source_dependency->name() + "]Time";
+    _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
+    for (size_t i = 0; i < queues.size(); i++) {
+        metrics[i] = ADD_CHILD_TIMER(_runtime_profile, fmt::format("WaitForData{}", i), timer_name);
+    }
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
     return Status::OK();
 }
 
+Status ExchangeLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_open_timer);
+    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
+    return Status::OK();
+}
+
 ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                                 const DescriptorTbl& descs, int num_senders)
-        : OperatorX<ExchangeLocalState>(pool, tnode, descs),
+                                                 int operator_id, const DescriptorTbl& descs,
+                                                 int num_senders)
+        : OperatorX<ExchangeLocalState>(pool, tnode, operator_id, descs),
           _num_senders(num_senders),
           _is_merging(tnode.exchange_node.__isset.sort_info),
+          _is_hash_partition(
+                  tnode.exchange_node.__isset.partition_type &&
+                  (tnode.exchange_node.partition_type == TPartitionType::HASH_PARTITIONED ||
+                   tnode.exchange_node.partition_type ==
+                           TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED)),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
@@ -99,8 +155,8 @@ Status ExchangeSourceOperatorX::open(RuntimeState* state) {
 
 Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
-    auto& local_state = state->get_local_state(id())->cast<ExchangeLocalState>();
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     if (_is_merging && !local_state.is_ready) {
         RETURN_IF_ERROR(local_state.stream_recvr->create_merger(
                 local_state.vsort_exec_exprs.lhs_ordering_expr_ctxs(), _is_asc_order, _nulls_first,
@@ -134,6 +190,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
             local_state.set_num_rows_returned(_limit);
         }
         COUNTER_SET(local_state.rows_returned_counter(), local_state.num_rows_returned());
+        COUNTER_UPDATE(local_state.blocks_returned_counter(), 1);
     }
     if (eos) {
         source_state = SourceState::FINISHED;
@@ -141,17 +198,15 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     return status;
 }
 
-bool ExchangeSourceOperatorX::can_read(RuntimeState* state) {
-    return state->get_local_state(id())->cast<ExchangeLocalState>().stream_recvr->ready_to_read();
-}
-
-bool ExchangeSourceOperatorX::is_pending_finish(RuntimeState* /*state*/) const {
-    return false;
-}
-
 Status ExchangeLocalState::close(RuntimeState* state) {
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
+    }
+    const auto& queues = stream_recvr->sender_queues();
+    for (size_t i = 0; i < deps.size(); i++) {
+        COUNTER_SET(metrics[i], deps[i]->watcher_elapse_time());
     }
     if (stream_recvr != nullptr) {
         stream_recvr->close();

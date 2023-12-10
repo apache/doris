@@ -17,10 +17,13 @@
 
 package org.apache.doris.nereids.cost;
 
+import org.apache.doris.qe.SessionVariable;
+
 class CostV1 implements Cost {
     private static final CostV1 INFINITE = new CostV1(Double.POSITIVE_INFINITY, Double.POSITIVE_INFINITY,
+            Double.POSITIVE_INFINITY,
             Double.POSITIVE_INFINITY);
-    private static final CostV1 ZERO = new CostV1(0, 0, 0);
+    private static final CostV1 ZERO = new CostV1(0, 0, 0, 0);
 
     private final double cpuCost;
     private final double memoryCost;
@@ -29,9 +32,9 @@ class CostV1 implements Cost {
     private final double cost;
 
     /**
-     * Constructor of CostEstimate.
+     * Constructor of CostV1.
      */
-    public CostV1(double cpuCost, double memoryCost, double networkCost) {
+    public CostV1(SessionVariable sessionVariable, double cpuCost, double memoryCost, double networkCost) {
         // TODO: fix stats
         cpuCost = Double.max(0, cpuCost);
         memoryCost = Double.max(0, memoryCost);
@@ -40,16 +43,16 @@ class CostV1 implements Cost {
         this.memoryCost = memoryCost;
         this.networkCost = networkCost;
 
-        CostWeight costWeight = CostWeight.get();
+        CostWeight costWeight = CostWeight.get(sessionVariable);
         this.cost = costWeight.cpuWeight * cpuCost + costWeight.memoryWeight * memoryCost
                 + costWeight.networkWeight * networkCost;
     }
 
-    public CostV1(double cost) {
+    private CostV1(double cost, double cpuCost, double memoryCost, double networkCost) {
         this.cost = cost;
-        this.cpuCost = 0;
-        this.networkCost = 0;
-        this.memoryCost = 0;
+        this.cpuCost = cpuCost;
+        this.memoryCost = memoryCost;
+        this.networkCost = networkCost;
     }
 
     public static CostV1 infinite() {
@@ -76,16 +79,12 @@ class CostV1 implements Cost {
         return cost;
     }
 
-    public static CostV1 of(double cpuCost, double maxMemory, double networkCost) {
-        return new CostV1(cpuCost, maxMemory, networkCost);
+    public static CostV1 of(SessionVariable sessionVariable, double cpuCost, double maxMemory, double networkCost) {
+        return new CostV1(sessionVariable, cpuCost, maxMemory, networkCost);
     }
 
-    public static CostV1 ofCpu(double cpuCost) {
-        return new CostV1(cpuCost, 0, 0);
-    }
-
-    public static CostV1 ofMemory(double memoryCost) {
-        return new CostV1(0, memoryCost, 0);
+    public static CostV1 ofCpu(SessionVariable sessionVariable, double cpuCost) {
+        return new CostV1(sessionVariable, cpuCost, 0, 0);
     }
 
     @Override

@@ -70,6 +70,8 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -98,6 +100,8 @@ void serialize_and_deserialize_arrow_test() {
                 {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
                 {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
                 {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
+                {"k8", FieldType::OLAP_FIELD_TYPE_IPV4, 8, TYPE_IPV4, false},
+                {"k9", FieldType::OLAP_FIELD_TYPE_IPV6, 9, TYPE_IPV6, false},
         };
     } else {
         cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
@@ -286,7 +290,7 @@ void serialize_and_deserialize_arrow_test() {
                 auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
                 auto& date_v2_data = column_vector_date_v2->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value;
+                    DateV2Value<DateV2ValueType> value;
                     value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
                     date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
                 }
@@ -303,7 +307,7 @@ void serialize_and_deserialize_arrow_test() {
                 auto column_vector_date = vectorized::ColumnVector<vectorized::Int64>::create();
                 auto& date_data = column_vector_date->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    vectorized::VecDateTimeValue value;
+                    VecDateTimeValue value;
                     value.from_date_int64(20210501);
                     date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
                 }
@@ -319,7 +323,7 @@ void serialize_and_deserialize_arrow_test() {
                 auto column_vector_datetime = vectorized::ColumnVector<vectorized::Int64>::create();
                 auto& datetime_data = column_vector_datetime->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    vectorized::VecDateTimeValue value;
+                    VecDateTimeValue value;
                     value.from_date_int64(20210501080910);
                     datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
                 }
@@ -445,6 +449,34 @@ void serialize_and_deserialize_arrow_test() {
                 block.insert(type_and_name);
             }
             break;
+        case TYPE_IPV4:
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                auto vec = vectorized::ColumnIPv4::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(i);
+                }
+                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
+                                                                col_name);
+                block.insert(std::move(type_and_name));
+            }
+            break;
+        case TYPE_IPV6:
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                auto vec = vectorized::ColumnIPv6::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(i);
+                }
+                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
+                                                                col_name);
+                block.insert(std::move(type_and_name));
+            }
+            break;
         default:
             break;
         }
@@ -464,7 +496,8 @@ void serialize_and_deserialize_arrow_test() {
     std::cout << "block data: " << block.dump_data(0, row_num) << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result);
+    static_cast<void>(
+            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;
@@ -480,14 +513,14 @@ void serialize_and_deserialize_arrow_test() {
                 vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
                 vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
                                                                 real_column_name);
-                arrow_column_to_doris_column(array, 0, type_and_name.column, type_and_name.type,
-                                             block.rows(), "UTC");
+                static_cast<void>(arrow_column_to_doris_column(
+                        array, 0, type_and_name.column, type_and_name.type, block.rows(), "UTC"));
                 {
                     auto& col = column_with_type_and_name.column.get()->assume_mutable_ref();
                     auto& date_data = static_cast<ColumnVector<Int64>&>(col).get_data();
                     for (int i = 0; i < strcol->size(); ++i) {
                         StringRef str = strcol->get_data_at(i);
-                        vectorized::VecDateTimeValue value;
+                        VecDateTimeValue value;
                         value.from_date_str(str.data, str.size);
                         date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
                     }
@@ -499,8 +532,8 @@ void serialize_and_deserialize_arrow_test() {
             vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
             vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type,
                                                             real_column_name);
-            arrow_column_to_doris_column(array, 0, type_and_name.column, type_and_name.type,
-                                         block.rows(), "UTC");
+            static_cast<void>(arrow_column_to_doris_column(
+                    array, 0, type_and_name.column, type_and_name.type, block.rows(), "UTC"));
             {
                 auto& col = column_with_type_and_name.column.get()->assume_mutable_ref();
                 auto& date_data = static_cast<ColumnVector<UInt32>&>(col).get_data();
@@ -518,8 +551,9 @@ void serialize_and_deserialize_arrow_test() {
             new_block.erase(real_column_name);
             continue;
         }
-        arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
-                                     column_with_type_and_name.type, block.rows(), "UTC");
+        static_cast<void>(arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
+                                                       column_with_type_and_name.type, block.rows(),
+                                                       "UTC"));
     }
 
     std::cout << block.dump_data() << std::endl;
@@ -551,10 +585,8 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt32>());
         DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
         Array k1, k2, v1, v2, k3, v3;
-        k1.push_back(Null());
         k1.push_back("doris");
         k1.push_back("clever amory");
-        v1.push_back(11);
         v1.push_back(Null());
         v1.push_back(30);
         k2.push_back("hello amory");
@@ -566,9 +598,7 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         v2.push_back(6);
         v2.push_back(7);
         k3.push_back("test");
-        k3.push_back(Null());
         v3.push_back(11);
-        v3.push_back(30);
         Map m1, m2, m3;
         m1.push_back(k1);
         m1.push_back(v1);
@@ -598,15 +628,17 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
     std::cout << "block structure: " << block.dump_structure() << std::endl;
     std::cout << "_arrow_schema: " << _arrow_schema->ToString(true) << std::endl;
 
-    convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result);
+    static_cast<void>(
+            convert_to_arrow_batch(block, _arrow_schema, arrow::default_memory_pool(), &result));
     Block new_block = block.clone_empty();
     EXPECT_TRUE(result != nullptr);
     std::cout << "result: " << result->ToString() << std::endl;
     // deserialize
     auto* array = result->GetColumnByName(col_name).get();
     auto& column_with_type_and_name = new_block.get_by_name(col_name);
-    arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
-                                 column_with_type_and_name.type, block.rows(), "UTC");
+    static_cast<void>(arrow_column_to_doris_column(array, 0, column_with_type_and_name.column,
+                                                   column_with_type_and_name.type, block.rows(),
+                                                   "UTC"));
     std::cout << block.dump_data() << std::endl;
     std::cout << new_block.dump_data() << std::endl;
     // new block row_index 0, 2 which row has key null will be filter

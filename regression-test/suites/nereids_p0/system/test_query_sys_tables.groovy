@@ -176,13 +176,13 @@ suite("test_query_sys_tables", "query,p0") {
     qt_global_variables("select VARIABLE_NAME, VARIABLE_VALUE from global_variables where VARIABLE_NAME = 'wait_timeout'")
 
     // test user_privileges
-    sql("CREATE USER 'test_sys_tables'")
-    sql("GRANT SELECT_PRIV ON *.*.* TO 'test_sys_tables'")
+    sql("CREATE USER 'nereids_test_sys_tables'")
+    sql("GRANT SELECT_PRIV ON *.*.* TO 'nereids_test_sys_tables'")
     sql("use information_schema")
     qt_user_privileges """
-        select GRANTEE, PRIVILEGE_TYPE, IS_GRANTABLE from user_privileges where GRANTEE regexp '^\\'test'
+        select GRANTEE, PRIVILEGE_TYPE, IS_GRANTABLE from user_privileges where GRANTEE regexp '^\\'nereids_test_sys_tables'
     """
-    sql("DROP USER 'test_sys_tables'")
+    sql("DROP USER 'nereids_test_sys_tables'")
 
     // test views
     sql("use ${dbName1}")

@@ -87,7 +87,7 @@
 -1.200
 
 -- !sql_not_null_or_empty_Varchar --
-false
+true
 true
 true
 true
@@ -116,7 +116,7 @@ true
 true
 
 -- !sql_not_null_or_empty_String --
-false
+true
 true
 true
 true
@@ -145,7 +145,7 @@ true
 true
 
 -- !sql_null_or_empty_Varchar --
-true
+false
 false
 false
 false
@@ -174,7 +174,7 @@ false
 false
 
 -- !sql_null_or_empty_String --
-true
+false
 false
 false
 false
@@ -1102,7 +1102,7 @@ true
 \N
 
 -- !sql_nvl_Varchar_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -1131,7 +1131,7 @@ varchar13
 varchar13
 
 -- !sql_nvl_String_String --
-\N
+null
 string1
 string1
 string1

@@ -60,6 +60,11 @@ public class DateV2Literal extends DateLiteral {
                 DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusMonths(months));
     }
 
+    public Expression plusWeeks(long weeks) {
+        return fromJavaDateType(
+                DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusWeeks(weeks));
+    }
+
     public Expression plusYears(long years) {
         return fromJavaDateType(
                 DateUtils.getTime(StandardDateFormat.DATE_FORMATTER, getStringValue()).plusYears(years));
@@ -69,5 +74,34 @@ public class DateV2Literal extends DateLiteral {
         return isDateOutOfRange(dateTime)
                 ? new NullLiteral(DateV2Type.INSTANCE)
                 : new DateV2Literal(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 24:00:00
+     */
+    public DateTimeV2Literal toBeginOfTheDay() {
+        return new DateTimeV2Literal(year, month, day, 0, 0, 0);
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 00:00:00
+     */
+    public DateTimeV2Literal toEndOfTheDay() {
+        return new DateTimeV2Literal(year, month, day, 24, 0, 0);
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-02 0:0:0
+     */
+    public DateTimeV2Literal toBeginOfTomorrow() {
+        Expression tomorrow = plusDays(1);
+        if (tomorrow instanceof DateV2Literal) {
+            return ((DateV2Literal) tomorrow).toBeginOfTheDay();
+        } else {
+            return toEndOfTheDay();
+        }
     }
 }

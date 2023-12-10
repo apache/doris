@@ -101,8 +101,8 @@ public class InternalSchemaInitializer extends Thread {
                     TableIf colStatsTbl = StatisticsUtil.findTable(InternalCatalog.INTERNAL_CATALOG_NAME,
                             StatisticConstants.DB_NAME, tblName);
                     OlapTable olapTable = (OlapTable) colStatsTbl;
-                    Partition partition = olapTable.getPartition(olapTable.getName());
-                    if (partition.getReplicaCount() >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
+                    if (olapTable.getTableProperty().getReplicaAllocation().getTotalReplicaNum()
+                            >= StatisticConstants.STATISTIC_INTERNAL_TABLE_REPLICA_NUM) {
                         return;
                     }
                     try {

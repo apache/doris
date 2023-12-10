@@ -49,7 +49,7 @@ public:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class IntegerPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using CppType = typename PrimitiveTypeTraits<Type>::CppType;
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, vectorized::Arena* arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
@@ -79,7 +79,7 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 class DecimalPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using CppType = typename PrimitiveTypeTraits<Type>::CppType;
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, vectorized::Arena* arena) override {
         if constexpr (PredicateTypeTraits::is_list(PT)) {
@@ -96,8 +96,8 @@ private:
     static CppType convert(const TabletColumn& column, const std::string& condition) {
         StringParser::ParseResult result = StringParser::ParseResult::PARSE_SUCCESS;
         // return CppType value cast from int128_t
-        return StringParser::string_to_decimal<Type>(condition.data(), condition.size(),
-                                                     column.precision(), column.frac(), &result);
+        return CppType(StringParser::string_to_decimal<Type>(
+                condition.data(), condition.size(), column.precision(), column.frac(), &result));
     }
 };
 
@@ -135,7 +135,7 @@ private:
 template <PrimitiveType Type, PredicateType PT, typename ConditionType>
 struct CustomPredicateCreator : public PredicateCreator<ConditionType> {
 public:
-    using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using CppType = typename PrimitiveTypeTraits<Type>::CppType;
     CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
             : _convert(convert) {}
 
@@ -182,8 +182,10 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
         return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(
                 [](const std::string& condition) {
                     decimal12_t value = {0, 0};
-                    value.from_string(condition);
-                    return value;
+                    static_cast<void>(value.from_string(condition));
+                    // Decimal12t is storage type, we need convert to compute type here to
+                    // do comparisons
+                    return DecimalV2Value(value.integer, value.fraction);
                 });
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
@@ -194,6 +196,9 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
     }
     case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
         return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL128I, PT, ConditionType>>();
+    }
+    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
+        return std::make_unique<DecimalPredicateCreator<TYPE_DECIMAL256, PT, ConditionType>>();
     }
     case FieldType::OLAP_FIELD_TYPE_CHAR: {
         return std::make_unique<StringPredicateCreator<TYPE_CHAR, PT, ConditionType>>();
@@ -231,6 +236,24 @@ std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldType& ty
                     StringParser::ParseResult parse_result;
                     bool value = StringParser::string_to_bool(condition.data(), condition.size(),
                                                               &parse_result);
+                    return value;
+                });
+    }
+    case FieldType::OLAP_FIELD_TYPE_IPV4: {
+        return std::make_unique<CustomPredicateCreator<TYPE_IPV4, PT, ConditionType>>(
+                [](const std::string& condition) {
+                    vectorized::IPv4 value;
+                    bool res = IPv4Value::from_string(value, condition);
+                    DCHECK(res);
+                    return value;
+                });
+    }
+    case FieldType::OLAP_FIELD_TYPE_IPV6: {
+        return std::make_unique<CustomPredicateCreator<TYPE_IPV6, PT, ConditionType>>(
+                [](const std::string& condition) {
+                    vectorized::IPv6 value;
+                    bool res = IPv6Value::from_string(value, condition);
+                    DCHECK(res);
                     return value;
                 });
     }

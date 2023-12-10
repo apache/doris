@@ -58,7 +58,7 @@ string1
 \N
 
 -- !sql_ends_with_Varchar_Varchar --
-\N
+true
 true
 true
 true
@@ -87,7 +87,7 @@ true
 true
 
 -- !sql_ends_with_String_String --
-\N
+true
 true
 true
 true
@@ -145,7 +145,7 @@ true
 3.3201169227365472
 
 -- !sql_extract_url_parameter_Varchar_Varchar --
-\N
+
 
 
 

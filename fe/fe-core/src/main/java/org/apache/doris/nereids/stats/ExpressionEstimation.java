@@ -95,6 +95,7 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.time.Instant;
@@ -150,7 +151,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return new ColumnStatisticBuilder()
                 .setNdv(2)
                 .setMinValue(0)
-                .setMaxValue(Double.MAX_VALUE)
+                .setMaxValue(Double.POSITIVE_INFINITY)
                 .setAvgSizeByte(8)
                 .setNumNulls(0)
                 .build();
@@ -163,7 +164,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             return stats;
         }
         ColumnStatistic childColStats = cast.child().accept(this, context);
-
+        Preconditions.checkNotNull(childColStats, "childColStats is null");
         return castMinMax(childColStats, cast.getDataType());
     }
 
@@ -416,7 +417,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         ColumnStatistic rightStats = cp.right().accept(this, context);
         return new ColumnStatisticBuilder(leftStats)
                 .setNumNulls(StatsMathUtil.maxNonNaN(leftStats.numNulls, rightStats.numNulls))
-                .setHistogram(null)
                 .setNdv(2).build();
     }
 
@@ -429,7 +429,7 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
             ColumnStatistic columnStatistic = childExprs.get(i).accept(this, context);
             maxNull = StatsMathUtil.maxNonNaN(maxNull, columnStatistic.numNulls);
         }
-        return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).setHistogram(null).build();
+        return new ColumnStatisticBuilder(firstChild).setNumNulls(maxNull).setNdv(2).build();
     }
 
     @Override
@@ -706,7 +706,6 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
                 .setMinValue(0)
                 .setMaxValue(1)
                 .setNumNulls(0)
-                .setHistogram(null)
                 .setAvgSizeByte(random.getDataType().width())
                 .setDataSize(random.getDataType().width() * context.getRowCount()).build();
     }
@@ -842,3 +841,4 @@ public class ExpressionEstimation extends ExpressionVisitor<ColumnStatistic, Sta
         return dateDiff(1, secondsDiff, context);
     }
 }
+

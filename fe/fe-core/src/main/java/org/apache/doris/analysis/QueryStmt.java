@@ -26,6 +26,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TQueryOptions;
 
@@ -449,6 +450,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
                         substituteExpr = expr.clone();
                         substituteExpr.analyze(analyzer);
                     } catch (AnalysisException ex) {
+                        if (ConnectContext.get() != null) {
+                            ConnectContext.get().getState().reset();
+                        }
                         // then consider alias name
                         substituteExpr = expr.trySubstitute(aliasSMap, analyzer, false);
                     }
@@ -586,6 +590,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      * UnionStmt and SelectStmt have different implementations.
      */
     public abstract ArrayList<String> getColLabels();
+
+    public abstract ArrayList<List<String>> getSubColPath();
 
     /**
      * Returns the materialized tuple ids of the output of this stmt.

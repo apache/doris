@@ -31,33 +31,50 @@ import java.io.IOException;
 import java.util.List;
 
 public class TruncateTableInfo implements Writable {
-
     @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "db")
+    private String db;
     @SerializedName(value = "tblId")
     private long tblId;
+    @SerializedName(value = "table")
+    private String table;
     @SerializedName(value = "partitions")
     private List<Partition> partitions = Lists.newArrayList();
     @SerializedName(value = "isEntireTable")
     private boolean isEntireTable = false;
+    @SerializedName(value = "rawSql")
+    private String rawSql = "";
 
-    private TruncateTableInfo() {
+    public TruncateTableInfo() {
 
     }
 
-    public TruncateTableInfo(long dbId, long tblId, List<Partition> partitions, boolean isEntireTable) {
+    public TruncateTableInfo(long dbId, String db, long tblId, String table, List<Partition> partitions,
+                             boolean isEntireTable, String rawSql) {
         this.dbId = dbId;
+        this.db = db;
         this.tblId = tblId;
+        this.table = table;
         this.partitions = partitions;
         this.isEntireTable = isEntireTable;
+        this.rawSql = rawSql;
     }
 
     public long getDbId() {
         return dbId;
     }
 
+    public String getDb() {
+        return db;
+    }
+
     public long getTblId() {
         return tblId;
+    }
+
+    public String getTable() {
+        return table;
     }
 
     public List<Partition> getPartitions() {
@@ -66,6 +83,10 @@ public class TruncateTableInfo implements Writable {
 
     public boolean isEntireTable() {
         return isEntireTable;
+    }
+
+    public String getRawSql() {
+        return rawSql;
     }
 
     public static TruncateTableInfo read(DataInput in) throws IOException {
@@ -79,14 +100,12 @@ public class TruncateTableInfo implements Writable {
         Text.writeString(out, json);
     }
 
-    @Deprecated
-    private void readFields(DataInput in) throws IOException {
-        dbId = in.readLong();
-        tblId = in.readLong();
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Partition partition = Partition.read(in);
-            partitions.add(partition);
-        }
+    public String toJson() {
+        return GsonUtils.GSON.toJson(this);
+    }
+
+    @Override
+    public String toString() {
+        return toJson();
     }
 }

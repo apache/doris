@@ -33,7 +33,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 struct FileCacheStatistics;
 
 class CachedRemoteFileReader final : public FileReader {
@@ -61,10 +61,10 @@ protected:
 private:
     std::pair<size_t, size_t> _align_size(size_t offset, size_t size) const;
 
+    bool _is_doris_table;
     FileReaderSPtr _remote_file_reader;
     IFileCache::Key _cache_key;
     CloudFileCachePtr _cache;
-    bool _is_doris_table;
 
     struct ReadStatistics {
         bool hit_cache = true;

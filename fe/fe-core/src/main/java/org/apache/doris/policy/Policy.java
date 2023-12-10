@@ -28,7 +28,6 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
@@ -119,7 +118,7 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                         .getDbOrAnalysisException(stmt.getTableName().getDb());
                 UserIdentity userIdent = stmt.getUser();
                 if (userIdent != null) {
-                    userIdent.analyze(ConnectContext.get().getClusterName());
+                    userIdent.analyze();
                 }
                 TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
                 return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent, stmt.getRoleName(),

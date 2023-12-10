@@ -65,4 +65,25 @@ suite("test_exprs") {
 
     qt_compare_dt1 "select /*SET_VAR(experimental_enable_nereids_planner=true)*/ cast('2020-12-12 12:12:12.123456' as datetime(6)) = cast('2020-12-12 12:12:12.123455' as datetime(6));"
     qt_compare_dt2 "select /*SET_VAR(experimental_enable_nereids_planner=false)*/ cast('2020-12-12 12:12:12.123456' as datetime(6)) = cast('2020-12-12 12:12:12.123455' as datetime(6));"
+
+    // `milliseconds_add` suites
+    // 1. Positive milliseconds delta
+    qt_sql_milliseconds_add_datetimev2_1 " select col,milliseconds_add(col, 100) col1 from ${table1} order by col1; "
+    qt_sql_milliseconds_add_datetimev2_2 " select col,milliseconds_add(col, 200) col1 from ${table1} order by col1; "
+    // 1.1 Positive microseconds delta affects second change
+    qt_sql_milliseconds_add_datetimev2_3 " select col,milliseconds_add(col, 800) col1 from ${table1} order by col1; "
+    // 2. Negative microseconds delta
+    qt_sql_milliseconds_add_datetimev2_4 " select col,milliseconds_add(col, -100) col1 from ${table1} order by col1; "
+    // 2.1  Negative microseconds delta affects second change
+    qt_sql_milliseconds_add_datetimev2_5 " select col,milliseconds_add(col, -200) col1 from ${table1} order by col1; "
+
+    // `microseconds_sub` suites
+    // 1. Positive microseconds delta
+    qt_sql_milliseconds_sub_datetimev2_1 " select col,milliseconds_sub(col, 100) col1 from ${table1} order by col1; "
+    // 1.1 Positive microseconds delta affects second change
+    qt_sql_milliseconds_sub_datetimev2_2 " select col,milliseconds_sub(col, 200) col1 from ${table1} order by col1; "
+    // 2. Negative microseconds delta
+    qt_sql_milliseconds_sub_datetimev2_3 " select col,milliseconds_sub(col, -200) col1 from ${table1} order by col1; "
+    // 2.2 Negative microseconds delta affects second change
+    qt_sql_milliseconds_sub_datetimev2_4 " select col,milliseconds_sub(col, -800) col1 from ${table1} order by col1; "
 }

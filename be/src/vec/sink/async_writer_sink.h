@@ -61,10 +61,9 @@ public:
         RETURN_IF_ERROR(DataSink::prepare(state));
         // Prepare the exprs to run.
         RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-        std::stringstream title;
-        title << _name << " (frag_id=" << state->fragment_instance_id() << ")";
         // create profile
-        _profile = state->obj_pool()->add(new RuntimeProfile(title.str()));
+        _profile = state->obj_pool()->add(new RuntimeProfile(_name));
+        init_sink_common_profile();
         return Status::OK();
     }
 
@@ -80,6 +79,9 @@ public:
     }
 
     Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) override {
+        SCOPED_TIMER(_exec_timer);
+        COUNTER_UPDATE(_blocks_sent_counter, 1);
+        COUNTER_UPDATE(_output_rows_counter, block->rows());
         return _writer->append_block(*block);
     }
 
@@ -90,18 +92,23 @@ public:
     bool can_write() override { return _writer->can_write(); }
 
     Status close(RuntimeState* state, Status exec_status) override {
-        if (_writer->need_normal_close()) {
-            if (exec_status.ok() && !state->is_cancelled()) {
-                RETURN_IF_ERROR(_writer->commit_trans());
+        // if the init failed, the _writer may be nullptr. so here need check
+        if (_writer) {
+            if (_writer->need_normal_close()) {
+                if (exec_status.ok() && !state->is_cancelled()) {
+                    RETURN_IF_ERROR(_writer->commit_trans());
+                }
+                RETURN_IF_ERROR(_writer->close(exec_status));
+            } else {
+                RETURN_IF_ERROR(_writer->get_writer_status());
             }
-            RETURN_IF_ERROR(_writer->close());
         }
         return DataSink::close(state, exec_status);
     }
 
     Status try_close(RuntimeState* state, Status exec_status) override {
         if (state->is_cancelled() || !exec_status.ok()) {
-            _writer->force_close();
+            _writer->force_close(!exec_status.ok() ? exec_status : Status::Cancelled("Cancelled"));
         }
         return Status::OK();
     }

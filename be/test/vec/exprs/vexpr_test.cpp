@@ -59,7 +59,7 @@ TEST(TEST_VEXPR, ABSTEST) {
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     doris::TExpr exprx = apache::thrift::from_json_string<doris::TExpr>(expr_json);
     doris::vectorized::VExprContextSPtr context;
-    doris::vectorized::VExpr::create_expr_tree(exprx, context);
+    static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
@@ -152,7 +152,7 @@ TEST(TEST_VEXPR, ABSTEST2) {
     TExpr exprx = apache::thrift::from_json_string<TExpr>(expr_json);
 
     doris::vectorized::VExprContextSPtr context;
-    doris::vectorized::VExpr::create_expr_tree(exprx, context);
+    static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
 
     doris::RuntimeState runtime_stat(doris::TUniqueId(), doris::TQueryOptions(),
                                      doris::TQueryGlobals(), nullptr);
@@ -383,7 +383,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         std::cout << "data type: " << literal.data_type().get()->get_name() << std::endl;
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         bool v = ctn.column->get_bool(0);
         EXPECT_EQ(v, true);
@@ -394,7 +394,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_SMALLINT>(1024));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
@@ -405,7 +405,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_INT>(1024));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
@@ -416,7 +416,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_BIGINT>(1024));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = ctn.column->get64(0);
         EXPECT_EQ(v, 1024);
@@ -427,7 +427,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_LARGEINT, __int128_t>(1024));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int128_t>();
         EXPECT_EQ(v, 1024);
@@ -438,7 +438,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_FLOAT, float>(1024.0f));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
         EXPECT_FLOAT_EQ(v, 1024.0f);
@@ -449,7 +449,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_DOUBLE, double>(1024.0));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<double>();
         EXPECT_FLOAT_EQ(v, 1024.0);
@@ -457,7 +457,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // datetime
     {
-        vectorized::VecDateTimeValue data_time_value;
+        VecDateTimeValue data_time_value;
         const char* date = "20210407000000";
         data_time_value.from_date_str(date, strlen(date));
         std::cout << data_time_value.type() << std::endl;
@@ -466,7 +466,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_DATETIME, std::string>(std::string(date)));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int64_t>();
         EXPECT_EQ(v, dt);
@@ -490,7 +490,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_DATETIMEV2, std::string>(date, 4));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__uint64_t>();
         EXPECT_EQ(v, dt);
@@ -498,7 +498,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // date
     {
-        vectorized::VecDateTimeValue data_time_value;
+        VecDateTimeValue data_time_value;
         const char* date = "20210407";
         data_time_value.from_date_str(date, strlen(date));
         __int64_t dt;
@@ -506,7 +506,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_DATE, std::string>(std::string(date)));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<__int64_t>();
         EXPECT_EQ(v, dt);
@@ -514,7 +514,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
     }
     // datev2
     {
-        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> data_time_value;
+        DateV2Value<DateV2ValueType> data_time_value;
         const char* date = "20210407";
         data_time_value.from_date_str(date, strlen(date));
         uint32_t dt;
@@ -522,7 +522,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_DATEV2, std::string>(std::string(date)));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<uint32_t>();
         EXPECT_EQ(v, dt);
@@ -534,7 +534,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_JSONB, std::string>(j));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         EXPECT_EQ(j, literal.value());
     }
@@ -544,7 +544,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_STRING, std::string>(std::string("I am Amory, 24")));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<String>();
         EXPECT_EQ(v, s);
@@ -555,7 +555,7 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VLiteral literal(create_literal<TYPE_DECIMALV2, std::string>(std::string("1234.56")));
         Block block;
         int ret = -1;
-        literal.execute(nullptr, &block, &ret);
+        static_cast<void>(literal.execute(nullptr, &block, &ret));
         auto ctn = block.safe_get_by_position(ret);
         auto v = (*ctn.column)[0].get<DecimalField<Decimal128>>();
         EXPECT_FLOAT_EQ(((double)v.get_value()) / (std::pow(10, v.get_scale())), 1234.56);

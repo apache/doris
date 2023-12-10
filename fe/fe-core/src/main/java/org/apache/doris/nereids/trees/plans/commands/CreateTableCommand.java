@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -41,6 +41,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
@@ -106,8 +107,14 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
                 dataType = DecimalV2Type.SYSTEM_DEFAULT;
             } else if (i == 0 && dataType.isStringType()) {
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
+            } else if (dataType instanceof CharacterType) {
+                // if column is not come from table, we should set varchar length to max
+                if (!s.isColumnFromTable()) {
+                    dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
+                }
             }
-            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, s.nullable()));
+            // if the column is an expression, we set it to nullable, otherwise according to the nullable of the slot.
+            columnsOfQuery.add(new ColumnDefinition(s.getName(), dataType, !s.isColumnFromTable() || s.nullable()));
         }
         createTableInfo.validateCreateTableAsSelect(columnsOfQuery.build(), ctx);
         CreateTableStmt createTableStmt = createTableInfo.translateToLegacyStmt();
@@ -119,10 +126,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
 
-        query = new UnboundOlapTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
+        query = new UnboundTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), query);
         try {
-            new InsertIntoTableCommand(query, Optional.empty(), false).run(ctx, executor);
+            new InsertIntoTableCommand(query, Optional.empty()).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
             }
@@ -141,6 +148,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             // TODO: refactor it with normal error process.
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
         }
+    }
+
+    public boolean isCtasCommand() {
+        return ctasQuery.isPresent();
     }
 
     @Override

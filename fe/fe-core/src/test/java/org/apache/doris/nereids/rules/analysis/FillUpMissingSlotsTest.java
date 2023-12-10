@@ -102,7 +102,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                         logicalProject(
                                                 logicalAggregate(
                                                         logicalProject(logicalOlapScan())
-                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value))))
+                                                ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))
+                                        ).when(FieldChecker.check("projects", ImmutableList.of(new Alias(new ExprId(3), a1, value.toSql()))))
                                 ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0)))))));
 
         sql = "SELECT a1 as value FROM t1 GROUP BY a1 HAVING value > 0";
@@ -113,7 +114,8 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
                                 logicalProject(
                                         logicalAggregate(
                                                 logicalProject(logicalOlapScan())
-                                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(value))))
+                                        ).when(FieldChecker.check("outputExpressions", Lists.newArrayList(a1)))
+                                ).when(FieldChecker.check("projects", ImmutableList.of(new Alias(new ExprId(3), a1, value.toSql()))))
                         ).when(FieldChecker.check("conjuncts", ImmutableSet.of(new GreaterThan(value.toSlot(), new TinyIntLiteral((byte) 0))))));
 
         sql = "SELECT sum(a2) FROM t1 GROUP BY a1 HAVING a1 > 0";
@@ -576,5 +578,12 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Memo
         String sql = "SELECT pk FROM t1 GROUP BY pk HAVING sum(a1) > (SELECT AVG(a1) FROM t1) ORDER BY sum(a1)";
         PlanChecker.from(connectContext).analyze(sql)
                 .matches(logicalFilter());
+    }
+
+    @Test
+    void testSortHaving() {
+        String sql = "SELECT (pk + 1) as c FROM t1 HAVING c  > 1 ORDER BY a1 + pk";
+        PlanChecker.from(connectContext).analyze(sql)
+                .applyBottomUp(new CheckAfterRewrite());
     }
 }

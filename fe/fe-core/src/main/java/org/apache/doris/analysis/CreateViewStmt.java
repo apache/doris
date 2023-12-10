@@ -55,6 +55,7 @@ public class CreateViewStmt extends BaseViewStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
+        super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
         viewDefStmt.setNeedToSql(true);
@@ -81,7 +82,7 @@ public class CreateViewStmt extends BaseViewStmt {
             viewDefStmt.forbiddenMVRewrite();
             viewDefStmt.analyze(viewAnalyzer);
 
-            createColumnAndViewDefs(analyzer);
+            createColumnAndViewDefs(viewAnalyzer);
         } finally {
             // must reset this flag, otherwise, all following query statement in this connection
             // will not do constant fold for nondeterministic functions.

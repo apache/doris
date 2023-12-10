@@ -32,25 +32,22 @@ Status JoinBuildSinkLocalState<DependencyType, Derived>::init(RuntimeState* stat
 
     PipelineXSinkLocalState<DependencyType>::profile()->add_info_string("JoinType",
                                                                         to_string(p._join_op));
-    _build_phase_profile = PipelineXSinkLocalState<DependencyType>::profile()->create_child(
-            "BuildPhase", true, true);
-    _build_get_next_timer = ADD_TIMER(_build_phase_profile, "BuildGetNextTime");
-    _build_timer = ADD_TIMER(_build_phase_profile, "BuildTime");
-    _build_rows_counter = ADD_COUNTER(_build_phase_profile, "BuildRows", TUnit::UNIT);
+    _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<DependencyType>::profile(),
+                                      "BuildRows", TUnit::UNIT);
 
-    _push_down_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
-                                 "PublishRuntimeFilterTime");
-    _push_compute_timer =
-            ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(), "PushDownComputeTime");
+    _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+                                              "PublishRuntimeFilterTime");
+    _runtime_filter_compute_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+                                              "RuntimeFilterComputeTime");
 
     return Status::OK();
 }
 
 template <typename LocalStateType>
-JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool,
+JoinBuildSinkOperatorX<LocalStateType>::JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
                                                                const TPlanNode& tnode,
                                                                const DescriptorTbl& descs)
-        : DataSinkOperatorX<LocalStateType>(tnode.node_id),
+        : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
           _join_op(tnode.__isset.hash_join_node ? tnode.hash_join_node.join_op
                                                 : (tnode.__isset.nested_loop_join_node
                                                            ? tnode.nested_loop_join_node.join_op
@@ -118,8 +115,9 @@ void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
 }
 
 template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState>;
 template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<NestedLoopJoinDependency, NestedLoopJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+                                       NestedLoopJoinBuildSinkLocalState>;
 
 } // namespace doris::pipeline

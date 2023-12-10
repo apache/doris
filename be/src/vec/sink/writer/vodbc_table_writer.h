@@ -46,7 +46,7 @@ public:
 
     Status append_block(vectorized::Block& block) override;
 
-    Status close() override { return ODBCConnector::close(); }
+    Status close(Status s) override { return ODBCConnector::close(s); }
 
     bool in_transaction() override { return TableConnector::_is_in_transaction; }
 

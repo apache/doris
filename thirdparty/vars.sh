@@ -152,10 +152,10 @@ RE2_SOURCE=re2-2021-02-02
 RE2_MD5SUM="48bc665463a86f68243c5af1bac75cd0"
 
 # hyperscan
-HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.0.tar.gz"
-HYPERSCAN_NAME=hyperscan-5.4.0.tar.gz
-HYPERSCAN_SOURCE=hyperscan-5.4.0
-HYPERSCAN_MD5SUM="65e08385038c24470a248f6ff2fa379b"
+HYPERSCAN_DOWNLOAD="https://github.com/intel/hyperscan/archive/refs/tags/v5.4.2.tar.gz"
+HYPERSCAN_NAME=hyperscan-5.4.2.tar.gz
+HYPERSCAN_SOURCE=hyperscan-5.4.2
+HYPERSCAN_MD5SUM="202f4b42f5dd4a7bb2506445e51a33b9"
 
 # vectorscan (support arm for hyperscan)
 MACHINE_TYPE=$(uname -m)
@@ -346,10 +346,10 @@ BOOTSTRAP_TABLE_CSS_FILE="bootstrap-table.min.css"
 BOOTSTRAP_TABLE_CSS_MD5SUM="23389d4456da412e36bae30c469a766a"
 
 # aws sdk
-AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.9.272.tar.gz"
-AWS_SDK_NAME="aws-sdk-cpp-1.9.272.tar.gz"
-AWS_SDK_SOURCE="aws-sdk-cpp-1.9.272"
-AWS_SDK_MD5SUM="3a9190e3d14b81bfdd9c41a89a419202"
+AWS_SDK_DOWNLOAD="https://github.com/aws/aws-sdk-cpp/archive/refs/tags/1.11.119.tar.gz"
+AWS_SDK_NAME="aws-sdk-cpp-1.11.119.tar.gz"
+AWS_SDK_SOURCE="aws-sdk-cpp-1.11.119"
+AWS_SDK_MD5SUM="3cd8bd51d39dc207a243a2074d11f439"
 
 # tsan_header
 TSAN_HEADER_DOWNLOAD="https://gcc.gnu.org/git/?p=gcc.git;a=blob_plain;f=libsanitizer/include/sanitizer/tsan_interface_atomic.h;hb=refs/heads/releases/gcc-7"
@@ -430,18 +430,6 @@ NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
-# opentelemetry-proto
-OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v1.0.0.tar.gz"
-OPENTELEMETRY_PROTO_NAME="opentelemetry-proto-v1.0.0.tar.gz"
-OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-1.0.0
-OPENTELEMETRY_PROTO_MD5SUM="8c7495a0dceea7cfdbdbcd53b07436dc"
-
-# opentelemetry
-OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.10.0.tar.gz"
-OPENTELEMETRY_NAME="opentelemetry-cpp-v1.10.0.tar.gz"
-OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.10.0
-OPENTELEMETRY_MD5SUM="89169762241b2f5142b728c775173283"
-
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
 LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
@@ -477,6 +465,24 @@ HADOOP_LIBS_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/ta
 HADOOP_LIBS_NAME="hadoop-3.3.4.5-for-doris.tar.gz"
 HADOOP_LIBS_SOURCE="doris-thirdparty-hadoop-3.3.4.5-for-doris"
 HADOOP_LIBS_MD5SUM="15b7be1747b27c37923b0cb9db6cff8c"
+
+# libdragonbox for faster double/float to string
+DRAGONBOX_DOWNLOAD="https://github.com/jk-jeon/dragonbox/archive/refs/tags/1.1.3.tar.gz"
+DRAGONBOX_NAME=dragonbox-1.1.3.tar.gz
+DRAGONBOX_SOURCE=dragonbox-1.1.3
+DRAGONBOX_MD5SUM="889dc00db9612c6949a4ccf8115e0e6a"
+
+# AvxToNeon
+AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags/v1.0.0.tar.gz"
+AVX2NEON_NAME=v1.0.0.tar.gz
+AVX2NEON_SOURCE=AvxToNeon-1.0.0
+AVX2NEON_MD5SUM="692d0e0f8b885a86ebc5172a9d8ee8db"
+
+# libdeflate
+LIBDEFLATE_DOWNLOAD="https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.19.tar.gz"
+LIBDEFLATE_NAME=libdeflate-1.19.tar.gz
+LIBDEFLATE_SOURCE=libdeflate-1.19
+LIBDEFLATE_MD5SUM="c69e9193d2975a729068ffa862c81fb6"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -540,14 +546,15 @@ export TP_ARCHIVES=(
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
-    'OPENTELEMETRY_PROTO'
-    'OPENTELEMETRY'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'
     'CONCURRENTQUEUE'
     'FAST_FLOAT'
     'HADOOP_LIBS'
+    'DRAGONBOX'
+    'AVX2NEON'
+    'LIBDEFLATE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

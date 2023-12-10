@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <stdint.h>
 
 #include <vector>
@@ -28,7 +27,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -59,11 +57,12 @@ public:
         return _children[0]->open(state);
     }
     Status alloc_resource(RuntimeState* state) override {
+        SCOPED_TIMER(_exec_timer);
         RETURN_IF_ERROR(ExecNode::alloc_resource(state));
         return VExpr::open(_vfn_ctxs, state);
     }
     Status get_next(RuntimeState* state, Block* block, bool* eos) override;
-    bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
+    bool need_more_input_data() const { return !_child_block->rows() && !_child_eos; }
 
     void release_resource(doris::RuntimeState* state) override {
         if (_num_rows_filtered_counter != nullptr) {
@@ -73,6 +72,7 @@ public:
     }
 
     Status push(RuntimeState* state, Block* input_block, bool eos) override {
+        SCOPED_TIMER(_exec_timer);
         _child_eos = eos;
         if (input_block->rows() == 0) {
             return Status::OK();
@@ -86,12 +86,13 @@ public:
     }
 
     Status pull(RuntimeState* state, Block* output_block, bool* eos) override {
+        SCOPED_TIMER(_exec_timer);
         RETURN_IF_ERROR(_get_expanded_block(state, output_block, eos));
         reached_limit(output_block, eos);
         return Status::OK();
     }
 
-    Block* get_child_block() { return &_child_block; }
+    std::shared_ptr<Block> get_child_block() { return _child_block; }
 
 private:
     Status _prepare_output_slot_ids(const TPlanNode& tnode);
@@ -134,7 +135,7 @@ private:
             return;
         }
         for (auto index : _output_slot_indexs) {
-            auto src_column = _child_block.get_by_position(index).column;
+            auto src_column = _child_block->get_by_position(index).column;
             columns[index]->insert_many_from(*src_column, _cur_child_offset,
                                              _current_row_insert_times);
         }
@@ -142,7 +143,7 @@ private:
     }
     int _current_row_insert_times = 0;
 
-    Block _child_block;
+    std::shared_ptr<Block> _child_block;
     std::vector<SlotDescriptor*> _child_slots;
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;

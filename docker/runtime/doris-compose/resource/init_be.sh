@@ -15,7 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 
-DIR=$(cd $(dirname $0);pwd)
+DIR=$(
+    cd $(dirname $0)
+    pwd
+)
 
 source $DIR/common.sh
 
@@ -28,8 +31,13 @@ add_backend() {
             sleep 1
             continue
         fi
+        lsof -i:$BE_HEARTBEAT_PORT
+        if [ $? -ne 0 ]; then
+            sleep 1
+            continue
+        fi
 
-        output=`mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD BACKEND '$MY_IP:$BE_HEARTBEAT_PORT';" 2>&1`
+        output=$(mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD BACKEND '$MY_IP:$BE_HEARTBEAT_PORT';" 2>&1)
         res=$?
         health_log "$output"
         [ $res -eq 0 ] && break
@@ -40,11 +48,43 @@ add_backend() {
     touch $REGISTER_FILE
 }
 
-main() {
-    if [ ! -f $REGISTER_FILE ]; then
-        add_backend
+stop_backend() {
+    health_log "run stop be ..."
+    if [ "$STOP_GRACE" = "1" ]; then
+        bash $DORIS_HOME/bin/stop_be.sh --grace
+    else
+        bash $DORIS_HOME/bin/stop_be.sh
     fi
-    bash $DORIS_HOME/bin/start_be.sh
+    exit 0
+}
+
+wait_process() {
+    pid=""
+    for ((i = 0; i < 5; i++)); do
+        sleep 1s
+        pid=$(pgrep doris_be)
+        if [ -n $pid ]; then
+            break
+        fi
+    done
+
+    wait_pid $pid
+}
+
+main() {
+    trap stop_backend SIGTERM
+
+    if [ ! -f $REGISTER_FILE ]; then
+        add_backend &
+    fi
+
+    if [ -n $LLVM_PROFILE_FILE_PREFIX ]; then
+        export LLVM_PROFILE_FILE="${LLVM_PROFILE_FILE_PREFIX}-$(date +%s)"
+    fi
+    health_log "run start_be.sh"
+    bash $DORIS_HOME/bin/start_be.sh --daemon
+
+    wait_process
 }
 
 main

@@ -19,6 +19,7 @@ package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
@@ -35,6 +36,7 @@ import org.apache.iceberg.types.Types;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
@@ -60,15 +62,17 @@ public class IcebergExternalTable extends ExternalTable {
 
     @Override
     public List<Column> initSchema() {
-        Schema schema = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name).schema();
-        List<Types.NestedField> columns = schema.columns();
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
-        for (Types.NestedField field : columns) {
-            tmpSchema.add(new Column(field.name(),
-                    icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
-                    schema.caseInsensitiveFindField(field.name()).fieldId()));
-        }
-        return tmpSchema;
+        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(), () -> {
+            Schema schema = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name).schema();
+            List<Types.NestedField> columns = schema.columns();
+            List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
+            for (Types.NestedField field : columns) {
+                tmpSchema.add(new Column(field.name().toLowerCase(Locale.ROOT),
+                        icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                        schema.caseInsensitiveFindField(field.name()).fieldId()));
+            }
+            return tmpSchema;
+        });
     }
 
     private Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
@@ -141,7 +145,8 @@ public class IcebergExternalTable extends ExternalTable {
     @Override
     public Optional<ColumnStatistic> getColumnStatistic(String colName) {
         makeSureInitialized();
-        return StatisticsUtil.getIcebergColumnStats(colName,
-            ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name));
+        return HiveMetaStoreClientHelper.ugiDoAs(catalog.getConfiguration(),
+                () -> StatisticsUtil.getIcebergColumnStats(colName,
+                        ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name)));
     }
 }

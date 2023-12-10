@@ -27,6 +27,7 @@
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "util/countdown_latch.h"
+#include "util/once.h"
 
 namespace doris {
 
@@ -60,7 +61,7 @@ private:
     void clean();
     void process_path(time_t now, const std::string& path, int64_t reserve_hours);
 
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::mutex _lock;
     std::vector<std::string> _path_vec;
     int _idx;
@@ -70,6 +71,7 @@ private:
     uint32_t _error_path_next_shard;
     CountDownLatch _stop_background_threads_latch;
     scoped_refptr<Thread> _clean_thread;
+    DorisCallOnce<Status> _init_once;
 };
 
 } // namespace doris

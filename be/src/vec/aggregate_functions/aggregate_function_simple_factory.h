@@ -80,7 +80,8 @@ public:
 
     AggregateFunctionPtr get(const std::string& name, const DataTypes& argument_types,
                              const bool result_is_nullable = false,
-                             int be_version = BeExecVersionManager::get_newest_version()) {
+                             int be_version = BeExecVersionManager::get_newest_version(),
+                             bool enable_decima256 = false) {
         bool nullable = false;
         for (const auto& type : argument_types) {
             if (type->is_nullable()) {
@@ -89,6 +90,11 @@ public:
         }
 
         std::string name_str = name;
+        if (enable_decima256) {
+            if (name_str == "sum" || name_str == "avg") {
+                name_str += "_decimal256";
+            }
+        }
         temporary_function_update(be_version, name_str);
 
         if (function_alias.count(name)) {

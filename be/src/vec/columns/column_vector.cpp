@@ -33,12 +33,13 @@
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
-#include "vec/common/bit_cast.h"
+#include "vec/common/memcpy_small.h"
 #include "vec/common/nan_utils.h"
 #include "vec/common/radix_sort.h"
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
+#include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 
 namespace doris::vectorized {
@@ -66,18 +67,17 @@ template <typename T>
 void ColumnVector<T>::serialize_vec(std::vector<StringRef>& keys, size_t num_rows,
                                     size_t max_row_byte_size) const {
     for (size_t i = 0; i < num_rows; ++i) {
-        memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+        memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
         keys[i].size += sizeof(T);
     }
 }
 
 template <typename T>
 void ColumnVector<T>::serialize_vec_with_null_map(std::vector<StringRef>& keys, size_t num_rows,
-                                                  const uint8_t* null_map,
-                                                  size_t max_row_byte_size) const {
+                                                  const uint8_t* null_map) const {
     for (size_t i = 0; i < num_rows; ++i) {
         if (null_map[i] == 0) {
-            memcpy(const_cast<char*>(keys[i].data + keys[i].size), &data[i], sizeof(T));
+            memcpy_fixed<T>(const_cast<char*>(keys[i].data + keys[i].size), (char*)&data[i]);
             keys[i].size += sizeof(T);
         }
     }
@@ -168,9 +168,10 @@ void ColumnVector<T>::compare_internal(size_t rhs_row_id, const IColumn& rhs,
 }
 
 template <typename T>
-void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+void ColumnVector<T>::update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type,
+                                             uint32_t rows, uint32_t offset,
                                              const uint8_t* __restrict null_data) const {
-    auto s = hashes.size();
+    auto s = rows;
     DCHECK(s == size());
 
     if constexpr (!std::is_same_v<T, Int64>) {
@@ -341,7 +342,7 @@ MutableColumnPtr ColumnVector<T>::clone_resized(size_t size) const {
 
 template <typename T>
 UInt64 ColumnVector<T>::get64(size_t n) const {
-    return ext::bit_cast<UInt64>(data[n]);
+    return static_cast<UInt64>(data[n]);
 }
 
 template <typename T>
@@ -365,25 +366,16 @@ void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t
 }
 
 template <typename T>
-void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                          const int* indices_end) {
+void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                          const uint32_t* indices_end) {
     auto origin_size = size();
     auto new_size = indices_end - indices_begin;
     data.resize(origin_size + new_size);
 
-    const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+    const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
-    if constexpr (std::is_same_v<T, UInt8>) {
-        // nullmap : indices_begin[i] == -1 means is null at the here, set true here
-        for (int i = 0; i < new_size; ++i) {
-            data[origin_size + i] = (indices_begin[i] == -1) +
-                                    (indices_begin[i] != -1) * src_data[indices_begin[i]];
-        }
-    } else {
-        // real data : indices_begin[i] == -1 what at is meaningless
-        for (int i = 0; i < new_size; ++i) {
-            data[origin_size + i] = src_data[indices_begin[i]];
-        }
+    for (uint32_t i = 0; i < new_size; ++i) {
+        data[origin_size + i] = src_data[indices_begin[i]];
     }
 }
 
@@ -558,47 +550,6 @@ void ColumnVector<T>::replicate(const uint32_t* __restrict indexs, size_t target
     for (size_t i = 0; i < target_size; ++i) {
         left[i] = right[idxs[i]];
     }
-}
-
-template <typename T>
-void ColumnVector<T>::get_extremes(Field& min, Field& max) const {
-    size_t size = data.size();
-
-    if (size == 0) {
-        min = T(0);
-        max = T(0);
-        return;
-    }
-
-    bool has_value = false;
-
-    /** Skip all NaNs in extremes calculation.
-        * If all values are NaNs, then return NaN.
-        * NOTE: There exist many different NaNs.
-        * Different NaN could be returned: not bit-exact value as one of NaNs from column.
-        */
-
-    T cur_min = nan_or_zero<T>();
-    T cur_max = nan_or_zero<T>();
-
-    for (const T x : data) {
-        if (is_nan(x)) continue;
-
-        if (!has_value) {
-            cur_min = x;
-            cur_max = x;
-            has_value = true;
-            continue;
-        }
-
-        if (x < cur_min)
-            cur_min = x;
-        else if (x > cur_max)
-            cur_max = x;
-    }
-
-    min = NearestFieldType<T>(cur_min);
-    max = NearestFieldType<T>(cur_max);
 }
 
 template <typename T>

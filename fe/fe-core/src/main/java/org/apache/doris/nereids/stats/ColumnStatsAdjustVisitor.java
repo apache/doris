@@ -30,6 +30,8 @@ import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * table: T(A, B)
@@ -56,6 +58,9 @@ import com.google.common.base.Preconditions;
  *
  */
 public class ColumnStatsAdjustVisitor extends ExpressionVisitor<ColumnStatistic, Statistics> {
+
+    private static final Logger LOG = LogManager.getLogger(ColumnStatsAdjustVisitor.class);
+
     @Override
     public ColumnStatistic visit(Expression expr, Statistics context) {
         expr.children().forEach(child -> child.accept(this, context));
@@ -88,7 +93,7 @@ public class ColumnStatsAdjustVisitor extends ExpressionVisitor<ColumnStatistic,
                     context.addColumnStats(cast.child(), colStats);
                 }
             } catch (Exception e) {
-                e.printStackTrace();
+                LOG.info("error", e);
                 Preconditions.checkArgument(false, "type conversion failed");
             }
         }

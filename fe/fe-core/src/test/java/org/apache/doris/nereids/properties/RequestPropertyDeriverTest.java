@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -59,6 +60,12 @@ class RequestPropertyDeriverTest {
 
     @Mocked
     LogicalProperties logicalProperties;
+
+    @Mocked
+    ConnectContext connectContext;
+
+    @Injectable
+    Group group;
 
     @Injectable
     JobContext jobContext;
@@ -83,7 +90,7 @@ class RequestPropertyDeriverTest {
         GroupExpression groupExpression = new GroupExpression(join);
         new Group(null, groupExpression, null);
 
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
@@ -105,10 +112,10 @@ class RequestPropertyDeriverTest {
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(),
                 logicalProperties,
                 groupPlan, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(join);
+        GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));
         new Group(null, groupExpression, null);
 
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
@@ -130,14 +137,21 @@ class RequestPropertyDeriverTest {
             }
         };
 
+        new MockUp<ConnectContext>() {
+            @Mock
+            ConnectContext get() {
+                return connectContext;
+            }
+        };
+
         PhysicalHashJoin<GroupPlan, GroupPlan> join = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(),
                 logicalProperties,
                 groupPlan, groupPlan);
-        GroupExpression groupExpression = new GroupExpression(join);
+        GroupExpression groupExpression = new GroupExpression(join, Lists.newArrayList(group, group));
         new Group(null, groupExpression, null);
 
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
 
@@ -165,7 +179,7 @@ class RequestPropertyDeriverTest {
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
@@ -188,7 +202,7 @@ class RequestPropertyDeriverTest {
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
@@ -213,7 +227,7 @@ class RequestPropertyDeriverTest {
         );
         GroupExpression groupExpression = new GroupExpression(aggregate);
         new Group(null, groupExpression, null);
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         List<List<PhysicalProperties>> expected = Lists.newArrayList();
@@ -230,7 +244,7 @@ class RequestPropertyDeriverTest {
         );
         GroupExpression groupExpression = new GroupExpression(assertNumRows);
         new Group(null, groupExpression, null);
-        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(jobContext);
+        RequestPropertyDeriver requestPropertyDeriver = new RequestPropertyDeriver(null, jobContext);
         List<List<PhysicalProperties>> actual
                 = requestPropertyDeriver.getRequestChildrenPropertyList(groupExpression);
         List<List<PhysicalProperties>> expected = Lists.newArrayList();

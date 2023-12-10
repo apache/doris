@@ -83,14 +83,14 @@ static void set_up() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(new MemTableMemoryLimiter());
     exec_env->set_storage_engine(k_engine.get());
-    k_engine->start_bg_threads();
+    static_cast<void>(k_engine->start_bg_threads());
 }
 
 static void tear_down() {
     ExecEnv* exec_env = doris::ExecEnv::GetInstance();
     exec_env->set_memtable_memory_limiter(nullptr);
-    exec_env->set_storage_engine(nullptr);
     k_engine.reset();
+    exec_env->set_storage_engine(nullptr);
     EXPECT_EQ(system("rm -rf ./data_test_1"), 0);
     EXPECT_EQ(system("rm -rf ./data_test_2"), 0);
     EXPECT_TRUE(io::global_local_filesystem()
@@ -178,7 +178,7 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     TDescriptorTable tdesc_tbl = create_descriptor_tablet_with_sequence_col();
     ObjectPool obj_pool;
     DescriptorTbl* desc_tbl = nullptr;
-    DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
+    static_cast<void>(DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl));
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     OlapTableSchemaParam param;
 
@@ -196,17 +196,15 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
 
-    DeltaWriter* delta_writer = nullptr;
-
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    DeltaWriter::open(&write_req, &delta_writer, profile.get());
-    EXPECT_NE(delta_writer, nullptr);
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
@@ -276,7 +274,6 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
-    delete delta_writer;
 }
 
 } // namespace doris

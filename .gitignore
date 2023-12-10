@@ -1,4 +1,5 @@
 # ignore file with wildcard anywhere
+*.swo
 *.swp
 *.pyc
 *.class
@@ -20,6 +21,7 @@ dependency-reduced-pom.xml
 yarn.lock
 ut_dir
 package-lock.json
+__pycache__
 
 # ignore all sub `/bin` and `/build` directory
 **/build/
@@ -50,6 +52,8 @@ metastore_db/
 thirdparty/src*
 thirdparty/installed*
 thirdparty/doris-thirdparty*.tar.xz
+
+docker/thirdparties/docker-compose/mysql/data
 
 fe_plugins/output
 fe_plugins/**/.factorypath
@@ -93,6 +97,7 @@ be/tags
 be/test/olap/test_data/tablet_meta_test.hdr
 be/.devcontainer/
 be/src/apache-orc/
+zoneinfo/
 
 ## tools
 tools/ssb-tools/ssb-data/
@@ -102,10 +107,13 @@ tools/**/TPC-H_Tools_v*/
 tools/**/tpc-h_v*.docx
 tools/**/tpc-h_v*.pdf
 tools/**/tpch-data/
+tools/tpch-tools/bin/result
 tools/single-node-cluster/fe*
 tools/tpcds-tools/TPC-DS_Tools_*.zip
 tools/tpcds-tools/bin/DSGen-software*
 tools/tpcds-tools/bin/tpcds-data/
+tools/tpcds-tools/bin/result
+tools/**/result.csv
 
 # be-ut
 data_test
@@ -114,3 +122,6 @@ lru_cache_test
 /conf/log4j2-spring.xml
 /fe/fe-core/src/test/resources/real-help-resource.zip
 /ui/dist
+
+# other
+compile_commands.json

@@ -19,6 +19,7 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.SetUserPropertyVar;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
@@ -537,6 +538,8 @@ public class UserProperty implements Writable {
 
     public void readFields(DataInput in) throws IOException {
         qualifiedUser = Text.readString(in);
+        // should be removed after version 3.0
+        qualifiedUser = ClusterNamespace.getNameFromFullName(qualifiedUser);
 
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_100) {
             long maxConn = in.readLong();

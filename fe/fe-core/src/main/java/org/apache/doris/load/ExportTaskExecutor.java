@@ -144,8 +144,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
                 exportJob.updateExportJobState(ExportJobState.CANCELLED, taskId, null,
                         ExportFailMsg.CancelType.RUN_FAIL, e.getMessage());
                 throw new JobException(e);
-            } finally {
-                stmtExecutor.addProfileToSpan();
             }
         }
         if (isCanceled.get()) {
@@ -168,6 +166,7 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
 
     private AutoCloseConnectContext buildConnectContext() {
         ConnectContext connectContext = new ConnectContext();
+        exportJob.getSessionVariables().setQueryTimeoutS(exportJob.getTimeoutSecond());
         connectContext.setSessionVariable(exportJob.getSessionVariables());
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(exportJob.getTableName().getDb());

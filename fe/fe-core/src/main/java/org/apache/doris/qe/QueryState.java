@@ -25,6 +25,7 @@ import org.apache.doris.mysql.MysqlPacket;
 
 // query state used to record state of query, maybe query status is better
 public class QueryState {
+    // Reused by arrow flight protocol
     public enum MysqlStateType {
         NOOP,   // send nothing to remote
         OK,     // send OK packet to remote

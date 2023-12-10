@@ -19,11 +19,13 @@
 
 #include <stdint.h>
 
+#include <cstdint>
 #include <string>
 
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
+#include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
@@ -55,11 +57,55 @@ public:
     Status try_close(RuntimeState* state) override;
 };
 
+class ScanDependency final : public Dependency {
+public:
+    ENABLE_FACTORY_CREATOR(ScanDependency);
+    ScanDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ScanDependency", query_ctx), _scanner_ctx(nullptr) {}
+
+    void block() override {
+        if (_scanner_done) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_scanner_done) {
+            return;
+        }
+        Dependency::block();
+    }
+
+    void set_scanner_done() {
+        if (_scanner_done) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_scanner_done) {
+            return;
+        }
+        _scanner_done = true;
+        Dependency::set_ready();
+    }
+
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "{}, _scanner_done = {}",
+                       Dependency::debug_string(indentation_level), _scanner_done);
+        return fmt::to_string(debug_string_buffer);
+    }
+
+    void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
+
+private:
+    vectorized::ScannerContext* _scanner_ctx = nullptr;
+    bool _scanner_done {false};
+    std::mutex _always_done_lock;
+};
+
 class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
             : PipelineXLocalState<>(state, parent),
-              vectorized::RuntimeFilterConsumer(parent->id(), parent->runtime_filter_descs(),
+              vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
 
@@ -76,10 +122,13 @@ public:
 
     [[nodiscard]] virtual int runtime_filter_num() const = 0;
 
-    Status virtual clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) = 0;
+    virtual Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) = 0;
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) = 0;
 
     virtual TPushAggOp::type get_push_down_agg_type() = 0;
+
+    virtual int64_t get_push_down_count() = 0;
 
     [[nodiscard]] std::string get_name() { return _parent->get_name(); }
 
@@ -88,6 +137,9 @@ protected:
     friend class vectorized::VScanner;
 
     virtual Status _init_profile() = 0;
+
+    std::atomic<bool> _opened {false};
+    std::shared_ptr<ScanDependency> _scan_dependency;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeProfile::Counter* _scanner_sched_counter = nullptr;
@@ -108,15 +160,20 @@ protected:
     RuntimeProfile::Counter* _convert_block_timer = nullptr;
     // time of filter output block from scanner
     RuntimeProfile::Counter* _filter_timer = nullptr;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _queued_blocks_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _free_blocks_memory_usage = nullptr;
     // rows read from the scanner (including those discarded by (pre)filters)
-    RuntimeProfile::Counter* _rows_read_counter;
+    RuntimeProfile::Counter* _rows_read_counter = nullptr;
 
     // Wall based aggregate read throughput [rows/sec]
-    RuntimeProfile::Counter* _total_throughput_counter;
-    RuntimeProfile::Counter* _num_scanners;
+    RuntimeProfile::Counter* _total_throughput_counter = nullptr;
+    RuntimeProfile::Counter* _num_scanners = nullptr;
+
+    RuntimeProfile::Counter* _wait_for_data_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_scanner_done_timer = nullptr;
+    // time of prefilter input block from scanner
+    RuntimeProfile::Counter* _wait_for_eos_timer = nullptr;
 };
 
 template <typename LocalStateType>
@@ -125,11 +182,12 @@ template <typename Derived>
 class ScanLocalState : public ScanLocalStateBase {
     ENABLE_FACTORY_CREATOR(ScanLocalState);
     ScanLocalState(RuntimeState* state, OperatorXBase* parent);
-    virtual ~ScanLocalState() = default;
+    ~ScanLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
+    std::string debug_string(int indentation_level) const override;
 
     bool ready_to_read() override;
 
@@ -147,9 +205,14 @@ class ScanLocalState : public ScanLocalStateBase {
     }
 
     Status clone_conjunct_ctxs(vectorized::VExprContextSPtrs& conjuncts) override;
-    virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override {}
+    virtual void set_scan_ranges(RuntimeState* state,
+                                 const std::vector<TScanRangeParams>& scan_ranges) override {}
 
     TPushAggOp::type get_push_down_agg_type() override;
+
+    int64_t get_push_down_count() override;
+
+    Dependency* dependency() override { return _scan_dependency.get(); }
 
 protected:
     template <typename LocalStateType>
@@ -164,7 +227,7 @@ protected:
     }
     virtual bool _should_push_down_common_expr() { return false; }
 
-    virtual bool _storage_no_merge() { return true; }
+    virtual bool _storage_no_merge() { return false; }
     virtual bool _is_key_column(const std::string& col_name) { return false; }
     virtual vectorized::VScanNode::PushDownType _should_push_down_bloom_filter() {
         return vectorized::VScanNode::PushDownType::UNACCEPTABLE;
@@ -282,26 +345,36 @@ protected:
                                const ChangeFixedValueRangeFunc& func, const std::string& fn_name,
                                int slot_ref_child = -1);
 
-    Status _prepare_scanners(const int query_parallel_instance_num);
+    Status _prepare_scanners();
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners,
-                           const int query_parallel_instance_num);
+    Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners);
+
+    // For some conjunct there is chance to elimate cast operator
+    // Eg. Variant's sub column could eliminate cast in storage layer if
+    // cast dst column type equals storage column type
+    void get_cast_types_for_variants();
+    void _filter_and_collect_cast_type_for_variant(
+            const vectorized::VExpr* expr,
+            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
     vectorized::VExprContextSPtrs _stale_expr_ctxs;
     vectorized::VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx;
-
-    // indicate this scan node has no more data to return
-    bool _eos = false;
+    std::shared_ptr<vectorized::ScannerContext> _scanner_ctx = nullptr;
 
     vectorized::FilterPredicates _filter_predicates {};
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
+
+    // colname -> cast dst type
+    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+
+    // slot id -> SlotDescriptor
+    phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;
 
     // slot id -> ColumnValueRange
     // Parsed from conjuncts
@@ -332,32 +405,22 @@ protected:
     // "_colname_to_value_range" and in "_not_in_value_ranges"
     std::vector<ColumnValueRangeType> _not_in_value_ranges;
 
-    RuntimeProfile::Counter* _get_next_timer = nullptr;
-    RuntimeProfile::Counter* _open_timer = nullptr;
-    RuntimeProfile::Counter* _alloc_resource_timer = nullptr;
-    RuntimeProfile::Counter* _acquire_runtime_filter_timer = nullptr;
+    std::atomic<bool> _eos = false;
 
-    doris::Mutex _block_lock;
-
-    std::atomic<bool> _opened = false;
+    std::mutex _block_lock;
 };
 
 template <typename LocalStateType>
 class ScanOperatorX : public OperatorX<LocalStateType> {
 public:
-    bool runtime_filters_are_ready_or_timeout(RuntimeState* state) const override;
-
     Status try_close(RuntimeState* state) override;
-
-    bool can_read(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override { return OperatorXBase::prepare(state); }
     Status open(RuntimeState* state) override;
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
-    bool is_source() const override { return true; }
+    [[nodiscard]] bool is_source() const override { return true; }
 
     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs() override {
         return _runtime_filter_descs;
@@ -365,10 +428,22 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
+    bool need_to_local_shuffle() const override {
+        // If _col_distribute_ids is not empty, we prefer to not do local shuffle.
+        return _col_distribute_ids.empty();
+    }
+
+    bool is_bucket_shuffle_scan() const override { return !_col_distribute_ids.empty(); }
+
+    int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;
+    using OperatorX<LocalStateType>::operator_id;
+    using OperatorX<LocalStateType>::get_local_state;
 
 protected:
-    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    using LocalState = LocalStateType;
+    ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                  const DescriptorTbl& descs);
     virtual ~ScanOperatorX() = default;
     template <typename Derived>
     friend class ScanLocalState;
@@ -401,6 +476,9 @@ protected:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;
+
+    // Record the value of the aggregate function 'count' from doris's be
+    int64_t _push_down_count = -1;
 };
 
 } // namespace doris::pipeline

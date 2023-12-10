@@ -74,6 +74,9 @@ enum TExprNodeType {
   LAMBDA_FUNCTION_CALL_EXPR,
   // for column_ref expr
   COLUMN_REF,
+
+  IPV4_LITERAL,
+  IPV6_LITERAL
 }
 
 //enum TAggregationOp {
@@ -124,6 +127,14 @@ struct TIntLiteral {
 }
 
 struct TLargeIntLiteral {
+  1: required string value
+}
+
+struct TIPv4Literal {
+  1: required i64 value
+}
+
+struct TIPv6Literal {
   1: required string value
 }
 
@@ -242,6 +253,8 @@ struct TExprNode {
 
   32: optional TColumnRef column_ref 
   33: optional TMatchPredicate match_predicate
+  34: optional TIPv4Literal ipv4_literal
+  35: optional TIPv6Literal ipv6_literal
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

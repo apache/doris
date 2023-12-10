@@ -24,13 +24,14 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.S3Util;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
@@ -61,8 +62,8 @@ import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.Snapshot;
+import org.apache.iceberg.StructLike;
 import org.apache.iceberg.Table;
-import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
@@ -85,7 +86,6 @@ import java.util.stream.Collectors;
 public class IcebergScanNode extends FileQueryScanNode {
 
     public static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
-    public static final String DEFAULT_DATA_PATH = "/data/";
     private static final String TOTAL_RECORDS = "total-records";
     private static final String TOTAL_POSITION_DELETES = "total-position-deletes";
     private static final String TOTAL_EQUALITY_DELETES = "total-equality-deletes";
@@ -141,7 +141,9 @@ public class IcebergScanNode extends FileQueryScanNode {
             for (IcebergDeleteFileFilter filter : icebergSplit.getDeleteFileFilters()) {
                 TIcebergDeleteFileDesc deleteFileDesc = new TIcebergDeleteFileDesc();
                 String deleteFilePath = filter.getDeleteFilePath();
-                deleteFileDesc.setPath(S3Util.toScanRangeLocation(deleteFilePath, icebergSplit.getConfig()).toString());
+                LocationPath locationPath = new LocationPath(deleteFilePath, icebergSplit.getConfig());
+                Path splitDeletePath = locationPath.toScanRangeLocation();
+                deleteFileDesc.setPath(splitDeletePath.toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     fileDesc.setContent(FileContent.POSITION_DELETES.id());
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
@@ -169,6 +171,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public List<Split> getSplits() throws UserException {
+        return HiveMetaStoreClientHelper.ugiDoAs(source.getCatalog().getConfiguration(), this::doGetSplits);
+    }
+
+    private List<Split> doGetSplits() throws UserException {
 
         TableScan scan = icebergTable.newScan();
 
@@ -196,8 +202,6 @@ public class IcebergScanNode extends FileQueryScanNode {
         // Min split size is DEFAULT_SPLIT_SIZE(128MB).
         long splitSize = Math.max(ConnectContext.get().getSessionVariable().getFileSplitSize(), DEFAULT_SPLIT_SIZE);
         HashSet<String> partitionPathSet = new HashSet<>();
-        String dataPath = normalizeLocation(icebergTable.location()) + icebergTable.properties()
-                .getOrDefault(TableProperties.WRITE_DATA_LOCATION, DEFAULT_DATA_PATH);
         boolean isPartitionedTable = icebergTable.spec().isPartitioned();
 
         CloseableIterable<FileScanTask> fileScanTasks = TableScanUtil.splitFiles(scan.planFiles(), splitSize);
@@ -206,15 +210,21 @@ public class IcebergScanNode extends FileQueryScanNode {
             combinedScanTasks.forEach(taskGrp -> taskGrp.files().forEach(splitTask -> {
                 String dataFilePath = normalizeLocation(splitTask.file().path().toString());
 
-                // Counts the number of partitions read
+                List<String> partitionValues = new ArrayList<>();
                 if (isPartitionedTable) {
-                    int last = dataFilePath.lastIndexOf("/");
-                    if (last > 0) {
-                        partitionPathSet.add(dataFilePath.substring(dataPath.length(), last));
-                    }
-                }
+                    StructLike structLike = splitTask.file().partition();
 
-                Path finalDataFilePath = S3Util.toScanRangeLocation(dataFilePath, source.getCatalog().getProperties());
+                    // set partitionValue for this IcebergSplit
+                    for (int i = 0; i < structLike.size(); i++) {
+                        String partition = String.valueOf(structLike.get(i, Object.class));
+                        partitionValues.add(partition);
+                    }
+
+                    // Counts the number of partitions read
+                    partitionPathSet.add(structLike.toString());
+                }
+                LocationPath locationPath = new LocationPath(dataFilePath, source.getCatalog().getProperties());
+                Path finalDataFilePath = locationPath.toScanRangeLocation();
                 IcebergSplit split = new IcebergSplit(
                         finalDataFilePath,
                         splitTask.start(),
@@ -222,7 +232,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                         splitTask.file().fileSizeInBytes(),
                         new String[0],
                         formatVersion,
-                        source.getCatalog().getProperties());
+                        source.getCatalog().getProperties(),
+                        partitionValues);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
                     split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
@@ -314,7 +325,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     @Override
     public TFileType getLocationType(String location) throws UserException {
         final String fLocation = normalizeLocation(location);
-        return getTFileType(fLocation).orElseThrow(() ->
+        return Optional.ofNullable(LocationPath.getTFileType(location)).orElseThrow(() ->
                 new DdlException("Unknown file location " + fLocation + " for iceberg table " + icebergTable.name()));
     }
 

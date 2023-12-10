@@ -67,7 +67,7 @@ public class CooldownConfHandlerTest extends TestWithFeService {
                 + "properties(\"replication_num\" = \"1\");");
         // create user
         UserIdentity user = new UserIdentity("test_cooldown", "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         CreateUserStmt createUserStmt = new CreateUserStmt(new UserDesc(user));
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
         List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));

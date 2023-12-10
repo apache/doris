@@ -25,6 +25,7 @@
 
 namespace doris {
 class DataSink;
+class PipBufferControlBlock;
 
 namespace pipeline {
 
@@ -42,6 +43,14 @@ public:
     bool can_write() override;
 };
 
+class ResultSinkDependency final : public Dependency {
+public:
+    ENABLE_FACTORY_CREATOR(ResultSinkDependency);
+    ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
+    ~ResultSinkDependency() override = default;
+};
+
 class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
 
@@ -51,7 +60,10 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
-    Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
+    Dependency* dependency() override { return _result_sink_dependency.get(); }
+    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
+    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
 private:
     friend class ResultSinkOperatorX;
@@ -60,19 +72,20 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
+    std::shared_ptr<ResultSinkDependency> _result_sink_dependency;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
 public:
-    ResultSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& select_exprs,
-                        const TResultSink& sink);
+    ResultSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                        const std::vector<TExpr>& select_exprs, const TResultSink& sink);
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    bool can_write(RuntimeState* state) override;
 
 private:
     friend class ResultSinkLocalState;
@@ -80,7 +93,7 @@ private:
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<vectorized::ResultFileOptions> _file_opts = nullptr;
 
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;

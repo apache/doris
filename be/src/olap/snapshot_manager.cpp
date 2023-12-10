@@ -124,27 +124,23 @@ Status SnapshotManager::release_snapshot(const string& snapshot_path) {
                                               snapshot_path);
 }
 
-Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t tablet_id,
-                                           int64_t replica_id, const int32_t& schema_hash) {
+Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
+        const std::string& clone_dir, int64_t tablet_id, int64_t replica_id, int64_t partition_id,
+        int32_t schema_hash) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-    Status res = Status::OK();
+    std::vector<PendingRowsetGuard> guards;
     // check clone dir existed
     bool exists = true;
-    RETURN_IF_ERROR(io::global_local_filesystem()->exists(clone_dir, &exists));
+    RETURN_IF_ERROR_RESULT(io::global_local_filesystem()->exists(clone_dir, &exists));
     if (!exists) {
-        res = Status::Error<DIR_NOT_EXIST>(
-                "clone dir not existed when convert rowsetids. clone_dir={}", clone_dir);
-        return res;
+        return unexpected(Status::Error<DIR_NOT_EXIST>(
+                "clone dir not existed when convert rowsetids. clone_dir={}", clone_dir));
     }
 
     // load original tablet meta
     auto cloned_meta_file = fmt::format("{}/{}.hdr", clone_dir, tablet_id);
     TabletMeta cloned_tablet_meta;
-    if ((res = cloned_tablet_meta.create_from_file(cloned_meta_file)) != Status::OK()) {
-        LOG(WARNING) << "fail to load original tablet meta after clone. "
-                     << ", cloned_meta_file=" << cloned_meta_file;
-        return res;
-    }
+    RETURN_IF_ERROR_RESULT(cloned_tablet_meta.create_from_file(cloned_meta_file));
     TabletMetaPB cloned_tablet_meta_pb;
     cloned_tablet_meta.to_meta_pb(&cloned_tablet_meta_pb);
 
@@ -160,6 +156,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     new_tablet_meta_pb.set_tablet_id(tablet_id);
     *new_tablet_meta_pb.mutable_tablet_uid() = TabletUid::gen_uid().to_proto();
     new_tablet_meta_pb.set_replica_id(replica_id);
+    if (partition_id != -1) {
+        new_tablet_meta_pb.set_partition_id(partition_id);
+    }
     new_tablet_meta_pb.set_schema_hash(schema_hash);
     TabletSchemaSPtr tablet_schema;
     tablet_schema =
@@ -167,14 +166,16 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
 
     std::unordered_map<Version, RowsetMetaPB*, HashOfVersion> rs_version_map;
     std::unordered_map<RowsetId, RowsetId, HashOfRowsetId> rowset_id_mapping;
-    for (auto& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
+    guards.reserve(cloned_tablet_meta_pb.rs_metas_size() +
+                   cloned_tablet_meta_pb.stale_rs_metas_size());
+    for (auto&& visible_rowset : cloned_tablet_meta_pb.rs_metas()) {
         RowsetMetaPB* rowset_meta = new_tablet_meta_pb.add_rs_metas();
-
         if (!visible_rowset.has_resource_id()) {
             // src be local rowset
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
-            RETURN_IF_ERROR(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema, rowset_id,
-                                              rowset_meta));
+            guards.push_back(StorageEngine::instance()->pending_local_rowsets().add(rowset_id));
+            RETURN_IF_ERROR_RESULT(_rename_rowset_id(visible_rowset, clone_dir, tablet_schema,
+                                                     rowset_id, rowset_meta));
             RowsetId src_rs_id;
             if (visible_rowset.rowset_id() > 0) {
                 src_rs_id.init(visible_rowset.rowset_id());
@@ -190,7 +191,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         rs_version_map[rowset_version] = rowset_meta;
     }
 
-    for (auto& stale_rowset : cloned_tablet_meta_pb.stale_rs_metas()) {
+    for (auto&& stale_rowset : cloned_tablet_meta_pb.stale_rs_metas()) {
         Version rowset_version = {stale_rowset.start_version(), stale_rowset.end_version()};
         auto exist_rs = rs_version_map.find(rowset_version);
         if (exist_rs != rs_version_map.end()) {
@@ -201,8 +202,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         if (!stale_rowset.has_resource_id()) {
             // src be local rowset
             RowsetId rowset_id = StorageEngine::instance()->next_rowset_id();
-            RETURN_IF_ERROR(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema, rowset_id,
-                                              rowset_meta));
+            guards.push_back(StorageEngine::instance()->pending_local_rowsets().add(rowset_id));
+            RETURN_IF_ERROR_RESULT(_rename_rowset_id(stale_rowset, clone_dir, tablet_schema,
+                                                     rowset_id, rowset_meta));
             RowsetId src_rs_id;
             if (stale_rowset.rowset_id() > 0) {
                 src_rs_id.init(stale_rowset.rowset_id());
@@ -217,7 +219,7 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
     }
 
     if (!rowset_id_mapping.empty() && cloned_tablet_meta_pb.has_delete_bitmap()) {
-        auto& cloned_del_bitmap_pb = cloned_tablet_meta_pb.delete_bitmap();
+        const auto& cloned_del_bitmap_pb = cloned_tablet_meta_pb.delete_bitmap();
         DeleteBitmapPB* new_del_bitmap_pb = new_tablet_meta_pb.mutable_delete_bitmap();
         int rst_ids_size = cloned_del_bitmap_pb.rowset_ids_size();
         for (size_t i = 0; i < rst_ids_size; ++i) {
@@ -231,13 +233,9 @@ Status SnapshotManager::convert_rowset_ids(const std::string& clone_dir, int64_t
         }
     }
 
-    res = TabletMeta::save(cloned_meta_file, new_tablet_meta_pb);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to save converted tablet meta to dir='" << clone_dir;
-        return res;
-    }
+    RETURN_IF_ERROR_RESULT(TabletMeta::save(cloned_meta_file, new_tablet_meta_pb));
 
-    return Status::OK();
+    return guards;
 }
 
 Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
@@ -279,13 +277,12 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
                      << " id = " << org_rowset->rowset_id() << " to rowset " << rowset_id;
         return res;
     }
-    RowsetSharedPtr new_rowset = rs_writer->build();
-    if (new_rowset == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("failed to build rowset when rename rowset id");
-    }
+    RowsetSharedPtr new_rowset;
+    RETURN_NOT_OK_STATUS_WITH_WARN(rs_writer->build(new_rowset),
+                                   "failed to build rowset when rename rowset id");
     RETURN_IF_ERROR(new_rowset->load(false));
     new_rowset->rowset_meta()->to_rowset_pb(new_rs_meta_pb);
-    org_rowset->remove();
+    RETURN_IF_ERROR(org_rowset->remove());
     return Status::OK();
 }
 
@@ -488,7 +485,7 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 const RowsetSharedPtr last_version = ref_tablet->rowset_with_max_version();
                 if (last_version == nullptr) {
                     res = Status::InternalError("tablet has not any version. path={}",
-                                                ref_tablet->full_name());
+                                                ref_tablet->tablet_id());
                     break;
                 }
                 // get snapshot version, use request.version if specified

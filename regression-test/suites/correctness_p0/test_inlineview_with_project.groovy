@@ -382,4 +382,142 @@ suite("test_inlineview_with_project") {
     sql """
         drop table if exists cir2824_table;
     """
+
+    sql """
+        drop table if exists dws_mf_wms_t1;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_t2;
+    """
+
+    sql """
+        drop table if exists dws_mf_wms_t3;
+    """
+
+    sql """
+        CREATE TABLE `dws_mf_wms_t1` (
+        `id` varchar(20) NOT NULL COMMENT '',
+        `final_weight` double NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`id`)
+        COMMENT ''
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        CREATE TABLE `dws_mf_wms_t2` (
+        `plate_id` varchar(32) NULL COMMENT '',
+        `entry_time` datetime NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`plate_id`)
+        COMMENT ''
+        DISTRIBUTED BY HASH(`plate_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        CREATE TABLE `dws_mf_wms_t3` (
+        `material_id` varchar(50) NULL,
+        `out_time` datetime NULL COMMENT ''
+        ) ENGINE=OLAP
+        UNIQUE KEY(`material_id`)
+        COMMENT ' '
+        DISTRIBUTED BY HASH(`material_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into dws_mf_wms_t1 values( '1', 1.0);"""
+    sql """insert into dws_mf_wms_t2 values( '1', '2020-02-02 22:22:22');"""
+    sql """insert into dws_mf_wms_t3 values( '1', '2020-02-02 22:22:22');"""
+
+    qt_select4 """select cur_final_weight from (
+                    SELECT
+                        round(`t1`.`final_weight` / 1000 , 2) AS `cur_final_weight`,
+                        coalesce(`t5`.`avg_inv_hours`, 0) AS `avg_inv_hours`,
+                        coalesce(`t5`.`max_inv_hours`, 0) AS `max_inv_hours`
+                    FROM
+                        `dws_mf_wms_t1` t1
+                    LEFT OUTER JOIN (
+                        SELECT
+                            round(avg(timestampdiff(SECOND, `t1`.`entry_time`, `t2`.`out_time`)) / 3600.0, 1) AS `avg_inv_hours`,
+                            round(max(timestampdiff(SECOND, `t1`.`entry_time`, `t2`.`out_time`)) / 3600.0, 1) AS `max_inv_hours`
+                        FROM
+                            `dws_mf_wms_t2` t1
+                        LEFT OUTER JOIN `dws_mf_wms_t3` t2 ON
+                            `t1`.`plate_id` = `t2`.`material_id`) t5 ON
+                        1 = 1
+                        )res;"""
+
+    sql """DROP TABLE IF EXISTS `dr_user_test_t1`;"""
+    sql """CREATE TABLE `dr_user_test_t1` (
+            `caseId` varchar(500) NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`caseId`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`caseId`) BUCKETS 16
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+    sql """DROP TABLE IF EXISTS `dr_user_test_t2`;"""
+    sql """CREATE TABLE `dr_user_test_t2` (
+            `id` varchar(500) NULL COMMENT 'id',
+            `caseId` varchar(500) NULL,
+            `content` text NULL,
+            `timestamp` datetime NULL
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`id`) BUCKETS 16
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+            );"""
+
+    sql """insert into dr_user_test_t1 values('1'),('2'),('3');"""
+    sql """insert into dr_user_test_t2 values('1','1','1','2020-02-02 22:22:22'), ('2','2','2','2020-02-02 22:22:22'), ('3','3','3','2020-02-02 22:22:22');"""
+
+    qt_select5 """
+    SELECT COUNT(*)
+        FROM (WITH test_01 AS 
+            (SELECT caseId,
+                count(judgementDate_labelObject)
+            FROM 
+                (SELECT CASE_COLUMN_TABLE.caseId AS caseId ,
+                `judgementDate_labelObject`
+                FROM 
+                    (SELECT CASE_ID_TABLE.caseId ,
+                JSON_OBJECT('id', `judgementDate_TABLE`.`judgementDateId`, 'content', `judgementDate_TABLE`.`judgementDate`) AS `judgementDate_labelObject`
+                    FROM 
+                        (SELECT DISTINCT caseId
+                        FROM dr_user_test_t1) CASE_ID_TABLE
+                        LEFT JOIN 
+                            (SELECT caseId,
+                id AS `judgementDateId`,
+                (CASE
+                                WHEN `timestamp` IS NOT NULL THEN
+                                to_date(`timestamp`)
+                                ELSE content END) AS `judgementDate`
+                            FROM dr_user_test_t2) `judgementDate_TABLE`
+                                ON CASE_ID_TABLE.caseId = `judgementDate_TABLE`.caseId
+                            LEFT JOIN 
+                                (SELECT caseId,
+                id AS `xx`,
+                content AS `xxx`
+                                FROM dr_user_test_t2) `xxxx`
+                                    ON CASE_ID_TABLE.caseId = `xxxx`.caseId) CASE_COLUMN_TABLE) AGG_RESULT
+                                GROUP BY  caseId)
+                                SELECT caseId
+                                FROM test_01 ) TOTAL;
+    """
+
+    sql """DROP TABLE IF EXISTS `dr_user_test_t1`;"""
+    sql """DROP TABLE IF EXISTS `dr_user_test_t2`;"""
 }

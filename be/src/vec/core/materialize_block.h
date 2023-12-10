@@ -26,7 +26,6 @@ namespace doris::vectorized {
 
 /** Converts columns-constants to full columns ("materializes" them).
   */
-Block materialize_block(const Block& block);
 void materialize_block_inplace(Block& block);
 
 template <typename Iterator>

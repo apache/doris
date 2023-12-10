@@ -27,9 +27,9 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
-#include "runtime/datetime_value.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "runtime/runtime_predicate.h"
 #include "task_group/task_group.h"
@@ -40,10 +40,17 @@
 #include "vec/runtime/shared_scanner_controller.h"
 
 namespace doris {
+
+namespace pipeline {
+class PipelineFragmentContext;
+} // namespace pipeline
+
 struct ReportStatusRequest {
-    const Status& status;
-    RuntimeProfile* profile;
-    RuntimeProfile* load_channel_profile;
+    bool is_pipeline_x;
+    const Status status;
+    std::vector<RuntimeState*> runtime_states;
+    RuntimeProfile* profile = nullptr;
+    RuntimeProfile* load_channel_profile = nullptr;
     bool done;
     TNetworkAddress coord_addr;
     TUniqueId query_id;
@@ -53,6 +60,7 @@ struct ReportStatusRequest {
     RuntimeState* runtime_state;
     std::function<Status(Status)> update_fn;
     std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+    std::shared_ptr<QueryStatistics> query_statistics;
 };
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
@@ -63,43 +71,19 @@ class QueryContext {
 
 public:
     QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
-                 const TQueryOptions& query_options)
-            : fragment_num(total_fragment_num),
-              timeout_second(-1),
-              _query_id(query_id),
-              _exec_env(exec_env),
-              _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
-              _query_options(query_options) {
-        _start_time = vectorized::VecDateTimeValue::local_time();
-        _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
-        _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    }
+                 const TQueryOptions& query_options);
 
-    ~QueryContext() {
-        // query mem tracker consumption is equal to 0, it means that after QueryContext is created,
-        // it is found that query already exists in _query_ctx_map, and query mem tracker is not used.
-        // query mem tracker consumption is not equal to 0 after use, because there is memory consumed
-        // on query mem tracker, released on other trackers.
-        if (query_mem_tracker->peak_consumption() != 0) {
-            LOG(INFO) << fmt::format(
-                    "Deregister query/load memory tracker, queryId={}, Limit={}, CurrUsed={}, "
-                    "PeakUsed={}",
-                    print_id(_query_id), MemTracker::print_bytes(query_mem_tracker->limit()),
-                    MemTracker::print_bytes(query_mem_tracker->consumption()),
-                    MemTracker::print_bytes(query_mem_tracker->peak_consumption()));
-        }
-        if (_task_group) {
-            _task_group->remove_mem_tracker_limiter(query_mem_tracker);
-        }
-    }
+    ~QueryContext();
 
     // Notice. For load fragments, the fragment_num sent by FE has a small probability of 0.
     // this may be a bug, bug <= 1 in theory it shouldn't cause any problems at this stage.
-    bool countdown(int instance_num) { return fragment_num.fetch_sub(instance_num) <= 1; }
+    bool countdown(int instance_num) {
+        return fragment_num.fetch_sub(instance_num) <= instance_num;
+    }
 
     ExecEnv* exec_env() { return _exec_env; }
 
-    bool is_timeout(const vectorized::VecDateTimeValue& now) const {
+    bool is_timeout(const VecDateTimeValue& now) const {
         if (timeout_second <= 0) {
             return false;
         }
@@ -118,29 +102,10 @@ public:
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
 
-    void set_ready_to_execute(bool is_cancelled) {
-        {
-            std::lock_guard<std::mutex> l(_start_lock);
-            _is_cancelled = is_cancelled;
-            _ready_to_execute = true;
-        }
-        if (query_mem_tracker && is_cancelled) {
-            query_mem_tracker->set_is_query_cancelled(is_cancelled);
-        }
-        _start_cond.notify_all();
-    }
+    void set_ready_to_execute(bool is_cancelled);
 
     [[nodiscard]] bool is_cancelled() const { return _is_cancelled.load(); }
-    bool cancel(bool v, std::string msg, Status new_status) {
-        if (_is_cancelled) {
-            return false;
-        }
-        _is_cancelled.store(v);
-
-        set_ready_to_execute(true);
-        set_exec_status(new_status);
-        return true;
-    }
+    bool cancel(bool v, std::string msg, Status new_status, int fragment_id = -1);
 
     void set_exec_status(Status new_status) {
         if (new_status.ok()) {
@@ -158,13 +123,7 @@ public:
         return _exec_status;
     }
 
-    void set_ready_to_execute_only() {
-        {
-            std::lock_guard<std::mutex> l(_start_lock);
-            _ready_to_execute = true;
-        }
-        _start_cond.notify_all();
-    }
+    void set_ready_to_execute_only();
 
     bool is_ready_to_execute() {
         std::lock_guard<std::mutex> l(_start_lock);
@@ -203,6 +162,11 @@ public:
         return _query_options.runtime_filter_wait_time_ms;
     }
 
+    bool runtime_filter_wait_infinitely() const {
+        return _query_options.__isset.runtime_filter_wait_infinitely &&
+               _query_options.runtime_filter_wait_infinitely;
+    }
+
     bool enable_pipeline_exec() const {
         return _query_options.__isset.enable_pipeline_engine &&
                _query_options.enable_pipeline_engine;
@@ -221,8 +185,22 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
+    void set_task_scheduler(pipeline::TaskScheduler* task_scheduler) {
+        _task_scheduler = task_scheduler;
+    }
+
+    pipeline::TaskScheduler* get_task_scheduler() { return _task_scheduler; }
+
+    void set_scan_task_scheduler(vectorized::SimplifiedScanScheduler* scan_task_scheduler) {
+        _scan_task_scheduler = scan_task_scheduler;
+    }
+
+    vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
+
+    pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+
 public:
-    DescriptorTbl* desc_tbl;
+    DescriptorTbl* desc_tbl = nullptr;
     bool set_rsc_info = false;
     std::string user;
     std::string group;
@@ -242,16 +220,20 @@ public:
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
-    std::vector<TUniqueId> fragment_ids;
+    std::vector<TUniqueId> fragment_instance_ids;
+    std::map<int, std::shared_ptr<pipeline::PipelineFragmentContext>> fragment_id_to_pipeline_ctx;
+    std::mutex pipeline_lock;
 
     // plan node id -> TFileScanRangeParams
     // only for file scan node
     std::map<int, TFileScanRangeParams> file_scan_range_params_map;
 
+    std::atomic<bool> use_task_group_for_cpu_limit = false;
+
 private:
     TUniqueId _query_id;
-    ExecEnv* _exec_env;
-    vectorized::VecDateTimeValue _start_time;
+    ExecEnv* _exec_env = nullptr;
+    VecDateTimeValue _start_time;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -279,6 +261,10 @@ private:
     // All pipeline tasks use the same query context to report status. So we need a `_exec_status`
     // to report the real message if failed.
     Status _exec_status = Status::OK();
+
+    pipeline::TaskScheduler* _task_scheduler = nullptr;
+    vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
+    std::unique_ptr<pipeline::Dependency> _execution_dependency;
 };
 
 } // namespace doris

@@ -50,7 +50,8 @@ Status GroupCommitScanNode::prepare(RuntimeState* state) {
     return VScanNode::prepare(state);
 }
 
-void GroupCommitScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
+void GroupCommitScanNode::set_scan_ranges(RuntimeState* state,
+                                          const std::vector<TScanRangeParams>& scan_ranges) {}
 
 Status GroupCommitScanNode::_init_profile() {
     return VScanNode::_init_profile();

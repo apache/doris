@@ -93,6 +93,8 @@ public:
 
 #ifndef __APPLE__
     static void set_idle_sched();
+
+    static void set_thread_nice_value();
 #endif
 
     ~Thread();
@@ -277,7 +279,7 @@ private:
         kDefaultGiveUpAfterMs = -1 // forever
     };
 
-    Thread* _thread;
+    Thread* _thread = nullptr;
 
     int _warn_after_ms;
     int _warn_every_ms;

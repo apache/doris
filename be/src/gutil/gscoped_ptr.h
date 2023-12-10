@@ -283,7 +283,7 @@ private:
     struct Data : public D {
         explicit Data(T* ptr_in) : ptr(ptr_in) {}
         Data(T* ptr_in, D other) : D(std::move(other)), ptr(ptr_in) {}
-        T* ptr;
+        T* ptr = nullptr;
     };
 
     Data data_;
@@ -775,7 +775,7 @@ public:
     }
 
 private:
-    C* ptr_;
+    C* ptr_ = nullptr;
 
     // no reason to use these: each gscoped_ptr_malloc should have its own object
     template <class C2, class GP>

@@ -30,8 +30,20 @@ const std::string ROWID_COL = "__DORIS_ROWID_COL__";
 const std::string ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
 const std::string DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
 
+/// The maximum precision representable by a 4-byte decimal (Decimal4Value)
 constexpr int MAX_DECIMAL32_PRECISION = 9;
+/// The maximum precision representable by a 8-byte decimal (Decimal8Value)
 constexpr int MAX_DECIMAL64_PRECISION = 18;
+/// The maximum precision representable by a 16-byte decimal
 constexpr int MAX_DECIMAL128_PRECISION = 38;
+/// The maximum precision representable by a 32-byte decimal
+constexpr int MAX_DECIMAL256_PRECISION = 76;
+
+/// Must be kept in sync with FE's max precision/scale.
+static constexpr int MAX_DECIMALV2_PRECISION = MAX_DECIMAL128_PRECISION;
+static constexpr int MAX_DECIMALV2_SCALE = MAX_DECIMALV2_PRECISION;
+
+static constexpr int MAX_DECIMALV3_PRECISION = MAX_DECIMAL256_PRECISION;
+static constexpr int MAX_DECIMALV3_SCALE = MAX_DECIMALV3_PRECISION;
 } // namespace BeConsts
 } // namespace doris

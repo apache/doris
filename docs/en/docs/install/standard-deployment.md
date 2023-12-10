@@ -123,6 +123,7 @@ Doris instances communicate directly over the network. The following table shows
 | FE | http_port | 8030 | FE <--> FE, user <--> FE | HTTP server port on FE |
 | FE | rpc_port | 9020 | BE --> FE, FE <--> FE | Thrift server port on FE; The configurations of each FE should be consistent. |
 | FE | query_port | 9030 | user <--> FE | MySQL server port on FE |
+| FE | arrow_flight_sql_port | 9040 | user <--> FE | Arrow Flight SQL server port on FE |
 | FE | edit\_log_port | 9010 | FE <--> FE | Port on FE for BDBJE communication |
 | Broker | broker ipc_port | 8000 | FE --> Broker, BE --> Broker | Thrift server port on Broker for receiving requests |
 
@@ -284,6 +285,16 @@ Broker is deployed as a plug-in, which is independent of Doris. If you need to i
 * View Broker status
 
 	Connect any started FE using mysql-client and execute the following command to view Broker status: `SHOW PROC '/brokers';`
+
+#### FE and BE Startup Methods
+
+##### Version >= 2.0.2
+1. Start with start_xx.sh: This method logs the output to a file and does not exit the startup script process. It is recommended to use this method when using tools like Supervisor for automatic restarting.
+2. Start with start_xx.sh --daemon: FE/BE will run as a background process, and the log output will be written to the specified log file by default. This startup method is suitable for production environments.
+3. Start with start_xx.sh --console: This parameter is used to start FE/BE in console mode. When started with the --console parameter, the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal. This startup method is suitable for development and testing scenarios.
+##### Version < 2.0.2
+1. Start with start_xx.sh --daemon: FE/BE will run as a background process, and the log output will be written to the specified log file by default. This startup method is suitable for production environments.
+2. Start with start_xx.sh: This parameter is used to start FE/BE in console mode. When started with the --console parameter, the server will start in the current terminal session, and the log output and console interaction will be printed to that terminal. This startup method is suitable for development and testing scenarios.
 
 **Note: In production environments, daemons should be used to start all instances to ensure that processes are automatically pulled up after they exit, such as [Supervisor](http://supervisord.org/). For daemon startup, in Doris 0.9.0 and previous versions, you need to remove the last `&` symbol in the start_xx.sh scripts**. In Doris 0.10.0 and the subsequent versions, you may just call `sh start_xx.sh` directly to start.
 

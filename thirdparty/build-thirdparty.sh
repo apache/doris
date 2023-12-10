@@ -1591,39 +1591,6 @@ build_nlohmann_json() {
     "${BUILD_SYSTEM}" install
 }
 
-# opentelemetry
-build_opentelemetry() {
-    check_if_source_exist "${OPENTELEMETRY_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${OPENTELEMETRY_SOURCE}"
-
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
-    CXXFLAGS="-O2 -I${TP_INCLUDE_DIR}" \
-        LDFLAGS="-L${TP_LIB_DIR}" \
-        "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_PREFIX_PATH="${TP_INSTALL_DIR}" \
-        -DBUILD_TESTING=OFF \
-        -DWITH_OTLP_GRPC=ON \
-        -DBUILD_SHARED_LIBS=OFF \
-        -DWITH_OTLP_HTTP=ON \
-        -DWITH_ABSEIL=ON \
-        -DWITH_FUNC_TESTS=OFF \
-        -DWITH_ZIPKIN=ON \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
-        -DWITH_EXAMPLES=OFF ..
-
-    "${BUILD_SYSTEM}" -j "${PARALLEL}"
-    "${BUILD_SYSTEM}" install
-    strip_lib libopentelemetry_exporter_zipkin_trace.a
-    strip_lib libopentelemetry_trace.a
-    strip_lib libopentelemetry_proto.a
-    strip_lib libopentelemetry_resources.a
-    strip_lib libopentelemetry_exporter_ostream_span.a
-    strip_lib libopentelemetry_http_client_curl.a
-    strip_lib libopentelemetry_exporter_otlp_http_client.a
-}
-
 # sse2neon
 build_sse2neon() {
     check_if_source_exist "${SSE2NEON_SOURCE}"
@@ -1701,6 +1668,43 @@ build_hadoop_libs() {
     find ./hadoop-dist/target/hadoop-3.3.4/lib/native/ -type l -exec cp -P {} "${TP_INSTALL_DIR}/lib/hadoop_hdfs/native/" \;
 }
 
+# dragonbox
+build_dragonbox() {
+    check_if_source_exist "${DRAGONBOX_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${DRAGONBOX_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DDRAGONBOX_INSTALL_TO_CHARS=ON ..
+
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
+# AvxToNeon
+build_avx2neon() {
+    check_if_source_exist "${AVX2NEON_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${AVX2NEON_SOURCE}"
+    mkdir -p "${TP_INSTALL_DIR}/include/avx2neon/"
+    cp -r ./* "${TP_INSTALL_DIR}/include/avx2neon/"
+}
+
+# libdeflate
+build_libdeflate() {
+    check_if_source_exist "${LIBDEFLATE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${LIBDEFLATE_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         libunixodbc
@@ -1756,13 +1760,15 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         benchmark
         simdjson
         nlohmann_json
-        opentelemetry
         libbacktrace
         sse2neon
         xxhash
         concurrentqueue
         fast_float
         libunwind
+        dragonbox
+        avx2neon
+        libdeflate
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"

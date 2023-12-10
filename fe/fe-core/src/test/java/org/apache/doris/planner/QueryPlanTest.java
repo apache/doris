@@ -63,10 +63,11 @@ public class QueryPlanTest extends TestWithFeService {
     protected void runBeforeAll() throws Exception {
         // disable bucket shuffle join
         Deencapsulation.setField(connectContext.getSessionVariable(), "enableBucketShuffleJoin", false);
-
+        connectContext.getSessionVariable().setEnableRuntimeFilterPrune(false);
         // create database
         createDatabase("test");
         connectContext.getSessionVariable().setEnableNereidsPlanner(false);
+        Config.enable_odbc_mysql_broker_table = true;
 
         createTable("create table test.test1\n"
                 + "(\n"
@@ -492,7 +493,7 @@ public class QueryPlanTest extends TestWithFeService {
 
         assertSQLPlanOrErrorMsgContains(
                 "select count(*) from test.bitmap_table where id2 = 1;",
-                "Bitmap type dose not support operand: `id2` = 1"
+                "Unsupported bitmap type in expression: `id2` = 1"
         );
 
     }
@@ -564,20 +565,20 @@ public class QueryPlanTest extends TestWithFeService {
         // disable cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.hll_table;",
-                "Invalid type cast of `id2` from HLL to VARCHAR(*)"
+                "Invalid type cast of `id2` from HLL to VARCHAR(65533)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select cast(id2 as varchar) from test.bitmap_table;",
-                "Invalid type cast of `id2` from BITMAP to VARCHAR(*)"
+                "Invalid type cast of `id2` from BITMAP to VARCHAR(65533)"
         );
         // disable implicit cast hll/bitmap to string
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.hll_table;",
-                "No matching function with signature: length(hll)"
+                "No matching function with signature: length(HLL)"
         );
         assertSQLPlanOrErrorMsgContains(
                 "select length(id2) from test.bitmap_table;",
-                "No matching function with signature: length(bitmap)"
+                "No matching function with signature: length(BITMAP)"
         );
     }
 
@@ -731,7 +732,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         String explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 12> <slot 0> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         /*
@@ -818,7 +819,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "left anti join join2 on join1.id = join2.id\n"
                 + "and join1.id > 1;";
         explainString = getSQLPlanOrErrorMsg("explain " + sql);
-        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> > 1"));
+        Assert.assertTrue(explainString.contains("other join predicates: <slot 7> <slot 0> > 1"));
         Assert.assertFalse(explainString.contains("PREDICATES: `join1`.`id` > 1"));
 
         // test semi join, left table join predicate, only push to left table
@@ -1541,7 +1542,6 @@ public class QueryPlanTest extends TestWithFeService {
     public void testEmptyNode() throws Exception {
         connectContext.setDatabase("default_cluster:test");
         String emptyNode = "EMPTYSET";
-        String denseRank = "dense_rank";
 
         List<String> sqls = Lists.newArrayList();
         sqls.add("explain select * from baseall limit 0");
@@ -1560,7 +1560,6 @@ public class QueryPlanTest extends TestWithFeService {
         for (String sql : sqls) {
             String explainString = getSQLPlanOrErrorMsg(sql);
             Assert.assertTrue(explainString.contains(emptyNode));
-            Assert.assertFalse(explainString.contains(denseRank));
         }
     }
 
@@ -1651,25 +1650,25 @@ public class QueryPlanTest extends TestWithFeService {
         connectContext.setDatabase("default_cluster:test");
         //valid date
         String sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>");
+        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2> <slot 0> 3\n" + "    <slot 3>  4");
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>");
+        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2> <slot 0> 3\n" + "    <slot 3>  4");
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>");
+        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2> <slot 0> 3\n" + "    <slot 3>  4");
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
-        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2>\n" + "    <slot 3>");
+        assertSQLPlanOrErrorMsgContains(sql, "OUTPUT EXPRS:\n" + "    <slot 2> <slot 0> 3\n" + "    <slot 3>  4");
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.k1, b.k2 FROM (SELECT k1 from baseall) a LEFT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        assertSQLPlanOrErrorMsgContains(sql, "<slot 7>\n" + "    <slot 9>");
+        assertSQLPlanOrErrorMsgContains(sql, "<slot 7>  `k1`\n" + "    <slot 9> <slot 4> 999");
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a RIGHT OUTER JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        assertSQLPlanOrErrorMsgContains(sql, "<slot 8>\n" + "    <slot 10>");
+        assertSQLPlanOrErrorMsgContains(sql, "<slot 8> <slot 0> 1\n" + "    <slot 10> <slot 3> 999");
 
         sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ a.k1, b.k2 FROM (SELECT 1 as k1 from baseall) a FULL JOIN (select k1, 999 as k2 from baseall) b ON (a.k1=b.k1)";
-        assertSQLPlanOrErrorMsgContains(sql, "<slot 8>\n" + "    <slot 10>");
+        assertSQLPlanOrErrorMsgContains(sql, "<slot 8> <slot 0> 1\n" + "    <slot 10> <slot 3> 999");
     }
 
     @Test
@@ -1928,7 +1927,7 @@ public class QueryPlanTest extends TestWithFeService {
         String sql = "select /*+ SET_VAR(enable_nereids_planner=false) */ * from issue7929.t1 left join (select max(j1) over() as x from issue7929.t2) a"
                 + " on t1.k1 = a.x where 1 = 0;";
         String explainStr = getSQLPlanOrErrorMsg(sql, true);
-        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 4, "EMPTYSET"));
+        Assert.assertTrue(UtFrameUtils.checkPlanResultContainsNode(explainStr, 5, "EMPTYSET"));
         Assert.assertTrue(explainStr.contains("tuple ids: 5"));
     }
 
@@ -2064,7 +2063,7 @@ public class QueryPlanTest extends TestWithFeService {
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains(
-                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> AS INT)\n" + "    CAST(<slot 5> AS INT)"));
+                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n" + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
     }
 
     @Test
@@ -2187,11 +2186,11 @@ public class QueryPlanTest extends TestWithFeService {
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
 
-        String queryBaseTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
+        String queryBaseTableStr = "explain select id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
         String explainString1 = getSQLPlanOrErrorMsg(queryBaseTableStr);
         Assert.assertTrue(explainString1.contains("PREAGGREGATION: ON"));
 
-        String queryTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
+        String queryTableStr = "explain select id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
         String explainString2 = getSQLPlanOrErrorMsg(queryTableStr);
         Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
     }
@@ -2214,7 +2213,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "    \"in_memory\"=\"false\"\n"
                 + ");");
 
-        String queryBaseTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ dt, hll_union(pv) from test.test_hll group by dt";
+        String queryBaseTableStr = "explain select dt, hll_union(pv) from test.test_hll group by dt";
         String explainString = getSQLPlanOrErrorMsg(queryBaseTableStr);
         Assert.assertTrue(explainString.contains("PREAGGREGATION: ON"));
     }

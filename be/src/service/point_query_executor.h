@@ -82,6 +82,8 @@ public:
         return _col_uid_to_idx;
     }
 
+    const std::vector<std::string>& get_col_default_values() const { return _col_default_values; }
+
     // do not touch block after returned
     void return_block(std::unique_ptr<vectorized::Block>& block);
 
@@ -94,7 +96,7 @@ public:
 private:
     // caching TupleDescriptor, output_expr, etc...
     std::unique_ptr<RuntimeState> _runtime_state;
-    DescriptorTbl* _desc_tbl;
+    DescriptorTbl* _desc_tbl = nullptr;
     std::mutex _block_mutex;
     // prevent from allocte too many tmp blocks
     std::vector<std::unique_ptr<vectorized::Block>> _block_pool;
@@ -102,6 +104,7 @@ private:
     int64_t _create_timestamp = 0;
     vectorized::DataTypeSerDeSPtrs _data_type_serdes;
     std::unordered_map<uint32_t, uint32_t> _col_uid_to_idx;
+    std::vector<std::string> _col_default_values;
     int64_t _mem_size = 0;
 };
 
@@ -184,7 +187,7 @@ public:
 private:
     static constexpr uint32_t kDefaultNumShards = 128;
     RowCache(int64_t capacity, int num_shards = kDefaultNumShards);
-    std::unique_ptr<Cache> _cache = nullptr;
+    std::unique_ptr<Cache> _cache;
 };
 
 // A cache used for prepare stmt.
@@ -240,7 +243,7 @@ private:
     }
 
     struct CacheValue : public LRUCacheValueBase {
-        std::shared_ptr<Reusable> item = nullptr;
+        std::shared_ptr<Reusable> item;
     };
 };
 
@@ -299,7 +302,7 @@ private:
         std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)> _rowset_ptr;
     };
 
-    PTabletKeyLookupResponse* _response;
+    PTabletKeyLookupResponse* _response = nullptr;
     TabletSharedPtr _tablet;
     std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;

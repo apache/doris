@@ -19,9 +19,8 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.SlotNotFromChildren;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
@@ -98,8 +97,7 @@ public class Validator extends PlanPostProcessor {
                 .collect(Collectors.toSet());
         Set<Slot> inputSlots = plan.getInputSlots();
         for (Slot slot : inputSlots) {
-            if (slot instanceof MarkJoinSlotReference || slot instanceof VirtualSlotReference || slot.getName()
-                    .startsWith("mv")) {
+            if (slot.getName().startsWith("mv") || slot instanceof SlotNotFromChildren) {
                 continue;
             }
             if (!(childOutputSet.contains(slot))) {

@@ -29,6 +29,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
@@ -221,7 +222,9 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         if (key1 instanceof MaxLiteral || key2 instanceof MaxLiteral) {
             ret = key1.compareLiteral(key2);
         } else {
-            final Type destType = Type.getAssignmentCompatibleType(key1.getType(), key2.getType(), false);
+            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
+            final Type destType = Type.getAssignmentCompatibleType(key1.getType(), key2.getType(), false,
+                    enableDecimal256);
             try {
                 LiteralExpr newKey = key1;
                 if (key1.getType() != destType) {

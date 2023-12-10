@@ -22,6 +22,7 @@
 #include <memory>
 
 #include "aggregation_sink_operator.h"
+#include "aggregation_source_operator.h"
 #include "common/status.h"
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
@@ -65,22 +66,25 @@ public:
 private:
     vectorized::Block _preagg_block = vectorized::Block();
 
-    RuntimeProfile::Counter* _queue_byte_size_counter;
-    RuntimeProfile::Counter* _queue_size_counter;
+    RuntimeProfile::Counter* _queue_byte_size_counter = nullptr;
+    RuntimeProfile::Counter* _queue_size_counter = nullptr;
 
     std::shared_ptr<DataQueue> _data_queue;
 };
 
 class StreamingAggSinkOperatorX;
 
-class StreamingAggSinkLocalState final : public AggSinkLocalState<StreamingAggSinkLocalState> {
+class StreamingAggSinkLocalState final
+        : public AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState> {
 public:
     using Parent = StreamingAggSinkOperatorX;
+    using Base = AggSinkLocalState<AggSinkDependency, StreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(StreamingAggSinkLocalState);
     StreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
+    ~StreamingAggSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    Status close(RuntimeState* state) override;
+    Status close(RuntimeState* state, Status exec_status) override;
     Status do_pre_agg(vectorized::Block* input_block, vectorized::Block* output_block);
 
 private:
@@ -88,16 +92,21 @@ private:
 
     Status _pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                         doris::vectorized::Block* out_block);
-    void _make_nullable_output_key(vectorized::Block* block);
     bool _should_expand_preagg_hash_tables();
+    void _make_nullable_output_key(vectorized::Block* block) {
+        if (block->rows() != 0) {
+            auto& shared_state = *Base ::_shared_state;
+            for (auto cid : shared_state.make_nullable_keys) {
+                block->get_by_position(cid).column =
+                        make_nullable(block->get_by_position(cid).column);
+                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
+            }
+        }
+    }
 
-    vectorized::Block _preagg_block = vectorized::Block();
-
-    vectorized::PODArray<vectorized::AggregateDataPtr> _places;
-
-    RuntimeProfile::Counter* _queue_byte_size_counter;
-    RuntimeProfile::Counter* _queue_size_counter;
-    RuntimeProfile::Counter* _streaming_agg_timer;
+    RuntimeProfile::Counter* _queue_byte_size_counter = nullptr;
+    RuntimeProfile::Counter* _queue_size_counter = nullptr;
+    RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
 
     bool _should_expand_hash_table = true;
     int64_t _num_rows_returned = 0;
@@ -105,11 +114,13 @@ private:
 
 class StreamingAggSinkOperatorX final : public AggSinkOperatorX<StreamingAggSinkLocalState> {
 public:
-    StreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    StreamingAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                              const DescriptorTbl& descs);
+    ~StreamingAggSinkOperatorX() override = default;
+    Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    bool can_write(RuntimeState* state) override;
+    ExchangeType get_local_exchange_type() const override { return ExchangeType::PASSTHROUGH; }
 };
 
 } // namespace pipeline

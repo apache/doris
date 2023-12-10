@@ -20,7 +20,7 @@
 
 #include "vec/common/string_utils/string_utils.h"
 
-namespace detail {
+namespace doris::vectorized::detail {
 
 bool starts_with(const std::string& s, const char* prefix, size_t prefix_size) {
     return s.size() >= prefix_size && 0 == memcmp(s.data(), prefix, prefix_size);
@@ -31,4 +31,4 @@ bool ends_with(const std::string& s, const char* suffix, size_t suffix_size) {
            0 == memcmp(s.data() + s.size() - suffix_size, suffix, suffix_size);
 }
 
-} // namespace detail
+} // namespace doris::vectorized::detail

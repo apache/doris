@@ -905,10 +905,13 @@ public final class AggregateInfo extends AggregateInfoBase {
                 intermediateSlotDesc.setIsMaterialized(true);
             }
 
-            if (!slotDesc.isMaterialized()) {
+            if (!slotDesc.isMaterialized()
+                    && !(i == aggregateExprsSize - 1 && materializedSlots.isEmpty() && groupingExprs.isEmpty())) {
+                // we need keep at least one materialized slot in agg node
                 continue;
             }
 
+            slotDesc.setIsMaterialized(true);
             intermediateSlotDesc.setIsMaterialized(true);
             exprs.add(functionCallExpr);
             materializedSlots.add(i);

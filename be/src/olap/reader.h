@@ -42,8 +42,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_reader_context.h"
-#include "olap/tablet.h"
-#include "olap/tablet_schema.h"
+#include "olap/tablet_fwd.h"
 
 namespace doris {
 
@@ -90,6 +89,12 @@ class TabletReader {
     };
 
 public:
+    struct ReadSource {
+        std::vector<RowSetSplits> rs_splits;
+        std::vector<RowsetMetaSharedPtr> delete_predicates;
+        // Fill delete predicates with `rs_splits`
+        void fill_delete_predicates();
+    };
     // Params for Reader,
     // mainly include tablet, data version and fetch range.
     struct ReaderParams {
@@ -103,7 +108,12 @@ public:
                     !rs_splits[1].rs_reader->rowset()->rowset_meta()->is_segments_overlapping());
         }
 
-        TabletSharedPtr tablet;
+        void set_read_source(ReadSource read_source) {
+            rs_splits = std::move(read_source.rs_splits);
+            delete_predicates = std::move(read_source.delete_predicates);
+        }
+
+        BaseTabletSPtr tablet;
         TabletSchemaSPtr tablet_schema;
         ReaderType reader_type = ReaderType::READER_QUERY;
         bool direct_mode = false;
@@ -125,10 +135,12 @@ public:
         std::vector<TCondition> conditions_except_leafnode_of_andnode;
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
+        // slots that cast may be eliminated in storage layer
+        std::map<std::string, PrimitiveType> target_cast_type_for_variants;
 
-        // For unique key table with merge-on-write
-        DeleteBitmap* delete_bitmap {nullptr};
         std::vector<RowSetSplits> rs_splits;
+        // For unique key table with merge-on-write
+        DeleteBitmap* delete_bitmap = nullptr;
 
         // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
@@ -162,6 +174,7 @@ public:
 
         // for vertical compaction
         bool is_key_column_group = false;
+        std::vector<uint32_t> key_group_cluster_key_idxes;
 
         bool is_segcompaction = false;
 
@@ -245,7 +258,15 @@ protected:
 
     Status _init_return_columns(const ReaderParams& read_params);
 
-    TabletSharedPtr tablet() { return _tablet; }
+    const BaseTabletSPtr& tablet() { return _tablet; }
+    // If original column is a variant type column, and it's predicate is normalized
+    // so in order to get the real type of column predicate, we need to reset type
+    // according to the related type in `target_cast_type_for_variants`.Since variant is not
+    // an predicate applicable type.Otherwise return the original tablet column.
+    // Eg. `where cast(v:a as bigint) > 1` will elimate cast, and materialize this variant column
+    // to type bigint
+    TabletColumn materialize_column(const TabletColumn& orig);
+
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
     std::unique_ptr<vectorized::Arena> _predicate_arena;
@@ -257,7 +278,7 @@ protected:
     // vec query engine
     std::unordered_set<uint32_t>* _tablet_columns_convert_to_null_set = nullptr;
 
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     RowsetReaderContext _reader_context;
     TabletSchemaSPtr _tablet_schema;
     KeysParam _keys_param;

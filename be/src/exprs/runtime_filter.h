@@ -27,7 +27,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/large_int_value.h"
@@ -35,7 +34,6 @@
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "runtime/types.h"
-#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -70,21 +68,34 @@ class VExprContext;
 struct SharedRuntimeFilterContext;
 } // namespace vectorized
 
+namespace pipeline {
+class RuntimeFilterTimer;
+} // namespace pipeline
+
 enum class RuntimeFilterType {
     UNKNOWN_FILTER = -1,
     IN_FILTER = 0,
     MINMAX_FILTER = 1,
     BLOOM_FILTER = 2,
     IN_OR_BLOOM_FILTER = 3,
-    BITMAP_FILTER = 4
+    BITMAP_FILTER = 4,
+    MIN_FILTER = 5, // only min
+    MAX_FILTER = 6  // only max
 };
 
-static RuntimeFilterType get_runtime_filter_type(TRuntimeFilterType::type ttype) {
-    switch (ttype) {
+static RuntimeFilterType get_runtime_filter_type(const TRuntimeFilterDesc* desc) {
+    switch (desc->type) {
     case TRuntimeFilterType::BLOOM: {
         return RuntimeFilterType::BLOOM_FILTER;
     }
     case TRuntimeFilterType::MIN_MAX: {
+        if (desc->__isset.min_max_type) {
+            if (desc->min_max_type == TMinMaxRuntimeFilterType::MIN) {
+                return RuntimeFilterType::MIN_FILTER;
+            } else if (desc->min_max_type == TMinMaxRuntimeFilterType::MAX) {
+                return RuntimeFilterType::MAX_FILTER;
+            }
+        }
         return RuntimeFilterType::MINMAX_FILTER;
     }
     case TRuntimeFilterType::IN: {
@@ -138,9 +149,9 @@ struct UpdateRuntimeFilterParams {
     UpdateRuntimeFilterParams(const PPublishFilterRequest* req,
                               butil::IOBufAsZeroCopyInputStream* data_stream, ObjectPool* obj_pool)
             : request(req), data(data_stream), pool(obj_pool) {}
-    const PPublishFilterRequest* request;
-    butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool;
+    const PPublishFilterRequest* request = nullptr;
+    butil::IOBufAsZeroCopyInputStream* data = nullptr;
+    ObjectPool* pool = nullptr;
 };
 
 struct UpdateRuntimeFilterParamsV2 {
@@ -150,15 +161,15 @@ struct UpdateRuntimeFilterParamsV2 {
             : request(req), data(data_stream), pool(obj_pool) {}
     const PPublishFilterRequestV2* request;
     butil::IOBufAsZeroCopyInputStream* data;
-    ObjectPool* pool;
+    ObjectPool* pool = nullptr;
 };
 
 struct MergeRuntimeFilterParams {
     MergeRuntimeFilterParams(const PMergeFilterRequest* req,
                              butil::IOBufAsZeroCopyInputStream* data_stream)
             : request(req), data(data_stream) {}
-    const PMergeFilterRequest* request;
-    butil::IOBufAsZeroCopyInputStream* data;
+    const PMergeFilterRequest* request = nullptr;
+    butil::IOBufAsZeroCopyInputStream* data = nullptr;
 };
 
 enum RuntimeFilterState {
@@ -188,8 +199,10 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
+              _wait_infinitely(_state->runtime_filter_wait_infinitely()),
+              _rf_wait_time_ms(_state->runtime_filter_wait_time_ms()),
               _enable_pipeline_exec(_state->enable_pipeline_exec()),
-              _runtime_filter_type(get_runtime_filter_type(desc->type)),
+              _runtime_filter_type(get_runtime_filter_type(desc)),
               _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                 to_string(_runtime_filter_type))),
               _profile(new RuntimeProfile(_name)) {}
@@ -208,8 +221,10 @@ public:
               _always_true(false),
               _is_ignored(false),
               registration_time_(MonotonicMillis()),
+              _wait_infinitely(query_ctx->runtime_filter_wait_infinitely()),
+              _rf_wait_time_ms(query_ctx->runtime_filter_wait_time_ms()),
               _enable_pipeline_exec(query_ctx->enable_pipeline_exec()),
-              _runtime_filter_type(get_runtime_filter_type(desc->type)),
+              _runtime_filter_type(get_runtime_filter_type(desc)),
               _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                 to_string(_runtime_filter_type))),
               _profile(new RuntimeProfile(_name)) {}
@@ -230,10 +245,7 @@ public:
     void copy_from_other(IRuntimeFilter* other);
 
     // insert data to build filter
-    // only used for producer
-    void insert(const void* data);
-    void insert(const StringRef& data);
-    void insert_batch(vectorized::ColumnPtr column, const std::vector<int>& rows);
+    void insert_batch(vectorized::ColumnPtr column, size_t start);
 
     // publish filter
     // push filter to remote node or push down it to scan_node
@@ -270,7 +282,7 @@ public:
     // if return true , filter is ready to use
     bool await();
     // this function will be called if a runtime filter sent by rpc
-    // it will nodify all wait threads
+    // it will notify all wait threads
     void signal();
 
     // init filter with desc
@@ -321,10 +333,6 @@ public:
 
     void update_runtime_filter_type_to_profile();
 
-    static bool enable_use_batch(bool use_batch, PrimitiveType type) {
-        return use_batch && (is_int_or_bool(type) || is_float_or_double(type));
-    }
-
     int filter_id() const { return _filter_id; }
 
     static std::string to_string(RuntimeFilterType type) {
@@ -334,6 +342,12 @@ public:
         }
         case RuntimeFilterType::BLOOM_FILTER: {
             return std::string("bloomfilter");
+        }
+        case RuntimeFilterType::MIN_FILTER: {
+            return std::string("only_min");
+        }
+        case RuntimeFilterType::MAX_FILTER: {
+            return std::string("only_max");
         }
         case RuntimeFilterType::MINMAX_FILTER: {
             return std::string("minmax");
@@ -348,6 +362,25 @@ public:
             return std::string("UNKNOWN");
         }
     }
+
+    // For pipelineX & Producer
+    int32_t wait_time_ms() const {
+        int32_t res = 0;
+        if (wait_infinitely()) {
+            res = _state == nullptr ? _query_ctx->execution_timeout() : _state->execution_timeout();
+            // Convert to ms
+            res *= 1000;
+        } else {
+            res = _rf_wait_time_ms;
+        }
+        return res;
+    }
+
+    bool wait_infinitely() const;
+
+    int64_t registration_time() const { return registration_time_; }
+
+    void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
 
 protected:
     // serialize _wrapper to protobuf
@@ -388,10 +421,10 @@ protected:
 
     RuntimeState* _state = nullptr;
     QueryContext* _query_ctx = nullptr;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool
-    RuntimePredicateWrapper* _wrapper;
+    RuntimePredicateWrapper* _wrapper = nullptr;
     // runtime filter id
     int _filter_id;
     // Specific types BoardCast or Shuffle
@@ -408,8 +441,8 @@ protected:
     // expr index
     int _expr_order;
     // used for await or signal
-    Mutex _inner_mutex;
-    ConditionVariable _inner_cv;
+    std::mutex _inner_mutex;
+    std::condition_variable _inner_cv;
 
     bool _is_push_down = false;
 
@@ -429,6 +462,9 @@ protected:
 
     /// Time in ms (from MonotonicMillis()), that the filter was registered.
     const int64_t registration_time_;
+    /// runtime filter wait time will be ignored if wait_infinitely is true
+    const bool _wait_infinitely;
+    const int32_t _rf_wait_time_ms;
 
     const bool _enable_pipeline_exec;
 
@@ -440,6 +476,8 @@ protected:
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
+
+    std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 };
 
 // avoid expose RuntimePredicateWrapper

@@ -36,7 +36,6 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -162,6 +161,8 @@ public:
     // error.
     [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics);
 
+    [[nodiscard]] virtual Status collect_query_statistics(QueryStatistics* statistics,
+                                                          int sender_id);
     // close() will get called for every exec node, regardless of what else is called and
     // the status of these calls (i.e. prepare() may never have been called, or
     // prepare()/open()/get_next() returned with an error).
@@ -229,8 +230,6 @@ public:
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
-    OpentelemetrySpan get_next_span() { return _span; }
-
     virtual std::string get_name();
 
     // Names of counters shared by all exec nodes
@@ -253,7 +252,7 @@ protected:
 
     int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids;
 
     vectorized::VExprContextSPtrs _conjuncts;
@@ -277,15 +276,15 @@ protected:
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
 
-    RuntimeProfile::Counter* _rows_returned_counter;
-    RuntimeProfile::Counter* _rows_returned_rate;
-    RuntimeProfile::Counter* _memory_used_counter;
-    RuntimeProfile::Counter* _projection_timer;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _rows_returned_counter = nullptr;
+    RuntimeProfile::Counter* _output_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _block_count_counter = nullptr;
+    RuntimeProfile::Counter* _rows_returned_rate = nullptr;
+    RuntimeProfile::Counter* _memory_used_counter = nullptr;
+    RuntimeProfile::Counter* _projection_timer = nullptr;
     // Account for peak memory used by this node
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
-
-    //
-    OpentelemetrySpan _span;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
@@ -318,11 +317,6 @@ protected:
     static Status create_node(RuntimeState* state, ObjectPool* pool, const TPlanNode& tnode,
                               const DescriptorTbl& descs, ExecNode** node);
 
-    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
-                                     const std::vector<TPlanNode>& tnodes,
-                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
-                                     ExecNode** root);
-
     virtual bool is_scan_node() const { return false; }
 
     void init_runtime_profile(const std::string& name);
@@ -333,6 +327,11 @@ protected:
     std::atomic<bool> _can_read = false;
 
 private:
+    static Status create_tree_helper(RuntimeState* state, ObjectPool* pool,
+                                     const std::vector<TPlanNode>& tnodes,
+                                     const DescriptorTbl& descs, ExecNode* parent, int* node_idx,
+                                     ExecNode** root);
+
     friend class pipeline::OperatorBase;
     bool _is_closed;
     bool _is_resource_released = false;

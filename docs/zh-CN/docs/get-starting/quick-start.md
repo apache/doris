@@ -147,6 +147,7 @@ mysql> show frontends\G
          HttpPort: 8030
         QueryPort: 9030
           RpcPort: 9020
+ArrowFlightSqlPort: 9040
              Role: FOLLOWER
          IsMaster: true
         ClusterId: 1685821635
@@ -277,6 +278,7 @@ mysql> SHOW BACKENDS\G
                BePort: 9060
              HttpPort: 8040
              BrpcPort: 8060
+   ArrowFlightSqlPort: 8070
         LastStartTime: 2022-08-16 15:31:37
         LastHeartbeat: 2022-08-17 13:33:17
                 Alive: true

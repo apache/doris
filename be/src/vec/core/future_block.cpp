@@ -21,11 +21,9 @@
 
 namespace doris::vectorized {
 
-void FutureBlock::set_info(int64_t schema_version, const TUniqueId& load_id, bool first, bool eos) {
+void FutureBlock::set_info(int64_t schema_version, const TUniqueId& load_id) {
     this->_schema_version = schema_version;
     this->_load_id = load_id;
-    this->_first = first;
-    this->_eos = eos;
 }
 
 void FutureBlock::set_result(Status status, int64_t total_rows, int64_t loaded_rows) {
@@ -35,7 +33,7 @@ void FutureBlock::set_result(Status status, int64_t total_rows, int64_t loaded_r
 
 void FutureBlock::swap_future_block(std::shared_ptr<FutureBlock> other) {
     Block::swap(*other.get());
-    set_info(other->_schema_version, other->_load_id, other->_first, other->_eos);
+    set_info(other->_schema_version, other->_load_id);
     lock = other->lock;
     cv = other->cv;
     _result = other->_result;

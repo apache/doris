@@ -53,7 +53,12 @@ public:
     int on_header(struct evhttp_request* ev_req);
 
     // get real port
-    int get_real_port() { return _real_port; }
+    int get_real_port() const { return _real_port; }
+
+    std::vector<std::shared_ptr<event_base>> get_event_bases() {
+        std::lock_guard lock(_event_bases_lock);
+        return _event_bases;
+    }
 
 private:
     Status _bind();

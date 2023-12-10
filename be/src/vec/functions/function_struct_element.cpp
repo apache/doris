@@ -49,8 +49,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return true; }
 
-    bool use_default_implementation_for_constants() const override { return true; }
-
     size_t get_number_of_arguments() const override { return 2; }
 
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
@@ -69,7 +67,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto struct_type = check_and_get_data_type<DataTypeStruct>(
                 block.get_by_position(arguments[0]).type.get());
         auto struct_col = check_and_get_column<ColumnStruct>(

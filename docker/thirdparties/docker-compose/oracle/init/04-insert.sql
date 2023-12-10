@@ -80,4 +80,27 @@ insert into doris_test.test_clob values (10010, 'liantong');
 
 insert into doris_test."AA/D" values (1, 'alice', 20, 99.5);
 insert into doris_test.aaad values (1, 'alice');
+
+insert into doris_test."student2" values (1, 'alice', 20, 99.5);
+insert into doris_test."student2" values (2, 'bob', 21, 90.5);
+insert into doris_test."student2" values (3, 'jerry', 23, 88.0);
+insert into doris_test."student2" values (4, 'andy', 21, 93);
+
+insert into doris_test."student3" values(1, 'doris', 3, 1.0);
+
+insert into doris_test.test_all_types values
+(1, 111, 123, 7456123.89, 573, 34, 673.43, 34.1264, 56.2, 23.231,
+99, 9999, 999999999, 999999999999999999, 999, 99999, 9999999999, 9999999999999999999,
+'1', 'china', 'beijing', 'alice', 'abcdefghrjkmnopq',
+123.45, 12345, 0.0012345,
+to_date('2022-1-21 5:23:01','yyyy-mm-dd hh24:mi:ss'), to_timestamp('20191112203357.999', 'yyyymmddhh24miss.ff'), to_timestamp('20191112203357.999997623', 'yyyymmddhh24miss.ff'), to_timestamp_tz('20191112203357.999996623', 'yyyymmddhh24miss.ff'), to_timestamp_tz('20191112203357.999996623', 'yyyymmddhh24miss.ff'), interval '223-9' year(3) to month, interval '12 10:23:01.1234568' day to second 
+);
+insert into doris_test.test_all_types values
+(2, null, null, null, null, null, null, null, null, null,
+null, null, null, null, null, null, null, null,
+null, null, null, null, null,
+null, null, null,
+null, null, null, null, null, null, null
+);
+
 commit;

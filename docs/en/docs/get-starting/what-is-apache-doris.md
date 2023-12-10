@@ -66,7 +66,6 @@ Doris uses a **columnar storage engine**, which encodes, compresses, and reads d
 Doris supports various **index** structures to minimize data scans:
 
 -   Sorted Compound Key Index: Users can specify three columns at most to form a compound sort key. This can effectively prune data to better support highly concurrent reporting scenarios.
--   Z-order Index: This allows users to efficiently run range queries on any combination of fields in their schema.
 -   MIN/MAX Indexing: This enables effective filtering of equivalence and range queries for numeric types.
 -   Bloom Filter: very effective in equivalence filtering and pruning of high cardinality columns
 -   Invert Index: This enables fast search for any field.

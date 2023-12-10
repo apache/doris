@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpAuthManager;
 import org.apache.doris.httpv2.HttpAuthManager.SessionValue;
 import org.apache.doris.httpv2.exception.UnauthorizedException;
@@ -103,6 +104,7 @@ public class BaseController {
     protected void addSession(HttpServletRequest request, HttpServletResponse response, SessionValue value) {
         String key = UUID.randomUUID().toString();
         Cookie cookie = new Cookie(PALO_SESSION_ID, key);
+        cookie.setSecure(false);
         cookie.setMaxAge(PALO_SESSION_EXPIRED_TIME);
         cookie.setPath("/");
         cookie.setHttpOnly(true);
@@ -264,11 +266,10 @@ public class BaseController {
             authInfo.fullUserName = authString.substring(0, index);
             final String[] elements = authInfo.fullUserName.split("@");
             if (elements != null && elements.length < 2) {
-                authInfo.fullUserName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER,
-                        authInfo.fullUserName);
+                authInfo.fullUserName = ClusterNamespace.getNameFromFullName(authInfo.fullUserName);
                 authInfo.cluster = SystemInfoService.DEFAULT_CLUSTER;
             } else if (elements != null && elements.length == 2) {
-                authInfo.fullUserName = ClusterNamespace.getFullName(elements[1], elements[0]);
+                authInfo.fullUserName = ClusterNamespace.getNameFromFullName(elements[0]);
                 authInfo.cluster = elements[1];
             }
             authInfo.password = authString.substring(index + 1);
@@ -298,9 +299,11 @@ public class BaseController {
     protected String getCurrentFrontendURL() {
         if (Config.enable_https) {
             // this could be the result of redirection.
-            return "https://" + FrontendOptions.getLocalHostAddress() + ":" + Config.https_port;
+            return "https://" + NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.https_port);
         } else {
-            return "http://" + FrontendOptions.getLocalHostAddress() + ":" + Config.http_port;
+            return "http://" + NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.http_port);
         }
     }
 }

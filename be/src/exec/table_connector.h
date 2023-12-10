@@ -55,7 +55,7 @@ public:
     virtual Status abort_trans() = 0;  // should be call after transaction abort
     virtual Status finish_trans() = 0; // should be call after transaction commit
 
-    virtual Status close() = 0;
+    virtual Status close(Status) = 0;
 
     virtual Status exec_stmt_write(vectorized::Block* block,
                                    const vectorized::VExprContextSPtrs& _output_vexpr_ctxs,
@@ -86,7 +86,7 @@ protected:
     bool _use_tranaction;
     bool _is_in_transaction;
     std::string_view _table_name;
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
     // only use in query
     std::string _sql_str;
     // only use in write

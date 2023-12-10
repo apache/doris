@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
@@ -69,8 +70,14 @@ public interface NormalizeToSlot {
                 if (normalizeToSlotMap.containsKey(expression)) {
                     continue;
                 }
-                NormalizeToSlotTriplet normalizeToSlotTriplet =
-                        NormalizeToSlotTriplet.toTriplet(expression, existsAliasMap.get(expression));
+                Alias alias = null;
+                // consider projects: c1, c1 as a1. we should push down both of them,
+                // so we could not replace c1 with c1 as a1.
+                // use null as alias for SlotReference to avoid replace it by another alias of it.
+                if (!(expression instanceof SlotReference)) {
+                    alias = existsAliasMap.get(expression);
+                }
+                NormalizeToSlotTriplet normalizeToSlotTriplet = NormalizeToSlotTriplet.toTriplet(expression, alias);
                 normalizeToSlotMap.put(expression, normalizeToSlotTriplet);
             }
             return new NormalizeToSlotContext(normalizeToSlotMap);

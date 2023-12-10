@@ -30,6 +30,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -96,9 +97,9 @@ public class Storage {
         Properties prop = new Properties();
         File versionFile = getVersionFile();
         if (versionFile.isFile()) {
-            FileInputStream in = new FileInputStream(versionFile);
-            prop.load(in);
-            in.close();
+            try (FileInputStream in = new FileInputStream(versionFile)) {
+                prop.load(in);
+            }
             clusterID = Integer.parseInt(prop.getProperty(CLUSTER_ID));
             if (prop.getProperty(TOKEN) != null) {
                 token = prop.getProperty(TOKEN);
@@ -107,9 +108,9 @@ public class Storage {
 
         File roleFile = getRoleFile();
         if (roleFile.isFile()) {
-            FileInputStream in = new FileInputStream(roleFile);
-            prop.load(in);
-            in.close();
+            try (FileInputStream in = new FileInputStream(roleFile)) {
+                prop.load(in);
+            }
             role = FrontendNodeType.valueOf(prop.getProperty(FRONTEND_ROLE));
             // For compatibility, NODE_NAME may not exist in ROLE file, set nodeName to null
             nodeName = prop.getProperty(NODE_NAME, null);
@@ -185,8 +186,7 @@ public class Storage {
     }
 
     public static int newClusterID() {
-        Random random = new Random();
-        random.setSeed(System.currentTimeMillis());
+        Random random = new SecureRandom();
 
         int newID = 0;
         while (newID == 0) {

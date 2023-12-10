@@ -158,4 +158,16 @@ public class StructField {
         return otherStructField.name.equals(name) && otherStructField.type.equals(type)
                 && otherStructField.containsNull == containsNull;
     }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder(name);
+        if (type != null) {
+            sb.append(":").append(type);
+        }
+        if (StringUtils.isNotBlank(comment)) {
+            sb.append(String.format(" COMMENT '%s'", comment));
+        }
+        return sb.toString();
+    }
 }

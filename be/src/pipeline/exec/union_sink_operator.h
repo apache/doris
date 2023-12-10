@@ -66,15 +66,24 @@ private:
     std::unique_ptr<vectorized::Block> _output_block;
 };
 
+class UnionSinkDependency final : public Dependency {
+public:
+    using SharedState = UnionSharedState;
+    UnionSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "UnionSinkDependency", true, query_ctx) {}
+    ~UnionSinkDependency() override = default;
+    void block() override {}
+};
+
 class UnionSinkOperatorX;
-class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionDependency> {
+class UnionSinkLocalState final : public PipelineXSinkLocalState<UnionSinkDependency> {
 public:
     ENABLE_FACTORY_CREATOR(UnionSinkLocalState);
     UnionSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state), _child_row_idx(0) {}
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     friend class UnionSinkOperatorX;
-    using Base = PipelineXSinkLocalState<UnionDependency>;
+    using Base = PipelineXSinkLocalState<UnionSinkDependency>;
     using Parent = UnionSinkOperatorX;
 
 private:
@@ -100,7 +109,8 @@ public:
                        const DescriptorTbl& descs);
     ~UnionSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
-        return Status::InternalError("{} should not init with TDataSink");
+        return Status::InternalError("{} should not init with TDataSink",
+                                     DataSinkOperatorX<UnionSinkLocalState>::_name);
     }
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
@@ -110,8 +120,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    bool can_write(RuntimeState* state) override { return true; }
 
 private:
     int _get_first_materialized_child_idx() const { return _first_materialized_child_idx; }
@@ -153,7 +161,7 @@ private:
 
     Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
                              vectorized::Block* res_block) {
-        auto& local_state = state->get_sink_local_state(id())->cast<UnionSinkLocalState>();
+        auto& local_state = get_local_state(state);
         const auto& child_exprs = local_state._child_expr;
         vectorized::ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {

@@ -23,20 +23,21 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import org.apache.hudi.common.util.VisibleForTesting;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
 
 public abstract class StatisticsCollector extends MasterDaemon {
 
+    private static final Logger LOG = LogManager.getLogger(StatisticsCollector.class);
 
     protected final AnalysisTaskExecutor analysisTaskExecutor;
-
 
     public StatisticsCollector(String name, long intervalMs, AnalysisTaskExecutor analysisTaskExecutor) {
         super(name, intervalMs);
         this.analysisTaskExecutor = analysisTaskExecutor;
-        analysisTaskExecutor.start();
     }
 
     @Override
@@ -45,13 +46,14 @@ public abstract class StatisticsCollector extends MasterDaemon {
             return;
         }
         if (!StatisticsUtil.statsTblAvailable()) {
+            LOG.info("Stats table not available, skip");
             return;
         }
         if (Env.isCheckpointThread()) {
             return;
         }
-
-        if (!analysisTaskExecutor.idle()) {
+        if (Env.getCurrentEnv().getAnalysisManager().hasUnFinished()) {
+            LOG.info("Analyze tasks those submitted in last time is not finished, skip");
             return;
         }
         collect();
@@ -67,15 +69,15 @@ public abstract class StatisticsCollector extends MasterDaemon {
             // No statistics need to be collected or updated
             return;
         }
-
-        Map<Long, BaseAnalysisTask> analysisTaskInfos = new HashMap<>();
+        Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
-        analysisManager.createTaskForEachColumns(jobInfo, analysisTaskInfos, false);
-        if (StatisticsUtil.isExternalTable(jobInfo.catalogName, jobInfo.dbName, jobInfo.tblName)) {
-            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTaskInfos, false);
+        analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
+        if (StatisticsUtil.isExternalTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId)) {
+            analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTasks, false);
         }
-        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTaskInfos);
-        analysisTaskInfos.values().forEach(analysisTaskExecutor::submitTask);
+        Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
+        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
+        analysisTasks.values().forEach(analysisTaskExecutor::submitTask);
     }
 
 }

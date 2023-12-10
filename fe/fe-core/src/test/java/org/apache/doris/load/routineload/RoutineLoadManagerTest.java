@@ -215,7 +215,7 @@ public class RoutineLoadManagerTest {
 
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
         try {
-            routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
+            routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
             Assert.fail();
         } catch (DdlException e) {
             LOG.info(e.getMessage());
@@ -256,7 +256,7 @@ public class RoutineLoadManagerTest {
 
         Deencapsulation.setField(routineLoadManager, "dbToNameToRoutineLoadJob", dbToNameToRoutineLoadJob);
         Deencapsulation.setField(routineLoadManager, "idToRoutineLoadJob", idToRoutineLoadJob);
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
 
         Map<Long, Map<String, List<RoutineLoadJob>>> result =
                 Deencapsulation.getField(routineLoadManager, "dbToNameToRoutineLoadJob");
@@ -777,7 +777,7 @@ public class RoutineLoadManagerTest {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         KafkaRoutineLoadJob job = new KafkaRoutineLoadJob(1L, "testjob", SystemInfoService.DEFAULT_CLUSTER,
                 10000, 10001, "192.168.1.1:9090", "testtopic", UserIdentity.ADMIN);
-        routineLoadManager.addRoutineLoadJob(job, "testdb");
+        routineLoadManager.addRoutineLoadJob(job, "testdb", "testtable");
         Config.max_routine_load_task_num_per_be = 10;
         Deencapsulation.setField(routineLoadManager, "beIdToMaxConcurrentTasks", beIdToMaxConcurrentTasks);
         Assert.assertEquals(1L, routineLoadManager.getAvailableBeForTask(1L, 1L, "default"));

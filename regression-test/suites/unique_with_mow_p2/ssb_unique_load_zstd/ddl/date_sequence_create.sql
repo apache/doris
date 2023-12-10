@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS `date` (
 UNIQUE KEY (`d_datekey`)
 DISTRIBUTED BY HASH(`d_datekey`) BUCKETS 1
 PROPERTIES (
-"function_column.sequence_type" = 'int',
+"function_column.sequence_col" = 'd_datekey',
 "compression"="zstd",
 "replication_num" = "1",
 "enable_unique_key_merge_on_write" = "true"

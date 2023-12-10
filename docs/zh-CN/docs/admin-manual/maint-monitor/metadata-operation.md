@@ -124,7 +124,7 @@ under the License.
         * begin to generate new image: image.xxxx
         *  start save image to /path/to/doris-meta/image/image.ckpt. is ckpt: true
         *  finished save image /path/to/doris-meta/image/image.ckpt in xxx ms. checksum is xxxx
-        *  push image.xxx to other nodes. totally xx nodes, push successed xx nodes
+        *  push image.xxx to other nodes. totally xx nodes, push succeeded xx nodes
         * QE service start
         * thrift server started
 
@@ -189,12 +189,15 @@ FE 有可能因为某些原因出现无法启动 bdbje、FE 之间无法同步�
 
 3. 以下操作都在由第2步中选择出来的 FE 节点上进行。
 
-    1. 如果该节点是一个 OBSERVER，先将 `meta_dir/image/ROLE` 文件中的 `role=OBSERVER` 改为 `role=FOLLOWER`。（从 OBSERVER 节点恢复会比较麻烦，先按这里的步骤操作，后面会有单独说明）)
+    1. 修改 `fe.conf` 
+      - 如果该节点是一个 OBSERVER，先将 `meta_dir/image/ROLE` 文件中的 `role=OBSERVER` 改为 `role=FOLLOWER`。（从 OBSERVER 节点恢复会比较麻烦，先按这里的步骤操作，后面会有单独说明）)
+      - 如果 FE 版本< 2.0.2, 则还需要在 fe.conf 中添加配置：`metadata_failure_recovery=true`。
     2. 执行 `sh bin/start_fe.sh --metadata_failure_recovery` 启动这个 FE。
     3. 如果正常，这个 FE 会以 MASTER 的角色启动，类似于前面 `启动单节点 FE` 一节中的描述。在 fe.log 应该会看到 `transfer from XXXX to MASTER` 等字样。
     4. 启动完成后，先连接到这个 FE，执行一些查询导入，检查是否能够正常访问。如果不正常，有可能是操作有误，建议仔细阅读以上步骤，用之前备份的元数据再试一次。如果还是不行，问题可能就比较严重了。
     5. 如果成功，通过 `show frontends;` 命令，应该可以看到之前所添加的所有 FE，并且当前 FE 是 master。
     6. 后重启这个 FE（**重要**）。
+    7. **如果 FE 版本 < 2.0.2**，将 fe.conf 中的 `metadata_failure_recovery=true` 配置项删除，或者设置为 `false`，然后重启这个 FE（**重要**）。
 
 
     > 如果你是从一个 OBSERVER 节点的元数据进行恢复的，那么完成如上步骤后，通过 `show frontends;` 语句你会发现，当前这个 FE 的角色为 OBSERVER，但是 `IsMaster` 显示为 `true`。这是因为，这里看到的 “OBSERVER” 是记录在 Doris 的元数据中的，而是否是 master，是记录在 bdbje 的元数据中的。因为我们是从一个 OBSERVER 节点恢复的，所以这里出现了不一致。请按如下步骤修复这个问题（这个问题我们会在之后的某个版本修复）：
@@ -240,6 +243,7 @@ FE 目前有以下几个端口
 * http_port：http 端口，也用于推送 image
 * rpc_port：FE 的 thrift server port
 * query_port：Mysql 连接端口
+* arrow_flight_sql_port: Arrow Flight SQL 连接端口
 
 1. edit_log_port
 
@@ -257,6 +261,9 @@ FE 目前有以下几个端口
 
     修改配置后，直接重启 FE 即可。这个只影响到 mysql 的连接目标。
 
+5. arrow_flight_sql_port
+
+    修改配置后，直接重启 FE 即可。这个只影响到 Arrow Flight SQL 的连接目标。
 
 ### 从 FE 内存中恢复元数据
 
@@ -377,7 +384,7 @@ FE 的部署推荐，在 [安装与部署文档](../../install/standard-deployme
 
 4. `bdb/` 目录的大小非常大，达到几个G或更多
 
-    如果在排除无法生成新的 image 的错误后，bdb 目录在一段时间内依然很大。则可能是因为 Master FE 推送 image 不成功。可以在 Master FE 的 fe.log 中搜索 `push image.xxxx to other nodes. totally xx nodes, push successed yy nodes`。如果 yy 比 xx 小，则说明有的 FE 没有被推送成功。可以在 fe.log 中查看到具体的错误 `Exception when pushing image file. url = xxx`。
+    如果在排除无法生成新的 image 的错误后，bdb 目录在一段时间内依然很大。则可能是因为 Master FE 推送 image 不成功。可以在 Master FE 的 fe.log 中搜索 `push image.xxxx to other nodes. totally xx nodes, push succeeded yy nodes`。如果 yy 比 xx 小，则说明有的 FE 没有被推送成功。可以在 fe.log 中查看到具体的错误 `Exception when pushing image file. url = xxx`。
 
     同时，你也可以在 FE 的配置文件中添加配置：`edit_log_roll_num=xxxx`。该参数设定了每多少条元数据 journal，做一次 image。默认是 50000。可以适当改小这个数字，使得 image 更加频繁，从而加速删除旧的 journal。
 

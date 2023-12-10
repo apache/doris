@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -39,14 +40,14 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.retArgType(0)
-                    .args(ArrayType.of(new AnyDataType(0)), ArrayType.of(new AnyDataType(0)))
+                    .varArgs(ArrayType.of(new AnyDataType(0)), ArrayType.of(new AnyDataType(0)))
     );
 
     /**
-     * constructor with 2 arguments.
+     * constructor with more than 2 arguments.
      */
-    public ArrayUnion(Expression arg0, Expression arg1) {
-        super("array_union", arg0, arg1);
+    public ArrayUnion(Expression arg0, Expression arg1, Expression ...varArgs) {
+        super("array_union", ExpressionUtils.mergeArguments(arg0, arg1, varArgs));
     }
 
     /**
@@ -54,8 +55,9 @@ public class ArrayUnion extends ScalarFunction implements ExplicitlyCastableSign
      */
     @Override
     public ArrayUnion withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new ArrayUnion(children.get(0), children.get(1));
+        Preconditions.checkArgument(children.size() >= 2);
+        return new ArrayUnion(children.get(0), children.get(1),
+                children.subList(2, children.size()).toArray(new Expression[0]));
     }
 
     @Override

@@ -40,6 +40,8 @@ using ColumnInt32 = ColumnVector<Int32>;
 using ColumnInt64 = ColumnVector<Int64>;
 using ColumnInt128 = ColumnVector<Int128>;
 
+using ColumnBool = ColumnUInt8;
+
 using ColumnDate = ColumnVector<Int64>;
 using ColumnDateTime = ColumnVector<Int64>;
 
@@ -53,6 +55,10 @@ using ColumnDecimal32 = ColumnDecimal<Decimal32>;
 using ColumnDecimal64 = ColumnDecimal<Decimal64>;
 using ColumnDecimal128 = ColumnDecimal<Decimal128>;
 using ColumnDecimal128I = ColumnDecimal<Decimal128I>;
+using ColumnDecimal256 = ColumnDecimal<Decimal256>;
+
+using ColumnIPv4 = ColumnVector<IPv4>;
+using ColumnIPv6 = ColumnVector<IPv6>;
 
 template <typename T>
 struct IsFixLenColumnType {

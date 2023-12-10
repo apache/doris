@@ -23,8 +23,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -88,7 +89,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), false).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty()).run(ctx, executor);
     }
 
     /**
@@ -105,7 +106,8 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
         List<NamedExpression> selectItems = Lists.newArrayList();
         String tableName = tableAlias != null ? tableAlias : targetTable.getName();
         for (Column column : targetTable.getFullSchema()) {
-            if (!column.isVisible()) {
+            // if it sets sequence column in stream load phase, the sequence map column is null, we query it.
+            if (!column.isVisible() && !column.isSequenceColumn()) {
                 continue;
             }
             if (colNameToExpression.containsKey(column.getName())) {
@@ -114,7 +116,14 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
                         ? ((NamedExpression) expr)
                         : new Alias(expr));
             } else {
-                selectItems.add(new UnboundSlot(tableName, column.getName()));
+                if (column.hasOnUpdateDefaultValue()) {
+                    Expression defualtValueExpression =
+                            new NereidsParser().parseExpression(column.getOnUpdateDefaultValueExpr()
+                                    .toSqlWithoutTbl());
+                    selectItems.add(new Alias(defualtValueExpression, column.getName()));
+                } else {
+                    selectItems.add(new UnboundSlot(tableName, column.getName()));
+                }
             }
         }
 
@@ -123,9 +132,12 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
             logicalQuery = ((LogicalPlan) cte.get().withChildren(logicalQuery));
         }
 
+        boolean isPartialUpdate = targetTable.getEnableUniqueKeyMergeOnWrite()
+                && selectItems.size() < targetTable.getColumns().size();
+
         // make UnboundTableSink
-        return new UnboundOlapTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), logicalQuery);
+        return new UnboundTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
+                ImmutableList.of(), isPartialUpdate, logicalQuery);
     }
 
     private void checkTable(ConnectContext ctx) throws AnalysisException {

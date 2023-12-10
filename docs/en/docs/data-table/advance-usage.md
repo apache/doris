@@ -207,7 +207,7 @@ mysql> SHOW VARIABLES LIKE "%query_timeout%";
 +---------------+-------+
 | Variable_name | Value |
 +---------------+-------+
-| QUERY_TIMEOUT | 300   |
+| QUERY_TIMEOUT | 900   |
 +---------------+-------+
 1 row in set (0.00 sec)
 ```

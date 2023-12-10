@@ -46,7 +46,7 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    HISTOGRAM(`${colName}`, ${maxBucketNum}) AS buckets, "
             + "    NOW() AS create_time "
             + "FROM "
-            + "    `${dbName}`.`${tblName}` ${sampleExpr}";
+            + "    `${dbName}`.`${tblName}`";
 
     @VisibleForTesting
     public HistogramTask() {
@@ -67,11 +67,10 @@ public class HistogramTask extends BaseAnalysisTask {
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", String.valueOf(info.indexId));
         params.put("colId", String.valueOf(info.colName));
-        params.put("dbName", info.dbName);
-        params.put("tblName", String.valueOf(info.tblName));
+        params.put("dbName", db.getFullName());
+        params.put("tblName", tbl.getName());
         params.put("colName", String.valueOf(info.colName));
         params.put("sampleRate", getSampleRateFunction());
-        params.put("sampleExpr", getSampleExpression());
         params.put("maxBucketNum", String.valueOf(info.maxBucketNum));
 
         StringSubstitutor stringSubstitutor = new StringSubstitutor(params);

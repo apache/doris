@@ -33,6 +33,12 @@ suite("nereids_scalar_fn_B") {
 	qt_sql_bitmap_and_not_Bitmap_Bitmap_notnull "select bitmap_and_not(to_bitmap(kbint), to_bitmap(kbint)) from fn_test_not_nullable order by kbint, kbint"
 	qt_sql_bitmap_and_not_count_Bitmap_Bitmap "select bitmap_and_not_count(to_bitmap(kbint), to_bitmap(kbint)) from fn_test order by kbint, kbint"
 	qt_sql_bitmap_and_not_count_Bitmap_Bitmap_notnull "select bitmap_and_not_count(to_bitmap(kbint), to_bitmap(kbint)) from fn_test_not_nullable order by kbint, kbint"
+
+	qt_sql_bitmap_andnot_Bitmap_Bitmap "select bitmap_andnot(to_bitmap(kbint), to_bitmap(kbint)) from fn_test order by kbint, kbint"
+	qt_sql_bitmap_andnot_Bitmap_Bitmap_notnull "select bitmap_andnot(to_bitmap(kbint), to_bitmap(kbint)) from fn_test_not_nullable order by kbint, kbint"
+	qt_sql_bitmap_andnot_count_Bitmap_Bitmap "select bitmap_andnot_count(to_bitmap(kbint), to_bitmap(kbint)) from fn_test order by kbint, kbint"
+	qt_sql_bitmap_andnot_count_Bitmap_Bitmap_notnull "select bitmap_andnot_count(to_bitmap(kbint), to_bitmap(kbint)) from fn_test_not_nullable order by kbint, kbint"
+
 	qt_sql_bitmap_contains_Bitmap_BigInt "select bitmap_contains(to_bitmap(kbint), kbint) from fn_test order by kbint, kbint"
 	qt_sql_bitmap_contains_Bitmap_BigInt_notnull "select bitmap_contains(to_bitmap(kbint), kbint) from fn_test_not_nullable order by kbint, kbint"
 	qt_sql_bitmap_count_Bitmap "select bitmap_count(to_bitmap(kbint)) from fn_test order by kbint"

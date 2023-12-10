@@ -251,6 +251,9 @@ private:
             res = _execute_number<ColumnDecimal128I>(src_column, src_offsets, src_null_map, sep_str,
                                                      null_replace_str, nested_type,
                                                      dest_column_ptr);
+        } else if (which.is_decimal256()) {
+            res = _execute_number<ColumnDecimal256>(src_column, src_offsets, src_null_map, sep_str,
+                                                    null_replace_str, nested_type, dest_column_ptr);
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, src_null_map, sep_str,
                                                     null_replace_str, nested_type, dest_column_ptr);

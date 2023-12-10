@@ -22,8 +22,6 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -61,7 +59,8 @@ public class PhysicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
             @Nullable PhysicalProperties physicalProperties, Statistics statistics,
             CHILD_TYPE child) {
-        super(physicalResultSink.getType(), groupExpression, logicalProperties, physicalProperties, statistics, child);
+        super(physicalResultSink.getType(), physicalResultSink.outputExprs,
+                groupExpression, logicalProperties, physicalProperties, statistics, child);
         this.physicalResultSink = physicalResultSink;
         this.olapTable = olapTable;
         this.selectedIndexId = selectedIndexId;
@@ -120,13 +119,6 @@ public class PhysicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
         return new PhysicalDeferMaterializeResultSink<>(physicalResultSink, olapTable, selectedIndexId,
                 groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
-    }
-
-    @Override
-    public List<Slot> computeOutput() {
-        return physicalResultSink.getOutputExprs().stream()
-                .map(NamedExpression::toSlot)
-                .collect(ImmutableList.toImmutableList());
     }
 
     @Override

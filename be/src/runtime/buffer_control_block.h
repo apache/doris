@@ -47,6 +47,10 @@ class Controller;
 
 namespace doris {
 
+namespace pipeline {
+class ResultSinkDependency;
+} // namespace pipeline
+
 class PFetchDataResult;
 
 struct GetResultBatchCtx {
@@ -73,17 +77,17 @@ public:
     Status init();
     // Only one fragment is written, so can_sink returns true, then the sink must be executed
     virtual bool can_sink();
-    Status add_batch(std::unique_ptr<TFetchDataResult>& result);
-    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
+    virtual Status add_batch(std::unique_ptr<TFetchDataResult>& result);
+    virtual Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result);
 
-    void get_batch(GetResultBatchCtx* ctx);
-    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
+    virtual void get_batch(GetResultBatchCtx* ctx);
+    virtual Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result);
 
     // close buffer block, set _status to exec_status and set _is_close to true;
     // called because data has been read or error happened.
     Status close(Status exec_status);
     // this is called by RPC, called from coordinator
-    Status cancel();
+    virtual Status cancel();
 
     [[nodiscard]] const TUniqueId& fragment_id() const { return _fragment_id; }
 
@@ -153,13 +157,25 @@ public:
         return _get_batch_queue_empty() || _buffer_rows < _buffer_limit || _is_cancelled;
     }
 
-private:
-    bool _get_batch_queue_empty() override { return _batch_queue_empty; }
-    void _update_batch_queue_empty() override {
-        _batch_queue_empty = _fe_result_batch_queue.empty() && _arrow_flight_batch_queue.empty();
-    }
+    Status add_batch(std::unique_ptr<TFetchDataResult>& result) override;
 
-    std::atomic_bool _batch_queue_empty = false;
+    Status add_arrow_batch(std::shared_ptr<arrow::RecordBatch>& result) override;
+
+    void get_batch(GetResultBatchCtx* ctx) override;
+
+    Status get_arrow_batch(std::shared_ptr<arrow::RecordBatch>* result) override;
+
+    Status cancel() override;
+
+    void set_dependency(std::shared_ptr<pipeline::ResultSinkDependency> result_sink_dependency);
+
+private:
+    void _update_dependency();
+    bool _get_batch_queue_empty() override { return _batch_queue_empty; }
+    void _update_batch_queue_empty() override;
+
+    std::atomic_bool _batch_queue_empty {false};
+    std::shared_ptr<pipeline::ResultSinkDependency> _result_sink_dependency;
 };
 
 } // namespace doris

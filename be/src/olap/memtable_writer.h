@@ -20,9 +20,9 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <stdint.h>
 
 #include <atomic>
+#include <cstdint>
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
@@ -33,6 +33,7 @@
 #include "olap/delta_writer_context.h"
 #include "olap/memtable.h"
 #include "olap/olap_common.h"
+#include "olap/partial_update_info.h"
 #include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
@@ -67,9 +68,10 @@ public:
     ~MemTableWriter();
 
     Status init(std::shared_ptr<RowsetWriter> rowset_writer, TabletSchemaSPtr tablet_schema,
+                std::shared_ptr<PartialUpdateInfo> partial_update_info,
                 bool unique_key_mow = false);
 
-    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                  bool is_append = false);
 
     Status append(const vectorized::Block* block);
@@ -101,7 +103,7 @@ public:
     // Wait all memtable in flush queue to be flushed
     Status wait_flush();
 
-    int64_t tablet_id() { return _req.tablet_id; }
+    int64_t tablet_id() const { return _req.tablet_id; }
 
     int64_t total_received_rows() const { return _total_received_rows; }
 
@@ -135,12 +137,14 @@ private:
     std::mutex _lock;
 
     // total rows num written by MemTableWriter
-    int64_t _total_received_rows = 0;
+    std::atomic<int64_t> _total_received_rows = 0;
     int64_t _wait_flush_time_ns = 0;
     int64_t _close_wait_time_ns = 0;
     int64_t _segment_num = 0;
 
     MonotonicStopWatch _lock_watch;
+
+    std::shared_ptr<PartialUpdateInfo> _partial_update_info;
 };
 
 } // namespace doris

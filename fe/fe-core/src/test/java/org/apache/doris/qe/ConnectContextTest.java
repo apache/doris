@@ -99,19 +99,25 @@ public class ConnectContextTest {
         ctx.setCommand(MysqlCommand.COM_PING);
         Assert.assertEquals(MysqlCommand.COM_PING, ctx.getCommand());
 
+        // LoginTime
+        ctx.loginTime = 1694002396223L;
+
         // Thread info
         Assert.assertNotNull(ctx.toThreadInfo(false));
-        List<String> row = ctx.toThreadInfo(false).toRow(1000, false);
-        Assert.assertEquals(9, row.size());
-        Assert.assertEquals("101", row.get(0));
-        Assert.assertEquals("testUser", row.get(1));
-        Assert.assertEquals("", row.get(2));
-        Assert.assertEquals("testCluster", row.get(3));
-        Assert.assertEquals("testDb", row.get(4));
-        Assert.assertEquals("Ping", row.get(5));
-        Assert.assertEquals("1", row.get(6));
-        Assert.assertEquals("", row.get(7));
-        Assert.assertEquals("", row.get(8));
+        List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, false);
+        Assert.assertEquals(12, row.size());
+        Assert.assertEquals("Yes", row.get(0));
+        Assert.assertEquals("101", row.get(1));
+        Assert.assertEquals("testUser", row.get(2));
+        Assert.assertEquals("", row.get(3));
+        Assert.assertEquals("2023-09-06 20:13:16", row.get(4));
+        Assert.assertEquals("internal", row.get(5));
+        Assert.assertEquals("testDb", row.get(6));
+        Assert.assertEquals("Ping", row.get(7));
+        Assert.assertEquals("1", row.get(8));
+        Assert.assertEquals("OK", row.get(9));
+        Assert.assertEquals("", row.get(10));
+        Assert.assertEquals("", row.get(11));
 
         // Start time
         Assert.assertEquals(0, ctx.getStartTime());

@@ -52,7 +52,7 @@ public class InvertedIndexUtil {
     public static String getInvertedIndexParserMode(Map<String, String> properties) {
         String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         // default is "none" if not set
-        return mode != null ? mode : INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        return mode != null ? mode : INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 
     public static Map<String, String> getInvertedIndexCharFilter(Map<String, String> properties) {
@@ -105,7 +105,7 @@ public class InvertedIndexUtil {
             parser = INVERTED_INDEX_PARSER_NONE;
         }
 
-        if (colType.isStringType()) {
+        if (colType.isStringType() || colType.isVariantType()) {
             if (!(parser.equals(INVERTED_INDEX_PARSER_NONE)
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)
                         || parser.equals(INVERTED_INDEX_PARSER_UNICODE)

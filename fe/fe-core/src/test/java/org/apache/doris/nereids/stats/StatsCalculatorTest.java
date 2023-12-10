@@ -22,6 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -61,7 +62,8 @@ public class StatsCalculatorTest {
 
     private Group newFakeGroup() {
         GroupExpression groupExpression = new GroupExpression(scan);
-        Group group = new Group(null, groupExpression, new LogicalProperties(Collections::emptyList));
+        Group group = new Group(null, groupExpression,
+                new LogicalProperties(Collections::emptyList, () -> FunctionalDependencies.EMPTY_FUNC_DEPS));
         group.getLogicalExpressions().remove(0);
         return group;
     }
@@ -250,7 +252,7 @@ public class StatsCalculatorTest {
         LogicalOlapScan logicalOlapScan1 = (LogicalOlapScan) new LogicalOlapScan(
                 StatementScopeIdGenerator.newRelationId(), table1,
                 Collections.emptyList()).withGroupExprLogicalPropChildren(Optional.empty(),
-                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1))), ImmutableList.of());
+                Optional.of(new LogicalProperties(() -> ImmutableList.of(slot1), () -> FunctionalDependencies.EMPTY_FUNC_DEPS)), ImmutableList.of());
 
         GroupExpression groupExpression = new GroupExpression(logicalOlapScan1, ImmutableList.of());
         Group ownerGroup = new Group(null, groupExpression, null);
@@ -285,7 +287,7 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, limitStats.getRowCount());
         ColumnStatistic slot1Stats = limitStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
-        Assertions.assertEquals(0.5, slot1Stats.numNulls);
+        Assertions.assertEquals(0, slot1Stats.numNulls, 0.1);
     }
 
     @Test
@@ -311,6 +313,6 @@ public class StatsCalculatorTest {
         Assertions.assertEquals(1, topNStats.getRowCount());
         ColumnStatistic slot1Stats = topNStats.columnStatistics().get(slot1);
         Assertions.assertEquals(1, slot1Stats.ndv, 0.1);
-        Assertions.assertEquals(0.5, slot1Stats.numNulls);
+        Assertions.assertEquals(0, slot1Stats.numNulls, 0.1);
     }
 }

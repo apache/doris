@@ -27,12 +27,32 @@
 #include "vec/functions/array/function_array_utils.h"
 #include "vec/functions/function_helpers.h"
 
+#define FILL_MAP_DATA_INTO_DEFAULT_COLUMN()                                \
+    ++dst_off;                                                             \
+    auto& dst_data = static_cast<ColumnType&>(*dst.nested_col).get_data(); \
+    dst_data.push_back(entry.get_first());                                 \
+    if (dst.nested_nullmap_data) {                                         \
+        dst.nested_nullmap_data->push_back(0);                             \
+    }
+
+#define FILL_MAP_DATA_INTO_STRING_COLUMN()                       \
+    auto& dst_col = static_cast<ColumnString&>(*dst.nested_col); \
+    StringRef key = entry.get_first();                           \
+    ++dst_off;                                                   \
+    dst_col.insert_data(key.data, key.size);                     \
+    if (dst.nested_nullmap_data) {                               \
+        dst.nested_nullmap_data->push_back(0);                   \
+    }
+
 namespace doris::vectorized {
 
-enum class MapOperation { INTERSECT };
+enum class MapOperation { INTERSECT, UNION };
 
 template <typename Map, typename ColumnType>
 struct IntersectAction;
+
+template <typename Map, typename ColumnType>
+struct UnionAction;
 
 template <typename Map, typename ColumnType, MapOperation operation>
 struct MapActionImpl;
@@ -40,6 +60,11 @@ struct MapActionImpl;
 template <typename Map, typename ColumnType>
 struct MapActionImpl<Map, ColumnType, MapOperation::INTERSECT> {
     using Action = IntersectAction<Map, ColumnType>;
+};
+
+template <typename Map, typename ColumnType>
+struct MapActionImpl<Map, ColumnType, MapOperation::UNION> {
+    using Action = UnionAction<Map, ColumnType>;
 };
 
 template <MapOperation operation, typename ColumnType>
@@ -62,7 +87,7 @@ struct OpenMapImpl {
                std::vector<bool>& col_const, int start_row, int end_row) {
         size_t dst_off = 0;
         for (int row = start_row; row < end_row; ++row) {
-            map.clear();
+            reset();
             for (int i = 0; i < params.size(); ++i) {
                 action.apply(map, i, index_check_const(row, col_const[i]), params[i]);
             }
@@ -76,13 +101,13 @@ struct OpenMapImpl {
             }
             // make map result to dst
             for (const auto& entry : map) {
-                if (entry.get_mapped() == params.size()) {
-                    ++dst_off;
-                    auto& dst_data = static_cast<ColumnType&>(*dst.nested_col).get_data();
-                    dst_data.push_back(entry.get_first());
-                    if (dst.nested_nullmap_data) {
-                        dst.nested_nullmap_data->push_back(0);
+                if constexpr (operation == MapOperation::INTERSECT) {
+                    if (entry.get_mapped() == params.size()) {
+                        FILL_MAP_DATA_INTO_DEFAULT_COLUMN()
                     }
+                } else if constexpr (operation == MapOperation::UNION) {
+                    // union in map all key
+                    FILL_MAP_DATA_INTO_DEFAULT_COLUMN()
                 }
             }
             dst.offsets_ptr->push_back(dst_off);
@@ -107,7 +132,7 @@ struct OpenMapImpl<operation, ColumnString> {
                std::vector<bool>& col_const, int start_row, int end_row) {
         size_t dst_off = 0;
         for (int row = start_row; row < end_row; ++row) {
-            map.clear();
+            reset();
             for (int i = 0; i < params.size(); ++i) {
                 action.apply(map, i, index_check_const(row, col_const[i]), params[i]);
             }
@@ -121,14 +146,12 @@ struct OpenMapImpl<operation, ColumnString> {
             }
             // make map result to dst
             for (const auto& entry : map) {
-                if (entry.get_mapped() == params.size()) {
-                    auto& dst_col = static_cast<ColumnString&>(*dst.nested_col);
-                    StringRef key = entry.get_first();
-                    ++dst_off;
-                    dst_col.insert_data(key.data, key.size);
-                    if (dst.nested_nullmap_data) {
-                        dst.nested_nullmap_data->push_back(0);
+                if constexpr (operation == MapOperation::INTERSECT) {
+                    if (entry.get_mapped() == params.size()) {
+                        FILL_MAP_DATA_INTO_STRING_COLUMN()
                     }
+                } else if constexpr (operation == MapOperation::UNION) {
+                    FILL_MAP_DATA_INTO_STRING_COLUMN()
                 }
             }
             dst.offsets_ptr->push_back(dst_off);

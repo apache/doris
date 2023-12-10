@@ -290,7 +290,7 @@
 0
 
 -- !sql_field_Varchar --
-\N
+0
 0
 0
 0
@@ -319,7 +319,7 @@
 0
 
 -- !sql_field_String --
-\N
+0
 0
 0
 0
@@ -348,7 +348,7 @@
 0
 
 -- !sql_find_in_set_Varchar_Varchar --
-\N
+1
 1
 1
 1
@@ -377,7 +377,7 @@
 1
 
 -- !sql_find_in_set_String_String --
-\N
+1
 1
 1
 1

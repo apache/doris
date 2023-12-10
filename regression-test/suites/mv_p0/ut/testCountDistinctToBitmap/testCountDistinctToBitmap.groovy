@@ -18,7 +18,7 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("testCountDistinctToBitmap") {
-
+    sql """set enable_nereids_planner=true;"""
     sql """ DROP TABLE IF EXISTS user_tags; """
 
     sql """ create table user_tags (
@@ -47,4 +47,34 @@ suite ("testCountDistinctToBitmap") {
         contains "(user_tags_mv)"
     }
     qt_select_mv "select user_id, count(distinct tag_id) a from user_tags group by user_id having a>1 order by a;"
+
+
+    sql """ DROP TABLE IF EXISTS user_tags2; """
+
+    sql """ create table user_tags2 (
+                time_col date, 
+                user_id bigint, 
+                user_name varchar(20), 
+                tag_id bigint) 
+            partition by range (time_col) (partition p1 values less than MAXVALUE) distributed by hash(time_col) buckets 3 properties('replication_num' = '1');
+        """
+
+    sql """insert into user_tags2 values("2020-01-01",1,"a",1);"""
+    sql """insert into user_tags2 values("2020-01-02",2,"b",2);"""
+
+    createMV("create materialized view user_tags_mv as select user_id, bitmap_union(to_bitmap(tag_id)) from user_tags2 group by user_id;")
+
+    sql """insert into user_tags2 values("2020-01-01",1,"a",2);"""
+
+    explain {
+        sql("select * from user_tags2 order by time_col;")
+        contains "(user_tags2)"
+    }
+    qt_select_star "select * from user_tags2 order by time_col,tag_id;"
+
+    explain {
+        sql("select user_id, count(distinct tag_id) a from user_tags2 group by user_id having a>1 order by a;")
+        contains "(user_tags_mv)"
+    }
+    qt_select_mv "select user_id, count(distinct tag_id) a from user_tags2 group by user_id having a>1 order by a;"
 }

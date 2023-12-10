@@ -45,6 +45,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
@@ -56,6 +57,7 @@ public class SlotRef extends Expr {
     private String col;
     // Used in toSql
     private String label;
+    private List<String> subColPath;
 
     // results of analysis
     protected SlotDescriptor desc;
@@ -72,6 +74,14 @@ public class SlotRef extends Expr {
         this.label = "`" + col + "`";
     }
 
+    public SlotRef(TableName tblName, String col, List<String> subColPath) {
+        super();
+        this.tblName = tblName;
+        this.col = col;
+        this.label = "`" + col + "`";
+        this.subColPath = subColPath;
+    }
+
     // C'tor for a "pre-analyzed" ref to slot that doesn't correspond to
     // a table's column.
     public SlotRef(SlotDescriptor desc) {
@@ -85,6 +95,7 @@ public class SlotRef extends Expr {
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
         }
+        this.subColPath = desc.getSubColLables();
         analysisDone();
     }
 
@@ -108,6 +119,7 @@ public class SlotRef extends Expr {
         label = other.label;
         desc = other.desc;
         tupleId = other.tupleId;
+        subColPath = other.subColPath;
     }
 
     @Override
@@ -201,7 +213,7 @@ public class SlotRef extends Expr {
 
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
-        desc = analyzer.registerColumnRef(tblName, col);
+        desc = analyzer.registerColumnRef(tblName, col, subColPath);
         type = desc.getType();
         if (this.type.equals(Type.CHAR)) {
             this.type = Type.VARCHAR;
@@ -225,8 +237,10 @@ public class SlotRef extends Expr {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
         helper.add("slotDesc", desc != null ? desc.debugString() : "null");
         helper.add("col", col);
+        helper.add("type", type.toSql());
         helper.add("label", label);
         helper.add("tblName", tblName != null ? tblName.toSql() : "null");
+        helper.add("subColPath", subColPath);
         return helper.toString();
     }
 
@@ -306,6 +320,18 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(toColumnLabel());
+        }
+        return this.exprName.get();
+    }
+
+    public List<String> toSubColumnLabel() {
+        return subColPath;
+    }
+
+    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
@@ -323,7 +349,14 @@ public class SlotRef extends Expr {
         if (desc != null) {
             return desc.getId().hashCode();
         }
-        return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        if (subColPath == null || subColPath.isEmpty()) {
+            return Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        }
+        int result = Objects.hashCode((tblName == null ? "" : tblName.toSql() + "." + label).toLowerCase());
+        for (String sublabel : subColPath) {
+            result = 31 * result + Objects.hashCode(sublabel);
+        }
+        return result;
     }
 
     @Override
@@ -356,6 +389,13 @@ public class SlotRef extends Expr {
             return false;
         }
         if (col != null && !col.equalsIgnoreCase(other.col)) {
+            return false;
+        }
+        if ((subColPath == null) != (other.subColPath == null)) {
+            return false;
+        }
+        if (subColPath != null
+                && subColPath.equals(other.subColPath)) {
             return false;
         }
         return true;
@@ -607,8 +647,8 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public Expr getResultValue(boolean foldSlot) throws AnalysisException {
-        if (!foldSlot) {
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        if (!forPushDownPredicatesToView) {
             return this;
         }
         if (!isConstant() || desc == null) {
@@ -620,7 +660,7 @@ public class SlotRef extends Expr {
         }
         Expr expr = exprs.get(0);
         if (expr instanceof SlotRef) {
-            return expr.getResultValue(foldSlot);
+            return expr.getResultValue(forPushDownPredicatesToView);
         }
         if (expr.isConstant()) {
             return expr;

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/BackendService_types.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -69,10 +70,10 @@ public:
     void check_and_update_cpu_share(const TaskGroupInfo& tg_info);
 
 private:
-    QueueType* _task_queue;
+    QueueType* _task_queue = nullptr;
 
     uint64_t _vruntime_ns = 0;
-    taskgroup::TaskGroup* _tg;
+    taskgroup::TaskGroup* _tg = nullptr;
 
     std::string _type;
 
@@ -106,6 +107,8 @@ public:
 
     uint64_t cpu_share() const { return _cpu_share.load(); }
 
+    int cpu_hard_limit() const { return _cpu_hard_limit.load(); }
+
     uint64_t id() const { return _id; }
 
     std::string name() const { return _name; };
@@ -136,6 +139,13 @@ public:
         return _mem_tracker_limiter_pool;
     }
 
+    // when mem_limit <=0 , it's an invalid value, then current group not participating in memory GC
+    // because mem_limit is not a required property
+    bool is_mem_limit_valid() {
+        std::shared_lock<std::shared_mutex> r_lock(_mutex);
+        return _memory_limit > 0;
+    }
+
 private:
     mutable std::shared_mutex _mutex; // lock _name, _version, _cpu_share, _memory_limit
     const uint64_t _id;
@@ -147,6 +157,7 @@ private:
     TaskGroupPipelineTaskEntity _task_entity;
     TaskGroupScanTaskEntity _local_scan_entity;
     std::vector<TgTrackerLimiterGroup> _mem_tracker_limiter_pool;
+    std::atomic<int> _cpu_hard_limit;
 };
 
 using TaskGroupPtr = std::shared_ptr<TaskGroup>;
@@ -158,12 +169,14 @@ struct TaskGroupInfo {
     int64_t memory_limit;
     bool enable_memory_overcommit;
     int64_t version;
+    int cpu_hard_limit;
+    bool enable_cpu_hard_limit;
+    // log cgroup cpu info
+    uint64_t cgroup_cpu_shares = 0;
+    int cgroup_cpu_hard_limit = 0;
 
-    static Status parse_group_info(const TPipelineWorkloadGroup& resource_group,
-                                   TaskGroupInfo* task_group_info);
-
-private:
-    static bool check_group_info(const TPipelineWorkloadGroup& resource_group);
+    static Status parse_topic_info(const TWorkloadGroupInfo& topic_info,
+                                   taskgroup::TaskGroupInfo* task_group_info);
 };
 
 } // namespace taskgroup

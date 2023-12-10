@@ -17,17 +17,23 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.PaimonProperties;
 
+import com.google.common.collect.ImmutableList;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 
 public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(PaimonHMSExternalCatalog.class);
+    private static final List<String> REQUIRED_PROPERTIES = ImmutableList.of(
+            HMSProperties.HIVE_METASTORE_URIS
+    );
 
     public PaimonHMSExternalCatalog(long catalogId, String name, String resource,
             Map<String, String> props, String comment) {
@@ -45,5 +51,15 @@ public class PaimonHMSExternalCatalog extends PaimonExternalCatalog {
     protected void setPaimonCatalogOptions(Map<String, String> properties, Map<String, String> options) {
         options.put(PaimonProperties.PAIMON_CATALOG_TYPE, getPaimonCatalogType(catalogType));
         options.put(PaimonProperties.HIVE_METASTORE_URIS, properties.get(HMSProperties.HIVE_METASTORE_URIS));
+    }
+
+    @Override
+    public void checkProperties() throws DdlException {
+        super.checkProperties();
+        for (String requiredProperty : REQUIRED_PROPERTIES) {
+            if (!catalogProperty.getProperties().containsKey(requiredProperty)) {
+                throw new DdlException("Required property '" + requiredProperty + "' is missing");
+            }
+        }
     }
 }

@@ -133,18 +133,18 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t /*input_rows_count*/) override;
+                        size_t result, size_t /*input_rows_count*/) const override;
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 
 protected:
     Status vector_const(const ColumnString& values, const StringRef* pattern_val,
                         ColumnUInt8::Container& result, const LikeFn& function,
-                        LikeSearchState* search_state);
+                        LikeSearchState* search_state) const;
 
     Status execute_substring(const ColumnString::Chars& values,
                              const ColumnString::Offsets& value_offsets,
-                             ColumnUInt8::Container& result, LikeSearchState* search_state);
+                             ColumnUInt8::Container& result, LikeSearchState* search_state) const;
 
     static Status constant_allpass_fn(LikeSearchState* state, const ColumnString& val,
                                       const StringRef& pattern, ColumnUInt8::Container& result);

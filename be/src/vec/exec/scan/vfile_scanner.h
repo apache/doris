@@ -30,8 +30,8 @@
 #include "common/global_types.h"
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "exec/text_converter.h"
 #include "io/io_common.h"
+#include "pipeline/exec/file_scan_operator.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
 #include "vec/common/schema_util.h"
@@ -67,6 +67,10 @@ public:
                  const TFileScanRange& scan_range, RuntimeProfile* profile,
                  ShardedKVCache* kv_cache);
 
+    VFileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
+                 const TFileScanRange& scan_range, RuntimeProfile* profile,
+                 ShardedKVCache* kv_cache);
+
     Status open(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
@@ -88,14 +92,13 @@ protected:
     Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
-    std::unique_ptr<TextConverter> _text_converter;
-    const TFileScanRangeParams* _params;
+    const TFileScanRangeParams* _params = nullptr;
     const std::vector<TFileRangeDesc>& _ranges;
     int _next_range;
 
     std::unique_ptr<GenericReader> _cur_reader;
     bool _cur_reader_eof;
-    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
+    std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
@@ -137,10 +140,11 @@ protected:
     // For load task
     vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
+    std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
     // owned by scan node
-    ShardedKVCache* _kv_cache;
+    ShardedKVCache* _kv_cache = nullptr;
 
     bool _scanner_eof = false;
     int _rows = 0;
@@ -150,7 +154,7 @@ protected:
     bool _strict_mode;
 
     bool _src_block_init = false;
-    Block* _src_block_ptr;
+    Block* _src_block_ptr = nullptr;
     Block _src_block;
 
     VExprContextSPtrs _push_down_conjuncts;
@@ -158,9 +162,9 @@ protected:
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
 
-    std::unique_ptr<std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>>
-            _partition_columns;
-    std::unique_ptr<std::unordered_map<std::string, VExprContextSPtr>> _missing_columns;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_col_descs;
+    std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;
@@ -172,8 +176,9 @@ private:
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
     RuntimeProfile::Counter* _empty_file_counter = nullptr;
     RuntimeProfile::Counter* _file_counter = nullptr;
+    RuntimeProfile::Counter* _has_fully_rf_file_counter = nullptr;
 
-    const std::unordered_map<std::string, int>* _col_name_to_slot_id;
+    const std::unordered_map<std::string, int>* _col_name_to_slot_id = nullptr;
     // single slot filter conjuncts
     std::unordered_map<int, VExprContextSPtrs> _slot_id_to_filter_conjuncts;
     // not single(zero or multi) slot filter conjuncts
@@ -202,11 +207,28 @@ private:
     Status _generate_fill_columns();
     Status _handle_dynamic_block(Block* block);
     Status _process_conjuncts_for_dict_filter();
+    Status _process_late_arrival_conjuncts();
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
 
     void _reset_counter() {
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
+    }
+
+    TPushAggOp::type _get_push_down_agg_type() {
+        if (get_parent() != nullptr) {
+            return _parent->get_push_down_agg_type();
+        } else {
+            return _local_state->get_push_down_agg_type();
+        }
+    }
+
+    int64_t _get_push_down_count() {
+        if (get_parent() != nullptr) {
+            return _parent->get_push_down_count();
+        } else {
+            return _local_state->get_push_down_count();
+        }
     }
 };
 } // namespace doris::vectorized

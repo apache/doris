@@ -23,7 +23,6 @@
 
 #include <algorithm>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "io/fs/buffered_reader.h"
@@ -33,7 +32,7 @@
 
 namespace doris {
 namespace io {
-class IOContext;
+struct IOContext;
 } // namespace io
 } // namespace doris
 
@@ -81,14 +80,7 @@ Status PageReader::next_page_header() {
     }
 
     _offset += real_header_size;
-    if (_cur_page_header.__isset.data_page_header_v2) {
-        auto& page_v2 = _cur_page_header.data_page_header_v2;
-        _next_header_offset = _offset + _cur_page_header.compressed_page_size +
-                              page_v2.repetition_levels_byte_length +
-                              page_v2.definition_levels_byte_length;
-    } else {
-        _next_header_offset = _offset + _cur_page_header.compressed_page_size;
-    }
+    _next_header_offset = _offset + _cur_page_header.compressed_page_size;
     _state = HEADER_PARSED;
     return Status::OK();
 }
@@ -106,13 +98,7 @@ Status PageReader::get_page_data(Slice& slice) {
     if (UNLIKELY(_state != HEADER_PARSED)) {
         return Status::IOError("Should generate page header first to load current page data");
     }
-    if (_cur_page_header.__isset.data_page_header_v2) {
-        auto& page_v2 = _cur_page_header.data_page_header_v2;
-        slice.size = _cur_page_header.compressed_page_size + page_v2.repetition_levels_byte_length +
-                     page_v2.definition_levels_byte_length;
-    } else {
-        slice.size = _cur_page_header.compressed_page_size;
-    }
+    slice.size = _cur_page_header.compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));
     _offset += slice.size;
     _state = INITIALIZED;

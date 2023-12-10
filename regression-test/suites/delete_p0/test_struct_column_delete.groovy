@@ -21,6 +21,10 @@ suite("test_struct_column_delete") {
     sql """ DROP TABLE IF EXISTS ${tableName}; """
     sql """ CREATE TABLE IF NOT EXISTS ${tableName} (id INT NULL, s_struct STRUCT<f1:INT, f2:VARCHAR(30)> NULL) ENGINE=OLAP DUPLICATE KEY(id) DISTRIBUTED BY HASH(id) BUCKETS 4 PROPERTIES ( "replication_allocation" = "tag.location.default: 1","in_memory" = "false","storage_format" = "V2") """
     sql """ insert into ${tableName} values(1, {1, 'a'}),(2,NULL),(3,NULL),(4,NULL),(5,NULL) """
-    sql """ DELETE FROM ${tableName} WHERE s_struct is NULL """
+    test {
+        sql """ DELETE FROM ${tableName} WHERE s_struct is NULL """
+        exception("java.sql.SQLException: errCode = 2, detailMessage = errCode = 2, detailMessage = Can not apply delete condition to column type: STRUCT<f1:INT,f2:VARCHAR(30)>")
+    }
+    sql """ DELETE FROM ${tableName} WHERE id = 1; """
     qt_sql """ SELECT * FROM ${tableName} order by id """
 }

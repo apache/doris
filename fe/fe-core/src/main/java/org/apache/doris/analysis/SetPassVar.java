@@ -60,7 +60,7 @@ public class SetPassVar extends SetVar {
             userIdent = ctx.getCurrentUserIdentity();
             isSelf = true;
         } else {
-            userIdent.analyze(analyzer.getClusterName());
+            userIdent.analyze();
             if (userIdent.equals(ctx.getCurrentUserIdentity())) {
                 isSelf = true;
             }

@@ -50,7 +50,7 @@ using SchemaSPtr = std::shared_ptr<const Schema>;
 class Schema {
 public:
     Schema(TabletSchemaSPtr tablet_schema) {
-        SCOPED_MEM_COUNT(&_mem_size);
+        SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
         size_t num_columns = tablet_schema->num_columns();
         // ignore this column
         if (tablet_schema->columns().back().name() == BeConsts::ROW_STORE_COL) {
@@ -86,7 +86,7 @@ public:
 
     // All the columns of one table may exist in the columns param, but col_ids is only a subset.
     Schema(const std::vector<TabletColumn>& columns, const std::vector<ColumnId>& col_ids) {
-        SCOPED_MEM_COUNT(&_mem_size);
+        SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
         size_t num_key_columns = 0;
         _unique_ids.resize(columns.size());
         for (size_t i = 0; i < columns.size(); ++i) {
@@ -109,7 +109,7 @@ public:
 
     // Only for UT
     Schema(const std::vector<TabletColumn>& columns, size_t num_key_columns) {
-        SCOPED_MEM_COUNT(&_mem_size);
+        SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
         std::vector<ColumnId> col_ids(columns.size());
         _unique_ids.resize(columns.size());
         for (uint32_t cid = 0; cid < columns.size(); ++cid) {
@@ -121,7 +121,7 @@ public:
     }
 
     Schema(const std::vector<const Field*>& cols, size_t num_key_columns) {
-        SCOPED_MEM_COUNT(&_mem_size);
+        SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
         std::vector<ColumnId> col_ids(cols.size());
         _unique_ids.resize(cols.size());
         for (uint32_t cid = 0; cid < cols.size(); ++cid) {
@@ -147,7 +147,8 @@ public:
 
     static vectorized::IColumn::MutablePtr get_column_by_field(const Field& field);
 
-    static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const Field& field,
+    static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const FieldType& type,
+                                                                    bool is_nullable,
                                                                     const ReaderType reader_type);
 
     const std::vector<Field*>& columns() const { return _cols; }

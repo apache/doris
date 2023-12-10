@@ -464,7 +464,7 @@
 1.200
 
 -- !sql_least_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -493,7 +493,7 @@ varchar13
 varchar13
 
 -- !sql_least_String --
-\N
+null
 string1
 string1
 string1
@@ -580,7 +580,7 @@ string3
 string3
 
 -- !sql_length_Varchar --
-\N
+4
 9
 9
 9
@@ -609,7 +609,7 @@ string3
 9
 
 -- !sql_length_String --
-\N
+4
 7
 7
 7
@@ -636,6 +636,35 @@ string3
 7
 7
 7
+
+-- !sql_like_Varchar_Varchar --
+true
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+
+-- !sql_like_Varchar_Varchar_not_null --
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
+false
 
 -- !sql_ln_Double --
 \N
@@ -667,7 +696,7 @@ string3
 0.1823215567939546
 
 -- !sql_locate_Varchar_Varchar --
-\N
+1
 1
 1
 1
@@ -696,7 +725,7 @@ string3
 1
 
 -- !sql_locate_String_String --
-\N
+1
 1
 1
 1
@@ -818,12 +847,12 @@ string3
 -0.5228787452803376
 -0.3979400086720376
 -0.3010299956639812
--0.22184874961635637
+-0.2218487496163564
 -0.1549019599857432
 -0.09691001300805639
 -0.045757490560675115
 0.0
-0.04139268515822507
+0.04139268515822508
 0.07918124604762482
 
 -- !sql_log10_Double_notnull --
@@ -832,12 +861,12 @@ string3
 -0.5228787452803376
 -0.3979400086720376
 -0.3010299956639812
--0.22184874961635637
+-0.2218487496163564
 -0.1549019599857432
 -0.09691001300805639
 -0.045757490560675115
 0.0
-0.04139268515822507
+0.04139268515822508
 0.07918124604762482
 
 -- !sql_log2_Double --
@@ -870,7 +899,7 @@ string3
 0.2630344058337938
 
 -- !sql_lower_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -899,7 +928,7 @@ varchar13
 varchar13
 
 -- !sql_lower_String --
-\N
+null
 string1
 string1
 string1
@@ -986,7 +1015,7 @@ ststring3
 strinstring3
 
 -- !sql_ltrim_Varchar --
-\N
+null
 varchar11
 varchar11
 varchar11
@@ -1015,7 +1044,7 @@ varchar13
 varchar13
 
 -- !sql_ltrim_String --
-\N
+null
 string1
 string1
 string1
@@ -1042,4 +1071,62 @@ string3
 string3
 string3
 string3
+
+-- !sql_ltrim_Varchar_Varchar --
+null
+char11
+char11
+char11
+char11
+char12
+char12
+char12
+char12
+char13
+char13
+char13
+char13
+
+-- !sql_ltrim_Varchar_Varchar_notnull --
+char11
+char11
+char11
+char11
+char12
+char12
+char12
+char12
+char13
+char13
+char13
+char13
+
+-- !sql_ltrim_String_String --
+null
+ing1
+ing1
+ing1
+ing1
+ing2
+ing2
+ing2
+ing2
+ing3
+ing3
+ing3
+ing3
+
+-- !sql_ltrim_String_String_notnull --
+ing1
+ing1
+ing1
+ing1
+ing2
+ing2
+ing2
+ing2
+ing3
+ing3
+ing3
+ing3
 

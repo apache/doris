@@ -19,6 +19,8 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
+
 import java.util.StringJoiner;
 
 public class StatsId {
@@ -32,7 +34,18 @@ public class StatsId {
     public final String colId;
 
     // nullable
-    public final Long partId;
+    public final String partId;
+
+    @VisibleForTesting
+    public StatsId() {
+        this.id = null;
+        this.catalogId = -1;
+        this.dbId = -1;
+        this.tblId = -1;
+        this.idxId = -1;
+        this.colId = null;
+        this.partId = null;
+    }
 
     public StatsId(ResultRow row) {
         this.id = row.get(0);
@@ -41,7 +54,17 @@ public class StatsId {
         this.tblId = Long.parseLong(row.get(3));
         this.idxId = Long.parseLong(row.get(4));
         this.colId = row.get(5);
-        this.partId = row.get(6) == null ? null : Long.parseLong(row.get(6));
+        this.partId = row.get(6);
+    }
+
+    public StatsId(String id, long catalogId, long dbId, long tblId, long idxId, String colId, String partId) {
+        this.id = id;
+        this.catalogId = catalogId;
+        this.dbId = dbId;
+        this.tblId = tblId;
+        this.idxId = idxId;
+        this.colId = colId;
+        this.partId = partId;
     }
 
     public String toSQL() {
@@ -51,8 +74,8 @@ public class StatsId {
         sj.add(String.valueOf(dbId));
         sj.add(String.valueOf(tblId));
         sj.add(String.valueOf(idxId));
-        sj.add(StatisticsUtil.quote(String.valueOf(colId)));
-        sj.add(String.valueOf(partId));
+        sj.add(StatisticsUtil.quote(colId));
+        sj.add(partId);
         return sj.toString();
     }
 }

@@ -39,9 +39,10 @@
 namespace doris {
 namespace taskgroup {
 
-const static std::string CPU_SHARE = "cpu_share";
-const static std::string MEMORY_LIMIT = "memory_limit";
-const static std::string ENABLE_MEMORY_OVERCOMMIT = "enable_memory_overcommit";
+const static uint64_t CPU_SHARE_DEFAULT_VALUE = 1024;
+const static std::string MEMORY_LIMIT_DEFAULT_VALUE = "0%";
+const static bool ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE = true;
+const static int CPU_HARD_LIMIT_DEFAULT_VALUE = -1;
 
 template <typename QueueType>
 TaskGroupEntity<QueueType>::TaskGroupEntity(taskgroup::TaskGroup* tg, std::string type)
@@ -112,15 +113,16 @@ TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
           _cpu_share(tg_info.cpu_share),
           _task_entity(this, "pipeline task entity"),
           _local_scan_entity(this, "local scan entity"),
-          _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM) {}
+          _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM),
+          _cpu_hard_limit(tg_info.cpu_hard_limit) {}
 
 std::string TaskGroup::debug_string() const {
     std::shared_lock<std::shared_mutex> rl {_mutex};
     return fmt::format(
             "TG[id = {}, name = {}, cpu_share = {}, memory_limit = {}, enable_memory_overcommit = "
-            "{}, version = {}]",
+            "{}, version = {}, cpu_hard_limit = {}]",
             _id, _name, cpu_share(), PrettyPrinter::print(_memory_limit, TUnit::BYTES),
-            _enable_memory_overcommit ? "true" : "false", _version);
+            _enable_memory_overcommit ? "true" : "false", _version, cpu_hard_limit());
 }
 
 void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
@@ -141,6 +143,7 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
             _memory_limit = tg_info.memory_limit;
             _enable_memory_overcommit = tg_info.enable_memory_overcommit;
             _cpu_share = tg_info.cpu_share;
+            _cpu_hard_limit = tg_info.cpu_hard_limit;
         } else {
             return;
         }
@@ -184,51 +187,72 @@ void TaskGroup::task_group_info(TaskGroupInfo* tg_info) const {
     tg_info->version = _version;
 }
 
-Status TaskGroupInfo::parse_group_info(const TPipelineWorkloadGroup& resource_group,
-                                       TaskGroupInfo* task_group_info) {
-    if (UNLIKELY(!check_group_info(resource_group))) {
-        std::stringstream ss;
-        ss << "incomplete resource group parameters: ";
-        resource_group.printTo(ss);
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+Status TaskGroupInfo::parse_topic_info(const TWorkloadGroupInfo& workload_group_info,
+                                       taskgroup::TaskGroupInfo* task_group_info) {
+    // 1 id
+    int tg_id = 0;
+    if (workload_group_info.__isset.id) {
+        tg_id = workload_group_info.id;
+    } else {
+        return Status::InternalError<false>("workload group id is required");
     }
+    task_group_info->id = tg_id;
 
-    auto iter = resource_group.properties.find(CPU_SHARE);
-    uint64_t share = 0;
-    std::from_chars(iter->second.c_str(), iter->second.c_str() + iter->second.size(), share);
+    // 2 name
+    std::string name = "INVALID_NAME";
+    if (workload_group_info.__isset.name) {
+        name = workload_group_info.name;
+    }
+    task_group_info->name = name;
 
-    task_group_info->id = resource_group.id;
-    task_group_info->name = resource_group.name;
-    task_group_info->version = resource_group.version;
-    task_group_info->cpu_share = share;
+    // 3 version
+    int version = 0;
+    if (workload_group_info.__isset.version) {
+        version = workload_group_info.version;
+    } else {
+        return Status::InternalError<false>("workload group version is required");
+    }
+    task_group_info->version = version;
 
+    // 4 cpu_share
+    uint64_t cpu_share = CPU_SHARE_DEFAULT_VALUE;
+    if (workload_group_info.__isset.cpu_share) {
+        cpu_share = workload_group_info.cpu_share;
+    }
+    task_group_info->cpu_share = cpu_share;
+
+    // 5 cpu hard limit
+    int cpu_hard_limit = CPU_HARD_LIMIT_DEFAULT_VALUE;
+    if (workload_group_info.__isset.cpu_hard_limit) {
+        cpu_hard_limit = workload_group_info.cpu_hard_limit;
+    }
+    task_group_info->cpu_hard_limit = cpu_hard_limit;
+
+    // 6 mem_limit
+    std::string mem_limit_str = MEMORY_LIMIT_DEFAULT_VALUE;
+    if (workload_group_info.__isset.mem_limit) {
+        mem_limit_str = workload_group_info.mem_limit;
+    }
     bool is_percent = true;
-    auto mem_limit_str = resource_group.properties.find(MEMORY_LIMIT)->second;
-    auto mem_limit =
+    int64_t mem_limit =
             ParseUtil::parse_mem_spec(mem_limit_str, -1, MemInfo::mem_limit(), &is_percent);
-    if (UNLIKELY(mem_limit <= 0)) {
-        std::stringstream ss;
-        ss << "parse memory limit from TPipelineWorkloadGroup error, " << MEMORY_LIMIT << ": "
-           << mem_limit_str;
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
-    }
     task_group_info->memory_limit = mem_limit;
 
-    auto enable_memory_overcommit_iter = resource_group.properties.find(ENABLE_MEMORY_OVERCOMMIT);
-    task_group_info->enable_memory_overcommit =
-            enable_memory_overcommit_iter != resource_group.properties.end() &&
-            enable_memory_overcommit_iter->second ==
-                    "true" /* fe guarantees it is 'true' or 'false' */;
-    return Status::OK();
-}
+    // 7 mem overcommit
+    bool enable_memory_overcommit = ENABLE_MEMORY_OVERCOMMIT_DEFAULT_VALUE;
+    if (workload_group_info.__isset.enable_memory_overcommit) {
+        enable_memory_overcommit = workload_group_info.enable_memory_overcommit;
+    }
+    task_group_info->enable_memory_overcommit = enable_memory_overcommit;
 
-bool TaskGroupInfo::check_group_info(const TPipelineWorkloadGroup& resource_group) {
-    return resource_group.__isset.id && resource_group.__isset.version &&
-           resource_group.__isset.name && resource_group.__isset.properties &&
-           resource_group.properties.count(CPU_SHARE) > 0 &&
-           resource_group.properties.count(MEMORY_LIMIT) > 0;
+    // 8 cpu soft limit or hard limit
+    bool enable_cpu_hard_limit = false;
+    if (workload_group_info.__isset.enable_cpu_hard_limit) {
+        enable_cpu_hard_limit = workload_group_info.enable_cpu_hard_limit;
+    }
+    task_group_info->enable_cpu_hard_limit = enable_cpu_hard_limit;
+
+    return Status::OK();
 }
 
 } // namespace taskgroup

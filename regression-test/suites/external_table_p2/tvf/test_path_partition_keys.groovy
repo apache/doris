@@ -27,7 +27,6 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         order_qt_hdfs_1 """
         select * from HDFS(
             "uri" = "${baseUri}/dt1=cyw/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "path_partition_keys"="dt1" ) order by c1,c2 ;
@@ -36,7 +35,6 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         order_qt_hdfs_2 """
         select * from HDFS(
             "uri" = "${baseUri}/dt1=cyw/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "path_partition_keys"="dt1") where dt1!="cyw" order by c1,c2 limit 3;
@@ -45,7 +43,6 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         order_qt_hdfs_3 """
         select dt1,c1,count(*) from HDFS(
             "uri" = "${baseUri}/dt1=hello/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "path_partition_keys"="dt1") group by c1,dt1 order by c1;
@@ -54,7 +51,6 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         order_qt_hdfs_4 """
         select * from HDFS(
             "uri" = "${baseUri}/dt2=two/dt1=hello/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "path_partition_keys"="dt1") order by c1;
@@ -63,7 +59,6 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         order_qt_hdfs_5 """
         select * from HDFS(
             "uri" = "${baseUri}/dt2=two/dt1=cyw/*",
-            "fs.defaultFS"= "${baseFs}",
             "hadoop.username" = "hadoop",
             "format" = "csv",
             "path_partition_keys"="dt2,dt1");
@@ -74,7 +69,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
     List<List<Object>> backends =  sql """ show backends """
     assertTrue(backends.size() > 0)
     def be_id = backends[0][0]
-    def dataFilePath = context.config.dataPath + "/external_table_p2/test_path_partition_keys/"
+    def dataFilePath = context.config.dataPath + "/external_table_p2/tvf/test_path_partition_keys/"
 
     def outFilePath="/test_path_partition_keys"
 

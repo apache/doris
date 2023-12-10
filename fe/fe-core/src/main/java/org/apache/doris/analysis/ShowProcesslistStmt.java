@@ -26,14 +26,17 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 // Used to show connection belong to this user.
 public class ShowProcesslistStmt extends ShowStmt {
     private static final ShowResultSetMetaData META_DATA = ShowResultSetMetaData.builder()
+            .addColumn(new Column("CurrentConnected", ScalarType.createVarchar(16)))
             .addColumn(new Column("Id", ScalarType.createType(PrimitiveType.BIGINT)))
             .addColumn(new Column("User", ScalarType.createVarchar(16)))
             .addColumn(new Column("Host", ScalarType.createVarchar(16)))
-            .addColumn(new Column("Cluster", ScalarType.createVarchar(16)))
+            .addColumn(new Column("LoginTime", ScalarType.createVarchar(16)))
+            .addColumn(new Column("Catalog", ScalarType.createVarchar(16)))
             .addColumn(new Column("Db", ScalarType.createVarchar(16)))
             .addColumn(new Column("Command", ScalarType.createVarchar(16)))
             .addColumn(new Column("Time", ScalarType.createType(PrimitiveType.INT)))
             .addColumn(new Column("State", ScalarType.createVarchar(64)))
+            .addColumn(new Column("QueryId", ScalarType.createVarchar(64)))
             .addColumn(new Column("Info", ScalarType.STRING)).build();
 
     private boolean isFull;

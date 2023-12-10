@@ -65,8 +65,8 @@ private:
     Status _error_status(const std::string& prefix);
 
     const MysqlScannerParam& _my_param;
-    __DorisMysql* _my_conn;
-    __DorisMysqlRes* _my_result;
+    __DorisMysql* _my_conn = nullptr;
+    __DorisMysqlRes* _my_result = nullptr;
     std::string _sql_str;
     bool _is_open;
     int _field_num;
