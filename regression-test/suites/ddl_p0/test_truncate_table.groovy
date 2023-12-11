@@ -51,6 +51,7 @@ suite("test_truncate_table") {
 
     sql "insert into ${testTable} values ('2020-01-01', 1.0, 'a', 1)"
     sql "insert into ${testTable} values ('2020-03-10', 1.0, 'a', 1)"
+    order_qt_select_1 "SELECT * FROM ${testTable}"
 
     sql """truncate table ${testTable};"""
     def partitions2 = getPartitions()
@@ -58,10 +59,12 @@ suite("test_truncate_table") {
     assertNotEquals(partitions1.get("p1"), partitions2.get("p1"))
     assertEquals(partitions1.get("p2"), partitions2.get("p2"))
     assertNotEquals(partitions1.get("p3"), partitions2.get("p3"))
-
+    order_qt_select_2 "SELECT * FROM ${testTable}"
 
     sql "insert into ${testTable} values ('2020-02-10', 1.0, 'a', 1)"
+    order_qt_select_3 "SELECT * FROM ${testTable}"
     sql """truncate table ${testTable} partitions (p1, p2);"""
+    order_qt_select_4 "SELECT * FROM ${testTable}"
 
     def partitions3 = getPartitions()
     assertEquals(["p1", "p2", "p3"].toSet(), partitions3.keySet())

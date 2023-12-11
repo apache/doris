@@ -2922,8 +2922,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
                     }
-                    // if need absolutely correct, should check running txn here.
-                    // if the txn is in prepare state, cann't known which partitions had load data.
+                    // If need absolutely correct, should check running txn here.
+                    // But if the txn is in prepare state, cann't known which partitions had load data.
                     if (!partition.hasData()) {
                         continue;
                     }
@@ -2933,8 +2933,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 }
             } else {
                 for (Partition partition : olapTable.getPartitions()) {
-                    // if need absolutely correct, should check running txn here.
-                    // if the txn is in prepare state, cann't known which partitions had load data.
+                    // If need absolutely correct, should check running txn here.
+                    // But if the txn is in prepare state, cann't known which partitions had load data.
                     if (!partition.hasData()) {
                         continue;
                     }
