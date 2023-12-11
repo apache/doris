@@ -63,7 +63,7 @@ public class HiveTransaction {
         return isFullAcid;
     }
 
-    public ValidWriteIdList getValidWriteIds(PooledHiveMetaStoreClient client) {
+    public ValidWriteIdList getValidWriteIds(CachedClient client) {
         if (validWriteIdList == null) {
             TableName tableName = new TableName(hiveTable.getCatalog().getName(), hiveTable.getDbName(),
                     hiveTable.getName());

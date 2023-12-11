@@ -21,8 +21,10 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.HMSClientException;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
-import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 
+import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
+import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
@@ -32,9 +34,11 @@ import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.HiveMetaHookLoader;
+import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.LockComponentBuilder;
 import org.apache.hadoop.hive.metastore.LockRequestBuilder;
+import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
@@ -63,34 +67,32 @@ import java.util.Queue;
 /**
  * A hive metastore client pool for a specific catalog with hive configuration.
  */
-public class PooledHiveMetaStoreClient {
-    private static final Logger LOG = LogManager.getLogger(PooledHiveMetaStoreClient.class);
+public class ThriftHMSCachedClient implements CachedClient {
+    private static final Logger LOG = LogManager.getLogger(ThriftHMSCachedClient.class);
 
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = t -> null;
     // -1 means no limit on the partitions returned.
     private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
 
-    private Queue<CachedClient> clientPool = new LinkedList<>();
+    private Queue<ThriftHMSClient> clientPool = new LinkedList<>();
     private final int poolSize;
     private final HiveConf hiveConf;
 
-    private final JdbcClientConfig jdbcClientConfig;
-
-    public PooledHiveMetaStoreClient(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, int poolSize) {
+    public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
         if (hiveConf != null) {
             hiveConf.set(ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                     String.valueOf(Config.hive_metastore_client_timeout_second));
         }
         this.hiveConf = hiveConf;
-        this.jdbcClientConfig = jdbcClientConfig;
         this.poolSize = poolSize;
     }
 
+    @Override
     public List<String> getAllDatabases() {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getAllDatabases();
+                return client.client.getAllDatabases();
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -100,10 +102,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public List<String> getAllTables(String dbName) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getAllTables(dbName);
+                return client.client.getAllTables(dbName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -113,10 +116,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public boolean tableExists(String dbName, String tblName) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.tableExists(dbName, tblName);
+                return client.client.tableExists(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -126,16 +130,18 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public List<String> listPartitionNames(String dbName, String tblName) {
         return listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
     }
 
-    public List<String> listPartitionNames(String dbName, String tblName, long max) {
+    @Override
+    public List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum) {
         // list all parts when the limit is greater than the short maximum
-        short limited = max <= Short.MAX_VALUE ? (short) max : MAX_LIST_PARTITION_NUM;
-        try (CachedClient client = getClient()) {
+        short limited = maxListPartitionNum <= Short.MAX_VALUE ? (short) maxListPartitionNum : MAX_LIST_PARTITION_NUM;
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.listPartitionNames(dbName, tblName, limited);
+                return client.client.listPartitionNames(dbName, tblName, limited);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -145,10 +151,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public Partition getPartition(String dbName, String tblName, List<String> partitionValues) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getPartition(dbName, tblName, partitionValues);
+                return client.client.getPartition(dbName, tblName, partitionValues);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -159,24 +166,26 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getPartitionsByNames(dbName, tblName, partitionNames);
+                return client.client.getPartitionsByNames(dbName, tblName, partitionNames);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
             }
         } catch (Exception e) {
             throw new HMSClientException("failed to get partition for table %s in db %s with value %s", e, tblName,
-                dbName, partitionNames);
+                    dbName, partitionNames);
         }
     }
 
+    @Override
     public Database getDatabase(String dbName) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getDatabase(dbName);
+                return client.client.getDatabase(dbName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -186,10 +195,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public Table getTable(String dbName, String tblName) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getTable(dbName, tblName);
+                return client.client.getTable(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -199,10 +209,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public List<FieldSchema> getSchema(String dbName, String tblName) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getSchema(dbName, tblName);
+                return client.client.getSchema(dbName, tblName);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -212,10 +223,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getTableColumnStatistics(dbName, tblName, columns);
+                return client.client.getTableColumnStatistics(dbName, tblName, columns);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -225,11 +237,12 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(
             String dbName, String tblName, List<String> partNames, List<String> columns) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
+                return client.client.getPartitionColumnStatistics(dbName, tblName, partNames, columns);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -239,10 +252,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public CurrentNotificationEventId getCurrentNotificationEventId() {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getCurrentNotificationEventId();
+                return client.client.getCurrentNotificationEventId();
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -254,13 +268,14 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public NotificationEventResponse getNextNotification(long lastEventId,
             int maxEvents,
             IMetaStoreClient.NotificationFilter filter)
             throws MetastoreNotificationFetchException {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.getNextNotification(lastEventId, maxEvents, filter);
+                return client.client.getNextNotification(lastEventId, maxEvents, filter);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -273,10 +288,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public long openTxn(String user) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.openTxn(user);
+                return client.client.openTxn(user);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -286,10 +302,11 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public void commitTxn(long txnId) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                client.commitTxn(txnId);
+                client.client.commitTxn(txnId);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -299,6 +316,7 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
             List<String> partitionNames, long timeoutMs) {
         LockRequestBuilder request = new LockRequestBuilder(queryId).setTransactionId(txnId).setUser(user);
@@ -306,10 +324,10 @@ public class PooledHiveMetaStoreClient {
         for (LockComponent component : lockComponents) {
             request.addLockComponent(component);
         }
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             LockResponse response;
             try {
-                response = client.lock(request.build());
+                response = client.client.lock(request.build());
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -333,14 +351,16 @@ public class PooledHiveMetaStoreClient {
         }
     }
 
+    @Override
     public ValidWriteIdList getValidWriteIds(String fullTableName, long currentTransactionId) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
                 // Pass currentTxn as 0L to get the recent snapshot of valid transactions in Hive
-                // Do not pass currentTransactionId instead as it will break Hive's listing of delta directories if major compaction
+                // Do not pass currentTransactionId instead as
+                // it will break Hive's listing of delta directories if major compaction
                 // deletes delta directories for valid transactions that existed at the time transaction is opened
-                ValidTxnList validTransactions = client.getValidTxns();
-                List<TableValidWriteIds> tableValidWriteIdsList = client.getValidWriteIds(
+                ValidTxnList validTransactions = client.client.getValidTxns();
+                List<TableValidWriteIds> tableValidWriteIdsList = client.client.getValidWriteIds(
                         Collections.singletonList(fullTableName), validTransactions.toString());
                 if (tableValidWriteIdsList.size() != 1) {
                     throw new Exception("tableValidWriteIdsList's size should be 1");
@@ -349,11 +369,11 @@ public class PooledHiveMetaStoreClient {
                         tableValidWriteIdsList);
                 ValidWriteIdList writeIdList = validTxnWriteIdList.getTableValidWriteIdList(fullTableName);
                 return writeIdList;
-             } catch (Exception e) {
+            } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
             }
-         } catch (Exception e) {
+        } catch (Exception e) {
             // Ignore this exception when the version of hive is not compatible with these apis.
             // Currently, the workaround is using a max watermark.
             LOG.warn("failed to get valid write ids for {}, transaction {}", fullTableName, currentTransactionId, e);
@@ -362,9 +382,9 @@ public class PooledHiveMetaStoreClient {
     }
 
     private LockResponse checkLock(long lockId) {
-        try (CachedClient client = getClient()) {
+        try (ThriftHMSClient client = getClient()) {
             try {
-                return client.checkLock(lockId);
+                return client.client.checkLock(lockId);
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -398,28 +418,54 @@ public class PooledHiveMetaStoreClient {
         return builder.build();
     }
 
-    private CachedClient getClient() throws Exception {
+    private class ThriftHMSClient implements AutoCloseable {
+        private final IMetaStoreClient client;
+        private volatile Throwable throwable;
+
+        private ThriftHMSClient(HiveConf hiveConf) throws MetaException {
+            String type = hiveConf.get(HMSProperties.HIVE_METASTORE_TYPE);
+            if (HMSProperties.DLF_TYPE.equalsIgnoreCase(type)) {
+                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                        ProxyMetaStoreClient.class.getName());
+            } else if (HMSProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
+                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                        AWSCatalogMetastoreClient.class.getName());
+            } else {
+                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                        HiveMetaStoreClient.class.getName());
+            }
+        }
+
+        public void setThrowable(Throwable throwable) {
+            this.throwable = throwable;
+        }
+
+        @Override
+        public void close() throws Exception {
+            synchronized (clientPool) {
+                if (throwable != null || clientPool.size() > poolSize) {
+                    client.close();
+                } else {
+                    clientPool.offer(this);
+                }
+            }
+        }
+    }
+
+    private ThriftHMSClient getClient() throws MetaException {
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         try {
             Thread.currentThread().setContextClassLoader(ClassLoader.getSystemClassLoader());
             synchronized (clientPool) {
-                CachedClient client = clientPool.poll();
+                ThriftHMSClient client = clientPool.poll();
                 if (client == null) {
-                    return CachedClientFactory.createCachedClient(this, hiveConf, jdbcClientConfig);
+                    return new ThriftHMSClient(hiveConf);
                 }
                 return client;
             }
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
         }
-    }
-
-    public Queue<CachedClient> getClientPool() {
-        return clientPool;
-    }
-
-    public int getPoolSize() {
-        return poolSize;
     }
 }
 

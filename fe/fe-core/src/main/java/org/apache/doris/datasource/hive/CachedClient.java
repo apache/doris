@@ -17,69 +17,61 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.hadoop.hive.common.ValidTxnList;
+import org.apache.doris.analysis.TableName;
+import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
+
+import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
-import org.apache.hadoop.hive.metastore.api.LockRequest;
-import org.apache.hadoop.hive.metastore.api.LockResponse;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.Table;
-import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 
 import java.util.List;
 import java.util.Map;
 
-public interface CachedClient extends AutoCloseable {
-    void setThrowable(Throwable throwable);
+public interface CachedClient {
+    Database getDatabase(String dbName);
 
-    Database getDatabase(String dbName) throws Exception;
+    List<String> getAllDatabases();
 
-    List<String> getAllDatabases() throws Exception;
+    List<String> getAllTables(String dbName);
 
-    List<String> getAllTables(String dbName) throws Exception;
+    boolean tableExists(String dbName, String tblName);
 
-    boolean tableExists(String dbName, String tblName) throws Exception;
+    List<String> listPartitionNames(String dbName, String tblName);
 
-    List<String> listPartitionNames(String dbName, String tblName, short maxListPartitionNum)
-            throws Exception;
+    List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum);
 
-    Partition getPartition(String dbName, String tblName, List<String> partitionValues)
-            throws Exception;
+    Partition getPartition(String dbName, String tblName, List<String> partitionValues);
 
-    List<Partition> getPartitionsByNames(String dbName, String tblName, List<String> partitionNames)
-            throws Exception;
+    List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames);
 
-    Table getTable(String dbName, String tblName) throws Exception;
+    Table getTable(String dbName, String tblName);
 
-    List<FieldSchema> getSchema(String dbName, String tblName) throws Exception;
+    List<FieldSchema> getSchema(String dbName, String tblName);
 
     List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName,
-            List<String> columns) throws Exception;
+            List<String> columns);
 
     Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(
-            String dbName, String tblName, List<String> partNames, List<String> columns) throws Exception;
+            String dbName, String tblName, List<String> partNames, List<String> columns);
 
-    CurrentNotificationEventId getCurrentNotificationEventId() throws Exception;
+    CurrentNotificationEventId getCurrentNotificationEventId();
 
     NotificationEventResponse getNextNotification(long lastEventId,
             int maxEvents,
-            IMetaStoreClient.NotificationFilter filter)
-            throws Exception;
+            IMetaStoreClient.NotificationFilter filter) throws MetastoreNotificationFetchException;
 
-    long openTxn(String user) throws Exception;
+    long openTxn(String user);
 
-    void commitTxn(long txnId) throws Exception;
+    void commitTxn(long txnId);
 
-    ValidTxnList getValidTxns() throws Exception;
+    ValidWriteIdList getValidWriteIds(String fullTableName, long currentTransactionId);
 
-    List<TableValidWriteIds> getValidWriteIds(List<String> fullTableName,
-            String validTransactions) throws Exception;
-
-    LockResponse checkLock(long lockId) throws Exception;
-
-    LockResponse lock(LockRequest lockRequest) throws Exception;
+    void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
+            List<String> partitionNames, long timeoutMs);
 }

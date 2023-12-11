@@ -25,33 +25,9 @@ import com.google.common.base.Preconditions;
 public abstract class HiveJdbcCachedClient extends JdbcClient implements CachedClient {
     protected JdbcClientConfig jdbcClientConfig;
 
-    private PooledHiveMetaStoreClient pooledHiveMetaStoreClient;
-
-    private volatile Throwable throwable;
-
-    protected HiveJdbcCachedClient(PooledHiveMetaStoreClient pooledHiveMetaStoreClient,
-            JdbcClientConfig jdbcClientConfig) {
+    protected HiveJdbcCachedClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
-        Preconditions.checkNotNull(pooledHiveMetaStoreClient, "PooledHiveMetaStoreClient can not be null");
         Preconditions.checkNotNull(jdbcClientConfig, "JdbcClientConfig can not be null");
-        this.pooledHiveMetaStoreClient = pooledHiveMetaStoreClient;
         this.jdbcClientConfig = jdbcClientConfig;
-    }
-
-    @Override
-    public void close() throws Exception {
-        synchronized (pooledHiveMetaStoreClient.getClientPool()) {
-            if (throwable != null
-                    || pooledHiveMetaStoreClient.getClientPool().size() > pooledHiveMetaStoreClient.getPoolSize()) {
-                dataSource.close();
-            } else {
-                pooledHiveMetaStoreClient.getClientPool().offer(this);
-            }
-        }
-    }
-
-    @Override
-    public void setThrowable(Throwable throwable) {
-        this.throwable = throwable;
     }
 }

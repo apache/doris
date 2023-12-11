@@ -24,4 +24,8 @@ public class HMSClientException extends RuntimeException {
         super(String.format(format, msg) + (cause == null ? "" : ". reason: " + Util.getRootCauseMessage(cause)),
                 cause);
     }
+
+    public HMSClientException(String format, Object... msg) {
+        super(String.format(format, msg));
+    }
 }

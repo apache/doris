@@ -25,16 +25,16 @@ import com.google.common.base.Preconditions;
 import org.apache.hadoop.hive.conf.HiveConf;
 
 public class CachedClientFactory {
-    public static CachedClient createCachedClient(PooledHiveMetaStoreClient pooledHiveMetaStoreClient,
-            HiveConf hiveConf, JdbcClientConfig jdbcClientConfig) throws Exception {
+    public static CachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
+            JdbcClientConfig jdbcClientConfig) {
         if (hiveConf != null) {
-            return new IMetaStoreClientCachedClient(hiveConf, pooledHiveMetaStoreClient);
+            return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
         }
         Preconditions.checkNotNull(jdbcClientConfig, "hiveConf and jdbcClientConfig are both null");
         String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
         switch (dbType) {
             case JdbcResource.POSTGRESQL:
-                return new HivePostgreSQLCachedClient(pooledHiveMetaStoreClient, jdbcClientConfig);
+                return new HivePostgreSQLCachedClient(jdbcClientConfig);
             default:
                 throw new IllegalArgumentException("Unsupported DB type: " + dbType);
         }
