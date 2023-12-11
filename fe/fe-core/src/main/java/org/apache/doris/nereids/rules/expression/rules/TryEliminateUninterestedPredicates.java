@@ -20,9 +20,19 @@ package org.apache.doris.nereids.rules.expression.rules;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.TryEliminateUninterestedPredicates.Context;
+import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.InPredicate;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import java.util.Set;
@@ -50,13 +60,64 @@ public class TryEliminateUninterestedPredicates extends DefaultExpressionRewrite
         this.expressionRewriteContext = new ExpressionRewriteContext(cascadesContext);
     }
 
+    /**
+     * rewrite
+     */
     public static Expression rewrite(Expression expression, Set<Slot> interestedSlots,
             CascadesContext cascadesContext) {
         // before eliminate uninterested predicate, we must push down `Not` under CompoundPredicate
         expression = expression.accept(new SimplifyNotExprRule(), null);
         TryEliminateUninterestedPredicates rewriter = new TryEliminateUninterestedPredicates(
                 interestedSlots, cascadesContext);
-        return expression.accept(rewriter, new Context());
+        Expression eliminated = expression.accept(rewriter, new Context());
+        if (cascadesContext.getConnectContext().getSessionVariable().enablePartitionPredicateRewrite) {
+            Expression toIn = OrToIn.INSTANCE.rewrite(eliminated, null);
+            return InToMinMax.rewrite(toIn, null);
+        } else {
+            return eliminated;
+        }
+    }
+
+    static class InToMinMax extends DefaultExpressionRewriter<Context> {
+        public static Expression rewrite(Expression expression, Context ctx) {
+            return expression.accept(new InToMinMax(), new Context());
+        }
+
+        @Override
+        public Expression visitInPredicate(InPredicate inPredicate, Context ctx) {
+            if (inPredicate.getOptions().size() > 10) {
+                Expression opt0 = inPredicate.getOptions().get(0);
+                if (opt0 instanceof IntegerLikeLiteral
+                        || opt0 instanceof DoubleLiteral
+                        || opt0 instanceof FloatLiteral
+                        || opt0 instanceof DateLiteral
+                        || opt0 instanceof DateTimeLiteral) {
+                    Literal minOpt = (Literal) inPredicate.getOptions().get(0);
+                    Double minVal = minOpt.getDouble();
+                    Literal maxOpt = (Literal) inPredicate.getOptions().get(0);
+                    Double maxVal = maxOpt.getDouble();
+                    for (int i = 1; i < inPredicate.getOptions().size(); i++) {
+                        Expression opt = inPredicate.getOptions().get(i);
+                        if (!(opt instanceof Literal)) {
+                            return inPredicate;
+                        }
+                        double optValue = ((Literal) opt).getDouble();
+                        if (optValue < minVal) {
+                            minVal = optValue;
+                            minOpt = (Literal) opt;
+                        } else if (optValue > maxVal) {
+                            maxVal = optValue;
+                            maxOpt = (Literal) opt;
+                        }
+                    }
+                    return new And(
+                            new GreaterThanEqual(inPredicate.getCompareExpr(), minOpt),
+                            new LessThanEqual(inPredicate.getCompareExpr(), maxOpt));
+                }
+            }
+            return inPredicate;
+        }
+
     }
 
     @Override
