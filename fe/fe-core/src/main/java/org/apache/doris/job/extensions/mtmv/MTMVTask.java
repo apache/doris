@@ -30,6 +30,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
@@ -127,11 +128,11 @@ public class MTMVTask extends AbstractTask {
     @Override
     public void run() throws JobException {
         try {
-            ConnectContext ctx = MTMVUtil.createMTMVContext(mtmv);
+            ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv);
             TUniqueId queryId = generateQueryId();
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
-            relation = MTMVUtil.generateMTMVRelation(mtmv, ctx);
+            relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
 
             Set<Long> refreshPartitionIds = Sets.newHashSet();
             refreshMode = getRefreshMode();
@@ -140,10 +141,11 @@ public class MTMVTask extends AbstractTask {
                 return;
             } else if (refreshMode == MTMVTaskRefreshMode.PARTITION) {
                 OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
+                relatedTable.writeLock();
                 if (CollectionUtils.isEmpty(taskContext.getPartitions())) {
                     refreshPartitionIds = MTMVUtil.getMTMVStalePartitions(mtmv, relatedTable);
                 } else {
-                    refreshPartitionIds = MTMVUtil.getPartitionsIdsByName(mtmv, taskContext.getPartitions());
+                    refreshPartitionIds = MTMVUtil.getPartitionsIdsByNames(mtmv, taskContext.getPartitions());
                 }
                 tableWithPartKey.put(relatedTable, mtmv.getMvPartitionInfo().getRelatedCol());
             }
@@ -188,7 +190,7 @@ public class MTMVTask extends AbstractTask {
             mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
                 OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
-                MTMVUtil.dealMvPartition(mtmv, relatedTable);
+                MTMVUtil.alignMvPartition(mtmv, relatedTable);
             }
         } catch (UserException e) {
             LOG.warn(e);
@@ -248,7 +250,7 @@ public class MTMVTask extends AbstractTask {
         }
         // check if data is fresh
         Set<String> excludedTriggerTables = mtmv.getExcludedTriggerTables();
-        boolean fresh = MTMVUtil.isMTMVFresh(mtmv, relation.getBaseTables(), excludedTriggerTables);
+        boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables);
         if (fresh) {
             return MTMVTaskRefreshMode.NOT_REFRESH;
         }
@@ -263,7 +265,7 @@ public class MTMVTask extends AbstractTask {
         OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
         excludedTriggerTables.add(relatedTable.getName());
         // check if every table except relatedTable is fresh
-        fresh = MTMVUtil.isMTMVFresh(mtmv, relation.getBaseTables(), excludedTriggerTables);
+        fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables);
         // if true, we can use `Partition`, otherwise must `FULL`
         if (fresh) {
             return MTMVTaskRefreshMode.PARTITION;

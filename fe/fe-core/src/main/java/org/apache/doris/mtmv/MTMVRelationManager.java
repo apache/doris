@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
@@ -45,17 +44,34 @@ import java.util.Set;
 /**
  * when do some operation, do something about cache
  */
-public class MTMVCacheManager implements MTMVHookService {
-    private static final Logger LOG = LogManager.getLogger(MTMVCacheManager.class);
+public class MTMVRelationManager implements MTMVHookService {
+    private static final Logger LOG = LogManager.getLogger(MTMVRelationManager.class);
     private Map<BaseTableInfo, Set<BaseTableInfo>> tableMTMVs = Maps.newConcurrentMap();
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.get(table);
     }
 
-    // TODO Implement the method which getting materialized view by tables
-    public List<MTMV> getAvailableMaterializedView(List<BaseTableInfo> tables) {
-        return ImmutableList.of();
+    public Set<MTMV> getAvailableMTMVs(List<BaseTableInfo> tableInfos) {
+        Set<MTMV> res = Sets.newHashSet();
+        Set<BaseTableInfo> mvInfos = getAvailableMTMVInfos(tableInfos);
+        for (BaseTableInfo tableInfo : mvInfos) {
+            try {
+                res.add((MTMV) MTMVUtil.getTable(tableInfo));
+            } catch (AnalysisException e) {
+                // not throw exception to client, just ignore it
+                LOG.warn(e);
+            }
+        }
+        return res;
+    }
+
+    public Set<BaseTableInfo> getAvailableMTMVInfos(List<BaseTableInfo> tableInfos) {
+        Set<BaseTableInfo> mvInfos = Sets.newHashSet();
+        for (BaseTableInfo tableInfo : tableInfos) {
+            mvInfos.addAll(getMtmvsByBaseTable(tableInfo));
+        }
+        return mvInfos;
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {
@@ -106,6 +122,7 @@ public class MTMVCacheManager implements MTMVHookService {
 
     /**
      * modify `tableMTMVs` by MTMVRelation
+     *
      * @param mtmv
      * @param dbId
      */
@@ -116,6 +133,7 @@ public class MTMVCacheManager implements MTMVHookService {
 
     /**
      * remove cache of mtmv
+     *
      * @param mtmv
      */
     @Override
@@ -135,6 +153,7 @@ public class MTMVCacheManager implements MTMVHookService {
 
     /**
      * modify `tableMTMVs` by MTMVRelation
+     *
      * @param mtmv
      * @param relation
      * @param task
@@ -149,6 +168,7 @@ public class MTMVCacheManager implements MTMVHookService {
 
     /**
      * update mtmv status to `SCHEMA_CHANGE`
+     *
      * @param table
      */
     @Override
@@ -158,6 +178,7 @@ public class MTMVCacheManager implements MTMVHookService {
 
     /**
      * update mtmv status to `SCHEMA_CHANGE`
+     *
      * @param table
      */
     @Override

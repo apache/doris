@@ -36,16 +36,16 @@ public class MTMVService {
     private static final Logger LOG = LogManager.getLogger(MTMVService.class);
 
     private Map<String, MTMVHookService> hooks = Maps.newConcurrentMap();
-    private MTMVCacheManager cacheManager = new MTMVCacheManager();
+    private MTMVRelationManager relationManager = new MTMVRelationManager();
     private MTMVJobManager jobManager = new MTMVJobManager();
 
     public MTMVService() {
         registerHook("MTMVJobManager", jobManager);
-        registerHook("MTMVCacheManager", cacheManager);
+        registerHook("MTMVRelationManager", relationManager);
     }
 
-    public MTMVCacheManager getCacheManager() {
-        return cacheManager;
+    public MTMVRelationManager getRelationManager() {
+        return relationManager;
     }
 
     public void registerHook(String name, MTMVHookService mtmvHookService) {

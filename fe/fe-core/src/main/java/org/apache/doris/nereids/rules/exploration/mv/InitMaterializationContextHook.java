@@ -24,7 +24,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVCacheManager;
+import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
@@ -69,10 +69,10 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         List<BaseTableInfo> baseTableUsed =
                 collectedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
-        // TODO the logic should be move to MTMVCacheManager later when getAvailableMaterializedView is ready in
+        // TODO the logic should be move to MTMVRelationManager later when getAvailableMaterializedView is ready in
         //  MV Cache manager
         Env env = cascadesContext.getConnectContext().getEnv();
-        MTMVCacheManager cacheManager = env.getMtmvService().getCacheManager();
+        MTMVRelationManager cacheManager = env.getMtmvService().getRelationManager();
         Set<BaseTableInfo> materializedViews = new HashSet<>();
         for (BaseTableInfo baseTableInfo : baseTableUsed) {
             Set<BaseTableInfo> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);

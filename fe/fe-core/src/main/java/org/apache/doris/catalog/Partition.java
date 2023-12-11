@@ -168,6 +168,11 @@ public class Partition extends MetaObject implements Writable {
         return visibleVersionTime;
     }
 
+    /**
+     * if visibleVersion is 1, do not return creation time but 0
+     *
+     * @return
+     */
     public long getVisibleVersionTimeIgnoreInit() {
         if (visibleVersion == 1) {
             return 0L;
