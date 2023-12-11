@@ -27,6 +27,9 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.parser.ParseDialect;
+import org.apache.doris.nereids.parser.spark.SparkSql3LogicalPlanBuilder;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TNullSide;
 
@@ -194,7 +197,13 @@ public class InlineViewRef extends TableRef {
         }
 
         if (view == null && !hasExplicitAlias()) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
+            String dialect = ConnectContext.get().getSessionVariable().getSqlDialect();
+            ParseDialect.Dialect sqlDialect = ParseDialect.Dialect.getByName(dialect);
+            if (ParseDialect.Dialect.SPARK_SQL != sqlDialect) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_DERIVED_MUST_HAVE_ALIAS);
+            }
+            hasExplicitAlias = true;
+            aliases = new String[] { SparkSql3LogicalPlanBuilder.DEFAULT_TABLE_ALIAS };
         }
 
         // Analyze the inline view query statement with its own analyzer
