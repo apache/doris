@@ -147,14 +147,22 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
-        trow.addToColumnValue(new TCell().setStringVal(super.getStatus().toString()));
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getStartTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getFinishTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(super.getStatus() == null ? "-" : super.getStatus().toString()));
+        trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getStartTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getFinishTimeMs())));
         trow.addToColumnValue(
-                new TCell().setStringVal(String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
+                new TCell().setStringVal(String.valueOf(
+                        super.getFinishTimeMs() == null ? "-" : super.getFinishTimeMs() - super.getStartTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(sql));
         return trow;
+    }
+
+    private String getTimeString(Long ms) {
+        if (ms != null && ms != 0) {
+            return TimeUtils.longToTimeString(ms);
+        }
+        return "-";
     }
 
     private static String generateSql(MTMV mtmv) {
