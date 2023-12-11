@@ -200,10 +200,6 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         for (auto* child : struct_batch->fields) {
             const IColumn& child_column = struct_col.get_column(idx);
             child->resize(child_column.size());
-            // Because ColumnVectorBatch's constructor assigns all nullmap values to 1,
-            // here we assign all nullmap values to 0,
-            // so we do not need to set nullmap again for null values.
-            std::memset(child->notNull.data(), 0, child_column.size());
             auto child_type = assert_cast<const vectorized::DataTypeStruct*>(real_type.get())
                                       ->get_element(idx);
             ++idx;
@@ -220,7 +216,6 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         // key of map
         const IColumn& nested_keys_column = map_column.get_keys();
         map_batch->keys->resize(nested_keys_column.size());
-        std::memset(map_batch->keys->notNull.data(), 0, nested_keys_column.size());
         auto key_type =
                 assert_cast<const vectorized::DataTypeMap*>(real_type.get())->get_key_type();
         RETURN_IF_ERROR(_resize_row_batch(key_type, nested_keys_column, map_batch->keys.get()));
@@ -228,7 +223,6 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
         // value of map
         const IColumn& nested_values_column = map_column.get_values();
         map_batch->elements->resize(nested_values_column.size());
-        std::memset(map_batch->elements->notNull.data(), 0, nested_values_column.size());
         auto value_type =
                 assert_cast<const vectorized::DataTypeMap*>(real_type.get())->get_value_type();
         RETURN_IF_ERROR(
@@ -242,7 +236,6 @@ Status VOrcTransformer::_resize_row_batch(const DataTypePtr& type, const IColumn
                         : assert_cast<const ColumnArray&>(column);
         const IColumn& nested_column = array_col.get_data();
         list_batch->elements->resize(nested_column.size());
-        std::memset(list_batch->elements->notNull.data(), 0, nested_column.size());
         auto child_type =
                 assert_cast<const vectorized::DataTypeArray*>(real_type.get())->get_nested_type();
         RETURN_IF_ERROR(_resize_row_batch(child_type, nested_column, list_batch->elements.get()));

@@ -129,71 +129,71 @@ suite("test_outfile_orc_one_nested_type", "p0") {
     }
 
     // 3. test NULL STRUCT_ARRAY
-    // try {
-    //     def struct_field_define = "`ss_info` STRUCT<l_info:ARRAY<STRING>> NULL"
-    //     // create table to export data
-    //     create_table(export_table_name, struct_field_define)
+    try {
+        def struct_field_define = "`ss_info` STRUCT<l_info:ARRAY<STRING>> NULL"
+        // create table to export data
+        create_table(export_table_name, struct_field_define)
 
-    //     // insert data
-    //     sql """ insert into ${export_table_name} values (1, 'doris1', {['doris1', 'nereids1', 'doris-nereids-1']}); """
-    //     // sql """ insert into ${export_table_name} values (2, 'doris2', {[]}); """
-    //     sql """ insert into ${export_table_name} values (3, 'doris3', {null}); """
-    //     sql """ insert into ${export_table_name} values (4, 'doris4', null); """
-    //     sql """ insert into ${export_table_name} values (5, 'doris5', {['doris2', null, 'nereids2']}); """
-    //     // sql """ insert into ${export_table_name} values (6, 'doris6', {[null, null, null]}); """
-    //     sql """ insert into ${export_table_name} values (7, null, {[null, 'null', 'doris3']}); """
-    //     sql """ insert into ${export_table_name} values (8, null, null); """
-    //     sql """ insert into ${export_table_name} values (9, null, {['sn7', 'sa7', 'sn8', 'sa8', 'sn9', 'sa9', 'sn10', 'sa10']}); """
+        // insert data
+        sql """ insert into ${export_table_name} values (1, 'doris1', {['doris1', 'nereids1', 'doris-nereids-1']}); """
+        // sql """ insert into ${export_table_name} values (2, 'doris2', {[]}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {null}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', null); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {['doris2', null, 'nereids2']}); """
+        // sql """ insert into ${export_table_name} values (6, 'doris6', {[null, null, null]}); """
+        sql """ insert into ${export_table_name} values (7, null, {[null, 'null', 'doris3']}); """
+        sql """ insert into ${export_table_name} values (8, null, null); """
+        sql """ insert into ${export_table_name} values (9, null, {['sn7', 'sa7', 'sn8', 'sa8', 'sn9', 'sa9', 'sn10', 'sa10']}); """
 
 
-    //     // test base data
-    //     qt_select_base3 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
+        // test base data
+        qt_select_base3 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
-    //     def outfile_url = outfile_to_S3()
+        def outfile_url = outfile_to_S3()
 
-    //     qt_select_load3 """ SELECT * FROM S3 (
-    //             "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${outfile_format}",
-    //             "ACCESS_KEY"= "${ak}",
-    //             "SECRET_KEY" = "${sk}",
-    //             "format" = "${outfile_format}",
-    //             "region" = "${region}"
-    //         );
-    //         """
-    // } finally {
-    // }
+        qt_select_load3 """ SELECT * FROM S3 (
+                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${outfile_format}",
+                "ACCESS_KEY"= "${ak}",
+                "SECRET_KEY" = "${sk}",
+                "format" = "${outfile_format}",
+                "region" = "${region}"
+            );
+            """
+    } finally {
+    }
 
     // 4. test NULL STRUCT_MAP
-    // try {
-    //     def struct_field_define = "`ss_info` STRUCT<m_info:MAP<STRING, LARGEINT>> NULL"
-    //     // create table to export data
-    //     create_table(export_table_name, struct_field_define)
+    try {
+        def struct_field_define = "`ss_info` STRUCT<m_info:MAP<STRING, LARGEINT>> NULL"
+        // create table to export data
+        create_table(export_table_name, struct_field_define)
 
-    //     // insert data
-    //     sql """ insert into ${export_table_name} values (1, 'doris1', {{'a': 100, 'b': 111}}); """
-    //     sql """ insert into ${export_table_name} values (2, 'doris2', {{'a': 200, 'b': 222}}); """
-    //     sql """ insert into ${export_table_name} values (3, 'doris3', {null}); """
-    //     sql """ insert into ${export_table_name} values (4, 'doris4', null); """
-    //     sql """ insert into ${export_table_name} values (5, 'doris5', {{'a': null, 'b': 333, 'c':399, 'd':399999999999999}}); """
-    //     sql """ insert into ${export_table_name} values (6, 'doris6', {{'null': 100, 'b': null}}); """
-    //     sql """ insert into ${export_table_name} values (7, null, {{'null': null, 'null':null}}); """
-    //     sql """ insert into ${export_table_name} values (8, null, null); """
+        // insert data
+        sql """ insert into ${export_table_name} values (1, 'doris1', {{'a': 100, 'b': 111}}); """
+        sql """ insert into ${export_table_name} values (2, 'doris2', {{'a': 200, 'b': 222}}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', {null}); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', null); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', {{'a': null, 'b': 333, 'c':399, 'd':399999999999999}}); """
+        sql """ insert into ${export_table_name} values (6, 'doris6', {{'null': 100, 'b': null}}); """
+        sql """ insert into ${export_table_name} values (7, null, {{'null': null, 'null':null}}); """
+        sql """ insert into ${export_table_name} values (8, null, null); """
 
 
-    //     // test base data
-    //     qt_select_base4 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
+        // test base data
+        qt_select_base4 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
 
-    //     def outfile_url = outfile_to_S3()
+        def outfile_url = outfile_to_S3()
 
-    //     qt_select_load4 """ SELECT * FROM S3 (
-    //             "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${outfile_format}",
-    //             "ACCESS_KEY"= "${ak}",
-    //             "SECRET_KEY" = "${sk}",
-    //             "format" = "${outfile_format}",
-    //             "region" = "${region}"
-    //         );
-    //         """
-    // } finally {
-    // }
+        qt_select_load4 """ SELECT * FROM S3 (
+                "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.${outfile_format}",
+                "ACCESS_KEY"= "${ak}",
+                "SECRET_KEY" = "${sk}",
+                "format" = "${outfile_format}",
+                "region" = "${region}"
+            );
+            """
+    } finally {
+    }
 
     // 5. test NULL ARRAY_STRUCT
     try {
