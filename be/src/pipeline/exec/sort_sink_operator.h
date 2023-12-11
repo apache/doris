@@ -93,6 +93,13 @@ public:
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    ExchangeType get_local_exchange_type() const override {
+        if (_push_merge_info) {
+            // The current sort node is used for the ORDER BY
+            return ExchangeType::PASSTHROUGH;
+        }
+        return ExchangeType::NOOP;
+    }
 
 private:
     friend class SortSinkLocalState;
@@ -113,6 +120,7 @@ private:
 
     const RowDescriptor _row_descriptor;
     const bool _use_two_phase_read;
+    const bool _push_merge_info;
 };
 
 } // namespace pipeline

@@ -1307,7 +1307,7 @@ public class DistributedPlanner {
         if (hasLimit) {
             exchNode.setLimit(limit);
         }
-        exchNode.setMergeInfo(node.getSortInfo());
+        exchNode.setMergeInfo(node.getSortInfoAndMark());
         exchNode.setOffset(offset);
 
         // Child nodes should not process the offset. If there is a limit,

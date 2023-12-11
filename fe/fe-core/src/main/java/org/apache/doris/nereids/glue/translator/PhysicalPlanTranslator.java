@@ -1799,7 +1799,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 return inputFragment;
             }
             SortNode sortNode = (SortNode) inputFragment.getPlanRoot().getChild(0);
-            ((ExchangeNode) inputFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfo());
+            ((ExchangeNode) inputFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfoAndMark());
         }
         return inputFragment;
     }
@@ -1851,7 +1851,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 return inputFragment;
             }
             ExchangeNode exchangeNode = (ExchangeNode) inputFragment.getPlanRoot();
-            exchangeNode.setMergeInfo(((SortNode) exchangeNode.getChild(0)).getSortInfo());
+            exchangeNode.setMergeInfo(((SortNode) exchangeNode.getChild(0)).getSortInfoAndMark());
             exchangeNode.setLimit(topN.getLimit());
             exchangeNode.setOffset(topN.getOffset());
         }
