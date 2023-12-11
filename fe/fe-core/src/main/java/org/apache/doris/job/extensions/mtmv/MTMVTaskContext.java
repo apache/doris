@@ -25,10 +25,10 @@ import java.util.List;
 
 public class MTMVTaskContext {
 
-    @SerializedName(value = "sm")
+    @SerializedName(value = "triggerMode")
     private MTMVTaskTriggerMode triggerMode;
 
-    @SerializedName(value = "ps")
+    @SerializedName(value = "partitions")
     private List<String> partitions;
 
     public MTMVTaskContext(MTMVTaskTriggerMode triggerMode) {

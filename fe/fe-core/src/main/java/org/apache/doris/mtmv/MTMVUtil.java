@@ -20,6 +20,7 @@ package org.apache.doris.mtmv;
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.PartitionDesc;
+import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
@@ -63,8 +64,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Objects;
 import java.util.Set;
-import java.util.UUID;
 
 public class MTMVUtil {
 
@@ -156,12 +157,22 @@ public class MTMVUtil {
 
         Map<String, String> partitionProperties = Maps.newHashMap();
         SinglePartitionDesc singleRangePartitionDesc = new SinglePartitionDesc(true,
-                "p_" + UUID.randomUUID().toString().replace("-", "_"),
+                generatePartitionName(oldPartitionDesc.getPartitionKeyDesc()),
                 oldPartitionDesc.getPartitionKeyDesc(), partitionProperties);
 
         AddPartitionClause addPartitionClause = new AddPartitionClause(singleRangePartitionDesc,
                 mtmv.getDefaultDistributionInfo().toDistributionDesc(), partitionProperties, false);
         Env.getCurrentEnv().addPartition((Database) mtmv.getDatabase(), mtmv.getName(), addPartitionClause);
+    }
+
+    private static String generatePartitionName(PartitionKeyDesc desc) {
+        String partitionName = "p_";
+        partitionName += desc.toSql().trim().replaceAll("\\(|\\)|\\[|\\]|'|\\s+", "").replaceAll("\\(|\\)|\\,|\\[|\\]", "_");
+        if (partitionName.length() > 50) {
+            partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
+                    + "_" + System.currentTimeMillis();
+        }
+        return partitionName;
     }
 
     //partition p1_city values in (('1', 'Beijing'), ('2', 'Shanghai')),
@@ -307,7 +318,7 @@ public class MTMVUtil {
         return planner.plan(logicalPlan, PhysicalProperties.ANY, ExplainLevel.NONE);
     }
 
-    public static boolean isSyncWithOlapTables(MTMV mtmv) {
+    public static boolean isSyncWithBaseTables(MTMV mtmv) {
         MTMVRelation mtmvRelation = mtmv.getRelation();
         if (mtmvRelation == null) {
             return false;
@@ -315,9 +326,9 @@ public class MTMVUtil {
         return isMTMVFresh(mtmv, mtmv.getRelation().getBaseTables(), Sets.newHashSet());
     }
 
-    public static boolean isSyncWithOlapTables(MTMV mtmv, Long partitionId) {
+    public static boolean isSyncWithBaseTables(MTMV mtmv, Long partitionId) {
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return isSyncWithOlapTables(mtmv);
+            return isSyncWithBaseTables(mtmv);
         }
         try {
             OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());

@@ -70,7 +70,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable").add("IsStale")
+            .add("IsMutable").add("SyncWithBaseTables")
             .build();
 
     private Database db;
@@ -305,8 +305,8 @@ public class PartitionsProcDir implements ProcDirInterface {
 
                 partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
                 partitionInfo
-                        .add(olapTable instanceof MTMV ? !MTMVUtil.isSyncWithOlapTables((MTMV) olapTable, partitionId)
-                                : false);
+                        .add(olapTable instanceof MTMV ? MTMVUtil.isSyncWithBaseTables((MTMV) olapTable, partitionId)
+                                : true);
                 partitionInfos.add(partitionInfo);
             }
         } finally {

@@ -97,6 +97,9 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     @SerializedName(value = "mi")
     private long mtmvId;
 
+    public MTMVJob() {
+    }
+
     public MTMVJob(long dbId, long mtmvId) {
         this.dbId = dbId;
         this.mtmvId = mtmvId;

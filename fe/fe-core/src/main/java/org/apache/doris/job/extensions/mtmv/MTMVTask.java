@@ -49,6 +49,7 @@ import com.google.common.collect.Sets;
 import com.google.gson.Gson;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -66,6 +67,8 @@ public class MTMVTask extends AbstractTask {
             new Column("TaskId", ScalarType.createStringType()),
             new Column("JobId", ScalarType.createStringType()),
             new Column("JobName", ScalarType.createStringType()),
+            new Column("MvId", ScalarType.createStringType()),
+            new Column("MvDatabaseId", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
             new Column("ErrorMsg", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
@@ -101,16 +104,19 @@ public class MTMVTask extends AbstractTask {
     private long dbId;
     @SerializedName(value = "mi")
     private long mtmvId;
-    @SerializedName("tc")
+    @SerializedName("taskContext")
     private MTMVTaskContext taskContext;
-    @SerializedName("rp")
+    @SerializedName("refreshPartitions")
     List<String> refreshPartitions;
-    @SerializedName("rm")
+    @SerializedName("refreshMode")
     MTMVTaskRefreshMode refreshMode;
 
     private MTMV mtmv;
     private MTMVRelation relation;
     private StmtExecutor executor;
+
+    public MTMVTask() {
+    }
 
     public MTMVTask(long dbId, long mtmvId, MTMVTaskContext taskContext) {
         this.dbId = Objects.requireNonNull(dbId);
@@ -196,17 +202,29 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
-        trow.addToColumnValue(new TCell().setStringVal(super.getStatus().toString()));
-        trow.addToColumnValue(new TCell().setStringVal(super.getErrMsg()));
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getStartTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getFinishTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(mtmvId)));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(dbId)));
+        trow.addToColumnValue(new TCell().setStringVal(super.getStatus() == null ? "-" : super.getStatus().toString()));
         trow.addToColumnValue(
-                new TCell().setStringVal(String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(taskContext)));
-        trow.addToColumnValue(new TCell().setStringVal(refreshMode.toString()));
-        trow.addToColumnValue(new TCell().setStringVal(new Gson().toJson(refreshPartitions)));
+                new TCell().setStringVal(StringUtils.isEmpty(super.getErrMsg()) ? "-" : super.getErrMsg()));
+        trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getStartTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getFinishTimeMs())));
+        trow.addToColumnValue(
+                new TCell().setStringVal(String.valueOf(
+                        super.getFinishTimeMs() == null ? "-" : super.getFinishTimeMs() - super.getStartTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(taskContext == null ? "-" : new Gson().toJson(taskContext)));
+        trow.addToColumnValue(new TCell().setStringVal(refreshMode == null ? "-" : refreshMode.toString()));
+        trow.addToColumnValue(
+                new TCell().setStringVal(refreshPartitions == null ? "-" : new Gson().toJson(refreshPartitions)));
         return trow;
+    }
+
+    private String getTimeString(Long ms) {
+        if (ms != null && ms != 0) {
+            return TimeUtils.longToTimeString(ms);
+        }
+        return "-";
     }
 
     private TUniqueId generateQueryId() {
