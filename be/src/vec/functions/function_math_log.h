@@ -49,7 +49,8 @@ private:
     static void execute_in_iterations(const double* src_data, double* dst_data, NullMap& null_map,
                                       size_t size) {
         for (size_t i = 0; i < size; i++) {
-            Impl::execute(&src_data[i], &dst_data[i], null_map[i]);
+            null_map[i] = src_data[i] <= 0;
+            Impl::execute(&src_data[i], &dst_data[i]);
         }
     }
 
@@ -69,7 +70,7 @@ private:
         auto& null_map = null_column->get_data();
         null_map.resize(size);
 
-        execute_in_iterations(dst_data.data(), dst_data.data(), null_map, size);
+        execute_in_iterations(col->get_data().data(), dst_data.data(), null_map, size);
 
         block.replace_by_position(result,
                                   ColumnNullable::create(std::move(dst), std::move(null_column)));
@@ -79,26 +80,17 @@ private:
 
 struct ImplLog10 {
     static constexpr auto name = "log10";
-    static void execute(const double* src, double* dst, UInt8& null_flag) {
-        null_flag = *src <= 0;
-        *dst = std::log10(*src);
-    }
+    static void execute(const double* src, double* dst) { *dst = std::log10(*src); }
 };
 
 struct ImplLog2 {
     static constexpr auto name = "log2";
-    static void execute(const double* src, double* dst, UInt8& null_flag) {
-        null_flag = *src <= 0;
-        *dst = std::log2(*src);
-    }
+    static void execute(const double* src, double* dst) { *dst = std::log2(*src); }
 };
 
 struct ImplLn {
     static constexpr auto name = "ln";
-    static void execute(const double* src, double* dst, UInt8& null_flag) {
-        null_flag = *src <= 0;
-        *dst = std::log(*src);
-    }
+    static void execute(const double* src, double* dst) { *dst = std::log(*src); }
 };
 
 } // namespace doris::vectorized

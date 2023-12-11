@@ -351,10 +351,19 @@ struct ConvertImpl {
                                 } else {
                                     for (size_t i = 0; i < size; ++i) {
                                         vec_to[i] = convert_to_decimal<FromDataType, ToDataType,
-                                                                       multiply_may_overflow,
-                                                                       narrow_integral>(
+                                                                       multiply_may_overflow>(
                                                 vec_from[i], from_scale, to_scale, min_result,
                                                 max_result);
+                                    }
+                                    if constexpr (narrow_integral) {
+                                        for (size_t i = 0; i < size; ++i) {
+                                            if (UNLIKELY(vec_to[i].value > max_result.value ||
+                                                         vec_to[i].value < min_result.value)) {
+                                                throw Exception(
+                                                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                                        "Arithmetic overflow");
+                                            }
+                                        }
                                     }
                                 }
                             },

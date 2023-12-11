@@ -409,13 +409,10 @@ constexpr bool IsDataTypeDecimalOrNumber =
         IsDataTypeDecimal<DataType> || IsDataTypeNumber<DataType>;
 
 // only for casting between other integral types and decimals
-template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
-          bool narrow_integral>
+template <typename FromDataType, typename ToDataType, bool multiply_may_overflow>
     requires IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>
 ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& value,
-                                       UInt32 scale_from, UInt32 scale_to,
-                                       const typename ToDataType::FieldType& min_result,
-                                       const typename ToDataType::FieldType& max_result) {
+                                       UInt32 scale_from, UInt32 scale_to) {
     using FromFieldType = typename FromDataType::FieldType;
     using ToFieldType = typename ToDataType::FieldType;
     using MaxFieldType =
@@ -435,37 +432,15 @@ ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& v
             if (common::mul_overflow(static_cast<MaxFieldType>(value).value, converted_value.value,
                                      converted_value.value)) {
                 throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-            } else if constexpr (narrow_integral) {
-                if (UNLIKELY(converted_value.value > max_result.value ||
-                             converted_value.value < min_result.value)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-                }
             }
         } else {
             converted_value *= static_cast<MaxFieldType>(value).value;
-            if constexpr (narrow_integral) {
-                if (UNLIKELY(converted_value.value > max_result.value ||
-                             converted_value.value < min_result.value)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-                }
-            }
         }
     } else {
         // from decimal to integer
         converted_value =
                 static_cast<MaxFieldType>(value) /
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
-        if constexpr (narrow_integral) {
-            if (value >= FromFieldType(0)) {
-                if (UNLIKELY(converted_value.value > max_result.value)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-                }
-            } else {
-                if (UNLIKELY(converted_value.value < min_result.value)) {
-                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-                }
-            }
-        }
     }
 
     return converted_value;
@@ -608,13 +583,11 @@ ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldTyp
                    FromDataType::get_scale_multiplier(scale).value;
         }
     } else {
-        return convert_decimals<FromDataType, FromDataType, false, narrow_integral>(
-                value, scale, 0, FromFieldType(min_result), FromFieldType(max_result));
+        return convert_decimals<FromDataType, FromDataType, false>(value, scale, 0);
     }
 }
 
-template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
-          bool narrow_integral>
+template <typename FromDataType, typename ToDataType, bool multiply_may_overflow>
     requires IsDataTypeDecimal<ToDataType>
 ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType& value,
                                          UInt32 from_scale, UInt32 to_scale,
@@ -640,24 +613,20 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
         if constexpr (std::is_same_v<FromFieldType, UInt64>) {
             if (value > static_cast<UInt64>(std::numeric_limits<Int64>::max())) {
                 return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType,
-                                        multiply_may_overflow, narrow_integral>(
-                        value, from_scale, to_scale, min_result, max_result);
+                                        multiply_may_overflow>(value, from_scale, to_scale);
             }
         }
         if constexpr (std::is_same_v<FromFieldType, Int128>) {
-            return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType, multiply_may_overflow,
-                                    narrow_integral>(value, from_scale, to_scale, min_result,
-                                                     max_result);
+            return convert_decimals<DataTypeDecimal<Decimal128>, ToDataType, multiply_may_overflow>(
+                    value, from_scale, to_scale);
         }
 
         if constexpr (std::is_same_v<FromFieldType, wide::Int256>) {
-            return convert_decimals<DataTypeDecimal<Decimal256>, ToDataType, multiply_may_overflow,
-                                    narrow_integral>(value, from_scale, to_scale, min_result,
-                                                     max_result);
+            return convert_decimals<DataTypeDecimal<Decimal256>, ToDataType, multiply_may_overflow>(
+                    value, from_scale, to_scale);
         }
-        return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType, multiply_may_overflow,
-                                narrow_integral>(value, from_scale, to_scale, min_result,
-                                                 max_result);
+        return convert_decimals<DataTypeDecimal<Decimal64>, ToDataType, multiply_may_overflow>(
+                value, from_scale, to_scale);
     }
 }
 
