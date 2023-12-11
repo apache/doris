@@ -161,12 +161,10 @@ class RuntimeFilterDependency;
 class RuntimeFilterTimer {
 public:
     RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
-                       std::shared_ptr<RuntimeFilterDependency> parent,
-                       IRuntimeFilter* runtime_filter)
+                       std::shared_ptr<RuntimeFilterDependency> parent)
             : _parent(std::move(parent)),
               _registration_time(registration_time),
-              _wait_time_ms(wait_time_ms),
-              _runtime_filter(runtime_filter) {}
+              _wait_time_ms(wait_time_ms) {}
 
     void call_ready();
 
@@ -188,7 +186,7 @@ private:
     std::mutex _lock;
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
-    IRuntimeFilter* _runtime_filter = nullptr;
+    bool _is_ready = false;
 };
 
 struct RuntimeFilterTimerQueue {
