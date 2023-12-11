@@ -30,12 +30,14 @@ import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterMTMV;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -49,6 +51,11 @@ public class MTMVCacheManager implements MTMVHookService {
 
     public Set<BaseTableInfo> getMtmvsByBaseTable(BaseTableInfo table) {
         return tableMTMVs.get(table);
+    }
+
+    // TODO Implement the method which getting materialized view by tables
+    public List<MTMV> getAvailableMaterializedView(List<BaseTableInfo> tables) {
+        return ImmutableList.of();
     }
 
     private Set<BaseTableInfo> getOrCreateMTMVs(BaseTableInfo baseTableInfo) {

@@ -426,6 +426,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD = "inverted_index_conjunction_opt_threshold";
     public static final String INVERTED_INDEX_MAX_EXPANSIONS = "inverted_index_max_expansions";
 
+    public static final String INVERTED_INDEX_SKIP_THRESHOLD = "inverted_index_skip_threshold";
+
     public static final String AUTO_ANALYZE_START_TIME = "auto_analyze_start_time";
 
     public static final String AUTO_ANALYZE_END_TIME = "auto_analyze_end_time";
@@ -471,6 +473,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String FALLBACK_OTHER_REPLICA_WHEN_FIXED_CORRUPT = "fallback_other_replica_when_fixed_corrupt";
 
     public static final String WAIT_FULL_BLOCK_SCHEDULE_TIMES = "wait_full_block_schedule_times";
+
+    public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
 
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
@@ -680,10 +684,12 @@ public class SessionVariable implements Serializable, Writable {
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
      */
-    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true)
+    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
+                        setter = "setFragmentInstanceNum")
     public int parallelExecInstanceNum = 1;
 
-    @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
+    @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
+                        setter = "setPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
 
     @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
@@ -852,6 +858,9 @@ public class SessionVariable implements Serializable, Writable {
     public int getBeNumberForTest() {
         return beNumberForTest;
     }
+
+    @VariableMgr.VarAttr(name = DESCRIBE_EXTEND_VARIANT_COLUMN, needForward = true)
+    public boolean enableDescribeExtendVariantColumn = false;
 
     @VariableMgr.VarAttr(name = PROFILLING)
     public boolean profiling = false;
@@ -1121,7 +1130,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_HASH_JOIN_EARLY_START_PROBE, fuzzy = false)
     public boolean enableHashJoinEarlyStartProbe = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
+    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT, needForward = true)
     public boolean enableUnicodeNameSupport = false;
 
     @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
@@ -1331,6 +1340,13 @@ public class SessionVariable implements Serializable, Writable {
                     "This parameter is used to limit the number of term expansions during a query,"
                     + " thereby controlling query performance"})
     public int invertedIndexMaxExpansions = 50;
+
+    @VariableMgr.VarAttr(name = INVERTED_INDEX_SKIP_THRESHOLD,
+                description = {"在倒排索引中如果预估命中量占比总量超过百分比阈值，则跳过索引直接进行匹配。",
+                        "In the inverted index,"
+                        + " if the estimated hit ratio exceeds the percentage threshold of the total amount, "
+                        + " then skip the index and proceed directly to matching."})
+    public int invertedIndexSkipThreshold = 50;
 
     @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
             description = {"解析sql使用的方言", "The dialect used to parse sql."})
@@ -1849,6 +1865,26 @@ public class SessionVariable implements Serializable, Writable {
     public void setMaxExecutionTimeMS(String maxExecutionTimeMS) {
         this.maxExecutionTimeMS = Integer.valueOf(maxExecutionTimeMS);
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+    }
+
+    public void setPipelineTaskNum(String value) throws Exception {
+        int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, value);
+        this.parallelPipelineTaskNum = val;
+    }
+
+    public void setFragmentInstanceNum(String value) throws Exception {
+        int val = checkFieldValue(PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, 1, value);
+        this.parallelExecInstanceNum = val;
+    }
+
+    private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
+        int val = Integer.valueOf(value);
+        if (val < minValue) {
+            throw new Exception(
+                    variableName + " value should greater than or equal " + String.valueOf(minValue)
+                            + ", you set value is: " + value);
+        }
+        return val;
     }
 
     public String getWorkloadGroup() {
@@ -2659,6 +2695,8 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setSkipMissingVersion(skipMissingVersion);
 
+        tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
         return tResult;
     }
 
@@ -3022,6 +3060,22 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Parse analyze start/end time format fail", e);
             throw new UnsupportedOperationException("Expect format: HH:mm:ss");
         }
+    }
+
+    public boolean getEnableDescribeExtendVariantColumn() {
+        return enableDescribeExtendVariantColumn;
+    }
+
+    public void setEnableDescribeExtendVariantColumn(boolean enableDescribeExtendVariantColumn) {
+        this.enableDescribeExtendVariantColumn = enableDescribeExtendVariantColumn;
+    }
+
+    public static boolean enableDescribeExtendVariantColumn() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        return connectContext.getSessionVariable().enableDescribeExtendVariantColumn;
     }
 
     public int getProfileLevel() {

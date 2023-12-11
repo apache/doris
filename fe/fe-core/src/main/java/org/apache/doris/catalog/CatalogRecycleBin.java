@@ -1033,8 +1033,10 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         return Stream.of(dbInfos, tableInfos, partitionInfos).flatMap(Collection::stream).collect(Collectors.toList());
     }
 
+    // Need to add "synchronized", because when calling /dump api to dump image,
+    // this class is not protected by any lock, will throw ConcurrentModificationException.
     @Override
-    public void write(DataOutput out) throws IOException {
+    public synchronized void write(DataOutput out) throws IOException {
         int count = idToDatabase.size();
         out.writeInt(count);
         for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {

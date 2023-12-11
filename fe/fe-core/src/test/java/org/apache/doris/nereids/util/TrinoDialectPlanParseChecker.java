@@ -19,6 +19,7 @@ package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.parser.ParseDialect;
 import org.apache.doris.nereids.parser.ParserContext;
+import org.apache.doris.nereids.parser.trino.TrinoParser;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.base.Supplier;
@@ -37,7 +38,7 @@ public class TrinoDialectPlanParseChecker extends ParseChecker {
     public TrinoDialectPlanParseChecker(String sql) {
         super(sql);
         this.parsedPlanSupplier =
-                Suppliers.memoize(() -> PARSER.parseSingleWithDialect(sql, new ParserContext(ParseDialect.TRINO_395)));
+                Suppliers.memoize(() -> TrinoParser.parseSingle(sql, new ParserContext(ParseDialect.TRINO_395)));
     }
 
     public TrinoDialectPlanParseChecker assertEquals(LogicalPlan plan) {

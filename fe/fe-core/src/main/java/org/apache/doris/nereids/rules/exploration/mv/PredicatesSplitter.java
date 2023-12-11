@@ -86,7 +86,7 @@ public class PredicatesSplitter {
                 residualPredicates.add(compoundPredicate);
                 return null;
             }
-            return super.visit(compoundPredicate, context);
+            return super.visitCompoundPredicate(compoundPredicate, context);
         }
     }
 

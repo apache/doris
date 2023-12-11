@@ -987,11 +987,21 @@ public class Coordinator implements CoordInterface {
                          long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
-            long elapsed = (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
+            long currentTimeMillis = System.currentTimeMillis();
+            long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
             String msg = String.format(
                     "timeout before waiting %s rpc, query timeout:%d, already elapsed:%d, left for this:%d",
-                        operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
+                    operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
             LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
+            if (!queryOptions.isSetExecutionTimeout() || !queryOptions.isSetQueryTimeout()) {
+                LOG.warn("Query {} does not set timeout info, execution timeout: is_set:{}, value:{}"
+                                + ", query timeout: is_set:{}, value: {}, "
+                                + "coordinator timeout deadline {}, cur time millis: {}",
+                        DebugUtil.printId(queryId),
+                        queryOptions.isSetExecutionTimeout(), queryOptions.getExecutionTimeout(),
+                        queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
+                        timeoutDeadline, currentTimeMillis);
+            }
             throw new UserException(msg);
         }
 
@@ -1054,11 +1064,21 @@ public class Coordinator implements CoordInterface {
             Future<PExecPlanFragmentResult>>> futures, long leftTimeMs,
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
-            long elapsed = (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
+            long currentTimeMillis = System.currentTimeMillis();
+            long elapsed = (currentTimeMillis - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout();
             String msg = String.format(
                     "timeout before waiting %s rpc, query timeout:%d, already elapsed:%d, left for this:%d",
                     operation, queryOptions.getExecutionTimeout(), elapsed, leftTimeMs);
             LOG.warn("Query {} {}", DebugUtil.printId(queryId), msg);
+            if (!queryOptions.isSetExecutionTimeout() || !queryOptions.isSetQueryTimeout()) {
+                LOG.warn("Query {} does not set timeout info, execution timeout: is_set:{}, value:{}"
+                                + ", query timeout: is_set:{}, value: {}, "
+                                + "coordinator timeout deadline {}, cur time millis: {}",
+                        DebugUtil.printId(queryId),
+                        queryOptions.isSetExecutionTimeout(), queryOptions.getExecutionTimeout(),
+                        queryOptions.isSetQueryTimeout(), queryOptions.getQueryTimeout(),
+                        timeoutDeadline, currentTimeMillis);
+            }
             throw new UserException(msg);
         }
 
@@ -1975,8 +1995,7 @@ public class Coordinator implements CoordInterface {
                         // 4. Disable shared scan optimization by session variable
                         if (!enablePipelineEngine || (node.isPresent() && node.get().getShouldColoScan())
                                 || (node.isPresent() && node.get() instanceof FileScanNode)
-                                || (node.isPresent() && node.get().shouldDisableSharedScan(context))
-                                || enablePipelineXEngine) {
+                                || (node.isPresent() && node.get().shouldDisableSharedScan(context))) {
                             int expectedInstanceNum = 1;
                             if (parallelExecInstanceNum > 1) {
                                 //the scan instance num should not larger than the tablets num
@@ -3576,8 +3595,15 @@ public class Coordinator implements CoordInterface {
             }
 
             Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
+            Map<TNetworkAddress, Integer> instanceIdx = new HashMap();
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
+                Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
+                Map<Integer, Boolean> perNodeSharedScans = instanceExecParam.perNodeSharedScans;
+                if (scanRanges == null) {
+                    scanRanges = Maps.newHashMap();
+                    perNodeSharedScans = Maps.newHashMap();
+                }
                 if (!res.containsKey(instanceExecParam.host)) {
                     TPipelineFragmentParams params = new TPipelineFragmentParams();
 
@@ -3603,23 +3629,24 @@ public class Coordinator implements CoordInterface {
 
                     params.setFileScanParams(fileScanRangeParamsMap);
                     params.setNumBuckets(fragment.getBucketNum());
+                    params.setPerNodeSharedScans(perNodeSharedScans);
                     res.put(instanceExecParam.host, params);
                     res.get(instanceExecParam.host).setBucketSeqToInstanceIdx(new HashMap<Integer, Integer>());
+                    instanceIdx.put(instanceExecParam.host, 0);
                 }
+                // Set each bucket belongs to which instance on this BE.
+                // This is used for LocalExchange(BUCKET_HASH_SHUFFLE).
+                int instanceId = instanceIdx.get(instanceExecParam.host);
                 for (int bucket : instanceExecParam.bucketSeqSet) {
-                    res.get(instanceExecParam.host).getBucketSeqToInstanceIdx().put(bucket, i);
+                    res.get(instanceExecParam.host).getBucketSeqToInstanceIdx().put(bucket, instanceId);
+
                 }
+                instanceIdx.replace(instanceExecParam.host, ++instanceId);
                 TPipelineFragmentParams params = res.get(instanceExecParam.host);
                 TPipelineInstanceParams localParams = new TPipelineInstanceParams();
 
                 localParams.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);
-                Map<Integer, List<TScanRangeParams>> scanRanges = instanceExecParam.perNodeScanRanges;
-                Map<Integer, Boolean> perNodeSharedScans = instanceExecParam.perNodeSharedScans;
-                if (scanRanges == null) {
-                    scanRanges = Maps.newHashMap();
-                    perNodeSharedScans = Maps.newHashMap();
-                }
                 localParams.setPerNodeScanRanges(scanRanges);
                 localParams.setPerNodeSharedScans(perNodeSharedScans);
                 localParams.setSenderId(i);

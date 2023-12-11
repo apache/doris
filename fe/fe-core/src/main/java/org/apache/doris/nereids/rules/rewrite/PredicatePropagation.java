@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.expression.rules.DateFunctionRewrite;
 import org.apache.doris.nereids.rules.expression.rules.SimplifyComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -127,8 +128,9 @@ public class PredicatePropagation {
         }
         ComparisonPredicate newPredicate = (ComparisonPredicate) predicateInfo
                 .comparisonPredicate.withChildren(newLeft, newRight);
-        return SimplifyComparisonPredicate.INSTANCE
+        Expression expr = SimplifyComparisonPredicate.INSTANCE
                 .rewrite(TypeCoercionUtils.processComparisonPredicate(newPredicate), null);
+        return DateFunctionRewrite.INSTANCE.rewrite(expr, null);
     }
 
     private Expression inferOneSide(Expression predicateOneSide, Expression equalLeft, Expression equalRight) {

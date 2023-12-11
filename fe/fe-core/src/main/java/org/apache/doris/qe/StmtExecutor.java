@@ -121,6 +121,7 @@ import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextHook;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
@@ -576,6 +577,9 @@ public class StmtExecutor {
             }
             // create plan
             planner = new NereidsPlanner(statementContext);
+            if (context.getSessionVariable().isEnableMaterializedViewRewrite()) {
+                planner.addHook(InitMaterializationContextHook.INSTANCE);
+            }
             try {
                 planner.plan(parsedStmt, context.getSessionVariable().toThrift());
                 checkBlockRules();
@@ -594,7 +598,7 @@ public class StmtExecutor {
         }
         List<StatementBase> statements;
         try {
-            statements = new NereidsParser().parseSQL(originStmt.originStmt);
+            statements = new NereidsParser().parseSQL(originStmt.originStmt, context.getSessionVariable());
         } catch (Exception e) {
             throw new ParseException("Nereids parse failed. " + e.getMessage());
         }
@@ -2017,7 +2021,9 @@ public class StmtExecutor {
                  */
                 throwable = t;
             } finally {
-                coord.close();
+                if (coord != null) {
+                    coord.close();
+                }
                 finalizeQuery();
             }
 
@@ -2721,7 +2727,9 @@ public class StmtExecutor {
                 throw new RuntimeException("Failed to fetch internal SQL result. " + Util.getRootCauseMessage(e), e);
             }
         } finally {
-            coord.close();
+            if (coord != null) {
+                coord.close();
+            }
             AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());

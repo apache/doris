@@ -116,7 +116,7 @@ PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
         int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb, bool group_commit)
+        const report_status_callback& report_status_cb)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
@@ -126,7 +126,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _call_back(call_back),
           _is_report_on_cancel(true),
           _report_status_cb(report_status_cb),
-          _group_commit(group_commit),
           _create_time(MonotonicNanos()) {
     if (_query_ctx->get_task_group()) {
         _task_group_entity = _query_ctx->get_task_group()->task_entity();
@@ -189,7 +188,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 PipelinePtr PipelineFragmentContext::add_pipeline() {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
     _pipelines.emplace_back(pipeline);
     return pipeline;
 }
@@ -197,7 +196,7 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
 PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
     if (idx >= 0) {
         _pipelines.insert(_pipelines.begin() + idx, pipeline);
     } else {

@@ -42,6 +42,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
@@ -679,4 +680,7 @@ public class OriginalPlanner extends Planner {
         ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
         return Optional.of(resultSet);
     }
+
+    @Override
+    public void addHook(PlannerHook hook) {}
 }

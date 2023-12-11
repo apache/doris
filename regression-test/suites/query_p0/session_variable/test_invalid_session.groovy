@@ -15,22 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
-
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.thrift.TDataSinkType;
-
-import java.util.List;
-
-public class GroupCommitOlapTableSink extends OlapTableSink {
-
-    public GroupCommitOlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
-            boolean singleReplicaLoad) {
-        super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad);
+suite("test_invalid_session") {
+    try {
+        sql "set parallel_pipeline_task_num = -1;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("parallel_pipeline_task_num value should greater than or equal 0, you set value is: -1"))
     }
 
-    protected TDataSinkType getDataSinkType() {
-        return TDataSinkType.GROUP_COMMIT_OLAP_TABLE_SINK;
+    try {
+        sql "set parallel_fragment_exec_instance_num = 0;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("parallel_fragment_exec_instance_num value should greater than or equal 1, you set value is: 0"))
     }
 }

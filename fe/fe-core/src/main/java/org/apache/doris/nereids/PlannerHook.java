@@ -15,28 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/core/future_block.h"
+package org.apache.doris.nereids;
 
-#include <tuple>
+/**
+ * optimize plan process has some phase, such as analyze, rewrite, optimize, generate physical plan
+ * and so on, this hook give a chance to do something in the planning process.
+ * For example: after analyze plan when query or explain, we should generate materialization context.
+ */
+public interface PlannerHook {
 
-namespace doris::vectorized {
+    /**
+     * the hook before analyze
+     */
+    default void beforeAnalyze(NereidsPlanner planner) {
+    }
 
-void FutureBlock::set_info(int64_t schema_version, const TUniqueId& load_id) {
-    this->_schema_version = schema_version;
-    this->_load_id = load_id;
+    /**
+     * the hook after analyze
+     */
+    default void afterAnalyze(NereidsPlanner planner) {
+    }
 }
-
-void FutureBlock::set_result(Status status, int64_t total_rows, int64_t loaded_rows) {
-    auto result = std::make_tuple(true, status, total_rows, loaded_rows);
-    result.swap(*_result);
-}
-
-void FutureBlock::swap_future_block(std::shared_ptr<FutureBlock> other) {
-    Block::swap(*other.get());
-    set_info(other->_schema_version, other->_load_id);
-    lock = other->lock;
-    cv = other->cv;
-    _result = other->_result;
-}
-
-} // namespace doris::vectorized
