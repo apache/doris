@@ -17,31 +17,30 @@
 
 #pragma once
 
-#include <CLucene.h>
-#include <CLucene/index/IndexReader.h>
-#include <CLucene/index/IndexVersion.h>
-#include <CLucene/index/Term.h>
-#include <CLucene/search/query/TermIterator.h>
+#include <memory>
 
-#include "roaring/roaring.hh"
+#include "olap/rowset/segment_v2/inverted_index/query/disjunction_query.h"
 
 CL_NS_USE(index)
+CL_NS_USE(search)
 
-namespace doris {
+namespace doris::segment_v2 {
 
-class DisjunctionQuery {
+class RegexpQuery {
 public:
-    DisjunctionQuery(IndexReader* reader);
-    ~DisjunctionQuery();
+    RegexpQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher);
+    ~RegexpQuery() = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
+    void set_max_expansions(int32_t max_expansions) { _max_expansions = max_expansions; }
+
+    void add(const std::wstring& field_name, const std::string& pattern);
     void search(roaring::Roaring& roaring);
 
 private:
-    IndexReader* _reader = nullptr;
-    std::vector<Term*> _terms;
-    std::vector<TermDocs*> _term_docs;
-    std::vector<TermIterator> _term_iterators;
+    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+
+    int32_t _max_expansions = 50;
+    DisjunctionQuery query;
 };
 
-} // namespace doris
+} // namespace doris::segment_v2
