@@ -49,7 +49,7 @@ public:
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
-    Status add_block(std::shared_ptr<vectorized::Block> block);
+    Status add_block(std::shared_ptr<vectorized::Block> block, bool write_wal);
     Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
     Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);
@@ -67,7 +67,9 @@ public:
     bool need_commit = false;
     bool wait_internal_group_commit_finish = false;
     std::mutex mutex;
+    bool process_finish = false;
     std::condition_variable internal_group_commit_finish_cv;
+    Status status = Status::OK();
 
 private:
     std::chrono::steady_clock::time_point _start_time;
@@ -78,7 +80,6 @@ private:
     std::set<UniqueId> _load_ids;
     std::list<std::shared_ptr<vectorized::Block>> _block_queue;
 
-    Status _status = Status::OK();
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     // memory consumption of one load block queue, used for correctness check.

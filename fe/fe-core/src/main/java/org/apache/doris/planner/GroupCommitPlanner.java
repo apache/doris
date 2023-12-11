@@ -79,7 +79,8 @@ public class GroupCommitPlanner {
     private TExecPlanFragmentParamsList paramsList;
     private ByteString execPlanFragmentParamsBytes;
 
-    public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId)
+    public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId,
+            String groupCommit)
             throws UserException, TException {
         this.db = db;
         this.table = table;
@@ -101,7 +102,7 @@ public class GroupCommitPlanner {
                 .setTbl(table.getName())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
-                .setGroupCommit(true).setTrimDoubleQuotes(true);
+                .setTrimDoubleQuotes(true).setGroupCommitMode(groupCommit);
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
         StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
