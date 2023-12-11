@@ -74,10 +74,15 @@ public:
 
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
-    virtual RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
+    RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
         return _runtime_state.get();
     }
 
+    virtual RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId /*fragment_instance_id*/) {
+        return _runtime_state->runtime_filter_mgr();
+    }
+
+    QueryContext* get_query_ctx() { return _runtime_state->get_query_ctx(); }
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
