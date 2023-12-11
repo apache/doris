@@ -209,7 +209,8 @@ Status GroupCommitBlockSink::_add_blocks() {
         }
     }
     for (auto it = _blocks.begin(); it != _blocks.end(); ++it) {
-        RETURN_IF_ERROR(_load_block_queue->add_block(*it, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
+        RETURN_IF_ERROR(_load_block_queue->add_block(
+                *it, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
     }
     _is_block_appended = true;
     _blocks.clear();
