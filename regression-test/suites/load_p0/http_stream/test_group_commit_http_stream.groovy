@@ -111,7 +111,7 @@ suite("test_group_commit_http_stream") {
                     insert into ${db}.${tableName} select * from http_stream
                     ("format"="csv", "compress_type"="${compressionType}", "column_separator"=",")
                 """
-                set 'group_commit', 'true'
+                set 'group_commit', 'async_mode'
                 file "${fileName}"
                 unset 'label'
 
@@ -131,7 +131,7 @@ suite("test_group_commit_http_stream") {
                     ("format"="csv", "column_separator"=",")
             """
 
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             file "test_stream_load1.csv"
             unset 'label'
 
@@ -150,7 +150,7 @@ suite("test_group_commit_http_stream") {
                     ("format"="csv", "column_separator"="|")
             """
 
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             file "test_stream_load2.csv"
             unset 'label'
 
@@ -169,7 +169,7 @@ suite("test_group_commit_http_stream") {
                     ("format"="csv", "column_separator"=",") where c1 > 5
             """
 
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             file "test_stream_load1.csv"
             unset 'label'
 
@@ -190,7 +190,7 @@ suite("test_group_commit_http_stream") {
                     ("format"="csv", "column_separator"=",")
             """
 
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             file "test_stream_load1.csv"
             unset 'label'
 
@@ -210,7 +210,7 @@ suite("test_group_commit_http_stream") {
                     select c1, c2, c3 from http_stream ("format"="csv", "column_separator"=",") where c2 = 'a'
             """
 
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             file "test_stream_load3.csv"
             set 'max_filter_ratio', '0.7'
             unset 'label'
@@ -232,7 +232,7 @@ suite("test_group_commit_http_stream") {
                     ("format"="csv", "column_separator"="|")
             """
 
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             file "test_stream_load2.csv"
 
             time 10000 // limit inflight 10s
@@ -318,7 +318,7 @@ suite("test_group_commit_http_stream") {
                     ("format"="csv", "compress_type"="GZ", "column_separator"="|")
                 """
 
-                set 'group_commit', 'true'
+                set 'group_commit', 'async_mode'
                 unset 'label'
 
                 file """${getS3Url()}/regression/ssb/sf0.1/lineorder.tbl.gz"""

@@ -32,9 +32,9 @@
 
 namespace doris {
 
-Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block) {
+Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block, bool write_wal) {
     std::unique_lock l(mutex);
-    RETURN_IF_ERROR(_status);
+    RETURN_IF_ERROR(status);
     while (_all_block_queues_bytes->load(std::memory_order_relaxed) >
            config::group_commit_max_queue_size) {
         _put_cond.wait_for(
@@ -42,8 +42,9 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block) {
     }
     if (block->rows() > 0) {
         _block_queue.push_back(block);
-        //write wal
-        RETURN_IF_ERROR(_v_wal_writer->write_wal(block.get()));
+        if (write_wal) {
+            RETURN_IF_ERROR(_v_wal_writer->write_wal(block.get()));
+        }
         _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
         _single_block_queue_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
     }
@@ -64,9 +65,9 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
             need_commit = true;
         }
     }
-    while (_status.ok() && _block_queue.empty() &&
+    while (status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
-        CHECK(*_single_block_queue_bytes == 0);
+        CHECK_EQ(_single_block_queue_bytes->load(), 0);
         auto left_milliseconds = _group_commit_interval_ms;
         if (!need_commit) {
             left_milliseconds = _group_commit_interval_ms -
@@ -119,7 +120,7 @@ Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
 void LoadBlockQueue::cancel(const Status& st) {
     DCHECK(!st.ok());
     std::unique_lock l(mutex);
-    _status = st;
+    status = st;
     while (!_block_queue.empty()) {
         {
             auto& future_block = _block_queue.front();
@@ -318,10 +319,11 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
             if (prepare_failed || !status.ok()) {
                 load_block_queue->cancel(status);
             }
-            if (load_block_queue->wait_internal_group_commit_finish) {
+            {
                 std::unique_lock l2(load_block_queue->mutex);
-                load_block_queue->internal_group_commit_finish_cv.notify_all();
+                load_block_queue->process_finish = true;
             }
+            load_block_queue->internal_group_commit_finish_cv.notify_all();
         }
         _load_block_queues.erase(instance_id);
     }

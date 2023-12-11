@@ -969,7 +969,8 @@ public class NativeInsertStmt extends InsertStmt {
             OlapTableSink sink;
             if (isGroupCommitStreamLoadSql) {
                 sink = new GroupCommitBlockSink((OlapTable) targetTable, olapTuple,
-                        targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
+                        targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert(),
+                        ConnectContext.get().getSessionVariable().getGroupCommit());
             } else {
                 sink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
                         analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
@@ -1155,7 +1156,8 @@ public class NativeInsertStmt extends InsertStmt {
             this.analyzer = analyzerTmp;
         }
         analyzeSubquery(analyzer, true);
-        groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId);
+        groupCommitPlanner = new GroupCommitPlanner((Database) db, olapTable, targetColumnNames, queryId,
+                ConnectContext.get().getSessionVariable().getGroupCommit());
         // save plan message to be reused for prepare stmt
         loadId = queryId;
         baseSchemaVersion = olapTable.getBaseSchemaVersion();
