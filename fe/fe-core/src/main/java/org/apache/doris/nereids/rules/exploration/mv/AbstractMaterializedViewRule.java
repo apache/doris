@@ -347,7 +347,7 @@ public abstract class AbstractMaterializedViewRule {
     /**
      * Extract struct info from plan, support to get struct info from logical plan or plan in group.
      */
-    protected List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
+    public static List<StructInfo> extractStructInfo(Plan plan, CascadesContext cascadesContext) {
         if (plan.getGroupExpression().isPresent()
                 && !plan.getGroupExpression().get().getOwnerGroup().getStructInfos().isEmpty()) {
             return plan.getGroupExpression().get().getOwnerGroup().getStructInfos();

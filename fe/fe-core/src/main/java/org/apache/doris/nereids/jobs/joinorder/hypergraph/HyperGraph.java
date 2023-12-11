@@ -591,11 +591,11 @@ public class HyperGraph {
         if (viewHG.filterEdges.size() != filterEdges.size() && viewHG.joinEdges.size() != joinEdges.size()) {
             return null;
         }
-        Map<Edge, Edge> viewToQuery = constructEdgeMap(viewHG, ctx.getQueryToViewEdgeExpressionMapping());
-        if (viewToQuery.size() != filterEdges.size() + joinEdges.size()) {
+        Map<Edge, Edge> queryToView = constructEdgeMap(viewHG, ctx.getQueryToViewEdgeExpressionMapping());
+        if (queryToView.size() != filterEdges.size() + joinEdges.size()) {
             return null;
         }
-        boolean allMatch = viewToQuery.entrySet().stream()
+        boolean allMatch = queryToView.entrySet().stream()
                 .allMatch(entry ->
                         compareEdgeWithNode(entry.getKey(), entry.getValue(), ctx.getQueryToViewNodeIDMapping()));
         if (!allMatch) {
@@ -605,19 +605,19 @@ public class HyperGraph {
     }
 
     private Map<Edge, Edge> constructEdgeMap(HyperGraph viewHG, Map<Expression, Expression> exprMap) {
-        Map<Expression, Edge> exprToEdge = constructExprMap(this);
-        Map<Edge, Edge> edgeMap = new HashMap<>();
-        viewHG.joinEdges.stream()
+        Map<Expression, Edge> exprToEdge = constructExprMap(viewHG);
+        Map<Edge, Edge> queryToView = new HashMap<>();
+        joinEdges.stream()
                 .filter(e -> !e.getExpressions().isEmpty()
                         && exprMap.containsKey(e.getExpression(0))
                         && compareEdgeWithExpr(e, exprToEdge.get(exprMap.get(e.getExpression(0))), exprMap))
-                .forEach(e -> edgeMap.put(e, exprToEdge.get(exprMap.get(e.getExpression(0)))));
-        viewHG.filterEdges.stream()
+                .forEach(e -> queryToView.put(e, exprToEdge.get(exprMap.get(e.getExpression(0)))));
+        filterEdges.stream()
                 .filter(e -> !e.getExpressions().isEmpty()
                         && exprMap.containsKey(e.getExpression(0))
                         && compareEdgeWithExpr(e, exprToEdge.get(exprMap.get(e.getExpression(0))), exprMap))
-                .forEach(e -> edgeMap.put(e, exprToEdge.get(exprMap.get(e.getExpression(0)))));
-        return edgeMap;
+                .forEach(e -> queryToView.put(e, exprToEdge.get(exprMap.get(e.getExpression(0)))));
+        return queryToView;
     }
 
     private boolean compareEdgeWithNode(Edge t, Edge o, Map<Integer, Integer> nodeMap) {
@@ -635,7 +635,7 @@ public class HyperGraph {
         long oLeft = o.getLeftExtendedNodes();
         long oRight = o.getRightExtendedNodes();
         if (!t.getJoinType().equals(o.getJoinType())) {
-            if (!t.getJoinType().equals(o.getJoinType())) {
+            if (!t.getJoinType().swap().equals(o.getJoinType())) {
                 return false;
             }
             oRight = o.getLeftExtendedNodes();
