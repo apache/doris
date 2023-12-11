@@ -85,7 +85,7 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
         block->swap(*fblock.get());
         *find_block = true;
         _block_queue.pop_front();
-        _all_block_queues_bytes->fetch_sub(fblock->bytes(), std::memory_order_relaxed);
+        _all_block_queues_bytes->fetch_sub(block->bytes(), std::memory_order_relaxed);
         _single_block_queue_bytes->fetch_sub(block->bytes(), std::memory_order_relaxed);
     }
     if (_block_queue.empty() && need_commit && _load_ids.empty()) {
