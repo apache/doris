@@ -103,9 +103,9 @@ namespace doris::pipeline {
 PipelineXFragmentContext::PipelineXFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
         ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb, bool group_commit)
+        const report_status_callback& report_status_cb)
         : PipelineFragmentContext(query_id, TUniqueId(), fragment_id, -1, query_ctx, exec_env,
-                                  call_back, report_status_cb, group_commit) {}
+                                  call_back, report_status_cb) {}
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
     auto st = _query_ctx->exec_status();
@@ -342,10 +342,10 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             _sink.reset(new OlapTableSinkV2OperatorX(pool, next_sink_operator_id(), row_desc,
-                                                     output_exprs, false));
+                                                     output_exprs));
         } else {
             _sink.reset(new OlapTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
-                                                   output_exprs, false));
+                                                   output_exprs));
         }
         break;
     }
@@ -547,25 +547,28 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             }
             return le_state_map;
         };
-
         auto get_task_runtime_state = [&](int task_id) -> RuntimeState* {
             DCHECK(_task_runtime_states[task_id]);
             return _task_runtime_states[task_id].get();
         };
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
             auto& pipeline = _pipelines[pip_idx];
-            // build task runtime state
-            _task_runtime_states.push_back(RuntimeState::create_unique(
-                    this, local_params.fragment_instance_id, request.query_id, request.fragment_id,
-                    request.query_options, _query_ctx->query_globals, _exec_env));
-            auto& task_runtime_state = _task_runtime_states.back();
-            set_runtime_state(task_runtime_state);
-            auto cur_task_id = _total_tasks++;
-            auto task = std::make_unique<PipelineXTask>(
-                    pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
-                    pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline), i);
-            pipeline_id_to_task.insert({pipeline->id(), task.get()});
-            _tasks[i].emplace_back(std::move(task));
+            if (pipeline->need_to_create_task()) {
+                // build task runtime state
+                _task_runtime_states.push_back(RuntimeState::create_unique(
+                        this, local_params.fragment_instance_id, request.query_id,
+                        request.fragment_id, request.query_options, _query_ctx->query_globals,
+                        _exec_env));
+                auto& task_runtime_state = _task_runtime_states.back();
+                set_runtime_state(task_runtime_state);
+                auto cur_task_id = _total_tasks++;
+                auto task = std::make_unique<PipelineXTask>(
+                        pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
+                        pipeline_id_to_profile[pip_idx].get(), get_local_exchange_state(pipeline),
+                        i);
+                pipeline_id_to_task.insert({pipeline->id(), task.get()});
+                _tasks[i].emplace_back(std::move(task));
+            }
         }
 
         /**
@@ -596,18 +599,22 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         };
 
         for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
-            auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
-            DCHECK(task != nullptr);
+            if (pipeline_id_to_task.contains(_pipelines[pip_idx]->id())) {
+                auto* task = pipeline_id_to_task[_pipelines[pip_idx]->id()];
+                DCHECK(task != nullptr);
 
-            // if this task has upstream dependency, then record them.
-            if (_dag.find(_pipelines[pip_idx]->id()) != _dag.end()) {
-                auto& deps = _dag[_pipelines[pip_idx]->id()];
-                for (auto& dep : deps) {
-                    task->add_upstream_dependency(
-                            pipeline_id_to_task[dep]->get_downstream_dependency());
+                // if this task has upstream dependency, then record them.
+                if (_dag.find(_pipelines[pip_idx]->id()) != _dag.end()) {
+                    auto& deps = _dag[_pipelines[pip_idx]->id()];
+                    for (auto& dep : deps) {
+                        if (pipeline_id_to_task.contains(dep)) {
+                            task->add_upstream_dependency(
+                                    pipeline_id_to_task[dep]->get_downstream_dependency());
+                        }
+                    }
                 }
+                RETURN_IF_ERROR(prepare_and_set_parent_profile(task, pip_idx));
             }
-            RETURN_IF_ERROR(prepare_and_set_parent_profile(task, pip_idx));
         }
         {
             std::lock_guard<std::mutex> l(_state_map_lock);
@@ -692,6 +699,34 @@ Status PipelineXFragmentContext::_create_tree_helper(ObjectPool* pool,
     return Status::OK();
 }
 
+void PipelineXFragmentContext::_inherit_pipeline_properties(ExchangeType exchange_type,
+                                                            PipelinePtr pipe_with_source,
+                                                            PipelinePtr pipe_with_sink) {
+    pipe_with_sink->set_num_tasks(pipe_with_source->num_tasks());
+    pipe_with_source->set_num_tasks(_num_instances);
+    switch (exchange_type) {
+    case ExchangeType::HASH_SHUFFLE:
+        // If HASH_SHUFFLE local exchanger is planned, data will be always HASH distribution so we
+        // do not need to plan another shuffle local exchange in the rest of current pipeline.
+        pipe_with_sink->set_need_to_local_shuffle(false);
+        pipe_with_source->set_need_to_local_shuffle(false);
+        break;
+    case ExchangeType::BUCKET_HASH_SHUFFLE:
+        // Same as ExchangeType::HASH_SHUFFLE.
+        pipe_with_sink->set_need_to_local_shuffle(false);
+        pipe_with_source->set_need_to_local_shuffle(false);
+        break;
+    case ExchangeType::PASSTHROUGH:
+        // If PASSTHROUGH local exchanger is planned, data will be split randomly. So we should make
+        // sure remaining operators should use local shuffle to make data distribution right.
+        pipe_with_sink->set_need_to_local_shuffle(pipe_with_source->need_to_local_shuffle());
+        pipe_with_source->set_need_to_local_shuffle(true);
+        break;
+    default:
+        __builtin_unreachable();
+    }
+}
+
 Status PipelineXFragmentContext::_add_local_exchange(
         int pip_idx, int idx, int node_id, ObjectPool* pool, PipelinePtr cur_pipe,
         const std::vector<TExpr>& texprs, ExchangeType exchange_type, bool* do_local_exchange,
@@ -714,59 +749,58 @@ Status PipelineXFragmentContext::_add_local_exchange(
     auto local_exchange_id = next_operator_id();
     // 1. Create a new pipeline with local exchange sink.
     auto new_pip = add_pipeline(cur_pipe, pip_idx + 1);
-
     DataSinkOperatorXPtr sink;
     sink.reset(new LocalExchangeSinkOperatorX(next_sink_operator_id(), local_exchange_id,
                                               _num_instances, texprs, bucket_seq_to_instance_idx));
     RETURN_IF_ERROR(new_pip->set_sink(sink));
+    RETURN_IF_ERROR(new_pip->sink_x()->init(exchange_type, num_buckets));
 
+    // 2. Inherit properties from current pipeline.
+    _inherit_pipeline_properties(exchange_type, cur_pipe, new_pip);
+
+    // 3. Create and initialize LocalExchangeSharedState.
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->source_dependencies.resize(_num_instances, nullptr);
     switch (exchange_type) {
     case ExchangeType::HASH_SHUFFLE:
-        shared_state->exchanger = ShuffleExchanger::create_unique(_num_instances);
-        // If HASH_SHUFFLE local exchanger is planned, data will be always HASH distribution so we
-        // do not need to plan another shuffle local exchange in the rest of current pipeline.
-        new_pip->set_need_to_local_shuffle(false);
-        cur_pipe->set_need_to_local_shuffle(false);
+        shared_state->exchanger =
+                ShuffleExchanger::create_unique(new_pip->num_tasks(), _num_instances);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger =
-                BucketShuffleExchanger::create_unique(_num_instances, num_buckets);
-        // Same as ExchangeType::HASH_SHUFFLE.
-        new_pip->set_need_to_local_shuffle(false);
-        cur_pipe->set_need_to_local_shuffle(false);
+                BucketShuffleExchanger::create_unique(new_pip->num_tasks(), num_buckets);
         break;
     case ExchangeType::PASSTHROUGH:
-        // If PASSTHROUGH local exchanger is planned, data will be split randomly. So we should make
-        // sure remaining operators should use local shuffle to make data distribution right.
-        shared_state->exchanger = PassthroughExchanger::create_unique(_num_instances);
-        new_pip->set_need_to_local_shuffle(cur_pipe->need_to_local_shuffle());
-        cur_pipe->set_need_to_local_shuffle(true);
+        shared_state->exchanger =
+                PassthroughExchanger::create_unique(new_pip->num_tasks(), _num_instances);
         break;
     default:
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)exchange_type));
     }
-    RETURN_IF_ERROR(new_pip->sink_x()->init(exchange_type, num_buckets));
     _op_id_to_le_state.insert({local_exchange_id, shared_state});
 
-    // 2. Initialize operators list.
+    // 4. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
+    // pipeline1 [Scan - LocalExchangeSink] and pipeline2 [LocalExchangeSource - AggSink].
+
+    // 4.1 Initialize new pipeline's operator list.
     std::copy(operator_xs.begin(), operator_xs.begin() + idx,
               std::inserter(new_pip->operator_xs(), new_pip->operator_xs().end()));
 
-    // 3. Erase operators in new pipeline.
+    // 4.2 Erase unused operators in previous pipeline.
+    operator_xs.erase(operator_xs.begin(), operator_xs.begin() + idx);
+
+    // 5. Initialize LocalExchangeSource and insert it into this pipeline.
     OperatorXPtr source_op;
     source_op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
     RETURN_IF_ERROR(source_op->init(exchange_type));
-    operator_xs.erase(operator_xs.begin(), operator_xs.begin() + idx);
     if (operator_xs.size() > 0) {
         RETURN_IF_ERROR(operator_xs.front()->set_child(source_op));
     }
-
     operator_xs.insert(operator_xs.begin(), source_op);
     RETURN_IF_ERROR(source_op->set_child(new_pip->operator_xs().back()));
 
+    // 6. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;
     std::vector<PipelineId> edges_with_source;
     for (auto child : cur_pipe->children()) {
@@ -785,6 +819,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
     new_children.push_back(new_pip);
     edges_with_source.push_back(new_pip->id());
 
+    // 7. Set DAG for new pipelines.
     if (!new_pip->children().empty()) {
         std::vector<PipelineId> edges_with_sink;
         for (auto child : new_pip->children()) {
@@ -813,6 +848,11 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     case TPlanNodeType::OLAP_SCAN_NODE: {
         op.reset(new OlapScanOperatorX(pool, tnode, next_operator_id(), descs));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        const bool shared_scan =
+                find_with_default(request.per_node_shared_scans, op->node_id(), false);
+        if (shared_scan) {
+            cur_pipe->set_num_tasks(1);
+        }
         break;
     }
     case doris::TPlanNodeType::JDBC_SCAN_NODE: {

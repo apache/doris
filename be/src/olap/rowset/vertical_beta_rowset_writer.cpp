@@ -41,6 +41,9 @@
 namespace doris {
 using namespace ErrorCode;
 
+VerticalBetaRowsetWriter::VerticalBetaRowsetWriter(StorageEngine& engine)
+        : BetaRowsetWriter(engine) {}
+
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
     if (!_already_built) {
         const auto& fs = _rowset_meta->fs();

@@ -70,7 +70,8 @@ suite("test_group_commit_interval_ms_property") {
                 sql """ set enable_nereids_dml = false; """
             }
 
-            qt_1 "show create table ${test_table}"
+            def res1 = sql """show create table ${test_table}"""
+            assertTrue(res1.toString().contains("\"group_commit_interval_ms\" = \"10000\""))
 
             def msg1 = group_commit_insert """insert into ${test_table} values(1,1); """, 1
 
@@ -82,7 +83,8 @@ suite("test_group_commit_interval_ms_property") {
 
             sql "ALTER table ${test_table} SET (\"group_commit_interval_ms\"=\"1000\"); "
 
-            qt_2 "show create table ${test_table}"
+            def res2 = sql """show create table ${test_table}"""
+            assertTrue(res2.toString().contains("\"group_commit_interval_ms\" = \"1000\""))
 
             def msg3 = group_commit_insert """insert into ${test_table} values(3,3); """, 1
 

@@ -93,7 +93,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/future_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
@@ -944,9 +943,8 @@ VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& o
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
-Status VTabletWriter::init_properties(doris::ObjectPool* pool, bool group_commit) {
+Status VTabletWriter::init_properties(doris::ObjectPool* pool) {
     _pool = pool;
-    _group_commit = group_commit;
     return Status::OK();
 }
 
@@ -1235,12 +1233,6 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         _channels.emplace_back(new IndexChannel(this, index->index_id, index->where_clause));
         _index_id_to_channel[index->index_id] = _channels.back();
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
-    }
-
-    if (_group_commit) {
-        _v_wal_writer = std::make_shared<VWalWriter>(table_sink.db_id, table_sink.table_id,
-                                                     table_sink.txn_id, _state, _output_tuple_desc);
-        RETURN_IF_ERROR(_v_wal_writer->init());
     }
 
     RETURN_IF_ERROR(_init_row_distribution());
@@ -1567,10 +1559,6 @@ Status VTabletWriter::close(Status exec_status) {
         index_channel->for_each_node_channel(
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->clear_all_blocks(); });
     }
-
-    if (_v_wal_writer != nullptr) {
-        RETURN_IF_ERROR(_v_wal_writer->close());
-    }
     return _close_status;
 }
 
@@ -1671,12 +1659,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
             RETURN_IF_CATCH_EXCEPTION(vectorized::Block::filter_block_internal(
                     block.get(), filter_col, block->columns()));
         }
-    }
-
-    if (_v_wal_writer != nullptr) {
-        RETURN_IF_ERROR(_v_wal_writer->append_block(&input_block, block->rows(), filtered_rows,
-                                                    block.get(), _block_convertor.get(),
-                                                    _tablet_finder.get()));
     }
 
     // Add block to node channel

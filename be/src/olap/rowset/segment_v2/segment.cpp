@@ -445,7 +445,8 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         // Alter table operation should read the whole variant column, since it does not aware of
         // subcolumns of variant during processing rewriting rowsets.
         // This is slow, since it needs to read all sub columns and merge them into a single column
-        RETURN_IF_ERROR(HierarchicalDataReader::create(iter, node, root, output_as_raw_json));
+        RETURN_IF_ERROR(HierarchicalDataReader::create(iter, tablet_column.path_info(), node, root,
+                                                       output_as_raw_json));
         return Status::OK();
     }
 
@@ -475,7 +476,8 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         iter->reset(it);
     } else if (node != nullptr && !node->children.empty()) {
         // Create reader with hirachical data
-        RETURN_IF_ERROR(HierarchicalDataReader::create(iter, node, root));
+        RETURN_IF_ERROR(
+                HierarchicalDataReader::create(iter, tablet_column.path_info(), node, root));
     } else {
         // If file only exist column `v.a` and `v` but target path is `v.b`, read only read and parse root column
         if (root == nullptr) {
