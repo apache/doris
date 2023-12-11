@@ -52,7 +52,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Partition.PartitionState;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
-import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ScalarType;
@@ -94,7 +93,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -107,7 +105,6 @@ import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -203,7 +200,9 @@ public class OlapScanNode extends ScanNode {
 
     private boolean shouldColoScan = false;
 
-    private RangeMap<LiteralExpr, Long> partitionRangeMapByLiteral;
+    // cached for prepared statement to quickly prune partition
+    private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
+                        new PartitionPruneV2ForShortCircuitPlan();
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -680,30 +679,17 @@ public class OlapScanNode extends ScanNode {
         } else {
             keyItemMap = partitionInfo.getIdToItem(false);
         }
-        if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
+        if (partitionInfo.getType() == PartitionType.RANGE
+                    && isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
             // short circuit, a quick path to find partition
-            // TODO handle new partition
             ColumnRange filterRange = columnNameToRange.get(partitionInfo.getPartitionColumns().get(0).getName());
             LiteralExpr lowerBound = filterRange.getRangeSet().get().asRanges().stream()
                     .findFirst().get().lowerEndpoint().getValue();
             LiteralExpr upperBound = filterRange.getRangeSet().get().asRanges().stream()
                     .findFirst().get().upperEndpoint().getValue();
-            Range<LiteralExpr> filterRangeValue = Range.closed(lowerBound, upperBound);
-            if (partitionRangeMapByLiteral == null) {
-                partitionRangeMapByLiteral = new RangeMap<>();
-                for (Entry<Long, PartitionItem> entry : keyItemMap.entrySet()) {
-                    Range<PartitionKey> range = entry.getValue().getItems();
-                    LiteralExpr partitionLowerBound = (LiteralExpr) range.lowerEndpoint().getKeys().get(0);
-                    LiteralExpr partitionUpperBound = (LiteralExpr) range.upperEndpoint().getKeys().get(0);
-                    Range<LiteralExpr> partitionRange = Range.closedOpen(partitionLowerBound, partitionUpperBound);
-                    partitionRangeMapByLiteral.put(partitionRange, entry.getKey());
-                }
-            }
-            List<Long> partitionList = partitionRangeMapByLiteral.getOverlappingRangeValues(filterRangeValue);
-            LOG.debug("pick partitionList {} for point query", partitionList);
-            return partitionList;
-        }
-        if (partitionInfo.getType() == PartitionType.RANGE) {
+            cachedPartitionPruner.update(keyItemMap, lowerBound, upperBound);
+            partitionPruner = cachedPartitionPruner;
+        } else if (partitionInfo.getType() == PartitionType.RANGE) {
             partitionPruner = new RangePartitionPrunerV2(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnNameToRange);
         } else if (partitionInfo.getType() == PartitionType.LIST) {
