@@ -380,7 +380,6 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
             return res;
         }
     } while (target_block_row < _reader_context.batch_size);
-    block->set_columns(std::move(target_columns));
 
     // do filter delete row in base compaction, only base compaction need to do the job
     if (_filter_delete) {
@@ -412,17 +411,20 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 }
             }
         }
-
+        auto target_columns_size = target_columns.size();
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
+        block->set_columns(std::move(target_columns));
         block->insert(column_with_type_and_name);
-        RETURN_IF_ERROR(Block::filter_block(block, target_columns.size(), target_columns.size()));
+        RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
         if (UNLIKELY(_reader_context.record_rowids)) {
             DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
         }
+    } else {
+        block->set_columns(std::move(target_columns));
     }
     return Status::OK();
 }
