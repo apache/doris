@@ -133,7 +133,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.CachedClient;
 import org.apache.doris.datasource.hive.CachedClientFactory;
-import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
