@@ -17,9 +17,11 @@
 
 package org.apache.doris.nereids.rules.expression.rules;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
+import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -39,6 +41,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.stream.Collectors;
 
 /**
  * PartitionPruner
@@ -115,6 +118,11 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
             PartitionTableType partitionTableType) {
         partitionPredicate = TryEliminateUninterestedPredicates.rewrite(
                 partitionPredicate, ImmutableSet.copyOf(partitionSlots), cascadesContext);
+        if (canRewriteToMinMax(idToPartitions)) {
+            double rangeLength = totalRangeLength(idToPartitions);
+            partitionPredicate = rewritePartitionPredicateForRangePartition(
+                partitionPredicate, rangeLength, cascadesContext);
+        }
 
         List<OnePartitionEvaluator> evaluators = idToPartitions.entrySet()
                 .stream()
@@ -125,6 +133,52 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
         //TODO: we keep default partition because it's too hard to prune it, we return false in canPrune().
         return partitionPruner.prune();
+    }
+
+    private static boolean isRangePartition(Map<Long, PartitionItem> idToPartitions) {
+        if (idToPartitions.isEmpty()) {
+            return false;
+        }
+        PartitionItem item = idToPartitions.values().iterator().next();
+        return item instanceof RangePartitionItem;
+    }
+
+    private static boolean canRewriteToMinMax(Map<Long, PartitionItem> idToPartitions) {
+        if (isRangePartition(idToPartitions)) {
+            RangePartitionItem item = (RangePartitionItem) idToPartitions.values().iterator().next();
+            if (item == null) {
+                return false;
+            }
+            PartitionKey k1 = item.getItems().upperEndpoint();
+            if (k1.getKeys().size() != 1) {
+                return false; // multi keys or hive keys
+            }
+            LiteralExpr bound = k1.getKeys().get(0);
+            if (bound instanceof org.apache.doris.analysis.DateLiteral) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // for range partition, total range is from the end of the first partition to the beginning of the last partition
+    private static double totalRangeLength(Map<Long, PartitionItem> idToPartitions) {
+        List<Long> sortedIds = idToPartitions.keySet().stream().sorted().collect(Collectors.toList());
+        RangePartitionItem firstItem = (RangePartitionItem) idToPartitions.get(sortedIds.get(0));
+        PartitionKey k1 = firstItem.getItems().upperEndpoint();
+        org.apache.doris.analysis.DateLiteral d1 = (org.apache.doris.analysis.DateLiteral) k1.getKeys().get(0);
+        Long lastId = sortedIds.get(sortedIds.size() - 1);
+        RangePartitionItem lastItem = (RangePartitionItem) idToPartitions.get(lastId);
+        PartitionKey k2 = lastItem.getItems().lowerEndpoint();
+        org.apache.doris.analysis.DateLiteral d2 = (org.apache.doris.analysis.DateLiteral) k2.getKeys().get(0);
+        return d2.getDouble() - d1.getDouble();
+    }
+
+    private static Expression rewritePartitionPredicateForRangePartition(Expression partitionPredicate, double range,
+                                                                         CascadesContext ctx) {
+        partitionPredicate = OrToIn.INSTANCE.rewrite(partitionPredicate, null);
+        RewriteRangePartitionPredicate rewriter = new RewriteRangePartitionPredicate(range);
+        return partitionPredicate.accept(rewriter, ctx);
     }
 
     /**

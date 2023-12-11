@@ -1827,4 +1827,8 @@ public class DateLiteral extends LiteralExpr {
         }
         return split + 1;
     }
+
+    public double getDouble() {
+        return (year * 10000 + month * 100 + day) * 1000000L + hour * 10000 + minute * 100 + second;
+    }
 }

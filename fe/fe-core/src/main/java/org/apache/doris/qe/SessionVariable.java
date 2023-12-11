@@ -1127,8 +1127,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
-    @VariableMgr.VarAttr(name = "enable_partition_predicate_rewrite", needForward = true)
-    public boolean enablePartitionPredicateRewrite = false;
+    @VariableMgr.VarAttr(name = "in_to_minmax_parition_rewrite_threshold", needForward = true)
+    public double inToMinmaxParitionRewriteThreshold = 0.2;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
