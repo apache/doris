@@ -49,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 
 /**
  * This class extends the primary identifier of a Backend with ephemeral state,
@@ -93,7 +94,7 @@ public class Backend implements Writable {
     @SerializedName("disksRef")
     private volatile ImmutableMap<String, DiskInfo> disksRef;
 
-    private AtomicBoolean isPublishTaskLastTimeAccumulated = new AtomicBoolean(false);
+    private AtomicLong lastPublishTaskAccumulatedNum = new AtomicLong(0);
 
     private String heartbeatErrMsg = "";
 
@@ -933,12 +934,15 @@ public class Backend implements Writable {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
     }
 
-    public void setPublishTaskLastTimeAccumulated(boolean isAccumulated) {
-        this.isPublishTaskLastTimeAccumulated.set(isAccumulated);
+    public boolean getPublishTaskLastTimeAccumulated() {
+        LOG.debug("lastPublishTaskAccumulatedNum {}, config {}",
+                lastPublishTaskAccumulatedNum.get(), Config.publish_version_queued_limit_number);
+        return this.lastPublishTaskAccumulatedNum.get() > Config.publish_version_queued_limit_number;
     }
 
-    public boolean getPublishTaskLastTimeAccumulated() {
-        return this.isPublishTaskLastTimeAccumulated.get();
+    public void setPublishTaskLastTimeAccumulated(Long accumulatedNum) {
+        LOG.debug("setPublishTaskLastTimeAccumulated {}", accumulatedNum);
+        this.lastPublishTaskAccumulatedNum.set(accumulatedNum);
     }
 
 }

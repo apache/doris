@@ -172,30 +172,31 @@ public class PublishVersionDaemon extends MasterDaemon {
                             tableIdToTotalDeltaNumRows.putIfAbsent(tableId, numRows);
                         });
                     }
-                } else if (infoService.checkBackendAlive(task.getBackendId())) {
-                    hasBackendAliveAndUnfinishedTask.set(true);
                 } else {
+                    if (infoService.checkBackendAlive(task.getBackendId())) {
+                        hasBackendAliveAndUnfinishedTask.set(true);
+                    }
                     notFinishTaskBe.add(beId);
                 }
             });
 
             transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
-
+            LOG.debug("notFinishTaskBe {}, trans {}", notFinishTaskBe, transactionState);
             boolean isPublishSlow = false;
             if (finishNum.get() > transactionState.getPublishVersionTasks().keySet().size() / 2
                     && notFinishTaskBe.stream()
                         .allMatch(beId -> infoService.getBackend(beId).getPublishTaskLastTimeAccumulated())) {
-                LOG.info("finishNum {}, txn publish tasks {}",
-                        finishNum, transactionState.getPublishVersionTasks().keySet().size());
+                LOG.debug(" finishNum {}, txn publish tasks {}, notFinishTaskBe {}",
+                        finishNum, transactionState.getPublishVersionTasks().keySet(), notFinishTaskBe);
                 isPublishSlow = true;
             }
 
             boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask.get() || transactionState.isPublishTimeout()
                     || isPublishSlow
                     || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
-            LOG.debug("hasBackendAliveAndUnfinishedTask {}, txn isPublishTimeout {}, DebugPoint enable {}",
-                    transactionState.isPublishTimeout(), hasBackendAliveAndUnfinishedTask,
-                    DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks"));
+            LOG.debug("hasBackendAliveAndUnfinishedTask {}, txn isPublishTimeout {}, DebugPoint enable {}, slow {}",
+                    hasBackendAliveAndUnfinishedTask, transactionState.isPublishTimeout(),
+                    DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks"), isPublishSlow);
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction

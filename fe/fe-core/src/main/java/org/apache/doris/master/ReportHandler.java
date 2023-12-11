@@ -533,6 +533,16 @@ public class ReportHandler extends Daemon {
         LOG.info("finished to handle tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
+    private static void updateControlPublishVersion(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
+        if (!runningTasks.containsKey(TTaskType.PUBLISH_VERSION)) {
+            return;
+        }
+        LOG.debug("current beId {} - {} - {}",
+                backendId, runningTasks, runningTasks.get(TTaskType.PUBLISH_VERSION).size());
+        Env.getCurrentSystemInfo().getBackend(backendId)
+                .setPublishTaskLastTimeAccumulated((long) runningTasks.get(TTaskType.PUBLISH_VERSION).size());
+    }
+
     private static void taskReport(long backendId, Map<TTaskType, Set<Long>> runningTasks) {
         if (LOG.isDebugEnabled()) {
             LOG.debug("begin to handle task report from backend {}", backendId);
@@ -550,7 +560,7 @@ public class ReportHandler extends Daemon {
                 }
             }
         }
-        AgentTaskQueue.updateControlPublishVersion(backendId, runningTasks);
+        updateControlPublishVersion(backendId, runningTasks);
         List<AgentTask> diffTasks = AgentTaskQueue.getDiffTasks(backendId, runningTasks);
 
         AgentBatchTask batchTask = new AgentBatchTask();
