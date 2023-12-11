@@ -187,7 +187,8 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         if (!_is_block_appended) {
             RETURN_IF_ERROR(_add_blocks());
         }
-        RETURN_IF_ERROR(_load_block_queue->add_block(output_block));
+        RETURN_IF_ERROR(_load_block_queue->add_block(
+                output_block, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
     }
     return Status::OK();
 }
