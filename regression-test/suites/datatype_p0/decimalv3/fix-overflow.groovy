@@ -15,14 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.trino;
-
-import org.apache.doris.nereids.parser.AbstractFnCallTransformer;
-
-/**
- * Trino complex function transformer
- */
-public abstract class ComplexTrinoFnCallTransformer extends AbstractFnCallTransformer {
-
-    protected abstract String getSourceFnName();
+suite("fix-overflow") {
+    sql "set check_overflow_for_decimal=true;"
+    sql "drop table if exists fix_overflow_l;"
+    sql """
+        create table fix_overflow_l(k1 decimalv3(38,1)) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql "drop table if exists fix_overflow_r;"
+    sql """
+        create table fix_overflow_r(k1 decimalv3(38,1)) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        insert into fix_overflow_l values(1.1);
+    """
+    qt_sql """
+        select l.k1, r.k1, l.k1 * r.k1 from fix_overflow_l l left join fix_overflow_r r on l.k1=r.k1;
+    """
 }
