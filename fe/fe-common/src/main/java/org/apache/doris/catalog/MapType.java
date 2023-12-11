@@ -126,6 +126,13 @@ public class MapType extends Type {
             return false;
         }
 
+        if (((MapType) t).getIsKeyContainsNull() != getIsKeyContainsNull()) {
+            return false;
+        }
+        if (((MapType) t).getIsValueContainsNull() != getIsValueContainsNull()) {
+            return false;
+        }
+
         if ((keyType.isNull() || ((MapType) t).getKeyType().isNull())
                 && (valueType.isNull() || ((MapType) t).getKeyType().isNull())) {
             return true;
