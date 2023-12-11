@@ -2922,12 +2922,22 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
                     }
+                    // if need absolutely correct, should check running txn here.
+                    // if the txn is in prepare state, cann't known which partitions had load data.
+                    if (!partition.hasData()) {
+                        continue;
+                    }
                     origPartitions.put(partName, partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
                     rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             } else {
                 for (Partition partition : olapTable.getPartitions()) {
+                    // if need absolutely correct, should check running txn here.
+                    // if the txn is in prepare state, cann't known which partitions had load data.
+                    if (!partition.hasData()) {
+                        continue;
+                    }
                     origPartitions.put(partition.getName(), partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
                 }
@@ -2935,6 +2945,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             // if table currently has no partitions, this sql like empty command and do nothing, should return directly
             // at the same time, it will avoid throwing IllegalStateException when `bufferSize` equals zero
             if (origPartitions.isEmpty()) {
+                LOG.info("finished to truncate table {}, no partition contains data, do nothing",
+                        tblRef.getName().toSql());
                 return;
             }
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), IndexExtState.VISIBLE, false);

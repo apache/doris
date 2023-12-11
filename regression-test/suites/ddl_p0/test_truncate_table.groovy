@@ -40,24 +40,35 @@ suite("test_truncate_table") {
 			"replication_num" = "1"
 		);
 		"""
-    List<List<Object>> result = sql "show partitions from ${testTable}"
-    logger.info("${result}")
-    assertEquals(result.size(), 3)
-    assertEquals(result.get(0).get(1), "p1")	
+
+    def getPartitions = { ->
+        def result = sql_return_maparray("show partitions from ${testTable}")
+        return result.collectEntries { [it.PartitionName, it.PartitionId as long] }
+    }
+
+    def partitions1 = getPartitions()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitions1.keySet())
+
+    sql "insert into ${testTable} values ('2020-01-01', 1.0, 'a', 1)"
+    sql "insert into ${testTable} values ('2020-03-10', 1.0, 'a', 1)"
 
     sql """truncate table ${testTable};"""
-    result = sql "show partitions from ${testTable}"
-    logger.info("${result}")
-    assertEquals(result.size(), 3)
-    assertEquals(result.get(0).get(1), "p1")
+    def partitions2 = getPartitions()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitions2.keySet())
+    assertNotEquals(partitions1.get("p1"), partitions2.get("p1"))
+    assertEquals(partitions1.get("p2"), partitions2.get("p2"))
+    assertNotEquals(partitions1.get("p3"), partitions2.get("p3"))
 
-    sql """truncate table ${testTable} partitions (p1, p1);"""
 
-    result = sql "show partitions from ${testTable}"
-    logger.info("${result}")
-    assertEquals(result.size(), 3)
-    assertEquals(result.get(0).get(1), "p1")
-	
+    sql "insert into ${testTable} values ('2020-02-10', 1.0, 'a', 1)"
+    sql """truncate table ${testTable} partitions (p1, p2);"""
+
+    def partitions3 = getPartitions()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitions3.keySet())
+    assertEquals(partitions2.get("p1"), partitions3.get("p1"))
+    assertNotEquals(partitions2.get("p2"), partitions3.get("p2"))
+    assertEquals(partitions2.get("p3"), partitions3.get("p3"))
+
     sql "DROP TABLE IF EXISTS ${testTable}"
 }
 
