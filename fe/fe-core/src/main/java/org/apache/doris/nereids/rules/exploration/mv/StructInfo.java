@@ -237,10 +237,10 @@ public class StructInfo {
      * For inner join should judge only the join tables,
      * for other join type should also judge the join direction, it's input filter that can not be pulled up etc.
      */
-    public static boolean isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
+    public static @Nullable List<Expression> isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
             LogicalCompatibilityContext compatibilityContext) {
         // TODO: if not inner join, should check the join graph logical equivalence
-        return true;
+        return queryStructInfo.hyperGraph.isLogicCompatible(viewStructInfo.hyperGraph, compatibilityContext);
     }
 
     private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {

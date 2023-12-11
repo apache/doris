@@ -27,6 +27,7 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -42,6 +43,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.PlanUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 
@@ -52,6 +54,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import javax.annotation.Nullable;
 
 /**
  * The graph is a join graph, whose node is the leaf plan and edge is a join operator.
@@ -575,6 +578,99 @@ public class HyperGraph {
 
         long addedNodes = LongBitmap.newBitmapDiff(newNodes, oldNodes);
         LongBitmap.getIterator(addedNodes).forEach(index -> nodes.get(index).attachEdge(edge));
+    }
+
+    /**
+     * compare hypergraph
+     *
+     * @param viewHG the compared hyper graph
+     * @return null represents not compatible, or return some expression which can
+     *          be pull up from this hyper graph
+     */
+    public @Nullable List<Expression> isLogicCompatible(HyperGraph viewHG, LogicalCompatibilityContext ctx) {
+        if (viewHG.filterEdges.size() != filterEdges.size() && viewHG.joinEdges.size() != joinEdges.size()) {
+            return null;
+        }
+        Map<Edge, Edge> viewToQuery = constructEdgeMap(viewHG, ctx.getQueryToViewEdgeExpressionMapping());
+        if (viewToQuery.size() != filterEdges.size() + joinEdges.size()) {
+            return null;
+        }
+        boolean allMatch = viewToQuery.entrySet().stream()
+                .allMatch(entry ->
+                        compareEdgeWithNode(entry.getKey(), entry.getValue(), ctx.getQueryToViewNodeIDMapping()));
+        if (!allMatch) {
+            return null;
+        }
+        return ImmutableList.of();
+    }
+
+    private Map<Edge, Edge> constructEdgeMap(HyperGraph viewHG, Map<Expression, Expression> exprMap) {
+        Map<Expression, Edge> exprToEdge = constructExprMap(this);
+        Map<Edge, Edge> edgeMap = new HashMap<>();
+        viewHG.joinEdges.stream()
+                .filter(e -> !e.getExpressions().isEmpty()
+                        && exprMap.containsKey(e.getExpression(0))
+                        && compareEdgeWithExpr(e, exprToEdge.get(exprMap.get(e.getExpression(0))), exprMap))
+                .forEach(e -> edgeMap.put(e, exprToEdge.get(exprMap.get(e.getExpression(0)))));
+        viewHG.filterEdges.stream()
+                .filter(e -> !e.getExpressions().isEmpty()
+                        && exprMap.containsKey(e.getExpression(0))
+                        && compareEdgeWithExpr(e, exprToEdge.get(exprMap.get(e.getExpression(0))), exprMap))
+                .forEach(e -> edgeMap.put(e, exprToEdge.get(exprMap.get(e.getExpression(0)))));
+        return edgeMap;
+    }
+
+    private boolean compareEdgeWithNode(Edge t, Edge o, Map<Integer, Integer> nodeMap) {
+        if (t instanceof FilterEdge && o instanceof FilterEdge) {
+            return false;
+        } else if (t instanceof JoinEdge && o instanceof JoinEdge) {
+            return compareJoinEdge((JoinEdge) t, (JoinEdge) o, nodeMap);
+        }
+        return false;
+    }
+
+    private boolean compareJoinEdge(JoinEdge t, JoinEdge o, Map<Integer, Integer> nodeMap) {
+        long tLeft = t.getLeftExtendedNodes();
+        long tRight = t.getRightExtendedNodes();
+        long oLeft = o.getLeftExtendedNodes();
+        long oRight = o.getRightExtendedNodes();
+        if (!t.getJoinType().equals(o.getJoinType())) {
+            if (!t.getJoinType().equals(o.getJoinType())) {
+                return false;
+            }
+            oRight = o.getLeftExtendedNodes();
+            oLeft = o.getRightExtendedNodes();
+        }
+        return compareNodeMap(tLeft, oLeft, nodeMap) && compareNodeMap(tRight, oRight, nodeMap);
+    }
+
+    private boolean compareNodeMap(long bitmap1, long bitmap2, Map<Integer, Integer> nodeIDMap) {
+        long newBitmap1 = LongBitmap.newBitmap();
+        for (int i : LongBitmap.getIterator(bitmap1)) {
+            int mappedI = nodeIDMap.getOrDefault(i, 0);
+            newBitmap1 = LongBitmap.set(newBitmap1, mappedI);
+        }
+        return bitmap2 == newBitmap1;
+    }
+
+    private boolean compareEdgeWithExpr(Edge t, Edge o, Map<Expression, Expression> expressionMap) {
+        if (t.getExpressions().size() != o.getExpressions().size()) {
+            return false;
+        }
+        int size = t.getExpressions().size();
+        for (int i = 0; i < size; i++) {
+            if (!expressionMap.get(t.getExpression(i)).equals(o.getExpression(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Map<Expression, Edge> constructExprMap(HyperGraph hyperGraph) {
+        Map<Expression, Edge> exprToEdge = new HashMap<>();
+        hyperGraph.joinEdges.forEach(edge -> edge.getExpressions().forEach(expr -> exprToEdge.put(expr, edge)));
+        hyperGraph.filterEdges.forEach(edge -> edge.getExpressions().forEach(expr -> exprToEdge.put(expr, edge)));
+        return exprToEdge;
     }
 
     /**

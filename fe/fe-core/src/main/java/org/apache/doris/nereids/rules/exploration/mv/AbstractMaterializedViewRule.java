@@ -105,7 +105,7 @@ public abstract class AbstractMaterializedViewRule {
                         LogicalCompatibilityContext.from(queryToViewTableMapping, queryToViewSlotMapping,
                                 queryStructInfo, viewStructInfo);
                 // todo outer join compatibility check
-                if (!StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo, compatibilityContext)) {
+                if (StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo, compatibilityContext) != null) {
                     continue;
                 }
                 SplitPredicate compensatePredicates = predicatesCompensate(queryStructInfo, viewStructInfo,
