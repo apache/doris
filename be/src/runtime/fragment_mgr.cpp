@@ -838,8 +838,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                         query_ctx->query_id(), params.fragment_id, query_ctx, _exec_env, cb,
                         std::bind<Status>(
                                 std::mem_fn(&FragmentMgr::trigger_pipeline_context_report), this,
-                                std::placeholders::_1, std::placeholders::_2),
-                        params.group_commit);
+                                std::placeholders::_1, std::placeholders::_2));
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params);

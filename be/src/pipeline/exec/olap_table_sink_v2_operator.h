@@ -70,11 +70,10 @@ class OlapTableSinkV2OperatorX final : public DataSinkOperatorX<OlapTableSinkV2L
 public:
     using Base = DataSinkOperatorX<OlapTableSinkV2LocalState>;
     OlapTableSinkV2OperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
-                             const std::vector<TExpr>& t_output_expr, bool group_commit)
+                             const std::vector<TExpr>& t_output_expr)
             : Base(operator_id, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
-              _group_commit(group_commit),
               _pool(pool) {};
 
     Status init(const TDataSink& thrift_sink) override {
@@ -109,7 +108,6 @@ private:
     const RowDescriptor& _row_desc;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
-    const bool _group_commit;
     ObjectPool* _pool = nullptr;
 };
 

@@ -108,9 +108,9 @@ namespace doris::pipeline {
 PipelineXFragmentContext::PipelineXFragmentContext(
         const TUniqueId& query_id, const int fragment_id, std::shared_ptr<QueryContext> query_ctx,
         ExecEnv* exec_env, const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb, bool group_commit)
+        const report_status_callback& report_status_cb)
         : PipelineFragmentContext(query_id, TUniqueId(), fragment_id, -1, query_ctx, exec_env,
-                                  call_back, report_status_cb, group_commit) {}
+                                  call_back, report_status_cb) {}
 
 PipelineXFragmentContext::~PipelineXFragmentContext() {
     auto st = _query_ctx->exec_status();
@@ -340,10 +340,10 @@ Status PipelineXFragmentContext::_create_data_sink(ObjectPool* pool, const TData
         if (state->query_options().enable_memtable_on_sink_node &&
             !_has_inverted_index_or_partial_update(thrift_sink.olap_table_sink)) {
             _sink.reset(new OlapTableSinkV2OperatorX(pool, next_sink_operator_id(), row_desc,
-                                                     output_exprs, false));
+                                                     output_exprs));
         } else {
             _sink.reset(new OlapTableSinkOperatorX(pool, next_sink_operator_id(), row_desc,
-                                                   output_exprs, false));
+                                                   output_exprs));
         }
         break;
     }
