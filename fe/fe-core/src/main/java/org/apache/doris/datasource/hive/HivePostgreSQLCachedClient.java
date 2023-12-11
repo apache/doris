@@ -31,6 +31,7 @@ import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient.NotificationFilter;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LockRequest;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
@@ -58,6 +59,11 @@ public class HivePostgreSQLCachedClient extends HiveJdbcCachedClient {
     public HivePostgreSQLCachedClient(PooledHiveMetaStoreClient pooledHiveMetaStoreClient,
             JdbcClientConfig jdbcClientConfig) {
         super(pooledHiveMetaStoreClient, jdbcClientConfig);
+    }
+
+    @Override
+    public Database getDatabase(String dbName) throws Exception {
+        throw new Exception("Do not support in JdbcPostgreSQLClientCachedClient.");
     }
 
     @Override

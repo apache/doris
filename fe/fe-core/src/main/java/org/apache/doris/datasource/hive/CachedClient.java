@@ -21,6 +21,7 @@ import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LockRequest;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
@@ -34,6 +35,8 @@ import java.util.Map;
 
 public interface CachedClient extends AutoCloseable {
     void setThrowable(Throwable throwable);
+
+    Database getDatabase(String dbName) throws Exception;
 
     List<String> getAllDatabases() throws Exception;
 

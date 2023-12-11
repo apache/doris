@@ -32,6 +32,7 @@ import org.apache.hadoop.hive.metastore.IMetaStoreClient.NotificationFilter;
 import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LockRequest;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
@@ -90,6 +91,11 @@ public class IMetaStoreClientCachedClient implements CachedClient {
                 pooledHiveMetaStoreClient.getClientPool().offer(this);
             }
         }
+    }
+
+    @Override
+    public Database getDatabase(String dbName) throws Exception {
+        return client.getDatabase(dbName);
     }
 
     @Override
