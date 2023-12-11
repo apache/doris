@@ -102,7 +102,7 @@ public class HyperGraphTest {
             HyperGraphBuilder hyperGraphBuilder = new HyperGraphBuilder();
             HyperGraph hyperGraph = hyperGraphBuilder.randomBuildWith(tableNum, edgeNum);
             Assertions.assertEquals(hyperGraph.getNodes().size(), tableNum);
-            Assertions.assertEquals(hyperGraph.getEdges().size(), edgeNum);
+            Assertions.assertEquals(hyperGraph.getJoinEdges().size(), edgeNum);
         }
     }
 }
