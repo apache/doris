@@ -533,8 +533,11 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         _runtime_filter_states.push_back(std::move(filterparams));
         std::map<PipelineId, PipelineXTask*> pipeline_id_to_task;
         auto get_local_exchange_state = [&](PipelinePtr pipeline)
-                -> std::map<int, std::shared_ptr<LocalExchangeSharedState>> {
-            std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
+                -> std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                           std::shared_ptr<LocalExchangeSinkDependency>>> {
+            std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                    std::shared_ptr<LocalExchangeSinkDependency>>>
+                    le_state_map;
             auto source_id = pipeline->operator_xs().front()->operator_id();
             if (auto iter = _op_id_to_le_state.find(source_id); iter != _op_id_to_le_state.end()) {
                 le_state_map.insert({source_id, iter->second});
@@ -750,8 +753,9 @@ Status PipelineXFragmentContext::_add_local_exchange(
     // 1. Create a new pipeline with local exchange sink.
     auto new_pip = add_pipeline(cur_pipe, pip_idx + 1);
     DataSinkOperatorXPtr sink;
-    sink.reset(new LocalExchangeSinkOperatorX(next_sink_operator_id(), local_exchange_id,
-                                              _num_instances, texprs, bucket_seq_to_instance_idx));
+    auto sink_id = next_sink_operator_id();
+    sink.reset(new LocalExchangeSinkOperatorX(sink_id, local_exchange_id, _num_instances, texprs,
+                                              bucket_seq_to_instance_idx));
     RETURN_IF_ERROR(new_pip->set_sink(sink));
     RETURN_IF_ERROR(new_pip->sink_x()->init(exchange_type, num_buckets));
 
@@ -761,6 +765,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
     // 3. Create and initialize LocalExchangeSharedState.
     auto shared_state = LocalExchangeSharedState::create_shared();
     shared_state->source_dependencies.resize(_num_instances, nullptr);
+    shared_state->mem_trackers.resize(_num_instances);
     switch (exchange_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger =
@@ -778,7 +783,11 @@ Status PipelineXFragmentContext::_add_local_exchange(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)exchange_type));
     }
-    _op_id_to_le_state.insert({local_exchange_id, shared_state});
+    auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
+                                                                  _runtime_state->get_query_ctx());
+    sink_dep->set_shared_state(shared_state);
+    shared_state->sink_dependency = sink_dep.get();
+    _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
 
     // 4. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
     // pipeline1 [Scan - LocalExchangeSink] and pipeline2 [LocalExchangeSource - AggSink].

@@ -47,7 +47,9 @@ namespace doris::pipeline {
 PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                              PipelineFragmentContext* fragment_context,
                              RuntimeProfile* parent_profile,
-                             std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map,
+                             std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                                     std::shared_ptr<LocalExchangeSinkDependency>>>
+                                     le_state_map,
                              int task_idx)
         : PipelineTask(pipeline, task_id, state, fragment_context, parent_profile),
           _operators(pipeline->operator_xs()),
