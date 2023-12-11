@@ -71,6 +71,7 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status) override;
 
+    Status close_sink(Status exec_status);
     bool source_can_read() override {
         if (_dry_run) {
             return true;
@@ -122,6 +123,8 @@ public:
     OperatorXPtr source() const { return _source; }
 
     OperatorXs operatorXs() { return _operators; }
+
+    int task_id() const { return _index; };
 
     void clear_blocking_state() {
         if (!is_final_state(get_state()) && get_state() != PipelineTaskState::PENDING_FINISH &&
