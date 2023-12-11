@@ -188,7 +188,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 PipelinePtr PipelineFragmentContext::add_pipeline() {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
     _pipelines.emplace_back(pipeline);
     return pipeline;
 }
@@ -196,7 +196,7 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
 PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
     if (idx >= 0) {
         _pipelines.insert(_pipelines.begin() + idx, pipeline);
     } else {

@@ -1432,7 +1432,6 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    COUNTER_UPDATE(exec_time_counter(), _scan_dependency->watcher_elapse_time());
     SCOPED_TIMER(_close_timer);
 
     SCOPED_TIMER(exec_time_counter());

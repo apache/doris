@@ -27,6 +27,8 @@ class LocalExchangeSinkLocalState;
 
 class Exchanger {
 public:
+    Exchanger(int num_partitions)
+            : _running_sink_operators(num_partitions), _num_partitions(num_partitions) {}
     Exchanger(int running_sink_operators, int num_partitions)
             : _running_sink_operators(running_sink_operators), _num_partitions(num_partitions) {}
     virtual ~Exchanger() = default;
@@ -54,6 +56,9 @@ class ShuffleExchanger : public Exchanger {
 
 public:
     ENABLE_FACTORY_CREATOR(ShuffleExchanger);
+    ShuffleExchanger(int num_partitions) : Exchanger(num_partitions) {
+        _data_queue.resize(num_partitions);
+    }
     ShuffleExchanger(int running_sink_operators, int num_partitions)
             : Exchanger(running_sink_operators, num_partitions) {
         _data_queue.resize(num_partitions);
@@ -85,9 +90,8 @@ class BucketShuffleExchanger : public ShuffleExchanger {
 class PassthroughExchanger final : public Exchanger {
 public:
     ENABLE_FACTORY_CREATOR(PassthroughExchanger);
-    PassthroughExchanger(int running_sink_operators, int num_partitions)
-            : Exchanger(running_sink_operators, num_partitions) {
-        _data_queue.resize(num_partitions);
+    PassthroughExchanger(int num_instances) : Exchanger(num_instances) {
+        _data_queue.resize(num_instances);
     }
     ~PassthroughExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,

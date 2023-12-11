@@ -128,8 +128,6 @@ private:
                                PipelinePtr cur_pipe, const std::vector<TExpr>& texprs,
                                ExchangeType exchange_type, bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx);
-    void _inherit_pipeline_properties(ExchangeType exchange_type, PipelinePtr pipe_with_source,
-                                      PipelinePtr pipe_with_sink);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -218,6 +216,7 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
+    int _num_instances = 0;
     std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
 };
 
