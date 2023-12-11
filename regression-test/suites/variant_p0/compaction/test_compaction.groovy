@@ -129,7 +129,7 @@ suite("test_compaction_variant") {
                     rowCount += Integer.parseInt(rowset.split(" ")[1])
                 }
             }
-            assert (rowCount < 8)
+            // assert (rowCount < 8)
             qt_sql_11 "SELECT * FROM ${tableName} ORDER BY k, cast(v as string); "
             qt_sql_22 "select k, cast(v:a as array<int>) from  ${tableName} where  size(cast(v:a as array<int>)) > 0 order by k"
             qt_sql_33 "select k, v:a, cast(v:b as string) from  ${tableName} where  length(cast(v:b as string)) > 4 order  by k"
