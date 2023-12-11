@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <vector>
 
 #include "common/global_types.h"
@@ -81,7 +80,7 @@ public:
         for (TableFunction* fn : _fns) {
             RETURN_IF_ERROR(fn->process_init(input_block, state));
         }
-        RETURN_IF_ERROR(_process_next_child_row());
+        _process_next_child_row();
         return Status::OK();
     }
 
@@ -106,7 +105,7 @@ private:
 
     bool _roll_table_functions(int last_eos_idx);
 
-    Status _process_next_child_row();
+    void _process_next_child_row();
 
     /*  Now the output tuples for table function node is base_table_tuple + tf1 + tf2 + ...
         But not all slots are used, the real used slots are inside table_function_node.outputSlotIds.
