@@ -50,14 +50,12 @@ import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.GroupCommitBlockSink;
-import org.apache.doris.planner.GroupCommitOlapTableSink;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.tablefunction.GroupCommitTableValuedFunction;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionState;
@@ -153,8 +151,6 @@ public class NativeInsertStmt extends InsertStmt {
     private TUniqueId loadId = null;
     private ByteString execPlanFragmentParamsBytes = null;
     private long tableId = -1;
-    // true if be generates an insert from group commit tvf stmt and executes to load data
-    public boolean isGroupCommitTvf = false;
     public boolean isGroupCommitStreamLoadSql = false;
     private GroupCommitPlanner groupCommitPlanner;
 
@@ -970,12 +966,8 @@ public class NativeInsertStmt extends InsertStmt {
             return dataSink;
         }
         if (targetTable instanceof OlapTable) {
-            checkInnerGroupCommit();
             OlapTableSink sink;
-            if (isGroupCommitTvf) {
-                sink = new GroupCommitOlapTableSink((OlapTable) targetTable, olapTuple,
-                        targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
-            } else if (isGroupCommitStreamLoadSql) {
+            if (isGroupCommitStreamLoadSql) {
                 sink = new GroupCommitBlockSink((OlapTable) targetTable, olapTuple,
                         targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
             } else {
@@ -1017,17 +1009,6 @@ public class NativeInsertStmt extends InsertStmt {
             dataPartition = DataPartition.UNPARTITIONED;
         }
         return dataSink;
-    }
-
-    private void checkInnerGroupCommit() {
-        List<TableRef> tableRefs = new ArrayList<>();
-        queryStmt.collectTableRefs(tableRefs);
-        if (tableRefs.size() == 1 && tableRefs.get(0) instanceof TableValuedFunctionRef) {
-            TableValuedFunctionRef tvfRef = (TableValuedFunctionRef) tableRefs.get(0);
-            if (tvfRef.getTableFunction() instanceof GroupCommitTableValuedFunction) {
-                isGroupCommitTvf = true;
-            }
-        }
     }
 
     public void complete() throws UserException {

@@ -107,7 +107,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/future_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -122,14 +121,12 @@ class TExpr;
 namespace vectorized {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& texprs, bool group_commit)
-        : AsyncWriterSink<VTabletWriter, VOLAP_TABLE_SINK>(row_desc, texprs),
-          _pool(pool),
-          _group_commit(group_commit) {}
+                               const std::vector<TExpr>& texprs)
+        : AsyncWriterSink<VTabletWriter, VOLAP_TABLE_SINK>(row_desc, texprs), _pool(pool) {}
 
 Status VOlapTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(AsyncWriterSink::init(t_sink));
-    RETURN_IF_ERROR(_writer->init_properties(_pool, _group_commit));
+    RETURN_IF_ERROR(_writer->init_properties(_pool));
     return Status::OK();
 }
 
