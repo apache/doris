@@ -962,6 +962,8 @@ DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
+// 128 MB
+DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
