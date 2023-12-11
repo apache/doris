@@ -118,6 +118,7 @@ public:
     virtual bool done() { return _is_finished || _should_stop; }
     bool is_finished() { return _is_finished.load(); }
     bool should_stop() { return _should_stop.load(); }
+    bool status_error() { return _status_error.load(); }
 
     void inc_num_running_scanners(int32_t scanner_inc);
 
