@@ -53,7 +53,7 @@ bool ScanOperator::can_read() {
             return false;
         }
     } else {
-        if (_node->_eos || _node->_scanner_ctx->done()) {
+        if (_node->_eos || _node->_scanner_ctx->done() || _node->_scanner_ctx->no_schedule()) {
             // _eos: need eos
             // _scanner_ctx->done(): need finish
             // _scanner_ctx->no_schedule(): should schedule _scanner_ctx
