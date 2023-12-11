@@ -136,9 +136,8 @@ Status VTabletWriterV2::_init_row_distribution() {
     return _row_distribution.open(_output_row_desc);
 }
 
-Status VTabletWriterV2::init_properties(ObjectPool* pool, bool group_commit) {
+Status VTabletWriterV2::init_properties(ObjectPool* pool) {
     _pool = pool;
-    _group_commit = group_commit;
     return Status::OK();
 }
 
