@@ -49,7 +49,7 @@ public:
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
-    Status add_block(std::shared_ptr<vectorized::Block> block);
+    Status add_block(std::shared_ptr<vectorized::Block> block, bool write_wal);
     Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
     Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);

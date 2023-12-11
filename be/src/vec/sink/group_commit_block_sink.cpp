@@ -180,7 +180,8 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
             return Status::InternalError("be is stopping");
         }
     }
-    RETURN_IF_ERROR(_load_block_queue->add_block(output_block));
+    RETURN_IF_ERROR(_load_block_queue->add_block(
+            output_block, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
     return Status::OK();
 }
 

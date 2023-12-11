@@ -32,7 +32,7 @@
 
 namespace doris {
 
-Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block) {
+Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block, bool write_wal) {
     std::unique_lock l(mutex);
     RETURN_IF_ERROR(status);
     while (_all_block_queues_bytes->load(std::memory_order_relaxed) >
@@ -42,8 +42,9 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block) {
     }
     if (block->rows() > 0) {
         _block_queue.push_back(block);
-        //write wal
-        RETURN_IF_ERROR(_v_wal_writer->write_wal(block.get()));
+        if (write_wal) {
+            RETURN_IF_ERROR(_v_wal_writer->write_wal(block.get()));
+        }
         _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
         _single_block_queue_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
     }
