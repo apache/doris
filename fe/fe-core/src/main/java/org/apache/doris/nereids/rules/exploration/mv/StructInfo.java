@@ -96,7 +96,7 @@ public class StructInfo {
 
         this.predicates = Predicates.of();
         // Collect predicate from join condition in hyper graph
-        this.hyperGraph.getEdges().forEach(edge -> {
+        this.hyperGraph.getJoinEdges().forEach(edge -> {
             List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
             hashJoinConjuncts.forEach(conjunctExpr -> {
                 predicates.addPredicate(conjunctExpr);

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -261,7 +262,7 @@ class GraphSimplifierTest {
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         graphSimplifier.simplifyGraph(1);
 
-        for (Edge edge : hyperGraph.getEdges()) {
+        for (Edge edge : hyperGraph.getJoinEdges()) {
             System.out.println(edge);
         }
         Assertions.assertTrue(subgraphEnumerator.enumerate());
