@@ -152,8 +152,8 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getStartTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getFinishTimeMs())));
         trow.addToColumnValue(
-                new TCell().setStringVal(String.valueOf(
-                        super.getFinishTimeMs() == null ? "-" : super.getFinishTimeMs() - super.getStartTimeMs())));
+                new TCell().setStringVal((super.getFinishTimeMs() == null || super.getFinishTimeMs() == 0) ? "-"
+                        : String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(sql));
         return trow;
     }
