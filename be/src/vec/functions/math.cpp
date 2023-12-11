@@ -43,7 +43,7 @@
 #include "vec/functions/function_binary_arithmetic.h"
 #include "vec/functions/function_const.h"
 #include "vec/functions/function_math_unary.h"
-#include "vec/functions/function_math_unary_to_null_type.h"
+#include "vec/functions/function_math_log.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/function_unary_arithmetic.h"
@@ -95,23 +95,6 @@ struct ExpName {
     static constexpr auto name = "exp";
 };
 using FunctionExp = FunctionMathUnary<UnaryFunctionVectorized<ExpName, std::exp>>;
-
-#define LOG_FUNCTION_IMPL(CLASS, NAME, FUNC)                          \
-    struct CLASS##Impl {                                              \
-        using Type = DataTypeFloat64;                                 \
-        using RetType = Float64;                                      \
-        static constexpr auto name = #NAME;                           \
-        template <typename T, typename U>                             \
-        static void execute(const T* src, U* dst, UInt8& null_flag) { \
-            null_flag = src[0] <= 0;                                  \
-            dst[0] = static_cast<U>(FUNC((double)src[0]));            \
-        }                                                             \
-    };                                                                \
-    using Function##CLASS = FunctionMathUnaryToNullType<CLASS##Impl>;
-
-LOG_FUNCTION_IMPL(Log10, log10, std::log10);
-LOG_FUNCTION_IMPL(Log2, log2, std::log2);
-LOG_FUNCTION_IMPL(Ln, ln, std::log);
 
 struct LogName {
     static constexpr auto name = "log";
@@ -408,11 +391,10 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("ceil", "dceil");
     factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
-    factory.register_function<FunctionLn>();
     factory.register_alias("ln", "dlog1");
-    factory.register_function<FunctionLog>();
-    factory.register_function<FunctionLog2>();
-    factory.register_function<FunctionLog10>();
+    factory.register_function<FunctionMathLog<ImplLn>>();
+    factory.register_function<FunctionMathLog<ImplLog2>>();
+    factory.register_function<FunctionMathLog<ImplLog10>>();
     factory.register_alias("log10", "dlog10");
     factory.register_function<FunctionPi>();
     factory.register_function<FunctionSign>();

@@ -256,8 +256,7 @@ struct ConvertImpl {
 
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t /*input_rows_count*/,
-                          bool check_overflow [[maybe_unused]] = false,
+                          size_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
@@ -326,11 +325,12 @@ struct ConvertImpl {
             vec_to.resize(size);
 
             if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
-                bool narrow_integral = (to_precision - to_scale) < (from_precision - from_scale);
+                bool narrow_integral = context->check_overflow_for_decimal() &&
+                                       (to_precision - to_scale) < (from_precision - from_scale);
 
-                bool multiply_may_overflow = false;
+                bool multiply_may_overflow = context->check_overflow_for_decimal();
                 if (to_scale > from_scale) {
-                    multiply_may_overflow =
+                    multiply_may_overflow &=
                             (from_precision + to_scale - from_scale) > to_max_digits;
                 }
 
@@ -341,50 +341,20 @@ struct ConvertImpl {
                 } else {
                     std::visit(
                             [&](auto multiply_may_overflow, auto narrow_integral) {
-                                for (size_t i = 0; i < size; ++i) {
-                                    if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                                  IsDataTypeNumber<ToDataType>) {
+                                if constexpr (IsDataTypeDecimal<FromDataType>) {
+                                    for (size_t i = 0; i < size; ++i) {
                                         vec_to[i] = convert_from_decimal<FromDataType, ToDataType,
                                                                          narrow_integral>(
                                                 vec_from[i], vec_from.get_scale(), min_result,
                                                 max_result);
-                                    } else if constexpr (IsDataTypeNumber<FromDataType> &&
-                                                         IsDataTypeDecimal<ToDataType>) {
+                                    }
+                                } else {
+                                    for (size_t i = 0; i < size; ++i) {
                                         vec_to[i] = convert_to_decimal<FromDataType, ToDataType,
                                                                        multiply_may_overflow,
                                                                        narrow_integral>(
                                                 vec_from[i], from_scale, to_scale, min_result,
                                                 max_result);
-                                    } else if constexpr (IsTimeType<FromDataType> &&
-                                                         IsDataTypeDecimal<ToDataType>) {
-                                        vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType,
-                                                                       multiply_may_overflow,
-                                                                       narrow_integral>(
-                                                reinterpret_cast<const VecDateTimeValue&>(
-                                                        vec_from[i])
-                                                        .to_int64(),
-                                                from_scale, to_scale, min_result, max_result);
-                                    } else if constexpr (IsDateV2Type<FromDataType> &&
-                                                         IsDataTypeDecimal<ToDataType>) {
-                                        vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType,
-                                                                       multiply_may_overflow,
-                                                                       narrow_integral>(
-                                                reinterpret_cast<
-                                                        const DateV2Value<DateV2ValueType>&>(
-                                                        vec_from[i])
-                                                        .to_date_int_val(),
-                                                from_scale, to_scale, min_result, max_result);
-                                    } else if constexpr (IsDateTimeV2Type<FromDataType> &&
-                                                         IsDataTypeDecimal<ToDataType>) {
-                                        // TODO: should we consider the scale of datetimev2?
-                                        vec_to[i] = convert_to_decimal<DataTypeUInt64, ToDataType,
-                                                                       multiply_may_overflow,
-                                                                       narrow_integral>(
-                                                reinterpret_cast<
-                                                        const DateV2Value<DateTimeV2ValueType>&>(
-                                                        vec_from[i])
-                                                        .to_date_int_val(),
-                                                from_scale, to_scale, min_result, max_result);
                                     }
                                 }
                             },
@@ -958,8 +928,7 @@ struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t /*input_rows_count*/,
-                          bool check_overflow [[maybe_unused]] = false,
+                          size_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         return Status::RuntimeError("not support convert from string");
     }
@@ -1325,12 +1294,12 @@ public:
 
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            context, block, arguments, result, input_rows_count, false,
+                            context, block, arguments, result, input_rows_count,
                             scale_column.type->get_scale());
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            context, block, arguments, result, input_rows_count, false,
+                            context, block, arguments, result, input_rows_count,
                             scale_column.type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
@@ -1535,7 +1504,6 @@ struct ConvertThroughParsing {
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count,
-                          bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
@@ -1838,7 +1806,7 @@ private:
                         using RightDataType = typename Types::RightType;
 
                         auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
-                                context, block, arguments, result, input_rows_count, false,
+                                context, block, arguments, result, input_rows_count,
                                 PrecisionScaleArg {precision, scale});
                         if (!state) {
                             throw Exception(state.code(), state.to_string());

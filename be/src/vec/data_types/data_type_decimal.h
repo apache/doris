@@ -435,13 +435,10 @@ ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& v
             if (common::mul_overflow(static_cast<MaxFieldType>(value).value, converted_value.value,
                                      converted_value.value)) {
                 throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
-            } else {
-                if constexpr (narrow_integral) {
-                    if (UNLIKELY(converted_value.value > max_result.value ||
-                                 converted_value.value < min_result.value)) {
-                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                        "Arithmetic overflow");
-                    }
+            } else if constexpr (narrow_integral) {
+                if (UNLIKELY(converted_value.value > max_result.value ||
+                             converted_value.value < min_result.value)) {
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
                 }
             }
         } else {
@@ -458,14 +455,12 @@ ToDataType::FieldType convert_decimals(const typename FromDataType::FieldType& v
         converted_value =
                 static_cast<MaxFieldType>(value) /
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
-        if (value >= FromFieldType(0)) {
-            if constexpr (narrow_integral) {
+        if constexpr (narrow_integral) {
+            if (value >= FromFieldType(0)) {
                 if (UNLIKELY(converted_value.value > max_result.value)) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
                 }
-            }
-        } else {
-            if constexpr (narrow_integral) {
+            } else {
                 if (UNLIKELY(converted_value.value < min_result.value)) {
                     throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
                 }
@@ -597,7 +592,7 @@ void convert_decimal_cols(
 }
 
 template <typename FromDataType, typename ToDataType, bool narrow_integral>
-    requires IsDataTypeDecimal<FromDataType> && IsDataTypeNumber<ToDataType>
+    requires IsDataTypeDecimal<FromDataType>
 ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldType& value,
                                            UInt32 scale,
                                            const typename ToDataType::FieldType& min_result,
@@ -620,7 +615,7 @@ ToDataType::FieldType convert_from_decimal(const typename FromDataType::FieldTyp
 
 template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
           bool narrow_integral>
-    requires IsDataTypeNumber<FromDataType> && IsDataTypeDecimal<ToDataType>
+    requires IsDataTypeDecimal<ToDataType>
 ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType& value,
                                          UInt32 from_scale, UInt32 to_scale,
                                          const typename ToDataType::FieldType& min_result,
@@ -629,16 +624,16 @@ ToDataType::FieldType convert_to_decimal(const typename FromDataType::FieldType&
 
     if constexpr (std::is_floating_point_v<FromFieldType>) {
         if (!std::isfinite(value)) {
-            VLOG_DEBUG << "Decimal convert overflow. Cannot convert infinity or NaN to decimal";
-            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                            "Decimal convert overflow. Cannot convert infinity or NaN to decimal");
         }
 
         FromFieldType out;
         out = value * ToDataType::get_scale_multiplier(to_scale);
         if (out <= static_cast<FromFieldType>(-max_result) ||
             out >= static_cast<FromFieldType>(max_result)) {
-            VLOG_DEBUG << "Decimal convert overflow. Float is out of Decimal range";
-            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+            throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                            "Decimal convert overflow. Float is out of Decimal range");
         }
         return typename ToDataType::FieldType(out);
     } else {
