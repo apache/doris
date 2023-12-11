@@ -41,24 +41,24 @@ suite("test_truncate_table") {
 		);
 		"""
 
-    def getPartitions = { ->
+    def getPartitionIds = { ->
         def result = sql_return_maparray("show partitions from ${testTable}")
         return result.collectEntries { [it.PartitionName, it.PartitionId as long] }
     }
 
-    def partitions1 = getPartitions()
-    assertEquals(["p1", "p2", "p3"].toSet(), partitions1.keySet())
+    def partitionIds1 = getPartitionIds()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitionIds1.keySet())
 
     sql "insert into ${testTable} values ('2020-01-01', 1.0, 'a', 1)"
     sql "insert into ${testTable} values ('2020-03-10', 1.0, 'a', 1)"
     order_qt_select_1 "SELECT * FROM ${testTable}"
 
     sql """truncate table ${testTable};"""
-    def partitions2 = getPartitions()
-    assertEquals(["p1", "p2", "p3"].toSet(), partitions2.keySet())
-    assertNotEquals(partitions1.get("p1"), partitions2.get("p1"))
-    assertEquals(partitions1.get("p2"), partitions2.get("p2"))
-    assertNotEquals(partitions1.get("p3"), partitions2.get("p3"))
+    def partitionIds2 = getPartitionIds()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitionIds2.keySet())
+    assertNotEquals(partitionIds1.get("p1"), partitionIds2.get("p1"))
+    assertEquals(partitionIds1.get("p2"), partitionIds2.get("p2"))
+    assertNotEquals(partitionIds1.get("p3"), partitionIds2.get("p3"))
     order_qt_select_2 "SELECT * FROM ${testTable}"
 
     sql "insert into ${testTable} values ('2020-02-10', 1.0, 'a', 1)"
@@ -66,11 +66,11 @@ suite("test_truncate_table") {
     sql """truncate table ${testTable} partitions (p1, p2);"""
     order_qt_select_4 "SELECT * FROM ${testTable}"
 
-    def partitions3 = getPartitions()
-    assertEquals(["p1", "p2", "p3"].toSet(), partitions3.keySet())
-    assertEquals(partitions2.get("p1"), partitions3.get("p1"))
-    assertNotEquals(partitions2.get("p2"), partitions3.get("p2"))
-    assertEquals(partitions2.get("p3"), partitions3.get("p3"))
+    def partitionIds3 = getPartitionIds()
+    assertEquals(["p1", "p2", "p3"].toSet(), partitionIds3.keySet())
+    assertEquals(partitionIds2.get("p1"), partitionIds3.get("p1"))
+    assertNotEquals(partitionIds2.get("p2"), partitionIds3.get("p2"))
+    assertEquals(partitionIds2.get("p3"), partitionIds3.get("p3"))
 
     sql "DROP TABLE IF EXISTS ${testTable}"
 }
