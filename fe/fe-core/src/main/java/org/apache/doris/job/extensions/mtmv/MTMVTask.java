@@ -213,8 +213,8 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getStartTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(getTimeString(super.getFinishTimeMs())));
         trow.addToColumnValue(
-                new TCell().setStringVal(String.valueOf(
-                        super.getFinishTimeMs() == null ? "-" : super.getFinishTimeMs() - super.getStartTimeMs())));
+                new TCell().setStringVal((super.getFinishTimeMs() == null || super.getFinishTimeMs() == 0) ? "-"
+                        : String.valueOf(super.getFinishTimeMs() - super.getStartTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(taskContext == null ? "-" : new Gson().toJson(taskContext)));
         trow.addToColumnValue(new TCell().setStringVal(refreshMode == null ? "-" : refreshMode.toString()));
         trow.addToColumnValue(
@@ -250,7 +250,7 @@ public class MTMVTask extends AbstractTask {
         }
         // check if data is fresh
         Set<String> excludedTriggerTables = mtmv.getExcludedTriggerTables();
-        boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables);
+        boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables, 0L);
         if (fresh) {
             return MTMVTaskRefreshMode.NOT_REFRESH;
         }
@@ -265,7 +265,7 @@ public class MTMVTask extends AbstractTask {
         OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
         excludedTriggerTables.add(relatedTable.getName());
         // check if every table except relatedTable is fresh
-        fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables);
+        fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables, 0L);
         // if true, we can use `Partition`, otherwise must `FULL`
         if (fresh) {
             return MTMVTaskRefreshMode.PARTITION;

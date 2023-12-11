@@ -71,22 +71,24 @@ public class MTMVUtil {
     }
 
     /**
-     * Determine whether the mtmv is synchronized with tables, ignoring excludedTriggerTables
+     * Determine whether the mtmv is synchronized with tables, ignoring excludedTriggerTables and non OlapTanle
      *
      * @param mtmv
      * @param tables
      * @param excludedTriggerTables
+     * @param gracePeriod
      * @return
      */
     public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables,
-            Set<String> excludedTriggerTables) {
+            Set<String> excludedTriggerTables, Long gracePeriod) {
         Long mtmvLastTime = getTableLastVisibleVersionTime(mtmv);
-        Long maxAvailableTime = mtmvLastTime;
+        Long maxAvailableTime = mtmvLastTime + gracePeriod;
         for (BaseTableInfo baseTableInfo : tables) {
             TableIf table = null;
             try {
                 table = getTable(baseTableInfo);
             } catch (AnalysisException e) {
+                e.printStackTrace();
                 return false;
             }
             if (excludedTriggerTables.contains(table.getName())) {
@@ -189,7 +191,7 @@ public class MTMVUtil {
         if (mtmvRelation == null) {
             return false;
         }
-        return isMTMVSync(mtmv, mtmv.getRelation().getBaseTables(), Sets.newHashSet());
+        return isMTMVSync(mtmv, mtmv.getRelation().getBaseTables(), Sets.newHashSet(), 0L);
     }
 
     /**
@@ -212,7 +214,7 @@ public class MTMVUtil {
             }
             // Compare whether it is sync with all baseTables except for relatedTable
             boolean mtmvFresh = isMTMVSync(mtmv, mtmv.getRelation().getBaseTables(),
-                    Sets.newHashSet(relatedTable.getName()));
+                    Sets.newHashSet(relatedTable.getName()), 0L);
             if (!mtmvFresh) {
                 return false;
             }
@@ -250,27 +252,19 @@ public class MTMVUtil {
                 && mtmv.getStatus().getRefreshState() == MTMVRefreshState.SUCCESS)) {
             return false;
         }
-        // check external table
-        boolean containsExternalTable = containsExternalTable(mtmvRelation.getBaseTables());
-        if (containsExternalTable) {
-            return ctx.getSessionVariable().isEnableExternalMvRewrite();
-        }
         // check gracePeriod
         Long gracePeriod = mtmv.getGracePeriod();
         // do not care data is delayed
         if (gracePeriod < 0) {
             return true;
         }
-        // compare with base table
-        Long mtmvLastTime = getTableLastVisibleVersionTime(mtmv);
-        Long maxAvailableTime = mtmvLastTime + gracePeriod;
-        for (BaseTableInfo baseTableInfo : mtmvRelation.getBaseTables()) {
-            long tableLastVisibleVersionTime = getTableLastVisibleVersionTime(baseTableInfo);
-            if (tableLastVisibleVersionTime > maxAvailableTime) {
-                return false;
-            }
+
+        boolean containsExternalTable = containsExternalTable(mtmvRelation.getBaseTables());
+        if (containsExternalTable && !ctx.getSessionVariable().isEnableExternalMvRewrite()) {
+            return false;
         }
-        return true;
+
+        return isMTMVSync(mtmv, mtmvRelation.getBaseTables(), mtmv.getExcludedTriggerTables(), gracePeriod);
     }
 
 
@@ -381,27 +375,6 @@ public class MTMVUtil {
             }
         }
         return -1L;
-    }
-
-    /**
-     * get the last update time of the baseTableInfo
-     * if is not OlapTable, return 0
-     *
-     * @param baseTableInfo
-     * @return
-     * @throws AnalysisException
-     */
-    private static long getTableLastVisibleVersionTime(BaseTableInfo baseTableInfo)
-            throws AnalysisException {
-        // current,we not check external table
-        if (InternalCatalog.INTERNAL_CATALOG_ID == baseTableInfo.getCtlId()) {
-            return 0L;
-        }
-        TableIf table = getTable(baseTableInfo);
-        if (!(table instanceof OlapTable)) {
-            return 0L;
-        }
-        return getTableLastVisibleVersionTime((OlapTable) table);
     }
 
     /**
