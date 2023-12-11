@@ -23,6 +23,7 @@ suite("test_pipeline_load", "nonConcurrent") {
     sql """ ADMIN SET FRONTEND CONFIG ("enable_pipeline_load" = "true"); """
     def tableName = "pipeline_all_types"
     try {
+        // Using table definations and data from test_stream_load.groovy
         sql """ DROP TABLE IF EXISTS ${tableName} """
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -64,6 +65,10 @@ suite("test_pipeline_load", "nonConcurrent") {
                 assertEquals(0, json.NumberFilteredRows)
             }
         }
+
+        sql "sync"
+        qt_pipeline_load_enabled """ SELECT COUNT(*) FROM ${tableName} """
+
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     }
@@ -152,6 +157,10 @@ suite("test_pipeline_load", "nonConcurrent") {
                 assertEquals(0, json.NumberUnselectedRows)
             }
         }
+
+        sql "sync"
+        qt_pipeline_load_enabled_exception """SELECT COUNT(*) FROM ${tableName}"""
+
     } finally {
         sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
     }
