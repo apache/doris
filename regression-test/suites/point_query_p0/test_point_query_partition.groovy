@@ -111,7 +111,7 @@ suite("test_point_query_partition") {
         qe_point_select stmt
         stmt.setInt(1, 999)
         qe_point_select stmt
-        // stmt.setInt(1, 1000)
-        // qe_point_select stmt
+        stmt.setInt(1, 1000)
+        qe_point_select stmt
     }
 } 
