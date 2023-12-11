@@ -2020,6 +2020,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
         if (findOlapScanNodesByPassExchangeAndJoinNode(inputPlanFragment.getPlanRoot())) {
             inputPlanFragment.setHasColocatePlanNode(true);
+            analyticEvalNode.setColocate(true);
         }
         return inputPlanFragment;
     }
