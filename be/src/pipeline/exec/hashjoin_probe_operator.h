@@ -168,7 +168,12 @@ public:
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return ExchangeType::NOOP;
         }
-        return _is_broadcast_join ? ExchangeType::PASSTHROUGH : ExchangeType::SHUFFLE;
+        return _is_broadcast_join
+                       ? ExchangeType::PASSTHROUGH
+                       : (_join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+                                          _join_distribution == TJoinDistributionType::COLOCATE
+                                  ? ExchangeType::BUCKET_HASH_SHUFFLE
+                                  : ExchangeType::HASH_SHUFFLE);
     }
 
 private:
@@ -176,6 +181,8 @@ private:
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
+
+    const TJoinDistributionType::type _join_distribution;
 
     const bool _is_broadcast_join;
     // other expr

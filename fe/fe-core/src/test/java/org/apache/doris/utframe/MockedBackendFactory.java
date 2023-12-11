@@ -248,8 +248,8 @@ public class MockedBackendFactory {
                     }
 
                     List<TTabletInfo> tabletInfos = Lists.newArrayList();
-                    TTabletInfo tabletInfo = new TTabletInfo(req.tablet_id, req.schema_hash, req.committed_version,
-                            req.committed_version_hash, 1, dataSize);
+                    TTabletInfo tabletInfo = new TTabletInfo(req.tablet_id, req.schema_hash, req.version,
+                            0L, 1, dataSize);
                     tabletInfo.setStorageMedium(req.storage_medium);
                     tabletInfo.setPathHash(pathHash);
                     tabletInfo.setUsed(true);

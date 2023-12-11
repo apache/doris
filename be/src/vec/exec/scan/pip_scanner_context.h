@@ -47,8 +47,7 @@ public:
             : vectorized::ScannerContext(state, nullptr, output_tuple_desc, scanners, limit_,
                                          max_bytes_in_blocks_queue, num_parallel_instances,
                                          local_state),
-              _col_distribute_ids(col_distribute_ids),
-              _need_colocate_distribute(!_col_distribute_ids.empty()) {}
+              _need_colocate_distribute(false) {}
 
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
@@ -249,7 +248,7 @@ private:
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
     std::atomic_int64_t _current_used_bytes = 0;
 
-    const std::vector<int>& _col_distribute_ids;
+    const std::vector<int> _col_distribute_ids;
     const bool _need_colocate_distribute;
     std::vector<vectorized::BlockUPtr> _colocate_blocks;
     std::vector<std::unique_ptr<vectorized::MutableBlock>> _colocate_mutable_blocks;

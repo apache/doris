@@ -32,11 +32,12 @@ namespace doris {
 namespace segment_v2 {
 
 Status HierarchicalDataReader::create(std::unique_ptr<ColumnIterator>* reader,
+                                      vectorized::PathInData path,
                                       const SubcolumnColumnReaders::Node* node,
                                       const SubcolumnColumnReaders::Node* root,
                                       bool output_as_raw_json) {
     // None leave node need merge with root
-    auto* stream_iter = new HierarchicalDataReader(node->path, output_as_raw_json);
+    auto* stream_iter = new HierarchicalDataReader(path, output_as_raw_json);
     std::vector<const SubcolumnColumnReaders::Node*> leaves;
     vectorized::PathsInData leaves_paths;
     SubcolumnColumnReaders::get_leaves_of_node(node, leaves, leaves_paths);
@@ -181,7 +182,7 @@ Status ExtractReader::extract_to(vectorized::MutableColumnPtr& dst, size_t nrows
     // since some other column may depend on it.
     vectorized::MutableColumnPtr extracted_column;
     RETURN_IF_ERROR(root.extract_root( // trim the root name, eg. v.a.b -> a.b
-            _col.path_info().pop_front(), extracted_column));
+            _col.path_info().copy_pop_front(), extracted_column));
     if (variant.empty() || variant.is_null_root()) {
         variant.create_root(root.get_root_type(), std::move(extracted_column));
     } else {

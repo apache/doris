@@ -64,6 +64,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -1168,6 +1169,7 @@ public class OlapScanNode extends ScanNode {
         scanBackendIds.clear();
         scanTabletIds.clear();
         bucketSeq2locations.clear();
+        scanReplicaIds.clear();
         try {
             createScanRangeLocations();
         } catch (AnalysisException e) {
@@ -1444,7 +1446,7 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
         }
 
-        if (shouldColoScan) {
+        if (shouldColoScan || SessionVariable.enablePipelineEngineX()) {
             msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
         }
     }
@@ -1621,8 +1623,10 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
-        // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
-        distributionColumnIds.clear();
+        if (!SessionVariable.enablePipelineEngineX()) {
+            // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
+            distributionColumnIds.clear();
+        }
     }
 
     private void computeStatsForNereids() {

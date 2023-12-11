@@ -40,16 +40,14 @@ class TExpr;
 namespace vectorized {
 
 VOlapTableSinkV2::VOlapTableSinkV2(ObjectPool* pool, const RowDescriptor& row_desc,
-                                   const std::vector<TExpr>& texprs, bool group_commit)
-        : AsyncWriterSink<VTabletWriterV2, VOLAP_TABLE_SINK_V2>(row_desc, texprs),
-          _pool(pool),
-          _group_commit(group_commit) {}
+                                   const std::vector<TExpr>& texprs)
+        : AsyncWriterSink<VTabletWriterV2, VOLAP_TABLE_SINK_V2>(row_desc, texprs), _pool(pool) {}
 
 VOlapTableSinkV2::~VOlapTableSinkV2() = default;
 
 Status VOlapTableSinkV2::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(AsyncWriterSink::init(t_sink));
-    RETURN_IF_ERROR(_writer->init_properties(_pool, _group_commit));
+    RETURN_IF_ERROR(_writer->init_properties(_pool));
     return Status::OK();
 }
 

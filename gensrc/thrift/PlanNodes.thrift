@@ -120,6 +120,7 @@ enum TFileFormatType {
     FORMAT_CSV_LZ4BLOCK,
     FORMAT_CSV_SNAPPYBLOCK,
     FORMAT_WAL,
+    FORMAT_ARROW
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -450,7 +451,9 @@ enum TDataGenFunctionName {
 // Every table valued function should have a scan range definition to save its
 // running parameters
 struct TTVFNumbersScanRange {
-	1: optional i64 totalNumbers
+  1: optional i64 totalNumbers
+  2: optional bool useConst
+  3: optional i64 constValue
 }
 
 struct TDataGenScanRange {
@@ -728,6 +731,14 @@ enum TJoinOp {
   NULL_AWARE_LEFT_ANTI_JOIN
 }
 
+enum TJoinDistributionType {
+  NONE,
+  BROADCAST,
+  PARTITIONED,
+  BUCKET_SHUFFLE,
+  COLOCATE,
+}
+
 struct THashJoinNode {
   1: required TJoinOp join_op
 
@@ -759,6 +770,7 @@ struct THashJoinNode {
   10: optional bool is_broadcast_join
 
   11: optional bool is_mark
+  12: optional TJoinDistributionType dist_type
 }
 
 struct TNestedLoopJoinNode {
@@ -845,6 +857,7 @@ struct TAggregationNode {
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
+  9: optional bool is_colocate
   // 9: optional bool use_fixed_length_serialization_opt
 }
 

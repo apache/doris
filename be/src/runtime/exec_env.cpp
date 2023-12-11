@@ -42,9 +42,9 @@ ExecEnv::~ExecEnv() {
     destroy();
 }
 
+// TODO(plat1ko): template <class Engine>
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
     BaseTabletSPtr tablet;
-    // TODO(plat1ko): config::cloud_mode
     std::string err;
     tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
     if (tablet == nullptr) {

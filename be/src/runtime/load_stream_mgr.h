@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/internal_service.pb.h>
-#include <runtime/load_stream.h>
-#include <stdint.h>
-
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -29,8 +25,12 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/load_stream.h"
+#include "util/threadpool.h"
 
 namespace doris {
+
+class POpenStreamSinkRequest;
 
 class LoadStreamMgr {
 public:

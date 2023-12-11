@@ -42,6 +42,7 @@ import org.apache.hadoop.hive.metastore.RetryingMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
+import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.LockComponent;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
@@ -182,6 +183,19 @@ public class PooledHiveMetaStoreClient {
         } catch (Exception e) {
             throw new HMSClientException("failed to get partition by filter for table %s in db %s", e, tblName,
                     dbName);
+        }
+    }
+
+    public Database getDatabase(String dbName) {
+        try (CachedClient client = getClient()) {
+            try {
+                return client.client.getDatabase(dbName);
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get database %s from hms client", e, dbName);
         }
     }
 

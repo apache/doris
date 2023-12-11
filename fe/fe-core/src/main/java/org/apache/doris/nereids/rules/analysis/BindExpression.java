@@ -63,6 +63,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
+import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -515,6 +516,16 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(project -> bindFunction(project, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
                     return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
+                })
+            ),
+            RuleType.BINDING_INLINE_TABLE_SLOT.build(
+                logicalInlineTable().thenApply(ctx -> {
+                    LogicalInlineTable logicalInlineTable = ctx.root;
+                    // ensure all expressions are valid.
+                    logicalInlineTable.getExpressions().forEach(expr ->
+                            bindSlot(expr, ImmutableList.of(), ctx.cascadesContext, false)
+                    );
+                    return null;
                 })
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
