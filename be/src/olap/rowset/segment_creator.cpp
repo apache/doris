@@ -59,9 +59,9 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
     if (block->rows() == 0) {
         return Status::OK();
     }
-    TabletSchemaSPtr flush_schema = nullptr;
     // Expand variant columns
     vectorized::Block flush_block(*block);
+    TabletSchemaSPtr flush_schema;
     if (_context->write_type != DataWriteType::TYPE_COMPACTION &&
         _context->tablet_schema->num_variant_columns() > 0) {
         RETURN_IF_ERROR(_expand_variant_to_subcolumns(flush_block, flush_schema));
@@ -72,12 +72,12 @@ Status SegmentFlusher::flush_single_block(const vectorized::Block* block, int32_
         std::unique_ptr<segment_v2::VerticalSegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression, flush_schema));
         RETURN_IF_ERROR(_add_rows(writer, &flush_block, 0, flush_block.rows()));
-        RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
+        RETURN_IF_ERROR(_flush_segment_writer(writer, flush_schema, flush_size));
     } else {
         std::unique_ptr<segment_v2::SegmentWriter> writer;
         RETURN_IF_ERROR(_create_segment_writer(writer, segment_id, no_compression, flush_schema));
         RETURN_IF_ERROR(_add_rows(writer, &flush_block, 0, flush_block.rows()));
-        RETURN_IF_ERROR(_flush_segment_writer(writer, flush_size));
+        RETURN_IF_ERROR(_flush_segment_writer(writer, flush_schema, flush_size));
     }
     return Status::OK();
 }
@@ -136,7 +136,7 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
                                  .build();
         TabletColumn tablet_column = vectorized::schema_util::get_column_by_type(
                 final_data_type_from_object, column_name,
-                vectorized::schema_util::ExtraInfo {.unique_id = parent_variant.unique_id(),
+                vectorized::schema_util::ExtraInfo {.unique_id = -1,
                                                     .parent_unique_id = parent_variant.unique_id(),
                                                     .path_info = full_path});
         flush_schema->append_column(std::move(tablet_column));
@@ -194,8 +194,9 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
         // ctx.tablet_schema:  A(bigint), B(double)
         // => update_schema:   A(bigint), B(double), C(int), D(int)
         std::lock_guard<std::mutex> lock(*(_context->schema_lock));
-        TabletSchemaSPtr update_schema = vectorized::schema_util::get_least_common_schema(
-                {_context->tablet_schema, flush_schema}, nullptr);
+        TabletSchemaSPtr update_schema;
+        static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                {_context->tablet_schema, flush_schema}, nullptr, update_schema));
         CHECK_GE(update_schema->num_columns(), flush_schema->num_columns())
                 << "Rowset merge schema columns count is " << update_schema->num_columns()
                 << ", but flush_schema is larger " << flush_schema->num_columns()
@@ -310,7 +311,8 @@ Status SegmentFlusher::_create_segment_writer(
 }
 
 Status SegmentFlusher::_flush_segment_writer(
-        std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, int64_t* flush_size) {
+        std::unique_ptr<segment_v2::VerticalSegmentWriter>& writer, TabletSchemaSPtr flush_schema,
+        int64_t* flush_size) {
     uint32_t row_num = writer->num_rows_written();
     _num_rows_filtered += writer->num_rows_filtered();
 
@@ -343,7 +345,7 @@ Status SegmentFlusher::_flush_segment_writer(
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat));
+    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat, flush_schema));
 
     if (flush_size) {
         *flush_size = segment_size + index_size;
@@ -352,7 +354,7 @@ Status SegmentFlusher::_flush_segment_writer(
 }
 
 Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>& writer,
-                                             int64_t* flush_size) {
+                                             TabletSchemaSPtr flush_schema, int64_t* flush_size) {
     uint32_t row_num = writer->num_rows_written();
     _num_rows_filtered += writer->num_rows_filtered();
 
@@ -385,7 +387,7 @@ Status SegmentFlusher::_flush_segment_writer(std::unique_ptr<segment_v2::Segment
 
     writer.reset();
 
-    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat));
+    RETURN_IF_ERROR(_context->segment_collector->add(segment_id, segstat, flush_schema));
 
     if (flush_size) {
         *flush_size = segment_size + index_size;

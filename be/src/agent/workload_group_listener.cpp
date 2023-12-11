@@ -57,7 +57,7 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                          << ", reason=" << ret2.to_string();
         }
 
-        LOG(INFO) << "update task group success, tg info=" << tg->debug_string()
+        LOG(INFO) << "update task group finish, tg info=" << tg->debug_string()
                   << ", enable_cpu_hard_limit="
                   << (_exec_env->task_group_manager()->enable_cpu_hard_limit() ? "true" : "false")
                   << ", cgroup cpu_shares=" << task_group_info.cgroup_cpu_shares

@@ -58,15 +58,7 @@ public:
     IntCounter* create_tablet_requests_failed = nullptr;
     IntCounter* drop_tablet_requests_total = nullptr;
 
-    IntCounter* report_all_tablets_requests_total = nullptr;
-    IntCounter* report_all_tablets_requests_failed = nullptr;
-    IntCounter* report_tablet_requests_total = nullptr;
-    IntCounter* report_tablet_requests_failed = nullptr;
     IntCounter* report_all_tablets_requests_skip = nullptr;
-    IntCounter* report_disk_requests_total = nullptr;
-    IntCounter* report_disk_requests_failed = nullptr;
-    IntCounter* report_task_requests_total = nullptr;
-    IntCounter* report_task_requests_failed = nullptr;
 
     IntCounter* schema_change_requests_total = nullptr;
     IntCounter* schema_change_requests_failed = nullptr;

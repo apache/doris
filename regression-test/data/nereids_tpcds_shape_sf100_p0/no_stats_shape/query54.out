@@ -34,7 +34,7 @@ PhysicalResultSink
 --------------------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1
 ----------------------------------------------------PhysicalDistribute
 ------------------------------------------------------PhysicalProject
---------------------------------------------------------PhysicalOlapScan[web_sales]
+--------------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF0 RF1
 --------------------------------------------------PhysicalDistribute
 ----------------------------------------------------PhysicalProject
 ------------------------------------------------------filter((date_dim.d_moy = 5) and (date_dim.d_year = 1998))

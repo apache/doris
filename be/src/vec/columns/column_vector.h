@@ -195,6 +195,12 @@ public:
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
+    void insert_raw_integers(T val, size_t n) {
+        auto old_size = data.size();
+        data.resize(old_size + n);
+        std::fill(data.data() + old_size, data.data() + old_size + n, val);
+    }
+
     void insert_range_of_integer(T begin, T end) {
         auto old_size = data.size();
         data.resize(old_size + (end - begin));
@@ -386,11 +392,9 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
-    void insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
-                                  const uint32_t* indices_end) override;
     void fill(const value_type& element, size_t num) {
         auto old_size = data.size();
         auto new_size = old_size + num;

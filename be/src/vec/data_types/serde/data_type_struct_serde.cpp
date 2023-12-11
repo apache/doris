@@ -60,6 +60,8 @@ Status DataTypeStructSerDe::serialize_one_cell_to_json(const IColumn& column, in
             bw.write(',');
             bw.write(' ');
         }
+        std::string col_name = "\"" + elemNames[i] + "\": ";
+        bw.write(col_name.c_str(), col_name.length());
         RETURN_IF_ERROR(elemSerDeSPtrs[i]->serialize_one_cell_to_json(struct_column.get_column(i),
                                                                       row_num, bw, options));
     }

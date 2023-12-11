@@ -422,7 +422,6 @@ protected:
     RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
-    RuntimeProfile::Counter* _build_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
 
 private:
@@ -523,7 +522,6 @@ private:
 
     template <bool limit>
     Status _execute_with_serialized_key_helper(Block* block) {
-        SCOPED_TIMER(_build_timer);
         DCHECK(!_probe_expr_ctxs.empty());
 
         size_t key_size = _probe_expr_ctxs.size();

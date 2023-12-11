@@ -360,7 +360,7 @@ public class Env {
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private ExportTaskRegister exportTaskRegister;
-    private JobManager<? extends AbstractJob> jobManager;
+    private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
     private TransientTaskManager transientTaskManager;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -2768,6 +2768,10 @@ public class Env {
                 throw new DdlException(role.toString() + " does not exist[" + NetUtils
                         .getHostPortInAccessibleFormat(host, port) + "]");
             }
+            if (role == FrontendNodeType.FOLLOWER && fe.isAlive()) {
+                // Try drop an alive follower, check the quorum safety.
+                ensureSafeToDropAliveFollower();
+            }
 
             int targetFollowerCount = getFollowerCount() - 1;
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
@@ -2794,6 +2798,30 @@ public class Env {
         // ip may be changed, so we need use both ip and hostname to check.
         // use node.getIdent() for simplicity here.
         helperNodes.removeIf(node -> node.getHost().equals(host) && node.getPort() == port);
+    }
+
+    private void ensureSafeToDropAliveFollower() throws DdlException {
+        int numFollower = 0;
+        int numAliveFollower = 0;
+        for (Frontend fe : frontends.values()) {
+            if (fe.getRole() == FrontendNodeType.FOLLOWER) {
+                numFollower += 1;
+                if (fe.isAlive()) {
+                    numAliveFollower += 1;
+                }
+            }
+        }
+
+        int nextMajority = ((numFollower - 1) / 2) + 1;
+        if (nextMajority + 1 <= numAliveFollower) {
+            return;
+        }
+
+        LOG.warn("Drop an alive follower is not safety. Current alive followers {}, followers {}, next majority: {}",
+                numAliveFollower, numFollower, nextMajority);
+        throw new DdlException("Unable to drop this alive follower, because the quorum requirements "
+                + "are not met after this command execution. Current num alive followers "
+                + numAliveFollower + ", num followers " + numFollower + ", majority after execution " + nextMajority);
     }
 
     public Frontend checkFeExist(String host, int port) {
@@ -3979,8 +4007,8 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}, cluster column size: {}", indexColumns.size(), clusterColumns.size());
-        if (isKeysRequired) {
-            Preconditions.checkArgument(indexColumns.size() > 0);
+        if (isKeysRequired && indexColumns.isEmpty()) {
+            throw new DdlException("The materialized view need key column");
         }
         // sort by cluster keys for mow if set, otherwise by index columns
         List<Column> sortKeyColumns = clusterColumns.isEmpty() ? indexColumns
@@ -4698,6 +4726,7 @@ public class Env {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
+                .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction();
 
         // need to update partition info meta
@@ -5861,6 +5890,11 @@ public class Env {
             }
             sb.append(frontend.toString()).append("\n");
         }
+
+        long diskUsagePercent = editLog.getEnvDiskUsagePercent();
+        sb.append("Disk usage: ")
+                .append(diskUsagePercent != -1 ? String.valueOf(diskUsagePercent) : "<unknown>")
+                .append("%\n");
 
         if (haProtocol instanceof BDBHA) {
             try {

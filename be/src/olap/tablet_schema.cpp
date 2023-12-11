@@ -25,6 +25,7 @@
 #include <cctype>
 // IWYU pragma: no_include <bits/std_abs.h>
 #include <cmath> // IWYU pragma: keep
+#include <memory>
 #include <ostream>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
@@ -840,7 +841,7 @@ void TabletSchema::clear_columns() {
     _cols.clear();
 }
 
-void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
+void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns) {
     SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
     _keys_type = schema.keys_type();
     _num_columns = 0;
@@ -858,6 +859,9 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     for (auto& column_pb : schema.column()) {
         TabletColumn column;
         column.init_from_pb(column_pb);
+        if (ignore_extracted_columns && column.is_extracted_column()) {
+            continue;
+        }
         if (column.is_key()) {
             _num_key_columns++;
         }
@@ -1009,6 +1013,14 @@ void TabletSchema::merge_dropped_columns(const TabletSchema& src_schema) {
     }
 }
 
+TabletSchemaSPtr TabletSchema::copy_without_extracted_columns() {
+    TabletSchemaSPtr copy = std::make_shared<TabletSchema>();
+    TabletSchemaPB tablet_schema_pb;
+    this->to_schema_pb(&tablet_schema_pb);
+    copy->init_from_pb(tablet_schema_pb, true /*ignore extracted_columns*/);
+    return copy;
+}
+
 // Dropped column is in _field_id_to_index but not in _field_name_to_index
 // Could refer to append_column method
 bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
@@ -1017,6 +1029,33 @@ bool TabletSchema::is_dropped_column(const TabletColumn& col) const {
             << " and name = " << col.name();
     return _field_name_to_index.find(col.name()) == _field_name_to_index.end() ||
            column(col.name()).unique_id() != col.unique_id();
+}
+
+void TabletSchema::copy_extracted_columns(const TabletSchema& src_schema) {
+    std::unordered_set<int32_t> variant_columns;
+    for (const auto& col : columns()) {
+        if (col.is_variant_type()) {
+            variant_columns.insert(col.unique_id());
+        }
+    }
+    for (const TabletColumn& col : src_schema.columns()) {
+        if (col.is_extracted_column() && variant_columns.contains(col.parent_unique_id())) {
+            ColumnPB col_pb;
+            col.to_schema_pb(&col_pb);
+            TabletColumn new_col(col_pb);
+            append_column(new_col, ColumnType::VARIANT);
+        }
+    }
+}
+
+void TabletSchema::reserve_extracted_columns() {
+    for (auto it = _cols.begin(); it != _cols.end();) {
+        if (!it->is_extracted_column()) {
+            it = _cols.erase(it);
+        } else {
+            ++it;
+        }
+    }
 }
 
 void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
@@ -1186,7 +1225,8 @@ const TabletIndex* TabletSchema::get_inverted_index(int32_t col_unique_id,
 
 const TabletIndex* TabletSchema::get_inverted_index(const TabletColumn& col) const {
     // TODO use more efficient impl
-    int32_t col_unique_id = col.unique_id();
+    // Use parent id if unique not assigned, this could happend when accessing subcolumns of variants
+    int32_t col_unique_id = col.unique_id() < 0 ? col.parent_unique_id() : col.unique_id();
     const std::string& suffix_path =
             !col.path_info().empty() ? escape_for_path_name(col.path_info().get_path()) : "";
     return get_inverted_index(col_unique_id, suffix_path);

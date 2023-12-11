@@ -87,7 +87,7 @@ TabletColumn get_least_type_column(const TabletColumn& original, const DataTypeP
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 2. encode sparse sub columns
 Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos);
-void parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);
 void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
@@ -96,8 +96,9 @@ void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& vari
 // Then update all variant columns to there least common types.
 // Return the final merged schema as common schema.
 // If base_schema == nullptr then, max schema version tablet schema will be picked as base schema
-TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                         const TabletSchemaSPtr& base_schema);
+Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                               const TabletSchemaSPtr& base_schema, TabletSchemaSPtr& result,
+                               bool check_schema_size = false);
 
 // Get least common types for extracted columns which has Path info,
 // with a speicified variant column's unique id

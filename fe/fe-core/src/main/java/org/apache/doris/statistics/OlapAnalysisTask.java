@@ -33,6 +33,7 @@ import org.apache.commons.text.StringSubstitutor;
 
 import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -46,8 +47,8 @@ import java.util.stream.Collectors;
 public class OlapAnalysisTask extends BaseAnalysisTask {
 
     private static final String BASIC_STATS_TEMPLATE = "SELECT "
-            + "MIN(`${colName}`) as min, "
-            + "MAX(`${colName}`) as max "
+            + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) as min, "
+            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) as max "
             + "FROM `${dbName}`.`${tblName}`";
 
     @VisibleForTesting
@@ -61,9 +62,9 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
     public void doExecute() throws Exception {
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
         if (partitionNames.isEmpty()) {
-            LOG.debug("Skip empty empty partition task for column {} in {}.{}.{}",
-                    info.catalogId, info.dbId, info.tblId, info.colName);
-            job.appendBuf(this, Collections.emptyList());
+            StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
+                    info.tblId, info.indexId, info.colName, null);
+            job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
             return;
         }
         if (tableSample != null) {
@@ -307,5 +308,15 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         return col.isKey()
             && keysNum == 1
             && (keysType.equals(KeysType.UNIQUE_KEYS) || keysType.equals(KeysType.AGG_KEYS));
+    }
+
+    protected String concatColumnStatsId() {
+        StringBuilder stringBuilder = new StringBuilder();
+        stringBuilder.append(info.tblId);
+        stringBuilder.append("-");
+        stringBuilder.append(info.indexId);
+        stringBuilder.append("-");
+        stringBuilder.append(info.colName);
+        return stringBuilder.toString();
     }
 }
