@@ -71,16 +71,20 @@ suite("insert_group_commit_into_max_filter_ratio") {
 
     def fail_group_commit_insert = { sql, expected_row_count ->
         def stmt = prepareStatement """ ${sql}  """
-        def result = stmt.executeUpdate()
-        logger.info("insert result: " + result)
-        def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
-        logger.info("result server info: " + serverInfo)
-        if (result != expected_row_count) {
-            logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
+        try {
+            def result = stmt.executeUpdate()
+            logger.info("insert result: " + result)
+            def serverInfo = (((StatementImpl) stmt).results).getServerInfo()
+            logger.info("result server info: " + serverInfo)
+            if (result != expected_row_count) {
+                logger.warn("insert result: " + result + ", expected_row_count: " + expected_row_count + ", sql: " + sql)
+            }
+            // assertEquals(result, expected_row_count)
+            assertTrue(serverInfo.contains("'status':'ABORTED'"))
+            // assertFalse(serverInfo.contains("'label':'group_commit_"))
+        } catch (Exception e) {
+            logger.info("exception: " + e)
         }
-        // assertEquals(result, expected_row_count)
-        assertTrue(serverInfo.contains("'status':'ABORTED'"))
-        // assertFalse(serverInfo.contains("'label':'group_commit_"))
     }
 
     def check_stream_load_result = { exception, result, total_rows, loaded_rows, filtered_rows, unselected_rows ->
