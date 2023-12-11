@@ -1199,10 +1199,6 @@ public class SessionVariable implements Serializable, Writable {
                     + " thereby controlling query performance"})
     public int invertedIndexMaxExpansions = 50;
 
-    @VariableMgr.VarAttr(name = SQL_DIALECT, needForward = true, checker = "checkSqlDialect",
-            description = {"解析sql使用的方言", "The dialect used to parse sql."})
-    public String sqlDialect = "doris";
-
     @VariableMgr.VarAttr(name = ENABLE_UNIQUE_KEY_PARTIAL_UPDATE, needForward = true)
     public boolean enableUniqueKeyPartialUpdate = false;
 
