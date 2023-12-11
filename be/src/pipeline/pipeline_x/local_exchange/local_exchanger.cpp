@@ -106,7 +106,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             size_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {
                 data_queue[i].enqueue({new_block, {row_idx, start, size}});
-                local_state._shared_state->set_ready_for_read(i);
+                local_state._shared_state->set_ready_to_read(i);
             }
         }
     } else {
@@ -117,7 +117,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             size_t size = local_state._partition_rows_histogram[i + 1] - start;
             if (size > 0) {
                 data_queue[map[i]].enqueue({new_block, {row_idx, start, size}});
-                local_state._shared_state->set_ready_for_read(map[i]);
+                local_state._shared_state->set_ready_to_read(map[i]);
             }
         }
     }
@@ -131,8 +131,9 @@ Status PassthroughExchanger::sink(RuntimeState* state, vectorized::Block* in_blo
     vectorized::Block new_block(in_block->clone_empty());
     new_block.swap(*in_block);
     auto channel_id = (local_state._channel_id++) % _num_partitions;
+    local_state._shared_state->add_mem_usage(channel_id, new_block.bytes());
     _data_queue[channel_id].enqueue(std::move(new_block));
-    local_state._shared_state->set_ready_for_read(channel_id);
+    local_state._shared_state->set_ready_to_read(channel_id);
 
     return Status::OK();
 }
@@ -144,12 +145,14 @@ Status PassthroughExchanger::get_block(RuntimeState* state, vectorized::Block* b
     if (_running_sink_operators == 0) {
         if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
             *block = std::move(next_block);
+            local_state._shared_state->sub_mem_usage(local_state._channel_id, block->bytes());
         } else {
             COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
             source_state = SourceState::FINISHED;
         }
     } else if (_data_queue[local_state._channel_id].try_dequeue(next_block)) {
         *block = std::move(next_block);
+        local_state._shared_state->sub_mem_usage(local_state._channel_id, block->bytes());
     } else {
         COUNTER_UPDATE(local_state._get_block_failed_counter, 1);
         local_state._dependency->block();

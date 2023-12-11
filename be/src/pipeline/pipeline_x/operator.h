@@ -24,12 +24,16 @@
 
 namespace doris::pipeline {
 
+struct LocalExchangeSinkDependency;
+
 // This struct is used only for initializing local state.
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
     std::vector<DependencySPtr>& upstream_dependencies;
-    std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                            std::shared_ptr<LocalExchangeSinkDependency>>>
+            le_state_map;
     int task_idx;
 
     DependencySPtr dependency;
@@ -40,7 +44,9 @@ struct LocalSinkStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
-    std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                            std::shared_ptr<LocalExchangeSinkDependency>>>
+            le_state_map;
     const TDataSink& tsink;
 };
 
