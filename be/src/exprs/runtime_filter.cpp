@@ -208,9 +208,8 @@ PFilterType get_type(RuntimeFilterType type) {
 }
 
 Status create_literal(const TypeDescriptor& type, const void* data, vectorized::VExprSPtr& expr) {
-    TExprNode node = create_texpr_node_from(data, type.type, type.precision, type.scale);
-
     try {
+        TExprNode node = create_texpr_node_from(data, type.type, type.precision, type.scale);
         expr = vectorized::VLiteral::create_shared(node);
     } catch (const Exception& e) {
         return e.to_status();
