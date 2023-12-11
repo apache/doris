@@ -62,6 +62,7 @@ PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeSta
     for (auto& op : _operators) {
         _source_dependency.insert({op->operator_id(), op->get_dependency(state->get_query_ctx())});
     }
+    pipeline->incr_created_tasks();
 }
 
 Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
@@ -339,10 +340,10 @@ std::string PipelineXTask::debug_string() {
 
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, state = {}, data state = {}, dry run = {}, elapse time "
-                   "= {}ns], block dependency = {}, \noperators: ",
+                   "= {}ns], block dependency = {}, is running = {}\noperators: ",
                    (void*)this, get_state_name(_cur_state), (int)_data_state, _dry_run,
                    MonotonicNanos() - _fragment_context->create_time(),
-                   _blocked_dep ? _blocked_dep->debug_string() : "NULL");
+                   _blocked_dep ? _blocked_dep->debug_string() : "NULL", is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(
                 debug_string_buffer, "\n{}",

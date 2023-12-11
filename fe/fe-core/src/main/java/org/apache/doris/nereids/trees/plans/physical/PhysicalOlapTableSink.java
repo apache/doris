@@ -214,7 +214,7 @@ public class PhysicalOlapTableSink<CHILD_TYPE extends Plan> extends PhysicalSink
      * get output physical properties
      */
     public PhysicalProperties getRequirePhysicalProperties() {
-        if (targetTable.isPartitioned()) {
+        if (targetTable.isPartitionDistributed()) {
             DistributionInfo distributionInfo = targetTable.getDefaultDistributionInfo();
             if (distributionInfo instanceof HashDistributionInfo) {
                 HashDistributionInfo hashDistributionInfo

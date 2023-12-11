@@ -474,6 +474,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String WAIT_FULL_BLOCK_SCHEDULE_TIMES = "wait_full_block_schedule_times";
 
+    public static final String DESCRIBE_EXTEND_VARIANT_COLUMN = "describe_extend_variant_column";
+
     public static final List<String> DEBUG_VARIABLES = ImmutableList.of(
             SKIP_DELETE_PREDICATE,
             SKIP_DELETE_BITMAP,
@@ -682,10 +684,12 @@ public class SessionVariable implements Serializable, Writable {
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
      */
-    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true)
+    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
+                        setter = "setFragmentInstanceNum")
     public int parallelExecInstanceNum = 1;
 
-    @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true)
+    @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
+                        setter = "setPipelineTaskNum")
     public int parallelPipelineTaskNum = 0;
 
     @VariableMgr.VarAttr(name = PROFILE_LEVEL, fuzzy = true)
@@ -854,6 +858,9 @@ public class SessionVariable implements Serializable, Writable {
     public int getBeNumberForTest() {
         return beNumberForTest;
     }
+
+    @VariableMgr.VarAttr(name = DESCRIBE_EXTEND_VARIANT_COLUMN, needForward = true)
+    public boolean enableDescribeExtendVariantColumn = false;
 
     @VariableMgr.VarAttr(name = PROFILLING)
     public boolean profiling = false;
@@ -1858,6 +1865,26 @@ public class SessionVariable implements Serializable, Writable {
     public void setMaxExecutionTimeMS(String maxExecutionTimeMS) {
         this.maxExecutionTimeMS = Integer.valueOf(maxExecutionTimeMS);
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+    }
+
+    public void setPipelineTaskNum(String value) throws Exception {
+        int val = checkFieldValue(PARALLEL_PIPELINE_TASK_NUM, 0, value);
+        this.parallelPipelineTaskNum = val;
+    }
+
+    public void setFragmentInstanceNum(String value) throws Exception {
+        int val = checkFieldValue(PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, 1, value);
+        this.parallelExecInstanceNum = val;
+    }
+
+    private int checkFieldValue(String variableName, int minValue, String value) throws Exception {
+        int val = Integer.valueOf(value);
+        if (val < minValue) {
+            throw new Exception(
+                    variableName + " value should greater than or equal " + String.valueOf(minValue)
+                            + ", you set value is: " + value);
+        }
+        return val;
     }
 
     public String getWorkloadGroup() {
@@ -3033,6 +3060,22 @@ public class SessionVariable implements Serializable, Writable {
             LOG.warn("Parse analyze start/end time format fail", e);
             throw new UnsupportedOperationException("Expect format: HH:mm:ss");
         }
+    }
+
+    public boolean getEnableDescribeExtendVariantColumn() {
+        return enableDescribeExtendVariantColumn;
+    }
+
+    public void setEnableDescribeExtendVariantColumn(boolean enableDescribeExtendVariantColumn) {
+        this.enableDescribeExtendVariantColumn = enableDescribeExtendVariantColumn;
+    }
+
+    public static boolean enableDescribeExtendVariantColumn() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext == null) {
+            return false;
+        }
+        return connectContext.getSessionVariable().enableDescribeExtendVariantColumn;
     }
 
     public int getProfileLevel() {

@@ -34,12 +34,11 @@ OPERATOR_CODE_GENERATOR(NestLoopJoinProbeOperator, StatefulOperator)
 
 Status NestLoopJoinProbeOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_left_block());
+    _child_block = _node->get_left_block();
     return StatefulOperator::prepare(state);
 }
 
 Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 

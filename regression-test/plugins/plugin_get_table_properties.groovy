@@ -15,22 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner;
+import org.apache.doris.regression.suite.Suite
 
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.thrift.TDataSinkType;
-
-import java.util.List;
-
-public class GroupCommitOlapTableSink extends OlapTableSink {
-
-    public GroupCommitOlapTableSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
-            boolean singleReplicaLoad) {
-        super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad);
-    }
-
-    protected TDataSinkType getDataSinkType() {
-        return TDataSinkType.GROUP_COMMIT_OLAP_TABLE_SINK;
-    }
+Suite.metaClass.get_table_replica_num = {String tb_name /* param */ ->
+    Suite suite = delegate as Suite
+    def result = sql """ show create table ${tb_name} """
+    def createTbl = result[0][1].toString()
+    def regexPattern = /"replication_allocation" = "tag.location.default: (\d+)"/
+    def matcher = (createTbl =~ regexPattern)
+    assertTrue(matcher.find())
+    return matcher.group(1).toInteger()
 }
+
+logger.info("Added 'get_table_replica_num' function to Suite") 

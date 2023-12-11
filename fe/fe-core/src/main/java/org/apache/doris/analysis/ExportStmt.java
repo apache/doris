@@ -261,7 +261,7 @@ public class ExportStmt extends StatementBase {
         table.readLock();
         try {
             // check table
-            if (!table.isPartitioned()) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
             }
             Table.TableType tblType = table.getType();
