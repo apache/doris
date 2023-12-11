@@ -36,12 +36,12 @@ import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
-import org.apache.doris.planner.ResultSink;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -54,14 +54,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * Update mv by partition
  */
 public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
     private UpdateMvByPartitionCommand(LogicalPlan logicalQuery) {
-        super(logicalQuery, Optional.of("mv_" + UUID.randomUUID().toString().replace("-", "_")));
+        super(logicalQuery, Optional.empty());
     }
 
     /**
@@ -80,12 +79,12 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         List<String> parts = constructPartsForMv(mv, partitionIds);
         Plan plan = parser.parseSingle(mv.getQuerySql());
         plan = plan.accept(new PredicateAdder(), predicates);
-        if (plan instanceof ResultSink) {
+        if (plan instanceof Sink) {
             plan = plan.child(0);
         }
         UnboundTableSink<? extends Plan> sink =
                 new UnboundTableSink<>(mv.getFullQualifiers(), ImmutableList.of(), ImmutableList.of(),
-                        parts, plan.child(0));
+                        parts, plan);
         return new UpdateMvByPartitionCommand(sink);
     }
 
