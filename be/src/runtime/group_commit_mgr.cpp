@@ -67,7 +67,7 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
     }
     while (status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
-        CHECK(*_single_block_queue_bytes == 0);
+        CHECK_EQ(_single_block_queue_bytes->load(), 0);
         auto left_milliseconds = _group_commit_interval_ms;
         if (!need_commit) {
             left_milliseconds = _group_commit_interval_ms -
