@@ -215,8 +215,8 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    std::map<PipelineId, std::pair<std::shared_ptr<LocalExchangeSharedState>,
-                                   std::shared_ptr<LocalExchangeSinkDependency>>>
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                            std::shared_ptr<LocalExchangeSinkDependency>>>
             _op_id_to_le_state;
 
     // UniqueId -> runtime mgr
