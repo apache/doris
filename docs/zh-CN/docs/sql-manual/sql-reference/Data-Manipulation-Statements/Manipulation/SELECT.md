@@ -118,8 +118,6 @@ table_factor:
         ON conditional_expr }
 join_table:
     table_reference [INNER | CROSS] JOIN table_factor [join_condition]
-  | table_reference STRAIGHT_JOIN table_factor
-  | table_reference STRAIGHT_JOIN table_factor ON condition
   | table_reference LEFT [OUTER] JOIN table_reference join_condition
   | table_reference NATURAL [LEFT [OUTER]] JOIN table_factor
   | table_reference RIGHT [OUTER] JOIN table_reference join_condition
