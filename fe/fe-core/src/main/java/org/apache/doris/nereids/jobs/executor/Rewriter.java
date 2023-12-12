@@ -91,6 +91,7 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownCountThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownCountThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
@@ -98,6 +99,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownMinMaxThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownSumThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughUnion;
 import org.apache.doris.nereids.rules.rewrite.PushDownTopNThroughWindow;
@@ -274,6 +276,10 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PushDownSumThroughJoin(),
                             new PushDownMinMaxThroughJoin(),
                             new PushDownCountThroughJoin()
+                    ),
+                    topDown(
+                            new PushDownSumThroughJoinOneSide(),
+                            new PushDownCountThroughJoinOneSide()
                     ),
                     custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)
             ),
