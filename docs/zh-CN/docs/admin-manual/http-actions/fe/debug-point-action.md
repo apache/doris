@@ -75,7 +75,7 @@ void Status foo() {
 ### API
 
 ```
-	POST /api/debug_point/add/{debug_point_name}[?timeout=<int>&execute=<int>]
+POST /api/debug_point/add/{debug_point_name}[?timeout=<int>&execute=<int>]
 ```
 
 
@@ -85,10 +85,10 @@ void Status foo() {
     木桩名字。必填。
 
 * `timeout`
-    超时时间，单位为秒。超时之后，木桩失活。默认值-1表示永远不超时。可填。
+    超时时间，单位为秒。超时之后，木桩失活。默认值-1表示永远不超时。可选。
 
 * `execute`
-    木桩最大激活次数。默认值-1表示不限激活次数。可填。       
+    木桩最大激活次数。默认值-1表示不限激活次数。可选。       
 
 
 ### Request body
@@ -97,12 +97,12 @@ void Status foo() {
 
 ### Response
 
-    ```
-    {
-        msg: "OK",
-        code: 0
-    }
-    ```
+```
+{
+    msg: "OK",
+    code: 0
+}
+```
     
 ### Examples
 
@@ -110,17 +110,88 @@ void Status foo() {
 打开木桩 `foo`，最多激活5次。
 	
 	
-    ```
-    curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
+```
+curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 
-    ```
+```
+注意，要先激活木桩，然后再执行含有木桩的代码，代码中的木桩才会生效。
     
+## 向木桩传递参数
+激活木桩时，还可以向木桩传递参数。
+### API
+
+```
+POST /api/debug_point/add/{debug_point_name}[?key1=value1&key2=value2&key3=value3...]
+```
+* `key1=value1`
+  向木桩传递名为key1值为value1的参数，多个参数用&分隔，注意“&”前后没用空格。
+
+### Examples
+
+向FE或BE传递参数的API格式是相同的，只是IP地址和端口不同。
+
+假设FE的http_port=8030，则下面的请求激活FE中的木桩`foo`，并传递了两个参数：
+
+一个名称为percent值为0.5，另一个名称为duration值为3。
+		
+```
+curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5&duration=3"
+
+```
+
+### 在FE、BE代码中使用参数
+激活FE中的木桩:
+```
+curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/OlapTableSink.write_random_choose_sink?needCatchUp=true&sinkNum=3"
+
+```
+在FE 代码中使用木桩OlapTableSink.write_random_choose_sink的参数needCatchUp和sinkNum：
+```java
+private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
+    DebugPoint debugPoint = DebugPointUtil.getDebugPoint("OlapTableSink.write_random_choose_sink");
+    if (debugPoint == null) {
+        return;
+    }
+    boolean needCatchup = debugPoint.param("needCatchUp", false);
+    int sinkNum = debugPoint.param("sinkNum", 0);
+    if (sinkNum == 0) {
+        sinkNum = new SecureRandom().nextInt() % bePathsMap.size() + 1;
+    }
+    ...
+}
+```
+
+激活BE中的木桩:
+```
+curl -X POST "http://127.0.0.1:8040/api/debug_point/add/TxnManager.prepare_txn.random_failed?percent=0.7
+
+```
+在BE代码中使用木桩TxnManager.prepare_txn.random_failed的参数percent：
+```c++
+Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
+                               TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
+                               bool ingest) {
+    TxnKey key(partition_id, transaction_id);
+    TabletInfo tablet_info(tablet_id, tablet_uid);
+    std::lock_guard<std::shared_mutex> txn_wrlock(_get_txn_map_lock(transaction_id));
+    txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+
+    DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.prepare_txn.random_failed random failed");
+            return Status::InternalError("debug prepare txn random failed");
+        }
+    });
+    ...
+}
+```
+
 ## 关闭木桩
 
 ### API
 
 ```
-	POST /api/debug_point/remove/{debug_point_name}
+POST /api/debug_point/remove/{debug_point_name}
 ```
 
 
@@ -137,10 +208,10 @@ void Status foo() {
 ### Response
 
 ```
-    {
-        msg: "OK",
-        code: 0
-    }
+{
+    msg: "OK",
+    code: 0
+}
 ```
     
 ### Examples
@@ -149,17 +220,17 @@ void Status foo() {
 关闭木桩`foo`。
 	
 	
-    ```
-    curl -X POST "http://127.0.0.1:8030/api/debug_point/remove/foo"
+```
+curl -X POST "http://127.0.0.1:8030/api/debug_point/remove/foo"
 
-    ```
+```
     
 ## 清除所有木桩
 
 ### API
 
 ```
-	POST /api/debug_point/clear
+POST /api/debug_point/clear
 ```
 
 
@@ -170,18 +241,18 @@ void Status foo() {
 
 ### Response
 
-    ```
-    {
-        msg: "OK",
-        code: 0
-    }
-    ```
+```
+{
+    msg: "OK",
+    code: 0
+}
+```
     
 ### Examples
 
 
 清除所有木桩。
 	
-    ```
-    curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
-    ```
+```
+curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
+```
