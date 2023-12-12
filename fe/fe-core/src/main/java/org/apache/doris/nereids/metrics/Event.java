@@ -35,9 +35,10 @@ public abstract class Event implements Cloneable {
     }
 
     protected static boolean checkConnectContext(Class<? extends Event> targetClass) {
-        return ConnectContext.get() != null
-                && ConnectContext.get().getSessionVariable().isEnableNereidsTrace()
-                && ConnectContext.get().getSessionVariable().getParsedNereidsEventMode().contains(targetClass);
+        ConnectContext connectContext = ConnectContext.get();
+        return connectContext != null
+                && connectContext.getSessionVariable().isEnableNereidsTrace()
+                && connectContext.getSessionVariable().getParsedNereidsEventMode().contains(targetClass);
     }
 
     public final String toJson() {

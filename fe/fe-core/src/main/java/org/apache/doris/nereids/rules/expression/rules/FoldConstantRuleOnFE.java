@@ -120,7 +120,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, ExpressionRewriteContext context) {
         String dbName = encryptKeyRef.getDbName();
-        ConnectContext connectContext = ConnectContext.get();
+        ConnectContext connectContext = context.cascadesContext.getConnectContext();
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = connectContext.getDatabase();
         }

@@ -170,8 +170,7 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalProject<>(projects, excepts, isDistinct,
-                groupExpression, logicalProperties, children);
+        return new LogicalProject<>(projects, excepts, isDistinct, groupExpression, logicalProperties, children);
     }
 
     public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {

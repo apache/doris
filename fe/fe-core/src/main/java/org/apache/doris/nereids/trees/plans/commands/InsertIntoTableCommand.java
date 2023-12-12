@@ -222,9 +222,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         if (!ctx.getSessionVariable().isEnableInsertGroupCommit()) {
             return false;
         }
-        return ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+        return ctx.getSessionVariable().isEnableInsertGroupCommit()
             && physicalOlapTableSink.getTargetTable() instanceof OlapTable
-            && !ConnectContext.get().isTxnModel()
+            && !ctx.isTxnModel()
             && sink.getFragment().getPlanRoot() instanceof UnionNode
             && physicalOlapTableSink.getPartitionIds().isEmpty();
     }

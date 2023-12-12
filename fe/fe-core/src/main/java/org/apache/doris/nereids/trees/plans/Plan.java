@@ -165,7 +165,7 @@ public interface Plan extends TreeNode<Plan> {
         StringBuilder builder = new StringBuilder();
         String me = shapeInfo();
         String prefixTail = "";
-        if (! ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes().contains(me)) {
+        if (!ConnectContext.get().getSessionVariable().getIgnoreShapePlanNodes().contains(me)) {
             builder.append(prefix).append(shapeInfo()).append("\n");
             prefixTail += "--";
         }

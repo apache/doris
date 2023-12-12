@@ -70,7 +70,7 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
         } else if (sessionVariable.getBeNumberForTest() != -1) {
             beNumber = sessionVariable.getBeNumberForTest();
         } else {
-            beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+            beNumber = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
         }
     }
 

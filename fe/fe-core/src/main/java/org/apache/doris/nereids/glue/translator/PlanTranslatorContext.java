@@ -151,6 +151,10 @@ public class PlanTranslatorContext {
         return connectContext == null ? null : connectContext.getSessionVariable();
     }
 
+    public ConnectContext getConnectContext() {
+        return connectContext;
+    }
+
     public Set<ScanNode> getScanNodeWithUnknownColumnStats() {
         return statsUnknownColumnsMap.keySet();
     }

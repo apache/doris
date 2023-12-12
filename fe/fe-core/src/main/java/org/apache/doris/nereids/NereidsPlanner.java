@@ -58,6 +58,7 @@ import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
 import org.apache.doris.qe.ResultSetMetaData;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -171,6 +172,8 @@ public class NereidsPlanner extends Planner {
      * @throws AnalysisException throw exception if failed in ant stage
      */
     public Plan plan(LogicalPlan plan, PhysicalProperties requireProperties, ExplainLevel explainLevel) {
+        ConnectContext connectContext = cascadesContext.getConnectContext();
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
         if (explainLevel == ExplainLevel.PARSED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
             parsedPlan = plan;
             if (explainLevel == ExplainLevel.PARSED_PLAN) {
@@ -194,9 +197,9 @@ public class NereidsPlanner extends Planner {
                 throw new RuntimeException(e);
             }
 
-            if (statementContext.getConnectContext().getExecutor() != null) {
-                statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
-                statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
+            if (connectContext.getExecutor() != null) {
+                connectContext.getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
+                connectContext.getExecutor().getSummaryProfile().setNereidsAnalysisTime();
             }
 
             if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -215,29 +218,29 @@ public class NereidsPlanner extends Planner {
                 }
             }
 
-            if (statementContext.getConnectContext().getExecutor() != null) {
-                statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
+            if (connectContext.getExecutor() != null) {
+                connectContext.getExecutor().getSummaryProfile().setNereidsRewriteTime();
             }
 
             optimize();
-            if (statementContext.getConnectContext().getExecutor() != null) {
-                statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsOptimizeTime();
+            if (connectContext.getExecutor() != null) {
+                connectContext.getExecutor().getSummaryProfile().setNereidsOptimizeTime();
             }
 
             // print memo before choose plan.
             // if chooseNthPlan failed, we could get memo to debug
-            if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
+            if (sessionVariable.dumpNereidsMemo) {
                 String memo = cascadesContext.getMemo().toString();
-                LOG.info(ConnectContext.get().getQueryIdentifier() + "\n" + memo);
+                LOG.info(connectContext.getQueryIdentifier() + "\n" + memo);
             }
 
-            int nth = cascadesContext.getConnectContext().getSessionVariable().getNthOptimizedPlan();
+            int nth = sessionVariable.getNthOptimizedPlan();
             PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
             physicalPlan = postProcess(physicalPlan);
-            if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
+            if (sessionVariable.dumpNereidsMemo) {
                 String tree = physicalPlan.treeString();
-                LOG.info(ConnectContext.get().getQueryIdentifier() + "\n" + tree);
+                LOG.info(connectContext.getQueryIdentifier() + "\n" + tree);
             }
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN
                     || explainLevel == ExplainLevel.ALL_PLAN
@@ -246,7 +249,7 @@ public class NereidsPlanner extends Planner {
             }
             // serialize optimized plan to dumpfile, dumpfile do not have this part means optimize failed
             MinidumpUtils.serializeOutputToDumpFile(physicalPlan);
-            NereidsTracer.output(statementContext.getConnectContext());
+            NereidsTracer.output(connectContext);
 
             return physicalPlan;
         }
