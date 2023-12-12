@@ -24,7 +24,7 @@ import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -55,7 +55,7 @@ import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
- * StructInfo
+ * StructInfo for plan, this contains necessary info for query rewrite by materialized view
  */
 public class StructInfo {
     public static final JoinPatternChecker JOIN_PATTERN_CHECKER = new JoinPatternChecker();
@@ -76,7 +76,9 @@ public class StructInfo {
     private final List<CatalogRelation> relations = new ArrayList<>();
     // this is for LogicalCompatibilityContext later
     private final Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap = new HashMap<>();
+    // this recorde the predicates which can pull up, not shuttled
     private Predicates predicates;
+    // split predicates is shuttled
     private SplitPredicate splitPredicate;
     private EquivalenceClass equivalenceClass;
     // this is for LogicalCompatibilityContext later
@@ -91,20 +93,28 @@ public class StructInfo {
     }
 
     private void init() {
-
+        // split the top plan to two parts by join node
         if (topPlan == null || bottomPlan == null) {
             PlanSplitContext planSplitContext = new PlanSplitContext(Sets.newHashSet(LogicalJoin.class));
             originalPlan.accept(PLAN_SPLITTER, planSplitContext);
             this.bottomPlan = planSplitContext.getBottomPlan();
             this.topPlan = planSplitContext.getTopPlan();
         }
+        collectStructInfoFromGraph();
+        initPredicates();
+        predicatesDerive();
+    }
 
-        this.predicates = Predicates.of();
-        // Collect predicate from join condition in hyper graph
+    public void addPredicates(List<Expression> canPulledUpExpressions) {
+        canPulledUpExpressions.forEach(this.predicates::addPredicate);
+        predicatesDerive();
+    }
+
+    private void collectStructInfoFromGraph() {
+        // Collect expression from join condition in hyper graph
         this.hyperGraph.getJoinEdges().forEach(edge -> {
             List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
             hashJoinConjuncts.forEach(conjunctExpr -> {
-                predicates.addPredicate(conjunctExpr);
                 // shuttle expression in edge for LogicalCompatibilityContext later
                 shuttledHashConjunctsToConjunctsMap.put(
                         ExpressionUtils.shuttleExpressionWithLineage(
@@ -119,8 +129,7 @@ public class StructInfo {
         if (!this.isValid()) {
             return;
         }
-
-        // Collect predicate from filter node in hyper graph
+        // Collect relations from hyper graph which in the bottom plan
         this.hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
             Plan nodePlan = node.getPlan();
@@ -129,29 +138,40 @@ public class StructInfo {
             this.relations.addAll(nodeRelations);
             // every node should only have one relation, this is for LogicalCompatibilityContext
             relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
-
-            // if inner join add where condition
-            Set<Expression> predicates = new HashSet<>();
-            nodePlan.accept(PREDICATE_COLLECTOR, predicates);
-            predicates.forEach(predicate ->
-                    ExpressionUtils.extractConjunction(predicate).forEach(this.predicates::addPredicate));
         });
+        // Collect expression from where in hyper graph
+        this.hyperGraph.getFilterEdges().forEach(filterEdge -> {
+            List<? extends Expression> filterExpressions = filterEdge.getExpressions();
+            filterExpressions.forEach(predicate -> {
+                // this is used for LogicalCompatibilityContext
+                ExpressionUtils.extractConjunction(predicate).forEach(expr ->
+                        shuttledHashConjunctsToConjunctsMap.put(
+                                ExpressionUtils.shuttleExpressionWithLineage(predicate, topPlan), predicate));
+            });
+        });
+    }
 
-        // TODO Collect predicate from top plan not in hyper graph, should optimize, twice now
+    private void initPredicates() {
+        // Collect predicate from top plan which not in hyper graph
+        this.predicates = Predicates.of();
         Set<Expression> topPlanPredicates = new HashSet<>();
         topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
         topPlanPredicates.forEach(this.predicates::addPredicate);
+    }
 
+    // derive some useful predicate by predicates
+    private void predicatesDerive() {
         // construct equivalenceClass according to equals predicates
-        this.equivalenceClass = new EquivalenceClass();
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
                         this.predicates.getPulledUpPredicates(), originalPlan).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
         this.splitPredicate = splitPredicate;
+
+        this.equivalenceClass = new EquivalenceClass();
         for (Expression expression : ExpressionUtils.extractConjunction(splitPredicate.getEqualPredicate())) {
-            if (expression instanceof BooleanLiteral && ((BooleanLiteral) expression).getValue()) {
+            if (expression instanceof Literal) {
                 continue;
             }
             if (expression instanceof EqualTo) {
@@ -264,8 +284,12 @@ public class StructInfo {
     private static class PredicateCollector extends DefaultPlanVisitor<Void, Set<Expression>> {
         @Override
         public Void visit(Plan plan, Set<Expression> predicates) {
+            // Just collect the filter in top plan, if meet other node except project and filter, return
+            if (!(plan instanceof LogicalProject) && !(plan instanceof LogicalFilter)) {
+                return null;
+            }
             if (plan instanceof LogicalFilter) {
-                predicates.add(((LogicalFilter) plan).getPredicate());
+                predicates.addAll(ExpressionUtils.extractConjunction(((LogicalFilter) plan).getPredicate()));
             }
             return super.visit(plan, predicates);
         }

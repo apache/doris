@@ -82,6 +82,10 @@ public class HyperGraph {
         return joinEdges;
     }
 
+    public List<FilterEdge> getFilterEdges() {
+        return filterEdges;
+    }
+
     public List<AbstractNode> getNodes() {
         return nodes;
     }

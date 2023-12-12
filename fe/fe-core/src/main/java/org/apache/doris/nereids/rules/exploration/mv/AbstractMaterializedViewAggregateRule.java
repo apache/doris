@@ -18,8 +18,8 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.AbstractNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext;
@@ -298,7 +298,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     SUPPORTED_JOIN_TYPE_SET)) {
                 return false;
             }
-            for (Edge edge : hyperGraph.getEdges()) {
+            for (JoinEdge edge : hyperGraph.getJoinEdges()) {
                 if (!edge.getJoin().accept(StructInfo.JOIN_PATTERN_CHECKER, SUPPORTED_JOIN_TYPE_SET)) {
                     return false;
                 }
