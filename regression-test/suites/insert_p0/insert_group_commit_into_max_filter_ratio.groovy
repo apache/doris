@@ -218,7 +218,11 @@ suite("insert_group_commit_into_max_filter_ratio") {
             sql """ set enable_insert_strict = false; """
             group_commit_insert """ insert into ${dbTableName} values (9, 'a', 'a'); """, 0
         }
-        get_row_count_with_retry(4 + item == "nereids" ? 2 : 0)
+        if (item == "nereids") {
+            get_row_count_with_retry(6)
+        } else {
+            get_row_count_with_retry(4)
+        }
         order_qt_sql """ select * from ${dbTableName} """
     }
     sql """ truncate table ${tableName} """
