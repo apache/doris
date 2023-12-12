@@ -26,6 +26,8 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 
+import jline.internal.Log;
+
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
@@ -126,6 +128,9 @@ public class CommonUserProperties implements Writable {
     }
 
     public void setQueryTimeout(int timeout) {
+        if (timeout <= 0) {
+            Log.warn("Setting 0 query timeout", new RuntimeException(""));
+        }
         this.queryTimeout = timeout;
     }
 
