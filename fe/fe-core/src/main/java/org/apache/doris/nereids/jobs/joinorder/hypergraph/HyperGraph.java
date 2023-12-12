@@ -593,7 +593,7 @@ public class HyperGraph {
      *
      * @param viewHG the compared hyper graph
      * @return null represents not compatible, or return some expression which can
-     *          be pull up from this hyper graph
+     *         be pull up from this hyper graph
      */
     public @Nullable List<Expression> isLogicCompatible(HyperGraph viewHG, LogicalCompatibilityContext ctx) {
         Map<Edge, Edge> queryToView = constructEdgeMap(viewHG, ctx.getQueryToViewEdgeExpressionMapping());
@@ -670,7 +670,7 @@ public class HyperGraph {
         }
         boolean matched = false;
         if (t.getJoinType().swap().equals(o.getJoinType())) {
-            matched  |= compareNodeMap(tRight, oLeft, nodeMap) && compareNodeMap(tLeft, oRight, nodeMap);
+            matched |= compareNodeMap(tRight, oLeft, nodeMap) && compareNodeMap(tLeft, oRight, nodeMap);
         }
         matched |= compareNodeMap(tLeft, oLeft, nodeMap) && compareNodeMap(tRight, oRight, nodeMap);
         return matched;
