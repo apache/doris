@@ -156,7 +156,7 @@ public class MTMVTask extends AbstractTask {
             ctx.setQueryId(queryId);
             command.run(ctx, executor);
         } catch (Throwable e) {
-            e.printStackTrace();
+            LOG.warn("run task failed: ", e);
             throw new JobException(e);
         }
     }
@@ -193,7 +193,7 @@ public class MTMVTask extends AbstractTask {
                 MTMVUtil.alignMvPartition(mtmv, relatedTable);
             }
         } catch (UserException e) {
-            LOG.warn(e);
+            LOG.warn("before task failed:", e);
             throw new JobException(e);
         }
     }

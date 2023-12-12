@@ -60,7 +60,7 @@ public class MTMVRelationManager implements MTMVHookService {
                 res.add((MTMV) MTMVUtil.getTable(tableInfo));
             } catch (AnalysisException e) {
                 // not throw exception to client, just ignore it
-                LOG.warn(e);
+                LOG.warn("getTable failed: {}", tableInfo.toString(), e);
             }
         }
         return res;

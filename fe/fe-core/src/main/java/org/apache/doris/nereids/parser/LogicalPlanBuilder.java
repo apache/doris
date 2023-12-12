@@ -561,32 +561,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         }
     }
 
-    /**
-     * visitMTMVPartitionInfo
-     *
-     * @param ctx PartitionSpecContext
-     * @return MTMVPartitionInfo
-     */
-    public MTMVPartitionInfo visitMTMVPartitionInfo(PartitionSpecContext ctx) {
-        if (ctx == null) {
-            return new MTMVPartitionInfo(MTMVPartitionType.SELF_MANAGE);
-        } else {
-            List<String> partitions = ImmutableList.of();
-            if (ctx.TEMPORARY() != null) {
-                throw new AnalysisException("Not allowed to specify TEMPORARY ");
-            }
-            if (ctx.partition != null) {
-                partitions = ImmutableList.of(ctx.partition.getText());
-            } else {
-                partitions = visitIdentifierList(ctx.partitions);
-            }
-            if (partitions.size() != 1) {
-                throw new AnalysisException("Only one partitionKey can be specified");
-            }
-            return new MTMVPartitionInfo(MTMVPartitionType.FOLLOW_BASE_TABLE, partitions.get(0));
-        }
-    }
-
     @Override
     public List<SimpleColumnDefinition> visitSimpleColumnDefs(SimpleColumnDefsContext ctx) {
         if (ctx == null) {

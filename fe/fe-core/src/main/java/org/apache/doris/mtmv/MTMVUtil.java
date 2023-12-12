@@ -213,7 +213,7 @@ public class MTMVUtil {
         try {
             return isMTMVPartitionSync(mtmv, partitionId, mtmv.getRelation().getBaseTables(), Sets.newHashSet(), 0L);
         } catch (AnalysisException e) {
-            e.printStackTrace();
+            LOG.warn("isMTMVPartitionSync error", e);
             return false;
         }
     }
@@ -256,7 +256,7 @@ public class MTMVUtil {
                 }
             } catch (AnalysisException e) {
                 // ignore it
-                e.printStackTrace();
+                LOG.warn("check isMTMVPartitionSync failed", e);
             }
         }
         return res;
@@ -301,19 +301,10 @@ public class MTMVUtil {
      * @param mtmv
      * @param partitionId
      */
-    private static void dropPartition(MTMV mtmv, Long partitionId) {
-        if (!mtmv.writeLockIfExist()) {
-            return;
-        }
-        try {
-            Partition partition = mtmv.getPartitionOrAnalysisException(partitionId);
-            DropPartitionClause dropPartitionClause = new DropPartitionClause(false, partition.getName(), false, false);
-            Env.getCurrentEnv().dropPartition((Database) mtmv.getDatabase(), mtmv, dropPartitionClause);
-        } catch (Exception e) {
-            e.printStackTrace();
-        } finally {
-            mtmv.writeUnlock();
-        }
+    private static void dropPartition(MTMV mtmv, Long partitionId) throws AnalysisException, DdlException {
+        Partition partition = mtmv.getPartitionOrAnalysisException(partitionId);
+        DropPartitionClause dropPartitionClause = new DropPartitionClause(false, partition.getName(), false, false);
+        Env.getCurrentEnv().dropPartition((Database) mtmv.getDatabase(), mtmv, dropPartitionClause);
     }
 
     /**
