@@ -25,12 +25,15 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.sqltest.SqlTestBase;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 class CompareOuterJoinTest extends SqlTestBase {
     @Test
@@ -50,12 +53,12 @@ class CompareOuterJoinTest extends SqlTestBase {
         Plan p1 = PlanChecker.from(c1)
                 .analyze()
                 .rewrite()
-                .getPlan();
+                .getPlan().child(0);
         Plan p2 = PlanChecker.from(c1)
                 .analyze()
                 .rewrite()
                 .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
-                .getAllPlan().get(0);
+                .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
         Assertions.assertTrue(h1.isLogicCompatible(h2, constructContext(p1, p2)) != null);
@@ -76,6 +79,88 @@ class CompareOuterJoinTest extends SqlTestBase {
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
         Assertions.assertTrue(h1.isLogicCompatible(h2, constructContext(p1, p2)) != null);
+    }
+
+    @Test
+    void testInnerJoinWithFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1 inner join T2 on T1.id = T2.id where T1.id = 0",
+                connectContext
+        );
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        CascadesContext c2 = createCascadesContext(
+                "select * from T1 inner join T2 on T1.id = T2.id",
+                connectContext
+        );
+        Plan p2 = PlanChecker.from(c2)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
+        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        Assertions.assertEquals(1, exprList.size());
+        Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
+    }
+
+    @Test
+    void testLeftOuterJoinWithLeftFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        CascadesContext c1 = createCascadesContext(
+                "select * from ( select * from T1 where T1.id = 0) T1 left outer join T2 on T1.id = T2.id",
+                connectContext
+        );
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        CascadesContext c2 = createCascadesContext(
+                "select * from T1 left outer join T2 on T1.id = T2.id",
+                connectContext
+        );
+        Plan p2 = PlanChecker.from(c2)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
+        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        Assertions.assertEquals(1, exprList.size());
+        Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
+    }
+
+    @Test
+    void testLeftOuterJoinWithRightFilter() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1 left outer join ( select * from T2 where T2.id = 0) T2 on T1.id = T2.id",
+                connectContext
+        );
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        CascadesContext c2 = createCascadesContext(
+                "select * from T1 left outer join T2 on T1.id = T2.id",
+                connectContext
+        );
+        Plan p2 = PlanChecker.from(c2)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
+        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        Assertions.assertEquals(null, exprList);
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {
