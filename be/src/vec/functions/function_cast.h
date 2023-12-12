@@ -257,7 +257,7 @@ struct ConvertImpl {
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count,
-                          Additions additions [[maybe_unused]] = Additions()) {
+                          Additions additions = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
         using ColVecFrom =
@@ -277,16 +277,13 @@ struct ConvertImpl {
         if (const ColVecFrom* col_from =
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
             typename ColVecTo::MutablePtr col_to = nullptr;
-            UInt32 from_precision = 0;
+            UInt32 from_precision = NumberTraits::max_ascii_len<FromFieldType>();
             UInt32 from_scale = 0;
 
             if constexpr (IsDataTypeDecimal<FromDataType>) {
                 const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
                 from_precision = from_decimal_type.get_precision();
                 from_scale = from_decimal_type.get_scale();
-            }
-            if constexpr (std::is_integral_v<FromFieldType>) {
-                from_precision = NumberTraits::max_ascii_len<FromFieldType>();
             }
 
             UInt32 to_max_digits = 0;
@@ -349,22 +346,10 @@ struct ConvertImpl {
                                                 max_result);
                                     }
                                 } else {
-                                    for (size_t i = 0; i < size; ++i) {
-                                        vec_to[i] = convert_to_decimal<FromDataType, ToDataType,
-                                                                       multiply_may_overflow>(
-                                                vec_from[i], from_scale, to_scale, min_result,
-                                                max_result);
-                                    }
-                                    if constexpr (narrow_integral) {
-                                        for (size_t i = 0; i < size; ++i) {
-                                            if (UNLIKELY(vec_to[i].value > max_result.value ||
-                                                         vec_to[i].value < min_result.value)) {
-                                                throw Exception(
-                                                        ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                        "Arithmetic overflow");
-                                            }
-                                        }
-                                    }
+                                    convert_to_decimal<FromDataType, ToDataType,
+                                                       multiply_may_overflow, narrow_integral>(
+                                            vec_to.data(), vec_from.data(), from_scale, to_scale,
+                                            min_result, max_result, size);
                                 }
                             },
                             make_bool_variant(multiply_may_overflow),

@@ -39,10 +39,6 @@ private:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        const auto& arg = arguments.front();
-        if (!is_number(arg)) {
-            return nullptr;
-        }
         return make_nullable(std::make_shared<DataTypeFloat64>());
     }
 

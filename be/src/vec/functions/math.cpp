@@ -62,22 +62,22 @@ namespace doris::vectorized {
 struct AcosName {
     static constexpr auto name = "acos";
 };
-using FunctionAcos = FunctionMathUnary<UnaryFunctionVectorized<AcosName, std::acos>>;
+using FunctionAcos = FunctionMathUnary<UnaryFunctionPlain<AcosName, std::acos>>;
 
 struct AsinName {
     static constexpr auto name = "asin";
 };
-using FunctionAsin = FunctionMathUnary<UnaryFunctionVectorized<AsinName, std::asin>>;
+using FunctionAsin = FunctionMathUnary<UnaryFunctionPlain<AsinName, std::asin>>;
 
 struct AtanName {
     static constexpr auto name = "atan";
 };
-using FunctionAtan = FunctionMathUnary<UnaryFunctionVectorized<AtanName, std::atan>>;
+using FunctionAtan = FunctionMathUnary<UnaryFunctionPlain<AtanName, std::atan>>;
 
 struct CosName {
     static constexpr auto name = "cos";
 };
-using FunctionCos = FunctionMathUnary<UnaryFunctionVectorized<CosName, std::cos>>;
+using FunctionCos = FunctionMathUnary<UnaryFunctionPlain<CosName, std::cos>>;
 
 struct EImpl {
     static constexpr auto name = "e";
@@ -94,7 +94,7 @@ using FunctionPi = FunctionMathConstFloat64<PiImpl>;
 struct ExpName {
     static constexpr auto name = "exp";
 };
-using FunctionExp = FunctionMathUnary<UnaryFunctionVectorized<ExpName, std::exp>>;
+using FunctionExp = FunctionMathUnary<UnaryFunctionPlain<ExpName, std::exp>>;
 
 struct LogName {
     static constexpr auto name = "log";
@@ -207,22 +207,22 @@ using FunctionPositive = FunctionUnaryArithmetic<PositiveImpl, NamePositive, fal
 struct SinName {
     static constexpr auto name = "sin";
 };
-using FunctionSin = FunctionMathUnary<UnaryFunctionVectorized<SinName, std::sin>>;
+using FunctionSin = FunctionMathUnary<UnaryFunctionPlain<SinName, std::sin>>;
 
 struct SqrtName {
     static constexpr auto name = "sqrt";
 };
-using FunctionSqrt = FunctionMathUnary<UnaryFunctionVectorized<SqrtName, std::sqrt>>;
+using FunctionSqrt = FunctionMathUnary<UnaryFunctionPlain<SqrtName, std::sqrt>>;
 
 struct CbrtName {
     static constexpr auto name = "cbrt";
 };
-using FunctionCbrt = FunctionMathUnary<UnaryFunctionVectorized<CbrtName, std::cbrt>>;
+using FunctionCbrt = FunctionMathUnary<UnaryFunctionPlain<CbrtName, std::cbrt>>;
 
 struct TanName {
     static constexpr auto name = "tan";
 };
-using FunctionTan = FunctionMathUnary<UnaryFunctionVectorized<TanName, std::tan>>;
+using FunctionTan = FunctionMathUnary<UnaryFunctionPlain<TanName, std::tan>>;
 
 template <typename A>
 struct RadiansImpl {
@@ -392,6 +392,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_alias("ceil", "ceiling");
     factory.register_function<FunctionE>();
     factory.register_alias("ln", "dlog1");
+    factory.register_function<FunctionLog>();
     factory.register_function<FunctionMathLog<ImplLn>>();
     factory.register_function<FunctionMathLog<ImplLog2>>();
     factory.register_function<FunctionMathLog<ImplLog10>>();
