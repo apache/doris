@@ -914,8 +914,8 @@ void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, i
         delete cache_value;
     };
 
-    auto handle = _tablet_version_cache->insert(cache_key, value, sizeof(txn_id), deleter,
-                                                CachePriority::NORMAL, sizeof(txn_id));
+    auto handle = _tablet_version_cache->insert(cache_key, value, 1, deleter, CachePriority::NORMAL,
+                                                sizeof(txn_id));
     _tablet_version_cache->release(handle);
 }
 

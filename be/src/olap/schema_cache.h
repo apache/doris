@@ -100,8 +100,8 @@ public:
             CacheValue* cache_value = (CacheValue*)value;
             delete cache_value;
         };
-        auto lru_handle = _cache->insert(key, value, sizeof(CacheValue), deleter,
-                                         CachePriority::NORMAL, schema->mem_size());
+        auto lru_handle =
+                _cache->insert(key, value, 1, deleter, CachePriority::NORMAL, schema->mem_size());
         _cache->release(lru_handle);
     }
 
