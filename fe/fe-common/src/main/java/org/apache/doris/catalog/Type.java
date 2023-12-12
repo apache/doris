@@ -1956,6 +1956,8 @@ public abstract class Type {
                     return isSameDecimalTypeWithDifferentPrecision(((ScalarType) type2).decimalPrecision(),
                             ((ScalarType) type1).decimalPrecision());
                 }
+            } else {
+                return true;
             }
         }
         return false;

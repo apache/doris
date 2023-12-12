@@ -133,11 +133,6 @@ public class MapType extends Type {
             return false;
         }
 
-        if ((keyType.isNull() || ((MapType) t).getKeyType().isNull())
-                && (valueType.isNull() || ((MapType) t).getKeyType().isNull())) {
-            return true;
-        }
-
         return keyType.matchesType(((MapType) t).keyType)
             && (valueType.matchesType(((MapType) t).valueType));
     }

@@ -88,16 +88,14 @@ public class ArrayType extends Type {
             return false;
         }
 
-        if (((ArrayType) t).containsNull && !containsNull) {
+        if (!((ArrayType) t).getContainsNull() == getContainsNull()) {
             return false;
         }
 
-        // Array(Null) is a virtual Array type, can match any Array(...) type
-        if (itemType.isNull() || ((ArrayType) t).getItemType().isNull()) {
-            return true;
+        if (!itemType.matchesType(((ArrayType) t).itemType)) {
+            return false;
         }
-
-        return itemType.matchesType(((ArrayType) t).itemType);
+        return true;
     }
 
     @Override
