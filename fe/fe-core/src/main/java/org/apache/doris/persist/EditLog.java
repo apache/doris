@@ -79,6 +79,7 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -1055,6 +1056,22 @@ public class EditLog {
                     env.getWorkloadGroupMgr().replayAlterWorkloadGroup(resource);
                     break;
                 }
+                case OperationType.OP_CREATE_WORKLOAD_SCHED_POLICY: {
+                    final WorkloadSchedPolicy policy = (WorkloadSchedPolicy) journal.getData();
+                    env.getWorkloadSchedPolicyMgr().replayCreateWorkloadSchedPolicy(policy);
+                    break;
+                }
+                case OperationType.OP_ALTER_WORKLOAD_SCHED_POLICY: {
+                    final WorkloadSchedPolicy policy = (WorkloadSchedPolicy) journal.getData();
+                    env.getWorkloadSchedPolicyMgr().replayAlterWorkloadSchedPolicy(policy);
+                    break;
+                }
+                case OperationType.OP_DROP_WORKLOAD_SCHED_POLICY: {
+                    final DropWorkloadSchedPolicyOperatorLog dropLog
+                            = (DropWorkloadSchedPolicyOperatorLog) journal.getData();
+                    env.getWorkloadSchedPolicyMgr().replayDropWorkloadSchedPolicy(dropLog.getId());
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1683,6 +1700,18 @@ public class EditLog {
 
     public void logDropWorkloadGroup(DropWorkloadGroupOperationLog operationLog) {
         logEdit(OperationType.OP_DROP_WORKLOAD_GROUP, operationLog);
+    }
+
+    public void logCreateWorkloadSchedPolicy(WorkloadSchedPolicy workloadSchedPolicy) {
+        logEdit(OperationType.OP_CREATE_WORKLOAD_GROUP, workloadSchedPolicy);
+    }
+
+    public void logAlterWorkloadSchedPolicy(WorkloadSchedPolicy workloadSchedPolicy) {
+        logEdit(OperationType.OP_ALTER_WORKLOAD_SCHED_POLICY, workloadSchedPolicy);
+    }
+
+    public void dropWorkloadSchedPolicy(long policyId) {
+        logEdit(OperationType.OP_DROP_WORKLOAD_SCHED_POLICY, new DropWorkloadSchedPolicyOperatorLog(policyId));
     }
 
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {

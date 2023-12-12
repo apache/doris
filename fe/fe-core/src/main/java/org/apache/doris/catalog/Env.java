@@ -113,6 +113,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
+import org.apache.doris.common.publish.WorkloadMoveActionPublisherThread;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.HttpURLUtil;
@@ -228,6 +229,7 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
@@ -485,6 +487,7 @@ public class Env {
 
     private WorkloadGroupMgr workloadGroupMgr;
 
+    private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
@@ -505,6 +508,8 @@ public class Env {
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
+
+    private WorkloadMoveActionPublisherThread workloadMoveActionPublisherThread;
 
     private MTMVService mtmvService;
 
@@ -725,6 +730,7 @@ public class Env {
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
+        this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
@@ -734,6 +740,8 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
+        this.workloadMoveActionPublisherThread = new WorkloadMoveActionPublisherThread("MoveActionPublisher",
+                Config.workload_move_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
     }
 
@@ -808,6 +816,10 @@ public class Env {
 
     public WorkloadGroupMgr getWorkloadGroupMgr() {
         return workloadGroupMgr;
+    }
+
+    public WorkloadSchedPolicyMgr getWorkloadSchedPolicyMgr() {
+        return workloadSchedPolicyMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -985,6 +997,8 @@ public class Env {
         topicPublisherThread.start();
 
         workloadGroupMgr.startUpdateThread();
+        workloadSchedPolicyMgr.start();
+        workloadMoveActionPublisherThread.start();
     }
 
     // wait until FE is ready.
@@ -2066,6 +2080,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadWorkloadSchedPolicy(DataInputStream in, long checksum) throws IOException {
+        workloadSchedPolicyMgr = WorkloadSchedPolicyMgr.read(in);
+        LOG.info("finished replay workload sched policy from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2330,6 +2350,11 @@ public class Env {
 
     public long saveWorkloadGroups(CountingDataOutputStream dos, long checksum) throws IOException {
         Env.getCurrentEnv().getWorkloadGroupMgr().write(dos);
+        return checksum;
+    }
+
+    public long saveWorkloadSchedPolicy(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getWorkloadSchedPolicyMgr().write(dos);
         return checksum;
     }
 

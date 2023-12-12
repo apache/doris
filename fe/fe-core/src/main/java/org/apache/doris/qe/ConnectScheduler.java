@@ -170,4 +170,8 @@ public class ConnectScheduler {
         TUniqueId queryId = traceId2QueryId.get(traceId);
         return queryId == null ? "" : DebugUtil.printId(queryId);
     }
+
+    public Map<Integer, ConnectContext> getConnectionMap() {
+        return connectionMap;
+    }
 }
