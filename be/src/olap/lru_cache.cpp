@@ -667,9 +667,4 @@ void ShardedLRUCache::update_cache_metrics() const {
             total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
 }
 
-Cache* new_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
-                     uint32_t num_shards) {
-    return new ShardedLRUCache(name, capacity, type, num_shards);
-}
-
 } // namespace doris

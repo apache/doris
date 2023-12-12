@@ -58,11 +58,6 @@ enum LRUCacheType {
     NUMBER // The capacity of cache is based on the number of cache entry.
 };
 
-// Create a new cache with a specified name and capacity.
-// This implementation of Cache uses a least-recently-used eviction policy.
-extern Cache* new_lru_cache(const std::string& name, size_t capacity,
-                            LRUCacheType type = LRUCacheType::SIZE, uint32_t num_shards = 16);
-
 class CacheKey {
 public:
     CacheKey() : _data(nullptr), _size(0) {}
@@ -394,8 +389,9 @@ private:
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards, uint32_t element_count_capacity = 0);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity,
+                             LRUCacheType type = LRUCacheType::SIZE, uint32_t num_shards = 16,
+                             uint32_t element_count_capacity = 0);
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                              uint32_t num_shards,
                              CacheValueTimeExtractor cache_value_time_extractor,
