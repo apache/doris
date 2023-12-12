@@ -556,7 +556,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
         }
         if (calcFoundRows) {
-            expBuilder.append(detailPrefix + "calcFoundRows: " + (calcFoundRows ? "true" : "false") + "\n");
+            expBuilder.append(detailPrefix + "calc found rows: " + (calcFoundRows ? "true" : "false") + "\n");
         }
         if (!CollectionUtils.isEmpty(projectList)) {
             expBuilder.append(detailPrefix).append("projections: ").append(getExplainString(projectList)).append("\n");

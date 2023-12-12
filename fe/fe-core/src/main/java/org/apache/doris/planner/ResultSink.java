@@ -71,6 +71,8 @@ public class ResultSink extends DataSink {
             }
         }
         strBuilder.append(prefix).append("   ").append(resultSinkType).append("\n");
+        strBuilder.append(prefix).append("   ").append("limit:" + limit).append("\n");
+        strBuilder.append(prefix).append("   ").append("offset:" + offset).append("\n");
         return strBuilder.toString();
     }
 
