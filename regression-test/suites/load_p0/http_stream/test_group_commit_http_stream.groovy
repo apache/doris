@@ -212,14 +212,22 @@ suite("test_group_commit_http_stream") {
 
             set 'group_commit', 'async_mode'
             file "test_stream_load3.csv"
-            set 'max_filter_ratio', '0.7'
+            // TODO max_filter_ratio is not supported http_stream
+            // set 'max_filter_ratio', '0.7'
             unset 'label'
 
             time 10000 // limit inflight 10s
 
             check { result, exception, startTime, endTime ->
                 // TODO different with stream load: 6, 2, 3, 1
-                checkStreamLoadResult(exception, result, 6, 4, 2, 0)
+                // checkStreamLoadResult(exception, result, 5, 4, 1, 0)
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+                assertTrue(json.Message.contains("too many filtered rows"))
             }
         }
 
@@ -246,7 +254,7 @@ suite("test_group_commit_http_stream") {
             }
         }
 
-        getRowCount(22)
+        getRowCount(19)
         qt_sql " SELECT * FROM ${tableName} order by id, name, score asc; "
     } finally {
         // try_sql("DROP TABLE ${tableName}")
