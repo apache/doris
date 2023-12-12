@@ -643,11 +643,17 @@ public class HyperGraph {
 
     private boolean compareEdgeWithNode(Edge t, Edge o, Map<Integer, Integer> nodeMap) {
         if (t instanceof FilterEdge && o instanceof FilterEdge) {
-            return false;
+            return compareEdgeWithFilter((FilterEdge) t, (FilterEdge) o, nodeMap);
         } else if (t instanceof JoinEdge && o instanceof JoinEdge) {
             return compareJoinEdge((JoinEdge) t, (JoinEdge) o, nodeMap);
         }
         return false;
+    }
+
+    private boolean compareEdgeWithFilter(FilterEdge t, FilterEdge o, Map<Integer, Integer> nodeMap) {
+        long tChild = t.getReferenceNodes();
+        long oChild = o.getReferenceNodes();
+        return compareNodeMap(tChild, oChild, nodeMap);
     }
 
     private boolean compareJoinEdge(JoinEdge t, JoinEdge o, Map<Integer, Integer> nodeMap) {

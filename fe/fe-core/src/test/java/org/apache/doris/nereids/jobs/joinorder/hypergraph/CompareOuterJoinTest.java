@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -106,6 +107,33 @@ class CompareOuterJoinTest extends SqlTestBase {
         List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
         Assertions.assertEquals(1, exprList.size());
         Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
+    }
+
+    @Disabled
+    @Test
+    void testInnerJoinWithFilter2() {
+        connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");
+        CascadesContext c1 = createCascadesContext(
+                "select * from T1 inner join T2 on T1.id = T2.id where T1.id = 0",
+                connectContext
+        );
+        Plan p1 = PlanChecker.from(c1)
+                .analyze()
+                .rewrite()
+                .getPlan().child(0);
+        CascadesContext c2 = createCascadesContext(
+                "select * from T1 inner join T2 on T1.id = T2.id where T1.id = 0",
+                connectContext
+        );
+        Plan p2 = PlanChecker.from(c2)
+                .analyze()
+                .rewrite()
+                .applyExploration(RuleSet.BUSHY_TREE_JOIN_REORDER)
+                .getAllPlan().get(0).child(0);
+        HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
+        HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
+        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        Assertions.assertEquals(0, exprList.size());
     }
 
     @Test
