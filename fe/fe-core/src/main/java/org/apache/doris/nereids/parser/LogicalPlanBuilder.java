@@ -562,6 +562,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     /**
+     * visitMTMVPartitionInfo
      *
      * @param ctx PartitionSpecContext
      * @return MTMVPartitionInfo

@@ -31,20 +31,18 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
 import org.apache.doris.qe.ConnectContext;
 
-import com.esotericsoftware.minlog.Log;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,7 +69,7 @@ public class MTMVUtil {
     }
 
     /**
-     * Determine whether the mtmv is synchronized with tables, ignoring excludedTriggerTables and non OlapTanle
+     * Determine whether the mtmv is sync with tables
      *
      * @param mtmv
      * @param tables
@@ -81,28 +79,39 @@ public class MTMVUtil {
      */
     public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables, Long gracePeriod) {
-        Long mtmvLastTime = getTableLastVisibleVersionTime(mtmv);
-        Long maxAvailableTime = mtmvLastTime + gracePeriod;
-        for (BaseTableInfo baseTableInfo : tables) {
-            TableIf table = null;
-            try {
-                table = getTable(baseTableInfo);
-            } catch (AnalysisException e) {
-                e.printStackTrace();
+        return isSync(getTableLastVisibleVersionTime(mtmv), tables, excludedTriggerTables, gracePeriod);
+    }
+
+    /**
+     * Determine whether the partition is sync with retated partition and other baseTables
+     *
+     * @param mtmv
+     * @param partitionId
+     * @param tables
+     * @param excludedTriggerTables
+     * @param gracePeriod
+     * @return
+     * @throws AnalysisException
+     */
+    public static boolean isMTMVPartitionSync(MTMV mtmv, Long partitionId, Set<BaseTableInfo> tables,
+            Set<String> excludedTriggerTables, Long gracePeriod) throws AnalysisException {
+        boolean isSyncWithPartition = true;
+        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+            OlapTable relatedTable = (OlapTable) getTable(mtmv.getMvPartitionInfo().getRelatedTable());
+            // if follow base table, not need compare with related table, only should compare with related partition
+            excludedTriggerTables.add(relatedTable.getName());
+            PartitionItem item = mtmv.getPartitionInfo().getItemOrAnalysisException(partitionId);
+            long relatedPartitionId = getExistPartitionId(item,
+                    relatedTable.getPartitionInfo().getIdToItem(false));
+            if (partitionId == -1L) {
                 return false;
             }
-            if (excludedTriggerTables.contains(table.getName())) {
-                continue;
-            }
-            if (!(table instanceof OlapTable)) {
-                continue;
-            }
-            long tableLastVisibleVersionTime = getTableLastVisibleVersionTime((OlapTable) table);
-            if (tableLastVisibleVersionTime > maxAvailableTime) {
-                return false;
-            }
+            isSyncWithPartition = isSyncWithPartition(mtmv, partitionId, relatedTable, relatedPartitionId);
         }
-        return true;
+        return isSyncWithPartition && isSync(
+                mtmv.getPartitionOrAnalysisException(partitionId).getVisibleVersionTimeIgnoreInit(), tables,
+                excludedTriggerTables, gracePeriod);
+
     }
 
     /**
@@ -181,12 +190,11 @@ public class MTMVUtil {
 
     /**
      * check if table is sync with all baseTables
-     * current, if table is not OlapTable, we will ignore it(return true)
      *
      * @param mtmv
      * @return
      */
-    public static boolean isSyncWithBaseTables(MTMV mtmv) {
+    public static boolean isMTMVSync(MTMV mtmv) {
         MTMVRelation mtmvRelation = mtmv.getRelation();
         if (mtmvRelation == null) {
             return false;
@@ -195,91 +203,63 @@ public class MTMVUtil {
     }
 
     /**
-     * check partitionId of mtmv isSync with relatedPartition of relatedTable
-     * if mtmv is not sync with other base tables, directly return false
+     * compare with related partition and non related table
      *
      * @param mtmv
      * @param partitionId partitionId of mtmv
      * @return
      */
-    public static boolean isSyncWithRelatedPartition(MTMV mtmv, Long partitionId) {
-        // if MTMVPartitionType is SELF_MANAGE, check if all table is sync
-        if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return isSyncWithBaseTables(mtmv);
-        }
+    public static boolean isMTMVPartitionSync(MTMV mtmv, Long partitionId) {
         try {
-            OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
-            if (mtmv.getRelation() == null || CollectionUtils.isEmpty(mtmv.getRelation().getBaseTables())) {
-                return false;
-            }
-            // Compare whether it is sync with all baseTables except for relatedTable
-            boolean mtmvFresh = isMTMVSync(mtmv, mtmv.getRelation().getBaseTables(),
-                    Sets.newHashSet(relatedTable.getName()), 0L);
-            if (!mtmvFresh) {
-                return false;
-            }
-            PartitionItem item = mtmv.getPartitionInfo().getItemOrAnalysisException(partitionId);
-            long relatedPartitionId = getExistPartitionId(item, relatedTable.getPartitionInfo().getIdToItem(false));
-            if (partitionId == -1L) {
-                return false;
-            }
-            return isSyncWithPartition(mtmv, partitionId, relatedTable, relatedPartitionId);
+            return isMTMVPartitionSync(mtmv, partitionId, mtmv.getRelation().getBaseTables(), Sets.newHashSet(), 0L);
         } catch (AnalysisException e) {
-            Log.warn(e.getMessage());
+            e.printStackTrace();
             return false;
         }
     }
 
     /**
-     * Determine whether the materialized view can be rewritten
+     * Determine which partition of mtmv can be rewritten
      *
      * @param mtmv
      * @param ctx
      * @return
-     * @throws AnalysisException
      */
-    public static boolean isMTMVCanRewrite(MTMV mtmv, ConnectContext ctx) throws AnalysisException {
+    public static Collection<Partition> getMTMVCanRewritePartitions(MTMV mtmv, ConnectContext ctx) {
+        List<Partition> res = Lists.newArrayList();
+        Collection<Partition> allPartitions = mtmv.getPartitions();
         // check session variable if enable rewrite
         if (!ctx.getSessionVariable().isEnableMvRewrite()) {
-            return false;
+            return res;
         }
         MTMVRelation mtmvRelation = mtmv.getRelation();
         if (mtmvRelation == null) {
-            return false;
+            return res;
         }
-        // chaek mv is normal
+        // check mv is normal
         if (!(mtmv.getStatus().getState() == MTMVState.NORMAL
                 && mtmv.getStatus().getRefreshState() == MTMVRefreshState.SUCCESS)) {
-            return false;
+            return res;
         }
         // check gracePeriod
         Long gracePeriod = mtmv.getGracePeriod();
         // do not care data is delayed
         if (gracePeriod < 0) {
-            return true;
+            return allPartitions;
         }
 
-        boolean containsExternalTable = containsExternalTable(mtmvRelation.getBaseTables());
-        if (containsExternalTable && !ctx.getSessionVariable().isEnableExternalMvRewrite()) {
-            return false;
-        }
-
-        return isMTMVSync(mtmv, mtmvRelation.getBaseTables(), mtmv.getExcludedTriggerTables(), gracePeriod);
-    }
-
-
-    public static Set<Partition> getMTMVCanRewritePartitions(MTMV mtmv, ConnectContext ctx) {
-        return null;
-    }
-
-
-    private static boolean containsExternalTable(Set<BaseTableInfo> baseTableInfos) {
-        for (BaseTableInfo baseTableInfo : baseTableInfos) {
-            if (InternalCatalog.INTERNAL_CATALOG_ID != baseTableInfo.getCtlId()) {
-                return true;
+        for (Partition partition : allPartitions) {
+            try {
+                if (isMTMVPartitionSync(mtmv, partition.getId(), mtmvRelation.getBaseTables(), Sets.newHashSet(),
+                        gracePeriod)) {
+                    res.add(partition);
+                }
+            } catch (AnalysisException e) {
+                // ignore it
+                e.printStackTrace();
             }
         }
-        return false;
+        return res;
     }
 
     /**
@@ -363,6 +343,7 @@ public class MTMVUtil {
 
     /**
      * compare PartitionItem and return equals partitionId
+     * if not found, return -1L
      *
      * @param target
      * @param sources
@@ -419,5 +400,39 @@ public class MTMVUtil {
             res.put(entry.getKey(), Sets.newHashSet(partitionId));
         }
         return res;
+    }
+
+    /**
+     * Determine is sync, ignoring excludedTriggerTables and non OlapTanle
+     *
+     * @param visibleVersionTime
+     * @param tables
+     * @param excludedTriggerTables
+     * @param gracePeriod
+     * @return
+     */
+    private static boolean isSync(long visibleVersionTime, Set<BaseTableInfo> tables,
+            Set<String> excludedTriggerTables, Long gracePeriod) {
+        long maxAvailableTime = visibleVersionTime + gracePeriod;
+        for (BaseTableInfo baseTableInfo : tables) {
+            TableIf table = null;
+            try {
+                table = getTable(baseTableInfo);
+            } catch (AnalysisException e) {
+                e.printStackTrace();
+                return false;
+            }
+            if (excludedTriggerTables.contains(table.getName())) {
+                continue;
+            }
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            long tableLastVisibleVersionTime = getTableLastVisibleVersionTime((OlapTable) table);
+            if (tableLastVisibleVersionTime > maxAvailableTime) {
+                return false;
+            }
+        }
+        return true;
     }
 }

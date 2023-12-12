@@ -61,16 +61,16 @@ public class MaterializationContext {
         this.mvScanPlan = mvScanPlan;
         this.baseTables = baseTables;
         this.baseViews = baseViews;
-        MTMVCache MTMVCache = mtmv.getCache();
+        MTMVCache mtmvCache = mtmv.getCache();
         // TODO This logic should move to materialized view cache manager
-        if (MTMVCache == null) {
-            MTMVCache = MTMVCache.from(mtmv, cascadesContext.getConnectContext());
-            mtmv.setCache(MTMVCache);
+        if (mtmvCache == null) {
+            mtmvCache = mtmvCache.from(mtmv, cascadesContext.getConnectContext());
+            mtmv.setCache(mtmvCache);
         }
-        List<NamedExpression> mvOutputExpressions = MTMVCache.getMvOutputExpressions();
+        List<NamedExpression> mvOutputExpressions = mtmvCache.getMvOutputExpressions();
         // mv output expression shuttle, this will be used to expression rewrite
         mvOutputExpressions =
-                ExpressionUtils.shuttleExpressionWithLineage(mvOutputExpressions, MTMVCache.getLogicalPlan()).stream()
+                ExpressionUtils.shuttleExpressionWithLineage(mvOutputExpressions, mtmvCache.getLogicalPlan()).stream()
                         .map(NamedExpression.class::cast)
                         .collect(Collectors.toList());
         this.viewExpressionMapping = ExpressionMapping.generate(
