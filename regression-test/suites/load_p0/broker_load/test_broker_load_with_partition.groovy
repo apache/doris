@@ -61,7 +61,7 @@ suite("test_broker_load_with_partition", "load_p0") {
                         LOAD LABEL ${label} (
                             DATA INFILE("${hdfsFilePath}")
                             INTO TABLE ${testTablex}
-                            PARTITION(`p202309`,`p202310`)
+                            PARTITION(`p202309`)
                             COLUMNS TERMINATED BY ","
                             FORMAT as "${format}"
                         )
