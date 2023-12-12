@@ -58,17 +58,6 @@ enum LRUCacheType {
     NUMBER // The capacity of cache is based on the number of cache entry.
 };
 
-static std::string lru_cache_type_string(LRUCacheType type) {
-    switch (type) {
-    case LRUCacheType::SIZE:
-        return "size";
-    case LRUCacheType::NUMBER:
-        return "number";
-    default:
-        LOG(FATAL) << "not match type of lru cache:" << static_cast<int>(type);
-    }
-}
-
 // Create a new cache with a specified name and capacity.
 // This implementation of Cache uses a least-recently-used eviction policy.
 extern Cache* new_lru_cache(const std::string& name, size_t capacity,
@@ -431,6 +420,17 @@ public:
 
 private:
     void update_cache_metrics() const;
+
+    static std::string lru_cache_type_string(LRUCacheType type) {
+        switch (type) {
+        case LRUCacheType::SIZE:
+            return "size";
+        case LRUCacheType::NUMBER:
+            return "number";
+        default:
+            LOG(FATAL) << "not match type of lru cache:" << static_cast<int>(type);
+        }
+    }
 
 private:
     static uint32_t _hash_slice(const CacheKey& s);
