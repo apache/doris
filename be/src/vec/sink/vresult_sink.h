@@ -21,6 +21,7 @@
 #include <gen_cpp/Types_types.h>
 #include <stddef.h>
 
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -157,6 +158,11 @@ private:
 
     // for fetch data by rowids
     TFetchOption _fetch_option;
+    int64_t _offset = 0;
+    int64_t _limit = -1;
+    bool _reached_limit = false;
+    int64_t _total_return_rows = 0;
+    int64_t _num_row_skipped = 0;
 };
 } // namespace vectorized
 

@@ -96,6 +96,9 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
     if (tnode.__isset.output_tuple_id) {
         _output_row_descriptor.reset(new RowDescriptor(descs, {tnode.output_tuple_id}, {true}));
     }
+    if (tnode.__isset.calc_found_rows && tnode.calc_found_rows) {
+        _limit = -1; //TODO: check how to handle offset ???
+    }
 }
 
 ExecNode::~ExecNode() = default;
