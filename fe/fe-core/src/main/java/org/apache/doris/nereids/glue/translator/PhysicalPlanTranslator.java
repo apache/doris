@@ -1539,8 +1539,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalLimit(PhysicalLimit<? extends Plan> physicalLimit, PlanTranslatorContext context) {
         PlanFragment inputFragment = physicalLimit.child(0).accept(this, context);
         PlanNode child = inputFragment.getPlanRoot();
-        child.setOffset(physicalLimit.getOffset());
-        child.setLimit(physicalLimit.getLimit());
+        //if (!context.getSessionVariable().isEnableFoundRows()) {
+            child.setOffset(physicalLimit.getOffset());
+            child.setLimit(physicalLimit.getLimit());
+        //}
         updateLegacyPlanIdToPhysicalPlan(child, physicalLimit);
         return inputFragment;
     }
