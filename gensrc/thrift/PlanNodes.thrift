@@ -890,6 +890,7 @@ struct TSortNode {
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
   7: optional bool use_topn_opt
+  8: optional bool merge_by_exchange
 }
 
 enum TopNAlgorithm {
@@ -999,6 +1000,8 @@ struct TAnalyticNode {
   // should be evaluated over a row that is composed of the child tuple and the buffered
   // tuple
   9: optional Exprs.TExpr order_by_eq
+
+  10: optional bool is_colocate
 }
 
 struct TMergeNode {
