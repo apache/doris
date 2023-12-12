@@ -171,6 +171,10 @@ public abstract class Edge {
 
     public abstract List<? extends Expression> getExpressions();
 
+    public Expression getExpression(int i) {
+        return getExpressions().get(i);
+    }
+
     @Override
     public String toString() {
         return String.format("<%s - %s>", LongBitmap.toString(leftExtendedNodes), LongBitmap.toString(
