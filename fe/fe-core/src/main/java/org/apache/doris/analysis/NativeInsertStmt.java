@@ -54,6 +54,7 @@ import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
@@ -1106,7 +1107,9 @@ public class NativeInsertStmt extends InsertStmt {
             LOG.warn("analyze group commit failed", e);
             return;
         }
-        if (ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+        boolean partialUpdate = ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate();
+        if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+                && ConnectContext.get().getSessionVariable().getSqlMode() == SqlModeHelper.MODE_DEFAULT
                 && targetTable instanceof OlapTable
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
@@ -1117,10 +1120,14 @@ public class NativeInsertStmt extends InsertStmt {
             if (selectStmt.getValueList() != null) {
                 for (List<Expr> row : selectStmt.getValueList().getRows()) {
                     for (Expr expr : row) {
-                        if (!expr.isLiteralOrCastExpr()) {
+                        if (!(expr instanceof LiteralExpr)) {
                             return;
                         }
                     }
+                }
+                // Does not support: insert into tbl values();
+                if (selectStmt.getValueList().getFirstRow().isEmpty() && CollectionUtils.isEmpty(targetColumnNames)) {
+                    return;
                 }
             } else {
                 SelectList selectList = selectStmt.getSelectList();
@@ -1128,7 +1135,7 @@ public class NativeInsertStmt extends InsertStmt {
                     List<SelectListItem> items = selectList.getItems();
                     if (items != null) {
                         for (SelectListItem item : items) {
-                            if (item.getExpr() != null && !item.getExpr().isLiteralOrCastExpr()) {
+                            if (item.getExpr() != null && !(item.getExpr() instanceof LiteralExpr)) {
                                 return;
                             }
                         }
