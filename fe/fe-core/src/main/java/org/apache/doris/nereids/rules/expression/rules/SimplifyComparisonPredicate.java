@@ -307,11 +307,11 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
                 decimal.scale() <= 0 && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
                 "decimal literal must have 0 scale and smaller than Long.MAX_VALUE");
         long val = decimal.longValue();
-        if (val <= Byte.MAX_VALUE) {
+        if (val >= Byte.MIN_VALUE && val <= Byte.MAX_VALUE) {
             return new TinyIntLiteral((byte) val);
-        } else if (val <= Short.MAX_VALUE) {
+        } else if (val >= Short.MIN_VALUE && val <= Short.MAX_VALUE) {
             return new SmallIntLiteral((short) val);
-        } else if (val <= Integer.MAX_VALUE) {
+        } else if (val >= Integer.MIN_VALUE && val <= Integer.MAX_VALUE) {
             return new IntegerLiteral((int) val);
         } else {
             return new BigIntLiteral(val);
