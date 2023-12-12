@@ -36,17 +36,24 @@ import java.util.Map;
  * For outer join we should check the outer join compatibility between query and view
  */
 public class LogicalCompatibilityContext {
-    private BiMap<StructInfoNode, StructInfoNode> queryToViewNodeMapping;
-    private BiMap<Expression, Expression> queryToViewEdgeExpressionMapping;
+    private final BiMap<StructInfoNode, StructInfoNode> queryToViewNodeMapping;
+    private final BiMap<Expression, Expression> queryToViewEdgeExpressionMapping;
+    private final BiMap<Integer, Integer> queryToViewNodeIDMapping;
 
     public LogicalCompatibilityContext(BiMap<StructInfoNode, StructInfoNode> queryToViewNodeMapping,
             BiMap<Expression, Expression> queryToViewEdgeExpressionMapping) {
         this.queryToViewNodeMapping = queryToViewNodeMapping;
         this.queryToViewEdgeExpressionMapping = queryToViewEdgeExpressionMapping;
+        this.queryToViewNodeIDMapping = HashBiMap.create();
+        queryToViewNodeMapping.forEach((k, v) -> queryToViewNodeIDMapping.put(k.getIndex(), v.getIndex()));
     }
 
     public BiMap<StructInfoNode, StructInfoNode> getQueryToViewNodeMapping() {
         return queryToViewNodeMapping;
+    }
+
+    public BiMap<Integer, Integer> getQueryToViewNodeIDMapping() {
+        return queryToViewNodeIDMapping;
     }
 
     public BiMap<Expression, Expression> getQueryToViewEdgeExpressionMapping() {

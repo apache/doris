@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -96,7 +97,7 @@ public class StructInfo {
 
         this.predicates = Predicates.of();
         // Collect predicate from join condition in hyper graph
-        this.hyperGraph.getEdges().forEach(edge -> {
+        this.hyperGraph.getJoinEdges().forEach(edge -> {
             List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
             hashJoinConjuncts.forEach(conjunctExpr -> {
                 predicates.addPredicate(conjunctExpr);
@@ -237,10 +238,11 @@ public class StructInfo {
      * For inner join should judge only the join tables,
      * for other join type should also judge the join direction, it's input filter that can not be pulled up etc.
      */
-    public static boolean isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
+    public static @Nullable List<Expression> isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
             LogicalCompatibilityContext compatibilityContext) {
-        // TODO: if not inner join, should check the join graph logical equivalence
-        return true;
+        // TODO: open it after supporting filter
+        // return queryStructInfo.hyperGraph.isLogicCompatible(viewStructInfo.hyperGraph, compatibilityContext);
+        return ImmutableList.of();
     }
 
     private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {

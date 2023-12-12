@@ -38,6 +38,7 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(_open_timer);
     _channel_id = info.task_idx;
     _shared_state->set_dep_by_channel_id(_dependency, _channel_id);
+    _shared_state->mem_trackers[_channel_id] = _mem_tracker.get();
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =

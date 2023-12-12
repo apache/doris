@@ -103,12 +103,12 @@ PROPERTIES (
     "replication_num" = "1"
 );
         """
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
     }
 
     def do_insert_into = { file_name, table_name ->
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
         logger.info("file:" + file_name)
         //read and insert

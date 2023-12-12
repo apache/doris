@@ -126,6 +126,35 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """insert into ${base_table} values (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
     order_qt_base1 """ select * from ${base_table} order by int_col; """
 
+    sql """drop table if exists all_null_tbl"""
+    sql """
+        create table all_null_tbl (
+            bool_col boolean,
+            tinyint_col tinyint,
+            smallint_col smallint,
+            int_col int,
+            bigint_col bigint,
+            largeint_col largeint,
+            float_col float,
+            double_col double,
+            decimal_col decimal(10, 5),
+            decimal_col2 decimal(30, 10),
+            date_col date,
+            datetime_col datetime(3),
+            char_col char(10),
+            varchar_col varchar(10),
+            json_col json
+        )
+        DUPLICATE KEY(`bool_col`)
+        DISTRIBUTED BY HASH(`bool_col`) BUCKETS 3
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """insert into all_null_tbl values (null, null, null, null, null, null, null, null, null, null, null, null, null, null, null);"""
+    order_qt_all_null """ select * from all_null_tbl order by int_col; """
+
     sql """drop table if exists ${arr_table}"""
     sql """
         create table ${arr_table} (
@@ -189,6 +218,7 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ use ${internal_db_name} """
     order_qt_tb2 """ select pin_id, hll_union_agg(user_log_acct) from ${catalog_name}.${internal_db_name}.${hllTable} group by pin_id; """
     order_qt_base2 """ select * from ${catalog_name}.${internal_db_name}.${base_table} order by int_col; """
+    order_qt_all_null2 """ select * from ${catalog_name}.${internal_db_name}.all_null_tbl order by int_col; """
     order_qt_arr2 """ select * from ${catalog_name}.${internal_db_name}.${arr_table} order by int_col; """
     sql """ drop table if exists internal.${internal_db_name}.ctas_base; """
     sql """ drop table if exists internal.${internal_db_name}.ctas_arr; """
@@ -212,6 +242,7 @@ suite("test_doris_jdbc_catalog", "p0,external,doris,external_docker,external_doc
     sql """ drop table if exists ${inDorisTable} """
     sql """ drop table if exists ${hllTable} """
     sql """ drop table if exists ${base_table} """
+    sql """ drop table if exists all_null_tbl """
     sql """ drop table if exists ${arr_table} """
     sql """ drop table if exists test_insert_order """
 

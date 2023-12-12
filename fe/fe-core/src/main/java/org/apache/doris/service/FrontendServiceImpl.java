@@ -227,6 +227,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -1992,10 +1993,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             NativeInsertStmt parsedStmt = (NativeInsertStmt) SqlParserUtils.getFirstStmt(parser);
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (request.isGroupCommit()) {
+            if (!StringUtils.isEmpty(request.getGroupCommitMode())) {
                 if (parsedStmt.getLabel() != null) {
                     throw new AnalysisException("label and group_commit can't be set at the same time");
                 }
+                ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
                 parsedStmt.isGroupCommitStreamLoadSql = true;
             }
             StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
@@ -2083,7 +2085,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId(), multiTableFragmentInstanceIdIndex);
-            if (!request.isGroupCommit()) {
+            if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
                 // add table indexes to transaction state
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionState(db.getId(), request.getTxnId());
@@ -2149,7 +2151,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
-            if (!request.isGroupCommit()) {
+            if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
                 // add table indexes to transaction state
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionState(db.getId(), request.getTxnId());

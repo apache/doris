@@ -1511,17 +1511,19 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
-                    int64_t published_count =
-                            tablet->published_count.fetch_add(1, std::memory_order_relaxed);
-                    if (published_count % 10 == 0) {
-                        auto st = _engine.submit_compaction_task(
-                                tablet, CompactionType::CUMULATIVE_COMPACTION, true);
-                        if (!st.ok()) [[unlikely]] {
-                            LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
-                                         << ", published=" << published_count << " : " << st;
-                        } else {
-                            LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
-                                      << ", published:" << published_count;
+                    if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                        int64_t published_count =
+                                tablet->published_count.fetch_add(1, std::memory_order_relaxed);
+                        if (published_count % 10 == 0) {
+                            auto st = _engine.submit_compaction_task(
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                            if (!st.ok()) [[unlikely]] {
+                                LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
+                                             << ", published=" << published_count << " : " << st;
+                            } else {
+                                LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
+                                          << ", published:" << published_count;
+                            }
                         }
                     }
                 } else {
