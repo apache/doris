@@ -665,14 +665,15 @@ public class HyperGraph {
         long tRight = t.getRightExtendedNodes();
         long oLeft = o.getLeftExtendedNodes();
         long oRight = o.getRightExtendedNodes();
-        if (!t.getJoinType().equals(o.getJoinType())) {
-            if (!t.getJoinType().swap().equals(o.getJoinType())) {
-                return false;
-            }
-            oRight = o.getLeftExtendedNodes();
-            oLeft = o.getRightExtendedNodes();
+        if (!t.getJoinType().equals(o.getJoinType()) && !t.getJoinType().swap().equals(o.getJoinType())) {
+            return false;
         }
-        return compareNodeMap(tLeft, oLeft, nodeMap) && compareNodeMap(tRight, oRight, nodeMap);
+        boolean matched = false;
+        if (t.getJoinType().swap().equals(o.getJoinType())) {
+            matched  |= compareNodeMap(tRight, oLeft, nodeMap) && compareNodeMap(tLeft, oRight, nodeMap);
+        }
+        matched |= compareNodeMap(tLeft, oLeft, nodeMap) && compareNodeMap(tRight, oRight, nodeMap);
+        return matched;
     }
 
     private boolean compareNodeMap(long bitmap1, long bitmap2, Map<Integer, Integer> nodeIDMap) {

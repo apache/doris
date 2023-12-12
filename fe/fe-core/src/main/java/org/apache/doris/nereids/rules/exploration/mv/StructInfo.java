@@ -266,9 +266,7 @@ public class StructInfo {
      */
     public static @Nullable List<Expression> isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
             LogicalCompatibilityContext compatibilityContext) {
-        // TODO: open it after supporting filter
-        // return queryStructInfo.hyperGraph.isLogicCompatible(viewStructInfo.hyperGraph, compatibilityContext);
-        return ImmutableList.of();
+        return queryStructInfo.hyperGraph.isLogicCompatible(viewStructInfo.hyperGraph, compatibilityContext);
     }
 
     private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {
