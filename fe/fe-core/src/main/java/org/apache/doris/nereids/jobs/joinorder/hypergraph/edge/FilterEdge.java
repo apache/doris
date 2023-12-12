@@ -49,6 +49,10 @@ public class FilterEdge extends Edge {
         return rejectEdges;
     }
 
+    public boolean isTopFilter() {
+        return rejectEdges.isEmpty();
+    }
+
     @Override
     public Set<Slot> getInputSlots() {
         return filter.getInputSlots();
