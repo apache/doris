@@ -193,7 +193,8 @@ Status EnginePublishVersionTask::execute() {
                         add_error_tablet_id(tablet_info.tablet_id);
                         // When there are too many missing versions, do not directly retry the
                         // publish and handle it through async publish.
-                        if (max_version + 20 < version.first) {
+                        if (max_version + config::mow_publish_max_discontinuous_version_num <
+                            version.first) {
                             StorageEngine::instance()->add_async_publish_task(
                                     partition_id, tablet_info.tablet_id, version.first,
                                     _publish_version_req.transaction_id, false);
