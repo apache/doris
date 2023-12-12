@@ -59,14 +59,28 @@ Status VWalWriter::init() {
     RETURN_IF_ERROR(_wal_manager->add_wal_path(_db_id, _tb_id, _wal_id, _label));
     RETURN_IF_ERROR(_wal_manager->create_wal_writer(_wal_id, _wal_writer));
     _wal_manager->add_wal_status_queue(_tb_id, _wal_id, WalManager::WAL_STATUS::CREATE);
+#ifndef BE_TEST
+    if (config::wait_relay_wal_finish) {
+        std::shared_ptr<std::mutex> lock = std::make_shared<std::mutex>();
+        std::shared_ptr<std::condition_variable> cv = std::make_shared<std::condition_variable>();
+        auto st1 = _wal_manager->add_wal_cv_map(_wal_id, lock, cv);
+        if (!st1.ok()) {
+            LOG(WARNING) << "fail to add wal_id " << _wal_id << " to wal_cv_map";
+        }
+    }
+#endif
     std::stringstream ss;
+    std::stringstream ss1;
     for (auto slot_desc : _slot_descs) {
         if (slot_desc.col_unique_id < 0) {
             continue;
         }
         ss << std::to_string(slot_desc.col_unique_id) << ",";
+        ss1 << slot_desc.colName << ",";
     }
     std::string col_ids = ss.str().substr(0, ss.str().size() - 1);
+    LOG(INFO) << "col_name:" << ss1.str();
+    LOG(INFO) << "col_ids:" << ss.str();
     RETURN_IF_ERROR(_wal_writer->append_header(_version, col_ids));
     return Status::OK();
 }
@@ -81,6 +95,15 @@ Status VWalWriter::write_wal(vectorized::Block* block) {
 }
 
 Status VWalWriter::close() {
+    if (config::wait_relay_wal_finish){
+        std::string wal_path;
+        RETURN_IF_ERROR(_wal_manager->get_wal_path(_wal_id, wal_path));
+        LOG(INFO) << "close file " << wal_path;
+        RETURN_IF_ERROR(_wal_manager->add_recover_wal(std::to_string(_db_id),
+                                                      std::to_string(_tb_id),
+                                                      std::vector<std::string> {wal_path}));
+        RETURN_IF_ERROR(_wal_manager->wait_relay_wal_finish(_wal_id));
+    }
     if (_wal_writer != nullptr) {
         RETURN_IF_ERROR(_wal_writer->finalize());
     }

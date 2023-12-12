@@ -42,7 +42,8 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block, bool 
     }
     if (block->rows() > 0) {
         _block_queue.push_back(block);
-        if (write_wal) {
+        if (write_wal || config::wait_relay_wal_finish) {
+            LOG(INFO) << "write wal " << block->dump_data(0, 2);
             RETURN_IF_ERROR(_v_wal_writer->write_wal(block.get()));
         }
         _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
@@ -355,8 +356,10 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
         _exec_env->wal_mgr()->add_wal_status_queue(table_id, txn_id,
                                                    WalManager::WAL_STATUS::REPLAY);
     } else {
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(txn_id));
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
+        if (!config::wait_relay_wal_finish) {
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(txn_id));
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
+        }
     }
     std::stringstream ss;
     ss << "finish group commit, db_id=" << db_id << ", table_id=" << table_id << ", label=" << label
@@ -457,8 +460,10 @@ Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& i
 Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                   const std::string& import_label, WalManager* wal_manager,
                                   std::vector<TSlotDescriptor>& slot_desc, int be_exe_version) {
+    std::string real_label =
+            config::wait_relay_wal_finish ? import_label + "_test_wait" : import_label;
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
-            db_id, tb_id, txn_id, label, wal_manager, slot_desc, be_exe_version);
+            db_id, tb_id, wal_id, real_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();
 }
 

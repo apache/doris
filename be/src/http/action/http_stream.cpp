@@ -198,6 +198,10 @@ int HttpStreamAction::on_header(HttpRequest* req) {
             }
         }
     }
+    auto label = req->header(HTTP_LABEL_KEY);
+    if (label.find("_test_wait") != label.npos) {
+        ctx->group_commit = false;
+    }
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
               << " sql : " << req->header(HTTP_SQL) << ", group_commit=" << ctx->group_commit;

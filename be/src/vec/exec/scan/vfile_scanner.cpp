@@ -321,6 +321,7 @@ Status VFileScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
         // Init src block for load job based on the data file schema (e.g. parquet)
         // For query job, simply set _src_block_ptr to block.
         size_t read_rows = 0;
+        LOG(INFO) << "raw:" << block->dump_data();
         RETURN_IF_ERROR(_init_src_block(block));
         {
             SCOPED_TIMER(_get_block_timer);

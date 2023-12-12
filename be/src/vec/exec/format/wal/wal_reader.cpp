@@ -51,14 +51,16 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     }
     vectorized::Block src_block;
     RETURN_IF_ERROR(src_block.deserialize(pblock));
+    LOG(INFO) << "src block:" << src_block.dump_data(0, 2);
     //convert to dst block
     vectorized::Block dst_block;
     int index = 0;
     auto columns = block->get_columns_with_type_and_name();
     for (auto column : columns) {
         auto pos = _column_index[index];
+        LOG(INFO) << "pos:" << pos;
         vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
-        if (column.column->is_nullable()) {
+        if (column_ptr != nullptr && column.column->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
         dst_block.insert(index, vectorized::ColumnWithTypeAndName(std::move(column_ptr),
@@ -67,7 +69,7 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     }
     block->swap(dst_block);
     *read_rows = block->rows();
-    VLOG_DEBUG << "read block rows:" << *read_rows;
+    LOG(INFO) << "read block rows:" << *read_rows;
     return Status::OK();
 }
 

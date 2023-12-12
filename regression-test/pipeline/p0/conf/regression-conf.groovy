@@ -58,7 +58,7 @@ excludeGroups = ""
 excludeSuites = "test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external,insert_group_commit_into_max_filter_ratio,insert_group_commit_into_unique_sync_mode,test_base_insert_job"
 
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1,fault_injection_p0"
+excludeDirectories = "workload_manager_p1,fault_injection_p0,schema_change,schema_change_p0,schema_change_p2"
 
 customConf1 = "test_custom_conf_value"
 

@@ -218,6 +218,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
 
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
+        _runtime_state->set_txn_id(request.fragment.output_sink.olap_table_sink.txn_id);
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
                 row_desc(), runtime_state(), &_sink, *_desc_tbl));

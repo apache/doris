@@ -1181,6 +1181,7 @@ DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
 DECLARE_mInt32(group_commit_insert_threads);
 DECLARE_mInt32(group_commit_memory_rows_for_max_filter_ratio);
 DECLARE_Bool(wait_internal_group_commit_finish);
+DECLARE_Bool(wait_relay_wal_finish);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
