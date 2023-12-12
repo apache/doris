@@ -403,7 +403,7 @@ Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, con
     const ColumnStruct& struct_col = assert_cast<const ColumnStruct&>(column);
     for (size_t row_id = start; row_id < end; row_id++) {
         for (int i = 0; i < struct_col.tuple_size(); ++i) {
-            static_cast<void>(elemSerDeSPtrs[i]->write_column_to_orc(
+            RETURN_IF_ERROR(elemSerDeSPtrs[i]->write_column_to_orc(
                     timezone, struct_col.get_column(i), nullptr, cur_batch->fields[i], row_id,
                     row_id + 1, buffer_list));
         }

@@ -370,9 +370,9 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
     for (size_t row_id = start; row_id < end; row_id++) {
         size_t offset = offsets[row_id - 1];
         size_t next_offset = offsets[row_id];
-        static_cast<void>(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
-                                                            cur_batch->elements.get(), offset,
-                                                            next_offset, buffer_list));
+        RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
+                                                          cur_batch->elements.get(), offset,
+                                                          next_offset, buffer_list));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();

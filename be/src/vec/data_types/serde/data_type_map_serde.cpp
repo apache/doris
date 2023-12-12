@@ -494,12 +494,12 @@ Status DataTypeMapSerDe::write_column_to_orc(const std::string& timezone, const 
         size_t offset = offsets[row_id - 1];
         size_t next_offset = offsets[row_id];
 
-        static_cast<void>(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
-                                                         cur_batch->keys.get(), offset, next_offset,
-                                                         buffer_list));
-        static_cast<void>(value_serde->write_column_to_orc(timezone, nested_values_column, nullptr,
-                                                           cur_batch->elements.get(), offset,
-                                                           next_offset, buffer_list));
+        RETURN_IF_ERROR(key_serde->write_column_to_orc(timezone, nested_keys_column, nullptr,
+                                                       cur_batch->keys.get(), offset, next_offset,
+                                                       buffer_list));
+        RETURN_IF_ERROR(value_serde->write_column_to_orc(timezone, nested_values_column, nullptr,
+                                                         cur_batch->elements.get(), offset,
+                                                         next_offset, buffer_list));
 
         cur_batch->offsets[row_id + 1] = next_offset;
     }

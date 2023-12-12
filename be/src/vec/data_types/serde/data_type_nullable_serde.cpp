@@ -328,9 +328,9 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     // because orc_null_map begins at start and only has (end - start) elements
     memcpy(orc_col_batch->notNull.data() + start, orc_null_map.data(), end - start);
 
-    static_cast<void>(nested_serde->write_column_to_orc(
-            timezone, column_nullable.get_nested_column(), &column_nullable.get_null_map_data(),
-            orc_col_batch, start, end, buffer_list));
+    RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
+                                                      &column_nullable.get_null_map_data(),
+                                                      orc_col_batch, start, end, buffer_list));
     return Status::OK();
 }
 

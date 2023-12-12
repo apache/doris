@@ -72,13 +72,13 @@ suite("test_outfile_orc_one_nested_type", "p0") {
         create_table(export_table_name, struct_field_define)
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', {{1, 'sn1', 'sa1'}}); """
-        sql """ insert into ${export_table_name} values (2, 'doris2', {{2, 'sn2', 'sa2'}}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null}); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', struct(struct(1, 'sn1', 'sa1'))); """
+        sql """ insert into ${export_table_name} values (2, 'doris2', struct(struct(2, 'sn2', 'sa2'))); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', struct(null)); """
         sql """ insert into ${export_table_name} values (4, 'doris4', null); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {{5, 'sn5', 'sa5'}}); """
-        sql """ insert into ${export_table_name} values (6, 'doris6', {{6, 'sn6', 'sa6'}}); """
-        sql """ insert into ${export_table_name} values (7, null, {{7, 'sn7', 'sa7'}}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', struct(struct(5, 'sn5', 'sa5'))); """
+        sql """ insert into ${export_table_name} values (6, 'doris6', struct(struct(6, 'sn6', 'sa6'))); """
+        sql """ insert into ${export_table_name} values (7, null, struct(struct(7, 'sn7', 'sa7'))); """
         sql """ insert into ${export_table_name} values (8, null, null); """
 
 
@@ -105,12 +105,12 @@ suite("test_outfile_orc_one_nested_type", "p0") {
         create_table(export_table_name, struct_field_define)
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', {{1, 'sn1', 'sa1'}}); """
-        sql """ insert into ${export_table_name} values (2, 'doris2', {{2, 'sn2', 'sa2'}}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null}); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {{5, 'sn5', 'sa5'}}); """
-        sql """ insert into ${export_table_name} values (6, 'doris6', {{6, 'sn6', 'sa6'}}); """
-        sql """ insert into ${export_table_name} values (7, null, {{7, 'sn7', 'sa7'}}); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', struct(struct(1, 'sn1', 'sa1'))); """
+        sql """ insert into ${export_table_name} values (2, 'doris2', struct(struct(2, 'sn2', 'sa2'))); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', struct(null)); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', struct(struct(5, 'sn5', 'sa5'))); """
+        sql """ insert into ${export_table_name} values (6, 'doris6', struct(struct(6, 'sn6', 'sa6'))); """
+        sql """ insert into ${export_table_name} values (7, null, struct(struct(7, 'sn7', 'sa7'))); """
 
         // test base data
         qt_select_base2 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
@@ -135,15 +135,15 @@ suite("test_outfile_orc_one_nested_type", "p0") {
         create_table(export_table_name, struct_field_define)
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', {['doris1', 'nereids1', 'doris-nereids-1']}); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', struct(['doris1', 'nereids1', 'doris-nereids-1'])); """
         // sql """ insert into ${export_table_name} values (2, 'doris2', {[]}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null}); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', struct(null)); """
         sql """ insert into ${export_table_name} values (4, 'doris4', null); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {['doris2', null, 'nereids2']}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', struct(['doris2', null, 'nereids2'])); """
         // sql """ insert into ${export_table_name} values (6, 'doris6', {[null, null, null]}); """
-        sql """ insert into ${export_table_name} values (7, null, {[null, 'null', 'doris3']}); """
+        sql """ insert into ${export_table_name} values (7, null, struct([null, 'null', 'doris3'])); """
         sql """ insert into ${export_table_name} values (8, null, null); """
-        sql """ insert into ${export_table_name} values (9, null, {['sn7', 'sa7', 'sn8', 'sa8', 'sn9', 'sa9', 'sn10', 'sa10']}); """
+        sql """ insert into ${export_table_name} values (9, null, struct(['sn7', 'sa7', 'sn8', 'sa8', 'sn9', 'sa9', 'sn10', 'sa10'])); """
 
 
         // test base data
@@ -169,13 +169,13 @@ suite("test_outfile_orc_one_nested_type", "p0") {
         create_table(export_table_name, struct_field_define)
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', {{'a': 100, 'b': 111}}); """
-        sql """ insert into ${export_table_name} values (2, 'doris2', {{'a': 200, 'b': 222}}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {null}); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', struct({'a': 100, 'b': 111})); """
+        sql """ insert into ${export_table_name} values (2, 'doris2', struct({'a': 200, 'b': 222})); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', struct(null)); """
         sql """ insert into ${export_table_name} values (4, 'doris4', null); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', {{'a': null, 'b': 333, 'c':399, 'd':399999999999999}}); """
-        sql """ insert into ${export_table_name} values (6, 'doris6', {{'null': 100, 'b': null}}); """
-        sql """ insert into ${export_table_name} values (7, null, {{'null': null, 'null':null}}); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', struct({'a': null, 'b': 333, 'c':399, 'd':399999999999999})); """
+        sql """ insert into ${export_table_name} values (6, 'doris6', struct({'null': 100, 'b': null})); """
+        sql """ insert into ${export_table_name} values (7, null, struct({'null': null, 'null':null})); """
         sql """ insert into ${export_table_name} values (8, null, null); """
 
 
@@ -202,15 +202,15 @@ suite("test_outfile_orc_one_nested_type", "p0") {
         create_table(export_table_name, struct_field_define)
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', [{1, 'doris1'}, {2, 'nereids1'}, {3, 'doris-nereids-1'}]); """ 
-        sql """ insert into ${export_table_name} values (2, 'doris2', [{4, 'doris-nereids-4'}]); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', []); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', [null, null , {5, 'doris-nereids-5'}]); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', [{6, 'doris7'}, null, null]); """
-        sql """ insert into ${export_table_name} values (6, 'doris6', [null, null, null]); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', array(struct(1, 'doris1'), struct(2, 'nereids1'), struct(3, 'doris-nereids-1'))); """ 
+        sql """ insert into ${export_table_name} values (2, 'doris2', array(struct(4, 'doris-nereids-4'))); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', array()); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', array(null, null, struct(5, 'doris-nereids-5'))); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', array(struct(6, 'doris7'), null, null)); """
+        sql """ insert into ${export_table_name} values (6, 'doris6', array(null, null, null)); """
         sql """ insert into ${export_table_name} values (7, null, null); """
-        sql """ insert into ${export_table_name} values (8, null, [{8, 'doris8'}]); """
-        sql """ insert into ${export_table_name} values (9, null, [{9, 'doris9'}, {10, 'doris10'}]); """
+        sql """ insert into ${export_table_name} values (8, null, array(struct(8, 'doris8'))); """
+        sql """ insert into ${export_table_name} values (9, null, array(struct(9, 'doris9'), struct(10, 'doris10'))); """
 
 
         // test base data
@@ -235,14 +235,14 @@ suite("test_outfile_orc_one_nested_type", "p0") {
         create_table(export_table_name, struct_field_define)
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', [{1, 'doris1'}, {2, 'nereids1'}, {3, 'doris-nereids-1'}]); """ 
-        sql """ insert into ${export_table_name} values (2, 'doris2', [{4, 'doris-nereids-4'}]); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', []); """
-        sql """ insert into ${export_table_name} values (4, 'doris4', [null, null , {5, 'doris-nereids-5'}]); """
-        sql """ insert into ${export_table_name} values (5, 'doris5', [{6, 'doris7'}, null, null]); """
-        sql """ insert into ${export_table_name} values (6, 'doris6', [null, null, null]); """
-        sql """ insert into ${export_table_name} values (8, null, [{8, 'doris8'}]); """
-        sql """ insert into ${export_table_name} values (9, null, [{9, 'doris9'}, {10, 'doris10'}]); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', array(struct(1, 'doris1'), struct(2, 'nereids1'), struct(3, 'doris-nereids-1'))); """ 
+        sql """ insert into ${export_table_name} values (2, 'doris2', array(struct(4, 'doris-nereids-4'))); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', array()); """
+        sql """ insert into ${export_table_name} values (4, 'doris4', array(null, null, struct(5, 'doris-nereids-5'))); """
+        sql """ insert into ${export_table_name} values (5, 'doris5', array(struct(6, 'doris7'), null, null)); """
+        sql """ insert into ${export_table_name} values (6, 'doris6', array(null, null, null)); """
+        sql """ insert into ${export_table_name} values (8, null, array(struct(8, 'doris8'))); """
+        sql """ insert into ${export_table_name} values (9, null, array(struct(9, 'doris9'), struct(10, 'doris10'))); """
 
 
         // test base data
@@ -333,12 +333,12 @@ suite("test_outfile_orc_one_nested_type", "p0") {
         create_table(export_table_name, struct_field_define)
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', {'a': {'doris', 18}, 'b':{'nereids', 20}, 'c':{'nereids', 21}}); """
-        sql """ insert into ${export_table_name} values (2, 'doris2', {'xx': null, 'a': {'doris', 18}}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {'dd': {null, null}}); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', map('a', struct('doris', 18), 'b', struct('nereids', 20), 'c', struct('nereids', 21))); """
+        sql """ insert into ${export_table_name} values (2, 'doris2', map('xx', null, 'a', struct('doris', 18))); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', map('dd', struct(null, null))); """
         sql """ insert into ${export_table_name} values (4, 'doris4', null); """
         sql """ insert into ${export_table_name} values (5, 'doris5', {'doris-nereids': {'nereids', null}, 'yyzz': {null, 999999}}); """
-        sql """ insert into ${export_table_name} values (7, null, {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (7, null, map('null', null, 'null',null)); """
         sql """ insert into ${export_table_name} values (8, null, null); """
 
         // test base data
@@ -363,11 +363,11 @@ suite("test_outfile_orc_one_nested_type", "p0") {
         create_table(export_table_name, struct_field_define)
 
         // insert data
-        sql """ insert into ${export_table_name} values (1, 'doris1', {'a': {'doris', 18}, 'b':{'nereids', 20}, 'c':{'nereids', 21}}); """
-        sql """ insert into ${export_table_name} values (2, 'doris2', {'xx': null, 'a': {'doris', 18}}); """
-        sql """ insert into ${export_table_name} values (3, 'doris3', {'dd': {null, null}}); """
+        sql """ insert into ${export_table_name} values (1, 'doris1', map('a', struct('doris', 18), 'b', struct('nereids', 20), 'c', struct('nereids', 21))); """
+        sql """ insert into ${export_table_name} values (2, 'doris2', map('xx', null, 'a', struct('doris', 18))); """
+        sql """ insert into ${export_table_name} values (3, 'doris3', map('dd', struct(null, null))); """
         sql """ insert into ${export_table_name} values (5, 'doris5', {'doris-nereids': {'nereids', null}, 'yyzz': {null, 999999}}); """
-        sql """ insert into ${export_table_name} values (7, null, {'null': null, 'null':null}); """
+        sql """ insert into ${export_table_name} values (7, null, map('null', null, 'null',null)); """
 
         // test base data
         qt_select_base10 """ SELECT * FROM ${export_table_name} t ORDER BY user_id; """
