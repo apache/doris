@@ -23,23 +23,38 @@
 
 suite("flink_connector_syncdb") {
 
-    def tableName1 = "tbl1"
-    def tableName2 = "tbl2"
+    def tableName1 = "student1"
+    def tableName2 = "student2"
     sql """DROP TABLE IF EXISTS ${tableName1}"""
     sql """DROP TABLE IF EXISTS ${tableName2}"""
 
     sql """
-        CREATE TABLE `tbl1`
-        (
-            `id`   int,
-            `name` varchar(32),
-            `age`  int
-        ) DISTRIBUTED BY HASH(`id`) BUCKETS 1
-        PROPERTIES (
-          "replication_num" = "1"
-        );
+        CREATE TABLE `student1`
+(
+    `id`   int,
+    `name` varchar(32),
+    `age`  int
+) 
+UNIQUE KEY(`id`)
+DISTRIBUTED BY HASH(`id`) BUCKETS 1
+PROPERTIES (
+"replication_num" = "1",
+"light_schema_change" = "true"
+);
     """
-    sql """CREATE TABLE `tbl2` like `tbl1`;"""
+    sql """
+CREATE TABLE `student2`
+(
+    `id`   int,
+    `name` varchar(32),
+    `age`  int
+) 
+UNIQUE KEY(`id`)
+DISTRIBUTED BY HASH(`id`) BUCKETS 1
+PROPERTIES (
+"replication_num" = "1",
+"light_schema_change" = "true"
+);"""
 
     logger.info("start delete local flink-doris-syncdb.jar...")
     def delete_local_flink_jar = "rm -rf flink-doris-syncdb.jar".execute()
