@@ -39,17 +39,6 @@ import java.util.Optional;
  */
 public abstract class Command extends AbstractPlan implements LogicalPlan, BlockFuncDepsPropagation {
 
-    /**
-     * Type of DML Command
-     */
-    public enum DMLCommandType {
-        NONE,
-        INSERT,
-        UPDATE,
-        DELETE,
-        LOAD
-    }
-
     protected Command(PlanType type) {
         super(type, Optional.empty(), Optional.empty(), null, ImmutableList.of());
     }

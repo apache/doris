@@ -45,7 +45,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.Command.DMLCommandType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -168,6 +168,10 @@ public class BindSink implements AnalysisRuleFactory {
                                 }
                             }
 
+                            // Don't require user to provide sequence column for partial updates,
+                            // including the following cases:
+                            // 1. it's a load job with `partial_columns=true`
+                            // 2. UPDATE and DELETE, planner will automatically add these hidden columns
                             if (!haveInputSeqCol && !isPartialUpdate && (
                                     boundSink.getDmlCommandType() != DMLCommandType.UPDATE
                                             && boundSink.getDmlCommandType() != DMLCommandType.DELETE)) {
