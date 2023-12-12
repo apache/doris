@@ -126,6 +126,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
                     .map(each -> each.collectToList(NamedExpression.class::isInstance))
                     .flatMap(Collection::stream)
                     .map(NamedExpression.class::cast)
+                    .distinct()
                     .collect(Collectors.toMap(NamedExpression::getExprId, expr -> expr));
         }
 
