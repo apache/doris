@@ -56,9 +56,9 @@ PROPERTIES (
 "light_schema_change" = "true"
 );"""
 
-    logger.info("start delete local flink-doris-syncdb.jar...")
+    logger.info("start delete local flink-doris-syncdb.jar....")
     def delete_local_flink_jar = "rm -rf flink-doris-syncdb.jar".execute()
-    logger.info("start download flink-doris-syncdb.jar ...")
+    logger.info("start download flink-doris-syncdb.jar ....")
     logger.info("getS3Url: ${getS3Url()}")
     def download_flink_jar = "curl ${getS3Url()}/regression/flink-doris-syncdb.jar  --output flink-doris-syncdb.jar".execute().getText()
     logger.info("finish download flink-doris-syncdb.jar ...")
