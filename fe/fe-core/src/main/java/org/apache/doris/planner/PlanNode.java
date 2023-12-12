@@ -88,6 +88,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected PlanFragmentId fragmentId;  // assigned by planner after fragmentation step
     protected long limit; // max. # of rows to be returned; 0: no limit
     protected long offset;
+    protected boolean calcFoundRows;
 
     // ids materialized by the tree rooted at this node
     protected ArrayList<TupleId> tupleIds;
@@ -162,6 +163,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.id = id;
         this.limit = -1;
         this.offset = 0;
+        this.calcFoundRows = false;
         // make a copy, just to be on the safe side
         this.tupleIds = Lists.newArrayList(tupleIds);
         this.tblRefIds = Lists.newArrayList(tupleIds);
@@ -174,6 +176,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     protected PlanNode(PlanNodeId id, String planNodeName, StatisticalType statisticalType) {
         this.id = id;
         this.limit = -1;
+        this.calcFoundRows = false;
         this.tupleIds = Lists.newArrayList();
         this.tblRefIds = Lists.newArrayList();
         this.cardinality = -1;
@@ -189,6 +192,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.id = id;
         this.limit = node.limit;
         this.offset = node.offset;
+        this.calcFoundRows = node.calcFoundRows;
         this.tupleIds = Lists.newArrayList(node.tupleIds);
         this.tblRefIds = Lists.newArrayList(node.tblRefIds);
         this.nullableTupleIds = Sets.newHashSet(node.nullableTupleIds);
@@ -264,6 +268,14 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public PlanFragment getFragment() {
         return fragment;
+    }
+
+    public boolean calcFoundRows() {
+        return calcFoundRows;
+    }
+
+    public void setCalcFoundRows(boolean calcFoundRows) {
+        this.calcFoundRows = calcFoundRows;
     }
 
     public long getLimit() {
@@ -543,6 +555,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         if (limit != -1) {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
         }
+        if (calcFoundRows) {
+            expBuilder.append(detailPrefix + "calcFoundRows: " + (calcFoundRows ? "true" : "false") + "\n");
+        }
         if (!CollectionUtils.isEmpty(projectList)) {
             expBuilder.append(detailPrefix).append("projections: ").append(getExplainString(projectList)).append("\n");
             expBuilder.append(detailPrefix).append("project output tuple id: ")
@@ -581,6 +596,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         if (limit != -1) {
             expBuilder.append(prefix + "limit: " + limit + "\n");
         }
+        if (calcFoundRows) {
+            expBuilder.append(prefix + "calcFoundRows: " + (calcFoundRows ? "true" : "false") + "\n");
+        }
         if (!CollectionUtils.isEmpty(projectList)) {
             expBuilder.append(prefix).append("projections: ").append(getExplainString(projectList)).append("\n");
             expBuilder.append(prefix).append("project output tuple id: ")
@@ -618,6 +636,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         msg.node_id = id.asInt();
         msg.num_children = children.size();
         msg.limit = limit;
+        msg.calc_found_rows = calcFoundRows;
         for (TupleId tid : tupleIds) {
             msg.addToRowTuples(tid.asInt());
             msg.addToNullableTuples(nullableTupleIds.contains(tid));
@@ -850,6 +869,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         StringBuilder output = new StringBuilder();
         output.append("preds=" + Expr.debugString(conjuncts));
         output.append(" limit=" + Long.toString(limit));
+        output.append("   calcFoundRows=" + Boolean.toString(calcFoundRows));
         return output.toString();
     }
 

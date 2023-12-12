@@ -37,9 +37,17 @@ import java.util.Optional;
  */
 public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
+    private long limit;
+    private long offset;
 
     public LogicalResultSink(List<NamedExpression> outputExprs, CHILD_TYPE child) {
         super(PlanType.LOGICAL_RESULT_SINK, outputExprs, child);
+    }
+
+    public LogicalResultSink(List<NamedExpression> outputExprs, long limit, long offset, CHILD_TYPE child) {
+        super(PlanType.LOGICAL_RESULT_SINK, outputExprs, child);
+        this.limit = limit;
+        this.offset = offset;
     }
 
     public LogicalResultSink(List<NamedExpression> outputExprs,
@@ -48,11 +56,35 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
         super(PlanType.LOGICAL_RESULT_SINK, outputExprs, groupExpression, logicalProperties, child);
     }
 
+    public LogicalResultSink(List<NamedExpression> outputExprs, long limit, long offset,
+            Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(PlanType.LOGICAL_RESULT_SINK, outputExprs, groupExpression, logicalProperties, child);
+        this.limit = limit;
+        this.offset = offset;
+    }
+
+    public long getLimit() {
+        return limit;
+    }
+
+    public long getOffset() {
+        return offset;
+    }
+
+    public void setOffset(long offset) {
+        this.offset = offset;
+    }
+
+    public void setLimit(long limit) {
+        this.limit = limit;
+    }
+
     @Override
     public LogicalResultSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalResultSink's children size must be 1, but real is %s", children.size());
-        return new LogicalResultSink<>(outputExprs, children.get(0));
+        return new LogicalResultSink<>(outputExprs, limit, offset, children.get(0));
     }
 
     @Override
@@ -62,14 +94,15 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
 
     @Override
     public LogicalResultSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalResultSink<>(outputExprs, groupExpression, Optional.of(getLogicalProperties()), child());
+        return new LogicalResultSink<>(outputExprs, limit, offset, groupExpression,
+                Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public LogicalResultSink<Plan> withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalResultSink only accepts one child");
-        return new LogicalResultSink<>(outputExprs, groupExpression, logicalProperties, children.get(0));
+        return new LogicalResultSink<>(outputExprs, limit, offset, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override
