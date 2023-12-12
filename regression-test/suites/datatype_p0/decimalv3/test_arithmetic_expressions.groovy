@@ -17,6 +17,7 @@
 
 suite("test_arithmetic_expressions") {
 
+    sql "set check_overflow_for_decimal=true;"
     def table1 = "test_arithmetic_expressions"
 
     sql "drop table if exists ${table1}"
