@@ -73,7 +73,6 @@ import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
-import org.apache.doris.nereids.jobs.load.replay.ReplayLoadLog;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
@@ -679,7 +678,7 @@ public class EditLog {
                 }
                 case OperationType.OP_DELETE_SCHEDULER_JOB: {
                     AbstractJob job = (AbstractJob) journal.getData();
-                    Env.getCurrentEnv().getJobManager().replayDeleteJob(job);
+                    Env.getCurrentEnv().getJobManager().replayEndJob(job);
                     break;
                 }
                 /*case OperationType.OP_CREATE_SCHEDULER_TASK: {
@@ -716,16 +715,6 @@ public class EditLog {
                 case OperationType.OP_UPDATE_LOAD_JOB: {
                     LoadJobStateUpdateInfo info = (LoadJobStateUpdateInfo) journal.getData();
                     env.getLoadManager().replayUpdateLoadJobStateInfo(info);
-                    break;
-                }
-                case OperationType.OP_CREATE_NEW_LOAD_JOB: {
-                    ReplayLoadLog.ReplayCreateLoadLog loadJob = (ReplayLoadLog.ReplayCreateLoadLog) journal.getData();
-                    env.getLoadMgr().replayLoadJob(loadJob);
-                    break;
-                }
-                case OperationType.OP_END_NEW_LOAD_JOB: {
-                    ReplayLoadLog.ReplayEndLoadLog loadJob = (ReplayLoadLog.ReplayEndLoadLog) journal.getData();
-                    env.getLoadMgr().replayLoadJob(loadJob);
                     break;
                 }
                 case OperationType.OP_CREATE_SYNC_JOB: {
@@ -1611,7 +1600,7 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
-    public void logDeleteJob(AbstractJob job) {
+    public void logEndJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
 
@@ -1941,13 +1930,5 @@ public class EditLog {
     public void logAlterMTMV(AlterMTMV log) {
         logEdit(OperationType.OP_ALTER_MTMV, log);
 
-    }
-
-    public void logLoadCreate(ReplayLoadLog log) {
-        logEdit(OperationType.OP_CREATE_NEW_LOAD_JOB, log);
-    }
-
-    public void logLoadEnd(ReplayLoadLog log) {
-        logEdit(OperationType.OP_END_NEW_LOAD_JOB, log);
     }
 }

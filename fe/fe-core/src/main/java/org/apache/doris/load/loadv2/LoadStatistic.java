@@ -26,6 +26,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Table;
 import com.google.gson.Gson;
 
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -44,6 +45,8 @@ public class LoadStatistic {
     private Map<TUniqueId, List<Long>> unfinishedBackendIds = Maps.newHashMap();
     // load task id -> all backend id list
     private Map<TUniqueId, List<Long>> allBackendIds = Maps.newHashMap();
+
+    private Map<String, String> counters = new HashMap<>();
 
     // number of file to be loaded
     public int fileNum = 0;
@@ -100,6 +103,11 @@ public class LoadStatistic {
             total += bytes;
         }
         return total;
+    }
+
+    public Map<String, String> getCounters() {
+        // TODO: add extra statistics to counters
+        return counters;
     }
 
     public synchronized String toJson() {

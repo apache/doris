@@ -172,7 +172,7 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelLoadStmt) {
             CancelLoadStmt cs = (CancelLoadStmt) ddlStmt;
             // cancel all
-            env.getLoadMgr().cancelLoadJob(cs.getDbName(), cs.getLabel(), cs.getState(), cs.getOperator());
+            env.getJobManager().cancelLoadJob(cs);
             env.getLoadManager().cancelLoadJob(cs);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);

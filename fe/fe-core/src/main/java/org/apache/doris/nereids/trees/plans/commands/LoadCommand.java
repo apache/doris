@@ -485,7 +485,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
             jobExecutionConfiguration.setExecuteType(JobExecuteType.INSTANT);
             InsertJob jobExecutor = new InsertJob(ctx, executor, labelName, plans,
                     sinkTableNames, properties, comment, jobExecutionConfiguration);
-            Env.getCurrentEnv().getLoadMgr().addLoadJob(jobExecutor);
+            Env.getCurrentEnv().getJobManager().registerJob(jobExecutor);
         } catch (Exception e) {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw new NereidsException("Command process failed.", new AnalysisException(e.getMessage(), e));

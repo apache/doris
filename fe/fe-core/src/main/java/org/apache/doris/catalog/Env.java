@@ -182,7 +182,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.jobs.load.LoadMgr;
+import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -349,7 +349,6 @@ public class Env {
     private GroupCommitManager groupCommitManager;
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private ExportMgr exportMgr;
-    private LoadMgr loadMgr;
     private SyncJobManager syncJobManager;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
@@ -363,6 +362,7 @@ public class Env {
 
     private ExportTaskRegister exportTaskRegister;
     private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
+    private LabelProcessor labelProcessor;
     private TransientTaskManager transientTaskManager;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -624,7 +624,6 @@ public class Env {
         this.groupCommitManager = new GroupCommitManager();
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.exportMgr = new ExportMgr();
-        this.loadMgr = new LoadMgr();
         this.syncJobManager = new SyncJobManager();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -640,6 +639,7 @@ public class Env {
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobManager = new JobManager<>();
+        this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
         this.transientTaskManager = new TransientTaskManager();
@@ -3867,10 +3867,6 @@ public class Env {
         return this.exportMgr;
     }
 
-    public LoadMgr getLoadMgr() {
-        return this.loadMgr;
-    }
-
     public SyncJobManager getSyncJobManager() {
         return this.syncJobManager;
     }
@@ -3882,6 +3878,10 @@ public class Env {
 
     public JobManager getJobManager() {
         return jobManager;
+    }
+
+    public LabelProcessor getLabelProcessor() {
+        return labelProcessor;
     }
 
     public TransientTaskManager getTransientTaskManager() {

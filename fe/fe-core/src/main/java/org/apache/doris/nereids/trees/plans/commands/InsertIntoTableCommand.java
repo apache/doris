@@ -27,6 +27,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.ProfileManager.ProfileType;
+import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -108,7 +109,9 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         runInternal(ctx, executor);
     }
 
-    public void statefulRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
+    public void runWithUpdateInfo(ConnectContext ctx, StmtExecutor executor,
+                                  LoadStatistic loadStatistic) throws Exception {
+        // TODO: add coordinator statistic
         runInternal(ctx, executor);
     }
 

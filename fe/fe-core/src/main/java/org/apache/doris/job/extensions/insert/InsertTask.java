@@ -26,7 +26,6 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
@@ -37,7 +36,6 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import lombok.Getter;
@@ -56,8 +54,6 @@ public class InsertTask extends AbstractTask {
             new Column("JobId", ScalarType.createStringType()),
             new Column("Label", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
-            new Column("EtlInfo", ScalarType.createStringType()),
-            new Column("TaskInfo", ScalarType.createStringType()),
             new Column("ErrorMsg", ScalarType.createStringType()),
             new Column("CreateTimeMs", ScalarType.createStringType()),
             new Column("FinishTimeMs", ScalarType.createStringType()),
@@ -76,32 +72,24 @@ public class InsertTask extends AbstractTask {
     }
 
     private String labelName;
-
     private InsertIntoTableCommand command;
-
     private StmtExecutor stmtExecutor;
-
     private ConnectContext ctx;
-
     private String sql;
-
     private String currentDb;
-
     private UserIdentity userIdentity;
-
-    private LoadStatistic statistic;
-    private FailMsg failMsg;
-
+    private LoadStatistic loadStatistic;
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
-
     private AtomicBoolean isFinished = new AtomicBoolean(false);
-
     private static final String LABEL_SPLITTER = "_";
 
+    private FailMsg failMsg;
+    @Getter
+    private String trackingUrl;
 
     @Getter
     @Setter
-    private LoadJob loadJob;
+    private InsertJob jobInfo;
     private TaskType taskType = TaskType.PENDING;
     private MergeType mergeType = MergeType.APPEND;
 
@@ -136,7 +124,7 @@ public class InsertTask extends AbstractTask {
         this.sql = sql;
         this.currentDb = currentDb;
         this.userIdentity = userIdentity;
-
+        setTaskId(Env.getCurrentEnv().getNextId());
     }
 
     public InsertTask(String labelName, InsertIntoTableCommand insertInto,
@@ -145,9 +133,8 @@ public class InsertTask extends AbstractTask {
         this.command = insertInto;
         this.ctx = ctx;
         this.stmtExecutor = executor;
-        this.statistic = statistic;
+        this.loadStatistic = statistic;
         setTaskId(Env.getCurrentEnv().getNextId());
-        // 是否会在follower上回放？
     }
 
     @Override
@@ -188,7 +175,7 @@ public class InsertTask extends AbstractTask {
                 log.info("task has been canceled, task id is {}", getTaskId());
                 return;
             }
-            command.statefulRun(ctx, stmtExecutor);
+            command.runWithUpdateInfo(ctx, stmtExecutor, loadStatistic);
         } catch (Exception e) {
             log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
                     getTaskId(), sql, e);
@@ -223,42 +210,28 @@ public class InsertTask extends AbstractTask {
     @Override
     public TRow getTvfInfo() {
         TRow trow = new TRow();
-        if (loadJob == null) {
+        if (jobInfo == null) {
             // if task not start, load job is null,return pending task show info
             return getPendingTaskTVFInfo();
         }
-        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(loadJob.getId())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(jobInfo.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLabel()));
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getState().name()));
-        // etl info
-        String etlInfo = FeConstants.null_string;
-        if (!loadJob.getLoadingStatus().getCounters().isEmpty()) {
-            etlInfo = Joiner.on("; ").withKeyValueSeparator("=").join(loadJob.getLoadingStatus().getCounters());
-        }
-        trow.addToColumnValue(new TCell().setStringVal(etlInfo));
-
-        // task info
-        String taskInfo = "cluster:" + loadJob.getResourceName() + "; timeout(s):" + loadJob.getTimeout()
-                + "; max_filter_ratio:" + loadJob.getMaxFilterRatio() + "; priority:" + loadJob.getPriority();
-        trow.addToColumnValue(new TCell().setStringVal(taskInfo));
-
+        trow.addToColumnValue(new TCell().setStringVal(labelName));
+        trow.addToColumnValue(new TCell().setStringVal(jobInfo.getJobStatus().name()));
         // err msg
         String errMsg = FeConstants.null_string;
-        if (loadJob.getFailMsg() != null) {
-            errMsg = "type:" + loadJob.getFailMsg().getCancelType() + "; msg:" + loadJob.getFailMsg().getMsg();
+        if (failMsg != null) {
+            errMsg = "type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg();
         }
         trow.addToColumnValue(new TCell().setStringVal(errMsg));
-
         // create time
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(loadJob.getCreateTimestamp())));
-
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(jobInfo.getCreateTimeMs())));
         // load end time
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(loadJob.getFinishTimestamp())));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(jobInfo.getFinishTimeMs())));
         // tracking url
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadingStatus().getTrackingUrl()));
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getUserInfo().getQualifiedUser()));
+        trow.addToColumnValue(new TCell().setStringVal(trackingUrl));
+        trow.addToColumnValue(new TCell().setStringVal(loadStatistic.toJson()));
+        trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
         return trow;
     }
 
@@ -269,8 +242,6 @@ public class InsertTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
         trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
-        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
-        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
         trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));

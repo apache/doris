@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.insert;
 
+import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
@@ -29,22 +30,23 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Privilege;
-import org.apache.doris.nereids.jobs.load.replay.ReplayLoadLog;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
@@ -54,8 +56,10 @@ import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.ErrorTabletInfo;
 import org.apache.doris.transaction.TabletCommitInfo;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.Lists;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.annotations.SerializedName;
@@ -65,6 +69,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -76,12 +81,12 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 @EqualsAndHashCode(callSuper = true)
 @Data
 @Slf4j
-public class InsertJob extends AbstractJob<InsertTask, Map> {
+public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createStringType()),
@@ -96,53 +101,54 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
 
     private static final ShowResultSetMetaData TASK_META_DATA =
             ShowResultSetMetaData.builder()
-                    .addColumn(new Column("TaskId", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("Label", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("TaskId", ScalarType.createVarchar(80)))
+                    .addColumn(new Column("Label", ScalarType.createVarchar(80)))
                     .addColumn(new Column("Status", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("EtlInfo", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("TaskInfo", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("ErrorMsg", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("EtlInfo", ScalarType.createVarchar(100)))
+                    .addColumn(new Column("TaskInfo", ScalarType.createVarchar(100)))
+                    .addColumn(new Column("ErrorMsg", ScalarType.createVarchar(100)))
 
                     .addColumn(new Column("CreateTimeMs", ScalarType.createVarchar(20)))
                     .addColumn(new Column("FinishTimeMs", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("TrackingUrl", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(20)))
-                    .addColumn(new Column("User", ScalarType.createVarchar(20)))
+                    .addColumn(new Column("TrackingUrl", ScalarType.createVarchar(200)))
+                    .addColumn(new Column("LoadStatistic", ScalarType.createVarchar(200)))
+                    .addColumn(new Column("User", ScalarType.createVarchar(50)))
                     .build();
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
     static {
-        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder<>();
         for (int i = 0; i < SCHEMA.size(); i++) {
             builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
         }
         COLUMN_TO_INDEX = builder.build();
     }
 
-    @SerializedName("taskIdList")
+    @SerializedName("tls")
     ConcurrentLinkedQueue<Long> taskIdList;
-
+    @SerializedName("did")
     private final long dbId;
+    @SerializedName("ln")
     private String labelName;
-    private List<InsertIntoTableCommand> plans;
+    @SerializedName("lt")
     private InsertJob.LoadType loadType;
     // 0: the job status is pending
     // n/100: n is the number of task which has been finished
     // 99: all tasks have been finished
     // 100: txn status is visible and load has been finished
+    @SerializedName("pg")
     private int progress;
-    private long createTimestamp = System.currentTimeMillis();
-    private long startTimestamp = -1;
-    private long finishTimestamp = -1;
+    @SerializedName("fm")
     private FailMsg failMsg;
+    @SerializedName("plans")
+    private List<InsertIntoTableCommand> plans;
     private LoadStatistic loadStatistic = new LoadStatistic();
     private Set<Long> finishedTaskIds = new HashSet<>();
     private Set<String> tableNames;
     private ConcurrentHashMap<Long, InsertTask> idToTasks = new ConcurrentHashMap<>();
     private Map<String, String> properties;
     private AuthorizationInfo authorizationInfo;
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     private ConnectContext ctx;
     private StmtExecutor stmtExecutor;
@@ -163,23 +169,34 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
 
     }
 
-    public InsertJob(ReplayLoadLog.ReplayCreateLoadLog replayLoadLog) {
-        super(replayLoadLog.getId());
-        setJobId(replayLoadLog.getId());
-        this.dbId = replayLoadLog.getDbId();
+    public enum Priority {
+        HIGH(0),
+        NORMAL(1),
+        LOW(2);
+
+        Priority(int value) {
+            this.value = value;
+        }
+
+        private final int value;
+
+        public int getValue() {
+            return value;
+        }
     }
 
-    public InsertJob(Long jobId, String jobName,
+    public InsertJob(String jobName,
                      JobStatus jobStatus,
-                     String currentDbName,
+                     LabelName labelName,
                      String comment,
                      UserIdentity createUser,
                      JobExecutionConfiguration jobConfig,
                      Long createTimeMs,
                      String executeSql) {
-        super(jobId, jobName, jobStatus, currentDbName, comment, createUser,
+        super(Env.getCurrentEnv().getNextId(), jobName, jobStatus, labelName.getDbName(), comment, createUser,
                 jobConfig, createTimeMs, executeSql, null);
         this.dbId = ConnectContext.get().getCurrentDbId();
+        this.labelName = labelName.getLabelName();
     }
 
     public InsertJob(ConnectContext ctx,
@@ -204,16 +221,17 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
     }
 
     @Override
-    public List<InsertTask> createTasks(TaskType taskType, Map taskContext) {
+    public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
         if (plans.isEmpty()) {
             InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
-            task.setJobId(getJobId());
             task.setTaskType(taskType);
-            task.setTaskId(Env.getCurrentEnv().getNextId());
+            task.setJobId(getJobId());
+            task.setCreateTimeMs(System.currentTimeMillis());
+            task.setStatus(TaskStatus.PENDING);
             ArrayList<InsertTask> tasks = new ArrayList<>();
             tasks.add(task);
             super.initTasks(tasks);
-            addNewTask(task.getTaskId());
+            recordTask(task.getTaskId());
             return tasks;
         } else {
             return createBatchTasks(taskType);
@@ -226,16 +244,18 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
             InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
             task.setJobId(getJobId());
             task.setTaskType(taskType);
+            task.setCreateTimeMs(System.currentTimeMillis());
+            task.setStatus(TaskStatus.PENDING);
             idToTasks.put(task.getTaskId(), task);
-            initTasks(tasks);
+            recordTask(task.getTaskId());
         }
+        initTasks(tasks);
         return new ArrayList<>(idToTasks.values());
     }
 
-    public void addNewTask(long id) {
+    private void recordTask(long id) {
         if (CollectionUtils.isEmpty(taskIdList)) {
             taskIdList = new ConcurrentLinkedQueue<>();
-            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
             taskIdList.add(id);
             return;
         }
@@ -243,7 +263,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
         if (taskIdList.size() >= MAX_SAVE_TASK_NUM) {
             taskIdList.poll();
         }
-        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
     @Override
@@ -251,31 +270,21 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
         super.cancelTaskById(taskId);
     }
 
-    public void cancelJob(FailMsg failMsg) throws DdlException {
-        writeLock();
+    @Override
+    public void cancelAllTasks() throws JobException {
         try {
             checkAuth("CANCEL LOAD");
-            cancelAllTasks();
-            logFinalOperation();
-            this.failMsg = failMsg;
-        } catch (JobException e) {
-            throw new RuntimeException(e);
-        } finally {
-            writeUnlock();
+            super.cancelAllTasks();
+            this.failMsg = new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel");
+        } catch (DdlException e) {
+            throw new JobException(e);
         }
     }
 
     @Override
-    public boolean isReadyForScheduling(Map taskContext) {
+    public boolean isReadyForScheduling(Map<Object, Object> taskContext) {
         return CollectionUtils.isEmpty(getRunningTasks());
     }
-
-
-    @Override
-    public void cancelAllTasks() throws JobException {
-        super.cancelAllTasks();
-    }
-
 
     @Override
     protected void checkJobParamsInternal() {
@@ -292,29 +301,22 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
         if (CollectionUtils.isEmpty(taskIdList)) {
             return new ArrayList<>();
         }
-        //TODO it's will be refactor, we will storage task info in job inner and query from it
         List<Long> taskIdList = new ArrayList<>(this.taskIdList);
         Collections.reverse(taskIdList);
-        List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIdList);
-        if (CollectionUtils.isEmpty(loadJobs)) {
+        return queryLoadTasksByTaskIds(taskIdList);
+    }
+
+    public List<InsertTask> queryLoadTasksByTaskIds(List<Long> taskIdList) {
+        if (taskIdList.isEmpty()) {
             return new ArrayList<>();
         }
-        List<InsertTask> tasks = new ArrayList<>();
-        loadJobs.forEach(loadJob -> {
-            InsertTask task;
-            try {
-                task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
-                task.setCreateTimeMs(loadJob.getCreateTimestamp());
-            } catch (MetaNotFoundException e) {
-                log.warn("load job not found, job id is {}", loadJob.getId());
-                return;
+        List<InsertTask> jobs = new ArrayList<>();
+        taskIdList.forEach(id -> {
+            if (null != idToTasks.get(id)) {
+                jobs.add(idToTasks.get(id));
             }
-            task.setJobId(getJobId());
-            task.setTaskId(loadJob.getId());
-            task.setLoadJob(loadJob);
-            tasks.add(task);
         });
-        return tasks;
+        return jobs;
     }
 
     @Override
@@ -344,101 +346,120 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
 
     @Override
     public List<String> getShowInfo() {
-        List<String> jobInfo = new ArrayList<>();
+        try {
+            // check auth
+            checkAuth("SHOW LOAD");
+            List<String> jobInfo = Lists.newArrayList();
+            // jobId
+            jobInfo.add(getJobId().toString());
+            // label
+            jobInfo.add(getLabelName());
+            // state
+            jobInfo.add(getJobStatus().name());
 
-        // jobId
-        jobInfo.add(String.valueOf(getJobId()));
-        // label
-        jobInfo.add(labelName);
-        // state
-        jobInfo.add(getJobStatus().name());
+            // progress
+            String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(getJobId()));
+            switch (getJobStatus()) {
+                case RUNNING:
+                    if (isPending()) {
+                        jobInfo.add("ETL:0%; LOAD:0%");
+                    } else {
+                        jobInfo.add("ETL:100%; LOAD:" + progress + "%");
+                    }
+                    break;
+                case FINISHED:
+                    jobInfo.add("ETL:100%; LOAD:100%");
+                    break;
+                case STOPPED:
+                default:
+                    jobInfo.add("ETL:N/A; LOAD:N/A");
+                    break;
+            }
+            // type
+            jobInfo.add(loadType.name());
 
-        // progress
-        switch (getJobStatus()) {
-            case RUNNING:
-                if (isPending()) {
-                    jobInfo.add("ETL:0%; LOAD:0%");
-                } else {
-                    jobInfo.add("ETL:100%; LOAD:" + progress + "%");
-                }
-                break;
-            case FINISHED:
-                jobInfo.add("ETL:100%; LOAD:100%");
-                break;
-            case STOPPED:
-            default:
-                jobInfo.add("ETL:N/A; LOAD:N/A");
-                break;
-        }
-
-        // type
-        jobInfo.add(loadType.name());
-
-        // etl info
-        if (isCancelled()) {
-            jobInfo.add(FeConstants.null_string);
-        } else {
-            //            Map<String, String> counters = status.getCounters();
-            List<String> info = new ArrayList<>();
-            //            for (String key : counters.keySet()) {
-            //                // XXX: internal etl job return all counters
-            //                if (key.equalsIgnoreCase("HDFS bytes read")
-            //                        || key.equalsIgnoreCase("Map input records")
-            //                        || key.startsWith("dpp.")) {
-            //                    info.add(key + "=" + counters.get(key));
-            //                }
-            //            } // end for counters
-            if (info.isEmpty()) {
+            // etl info
+            if (loadStatistic.getCounters().size() == 0) {
                 jobInfo.add(FeConstants.null_string);
             } else {
-                jobInfo.add(StringUtils.join(info, "; "));
+                jobInfo.add(Joiner.on("; ").withKeyValueSeparator("=").join(loadStatistic.getCounters()));
             }
+
+            // task info
+            jobInfo.add("cluster:" + getResourceName() + "; timeout(s):" + getTimeout()
+                    + "; max_filter_ratio:" + getMaxFilterRatio() + "; priority:" + getPriority());
+            // error msg
+            if (failMsg == null) {
+                jobInfo.add(FeConstants.null_string);
+            } else {
+                jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
+            }
+
+            // create time
+            jobInfo.add(TimeUtils.longToTimeString(getCreateTimeMs()));
+            // etl start time
+            jobInfo.add(TimeUtils.longToTimeString(getStartTimeMs()));
+            // etl end time
+            jobInfo.add(TimeUtils.longToTimeString(getStartTimeMs()));
+            // load start time
+            jobInfo.add(TimeUtils.longToTimeString(getStartTimeMs()));
+            // load end time
+            jobInfo.add(TimeUtils.longToTimeString(getFinishTimeMs()));
+            // tracking urls
+            List<String> trackingUrl = idToTasks.values().stream()
+                    .map(InsertTask::getTrackingUrl)
+                    .collect(Collectors.toList());
+            if (trackingUrl.isEmpty()) {
+                jobInfo.add(FeConstants.null_string);
+            } else {
+                jobInfo.add(trackingUrl.toString());
+            }
+            // job details
+            jobInfo.add(loadStatistic.toJson());
+            // transaction id
+            jobInfo.add(String.valueOf(0));
+            // error tablets
+            jobInfo.add(errorTabletsToJson());
+            // user, some load job may not have user info
+            if (getCreateUser() == null || getCreateUser().getQualifiedUser() == null) {
+                jobInfo.add(FeConstants.null_string);
+            } else {
+                jobInfo.add(getCreateUser().getQualifiedUser());
+            }
+            // comment
+            jobInfo.add(getComment());
+            return jobInfo;
+        } catch (DdlException e) {
+            throw new RuntimeException(e);
         }
+    }
 
-        // task info
-        jobInfo.add("cluster:" + "N/A"
-                + "; timeout(s):" + properties.get(LoadStmt.TIMEOUT_PROPERTY)
-                + "; max_filter_ratio:" + properties.get(LoadStmt.MAX_FILTER_RATIO_PROPERTY));
+    private String getPriority() {
+        return properties.getOrDefault(LoadStmt.PRIORITY, Priority.NORMAL.name());
+    }
 
-        // error msg
-        if (isCancelled()) {
-            jobInfo.add("type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg());
-        } else {
-            jobInfo.add(FeConstants.null_string);
+    public double getMaxFilterRatio() {
+        return Double.parseDouble(properties.getOrDefault(LoadStmt.MAX_FILTER_RATIO_PROPERTY, "0.0"));
+    }
+
+    public long getTimeout() {
+        if (properties.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+            return Long.parseLong(properties.get(LoadStmt.TIMEOUT_PROPERTY));
         }
+        return Config.broker_load_default_timeout_second;
+    }
 
-        // create time
-        jobInfo.add(TimeUtils.longToTimeString(createTimestamp));
-        // Deprecated. etl end time
-        jobInfo.add(TimeUtils.longToTimeString(startTimestamp));
-        // Deprecated. etl end time
-        jobInfo.add(TimeUtils.longToTimeString(startTimestamp));
-        // load start time
-        jobInfo.add(TimeUtils.longToTimeString(startTimestamp));
-        // load end time
-        jobInfo.add(TimeUtils.longToTimeString(finishTimestamp));
-        // tracking url
-        // jobInfo.add(status.getTrackingUrl());
-        // job detail(not used for hadoop load, just return an empty string)
-        jobInfo.add(loadStatistic.toJson());
-        // transaction id
-        // jobInfo.add(String.valueOf(transactionId));
-        // error tablets(not used for hadoop load, just return an empty string)
-        jobInfo.add(errorTabletsToJson());
-        // user
-        jobInfo.add(getCreateUser().getQualifiedUser());
-        // comment
-        jobInfo.add(getComment());
-        return jobInfo;
+
+    public static InsertJob readFields(DataInput in) throws IOException {
+        String jsonJob = Text.readString(in);
+        InsertJob job = GsonUtils.GSON.fromJson(jsonJob, InsertJob.class);
+        job.setRunningTasks(new ArrayList<>());
+        return job;
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
-    }
-
-    public String getLabel() {
-        return labelName;
     }
 
     public String errorTabletsToJson() {
@@ -456,13 +477,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
         if (progress == 100) {
             progress = 99;
         }
-    }
-
-    /**
-     * This method will cancel job without edit log and lock
-     */
-    protected void logFinalOperation() {
-        Env.getCurrentEnv().getEditLog().logLoadEnd(ReplayLoadLog.logEndLoadOperation(this));
     }
 
     private void checkAuth(String command) throws DdlException {
@@ -507,12 +521,17 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
         }
     }
 
-    public void unprotectReadEndOperation(ReplayLoadLog.ReplayEndLoadLog replayLoadLog) {
-        setJobStatus(replayLoadLog.getLoadingStatus());
-        progress = replayLoadLog.getProgress();
-        startTimestamp = replayLoadLog.getStartTimestamp();
-        finishTimestamp = replayLoadLog.getFinishTimestamp();
-        failMsg = replayLoadLog.getFailMsg();
+    public void unprotectReadEndOperation(InsertJob replayLog) {
+        setJobStatus(replayLog.getJobStatus());
+        progress = replayLog.getProgress();
+        setStartTimeMs(replayLog.getStartTimeMs());
+        setFinishTimeMs(replayLog.getFinishTimeMs());
+        failMsg = replayLog.getFailMsg();
+    }
+
+    public String getResourceName() {
+        // TODO: get tvf param from tvf relation
+        return LoadType.BULK.name();
     }
 
     public boolean isRunning() {
@@ -523,35 +542,50 @@ public class InsertJob extends AbstractJob<InsertTask, Map> {
         return getJobStatus() != JobStatus.FINISHED;
     }
 
-    public boolean isCommitted() {
-        return getJobStatus() != JobStatus.FINISHED;
-    }
-
-    public boolean isFinished() {
-        return getJobStatus() == JobStatus.FINISHED;
-    }
-
     public boolean isCancelled() {
         return getJobStatus() == JobStatus.STOPPED;
     }
 
+    @Override
+    public void onRegister() throws JobException {
+        try {
+            Env.getCurrentEnv().getLabelProcessor().addJob(this);
+        } catch (LabelAlreadyUsedException e) {
+            throw new JobException(e);
+        }
+    }
+
+    @Override
+    public void onUnRegister() throws JobException {
+        Env.getCurrentEnv().getLabelProcessor().removeJob(getDbId(), getLabelName());
+    }
+
+    @Override
+    public void onReplayCreate() throws JobException {
+        JobExecutionConfiguration jobConfig = new JobExecutionConfiguration();
+        jobConfig.setExecuteType(JobExecuteType.INSTANT);
+        setJobConfig(jobConfig);
+        try {
+            Env.getCurrentEnv().getLabelProcessor().addJob(this);
+        } catch (LabelAlreadyUsedException e) {
+            throw new JobException(e);
+        }
+        checkJobParams();
+        log.info(new LogBuilder(LogKey.LOAD_JOB, getJobId()).add("msg", "replay create load job").build());
+    }
+
+    @Override
+    public void onReplayEnd(AbstractJob<?, Map<Object, Object>> replayJob) throws JobException {
+        if (!(replayJob instanceof InsertJob)) {
+            return;
+        }
+        InsertJob insertJob = (InsertJob) replayJob;
+        unprotectReadEndOperation(insertJob);
+        log.info(new LogBuilder(LogKey.LOAD_JOB,
+                insertJob.getJobId()).add("operation", insertJob).add("msg", "replay end load job").build());
+    }
+
     public int getProgress() {
         return progress;
-    }
-
-    protected void readLock() {
-        lock.readLock().lock();
-    }
-
-    protected void readUnlock() {
-        lock.readLock().unlock();
-    }
-
-    protected void writeLock() {
-        lock.writeLock().lock();
-    }
-
-    protected void writeUnlock() {
-        lock.writeLock().unlock();
     }
 }

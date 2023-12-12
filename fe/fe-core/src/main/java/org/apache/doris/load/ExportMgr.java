@@ -53,20 +53,41 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
-public class ExportMgr extends DataTransFormMgr {
+public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
     private Map<Long, ExportJob> exportIdToJob = Maps.newHashMap(); // exportJobId to exportJob
     // dbid -> <label -> job>
     private Map<Long, Map<String, Long>> dbTolabelToExportJobId = Maps.newHashMap();
+
+    // lock for export job
+    // lock is private and must use after db lock
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     public ExportMgr() {
     }
 
     public List<ExportJob> getJobs() {
         return Lists.newArrayList(exportIdToJob.values());
+    }
+
+    private void readLock() {
+        lock.readLock().lock();
+    }
+
+    private void readUnlock() {
+        lock.readLock().unlock();
+    }
+
+    private void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    private void writeUnlock() {
+        lock.writeLock().unlock();
     }
 
     public void addExportJobAndRegisterTask(ExportJob job) throws Exception {

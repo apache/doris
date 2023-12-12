@@ -182,6 +182,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.job.manager.JobManager;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportMgr;
@@ -191,7 +192,6 @@ import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.jobs.load.LoadMgr;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
@@ -1178,7 +1178,7 @@ public class ShowExecutor {
         loadInfos.addAll(env.getLoadManager()
                 .getLoadJobInfosByDb(dbId, showStmt.getLabelValue(), showStmt.isAccurateMatch(), statesValue));
         // add the nerieds load info
-        LoadMgr loadMgr = env.getLoadMgr();
+        JobManager loadMgr = env.getJobManager();
         loadInfos.addAll(loadMgr.getLoadJobInfosByDb(dbId, db.getFullName(), showStmt.getLabelValue(),
                 showStmt.isAccurateMatch(), showStmt.getStateV2()));
 

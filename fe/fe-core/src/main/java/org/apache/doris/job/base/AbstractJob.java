@@ -23,9 +23,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
-import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
@@ -39,7 +40,6 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
-import org.apache.commons.lang3.RandomUtils;
 
 import java.io.DataInput;
 import java.io.IOException;
@@ -76,7 +76,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     private JobExecutionConfiguration jobConfig;
 
     @SerializedName(value = "ctms")
-    private Long createTimeMs;
+    private long createTimeMs;
+
+    @SerializedName(value = "stm")
+    private long startTimeMs = -1L;
 
     @SerializedName(value = "ftm")
     private long finishTimeMs;
@@ -87,16 +90,19 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     public AbstractJob() {}
 
     public AbstractJob(Long id) {
-        setJobId(id);
+        jobId = id;
     }
 
+    /**
+     * executeSql and runningTasks is not required for load.
+     */
     public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
                             String currentDbName,
                             String comment,
                             UserIdentity createUser,
                             JobExecutionConfiguration jobConfig) {
         this(jobId, jobName, jobStatus, currentDbName, comment,
-                createUser, jobConfig, null, null, null);
+                createUser, jobConfig, System.currentTimeMillis(), null, null);
     }
 
     public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
@@ -190,16 +196,11 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     public void initTasks(Collection<? extends T> tasks) {
-        tasks.forEach(task -> {
-            task.setJobId(jobId);
-            task.setTaskId(getNextId());
-            task.setCreateTimeMs(System.currentTimeMillis());
-            task.setStatus(TaskStatus.PENDING);
-        });
         if (CollectionUtils.isEmpty(getRunningTasks())) {
-            setRunningTasks(new ArrayList<>());
+            runningTasks = new ArrayList<>();
         }
         getRunningTasks().addAll(tasks);
+        this.startTimeMs = System.currentTimeMillis();
     }
 
     public void checkJobParams() {
@@ -243,8 +244,20 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     public static AbstractJob readFields(DataInput in) throws IOException {
         String jsonJob = Text.readString(in);
         AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
-        job.setRunningTasks(new ArrayList<>());
+        job.runningTasks = new ArrayList<>();
         return job;
+    }
+
+    public void logCreateOperation() {
+        Env.getCurrentEnv().getEditLog().logCreateJob(this);
+    }
+
+    public void logFinalOperation() {
+        Env.getCurrentEnv().getEditLog().logEndJob(this);
+    }
+
+    public void logUpdateOperation() {
+        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
     @Override
@@ -338,7 +351,19 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         return builder.build();
     }
 
-    private static long getNextId() {
-        return System.nanoTime() + RandomUtils.nextInt();
+    @Override
+    public void onRegister() throws JobException {}
+
+    @Override
+    public void onUnRegister() throws JobException {}
+
+    @Override
+    public void onReplayCreate() throws JobException {
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay create scheduler job").build());
+    }
+
+    @Override
+    public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
     }
 }
