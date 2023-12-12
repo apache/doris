@@ -93,7 +93,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/core/block.h"
-#include "vec/core/future_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/exprs/vexpr.h"
@@ -944,9 +943,8 @@ VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& o
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
 
-Status VTabletWriter::init_properties(doris::ObjectPool* pool, bool group_commit) {
+Status VTabletWriter::init_properties(doris::ObjectPool* pool) {
     _pool = pool;
-    _group_commit = group_commit;
     return Status::OK();
 }
 
@@ -1237,12 +1235,6 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
         RETURN_IF_ERROR(_channels.back()->init(state, tablets));
     }
 
-    if (_group_commit) {
-        _v_wal_writer = std::make_shared<VWalWriter>(table_sink.db_id, table_sink.table_id,
-                                                     table_sink.txn_id, _state, _output_tuple_desc);
-        RETURN_IF_ERROR(_v_wal_writer->init());
-    }
-
     RETURN_IF_ERROR(_init_row_distribution());
 
     _inited = true;
@@ -1522,6 +1514,7 @@ Status VTabletWriter::close(Status exec_status) {
             COUNTER_SET(_max_wait_exec_timer, max_wait_exec_time_ns);
             COUNTER_SET(_add_batch_number, total_add_batch_num);
             COUNTER_SET(_num_node_channels, num_node_channels);
+
             // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
             int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
                                           _state->num_rows_load_unselected();
@@ -1565,10 +1558,6 @@ Status VTabletWriter::close(Status exec_status) {
     for (const auto& index_channel : _channels) {
         index_channel->for_each_node_channel(
                 [](const std::shared_ptr<VNodeChannel>& ch) { ch->clear_all_blocks(); });
-    }
-
-    if (_v_wal_writer != nullptr) {
-        RETURN_IF_ERROR(_v_wal_writer->close());
     }
     return _close_status;
 }
@@ -1634,6 +1623,7 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     std::shared_ptr<vectorized::Block> block;
     bool has_filtered_rows = false;
     int64_t filtered_rows = 0;
+    _number_input_rows += rows;
 
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
             input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
@@ -1644,7 +1634,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
     channel_to_payload.resize(_channels.size());
     _generate_index_channels_payloads(_row_part_tablet_ids, channel_to_payload);
 
-    _number_input_rows += rows;
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
     _state->update_num_rows_load_total(rows);
@@ -1670,12 +1659,6 @@ Status VTabletWriter::append_block(doris::vectorized::Block& input_block) {
             RETURN_IF_CATCH_EXCEPTION(vectorized::Block::filter_block_internal(
                     block.get(), filter_col, block->columns()));
         }
-    }
-
-    if (_v_wal_writer != nullptr) {
-        RETURN_IF_ERROR(_v_wal_writer->append_block(&input_block, block->rows(), filtered_rows,
-                                                    block.get(), _block_convertor.get(),
-                                                    _tablet_finder.get()));
     }
 
     // Add block to node channel

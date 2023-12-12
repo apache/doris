@@ -52,6 +52,7 @@ import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
 import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
 import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.BuildModeContext;
+import org.apache.doris.nereids.DorisParser.CallProcedureContext;
 import org.apache.doris.nereids.DorisParser.CollateContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefContext;
 import org.apache.doris.nereids.DorisParser.ColumnDefsContext;
@@ -318,6 +319,7 @@ import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
@@ -892,7 +894,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     /**
      * process lateral view, add a {@link org.apache.doris.nereids.trees.plans.logical.LogicalGenerate} on plan.
      */
-    private LogicalPlan withGenerate(LogicalPlan plan, LateralViewContext ctx) {
+    protected LogicalPlan withGenerate(LogicalPlan plan, LateralViewContext ctx) {
         if (ctx.LATERAL() == null) {
             return plan;
         }
@@ -2998,4 +3000,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         return new TableSample(rows, false, seek);
     }
 
+    @Override
+    public Object visitCallProcedure(CallProcedureContext ctx) {
+        String functionName = ctx.functionName.getText();
+        List<Expression> arguments = ctx.expression().stream()
+                .<Expression>map(this::typedVisit)
+                .collect(ImmutableList.toImmutableList());
+        UnboundFunction unboundFunction = new UnboundFunction(functionName, arguments);
+        return new CallCommand(unboundFunction);
+    }
 }

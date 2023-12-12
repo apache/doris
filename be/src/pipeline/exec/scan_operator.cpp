@@ -555,6 +555,27 @@ bool ScanLocalState<Derived>::_is_predicate_acting_on_slot(
 }
 
 template <typename Derived>
+std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, _eos = {}",
+                   PipelineXLocalState<>::debug_string(indentation_level), _eos.load());
+    if (_scanner_ctx) {
+        fmt::format_to(debug_string_buffer, "");
+        fmt::format_to(
+                debug_string_buffer,
+                ", Scanner Context: (_is_finished = {}, _should_stop = {}, "
+                "_num_running_scanners={}, "
+                "_num_scheduling_ctx = {}, _num_unfinished_scanners = {}, status = {}, error = {})",
+                _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
+                _scanner_ctx->get_num_running_scanners(), _scanner_ctx->get_num_scheduling_ctx(),
+                _scanner_ctx->get_num_unfinished_scanners(), _scanner_ctx->status().to_string(),
+                _scanner_ctx->status_error());
+    }
+
+    return fmt::to_string(debug_string_buffer);
+}
+
+template <typename Derived>
 bool ScanLocalState<Derived>::_ignore_cast(SlotDescriptor* slot, vectorized::VExpr* expr) {
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
@@ -1411,6 +1432,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
+    COUNTER_UPDATE(exec_time_counter(), _scan_dependency->watcher_elapse_time());
     SCOPED_TIMER(_close_timer);
 
     SCOPED_TIMER(exec_time_counter());

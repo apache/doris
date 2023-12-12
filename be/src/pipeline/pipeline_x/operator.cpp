@@ -340,7 +340,7 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
         auto& deps = info.upstream_dependencies;
         if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
-            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()]);
+            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first);
         } else {
             _dependency->set_shared_state(deps.front()->shared_state());
         }
@@ -409,7 +409,7 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
         auto& deps = info.dependencys;
         _dependency = (DependencyType*)deps.front().get();
         if constexpr (std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
-            _dependency->set_shared_state(info.le_state_map[_parent->dests_id().front()]);
+            _dependency = info.le_state_map[_parent->dests_id().front()].second.get();
         }
         if (_dependency) {
             _shared_state =

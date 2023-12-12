@@ -64,8 +64,7 @@ public:
                             const int fragment_id, int backend_num,
                             std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                             const std::function<void(RuntimeState*, Status*)>& call_back,
-                            const report_status_callback& report_status_cb,
-                            bool group_commit = false);
+                            const report_status_callback& report_status_cb);
 
     virtual ~PipelineFragmentContext();
 
@@ -75,10 +74,15 @@ public:
 
     TUniqueId get_fragment_instance_id() const { return _fragment_instance_id; }
 
-    virtual RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
+    RuntimeState* get_runtime_state(UniqueId /*fragment_instance_id*/) {
         return _runtime_state.get();
     }
 
+    virtual RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId /*fragment_instance_id*/) {
+        return _runtime_state->runtime_filter_mgr();
+    }
+
+    QueryContext* get_query_ctx() { return _runtime_state->get_query_ctx(); }
     // should be protected by lock?
     [[nodiscard]] bool is_canceled() const { return _runtime_state->is_cancelled(); }
 
@@ -133,8 +137,6 @@ public:
         return _task_group_entity;
     }
     void trigger_report_if_necessary();
-
-    bool is_group_commit() { return _group_commit; }
     virtual void instance_ids(std::vector<TUniqueId>& ins_ids) const {
         ins_ids.resize(1);
         ins_ids[0] = _fragment_instance_id;
@@ -225,6 +227,7 @@ protected:
     report_status_callback _report_status_cb;
 
     DescriptorTbl* _desc_tbl = nullptr;
+    int _num_instances = 1;
 
 private:
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
@@ -235,7 +238,6 @@ private:
         return nullptr;
     }
     std::vector<std::unique_ptr<PipelineTask>> _tasks;
-    bool _group_commit;
 
     uint64_t _create_time;
 

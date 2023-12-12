@@ -537,6 +537,14 @@ inline std::string Status::to_string_no_stack() const {
         }                               \
     } while (false)
 
+#define THROW_IF_ERROR(stmt)            \
+    do {                                \
+        Status _status_ = (stmt);       \
+        if (UNLIKELY(!_status_.ok())) { \
+            throw Exception(_status_);  \
+        }                               \
+    } while (false)
+
 #define RETURN_ERROR_IF_NON_VEC \
     return Status::NotSupported("Non-vectorized engine is not supported since Doris 2.0.");
 

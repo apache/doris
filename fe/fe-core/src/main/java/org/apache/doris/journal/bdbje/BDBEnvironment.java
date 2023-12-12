@@ -51,7 +51,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.nio.file.FileStore;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -73,6 +76,7 @@ public class BDBEnvironment {
             "INFO", "CONFIG", "FINE", "FINER", "FINEST", "ALL");
     public static final String PALO_JOURNAL_GROUP = "PALO_JOURNAL_GROUP";
 
+    private File envHome;
     private ReplicatedEnvironment replicatedEnvironment;
     private EnvironmentConfig environmentConfig;
     private ReplicationConfig replicationConfig;
@@ -94,6 +98,7 @@ public class BDBEnvironment {
     // The setup() method opens the environment and database
     public void setup(File envHome, String selfNodeName, String selfNodeHostPort,
                       String helperHostPort) {
+        this.envHome = envHome;
         // Almost never used, just in case the master can not restart
         if (metadataFailureRecovery) {
             if (!isElectable) {
@@ -435,6 +440,25 @@ public class BDBEnvironment {
                     System.exit(-1);
                 }
             }
+        }
+    }
+
+    // Get the disk usage of BDB Environment in percent. -1 is returned if any error occuried.
+    public long getEnvDiskUsagePercent() {
+        if (envHome == null) {
+            return -1;
+        }
+
+        try {
+            FileStore fileStore = Files.getFileStore(envHome.toPath());
+            long totalSpace = fileStore.getTotalSpace();
+            long usableSpace = fileStore.getUsableSpace();
+            if (totalSpace <= 0) {
+                return -1;
+            }
+            return 100 - (usableSpace * 100) / totalSpace;
+        } catch (IOException e) {
+            return -1;
         }
     }
 

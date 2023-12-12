@@ -18,7 +18,7 @@
 package org.apache.doris.job.manager;
 
 import lombok.experimental.UtilityClass;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,7 +29,7 @@ import java.util.concurrent.Semaphore;
  * It provides a method to acquire a semaphore token for a specific job ID with the given maximum concurrency.
  * If a semaphore doesn't exist for the job ID, it creates a new one and adds it to the map.
  */
-@Slf4j
+@Log4j2
 @UtilityClass
 public class TaskTokenManager {
 

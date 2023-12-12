@@ -770,6 +770,18 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                     tablet_meta_info.enable_single_replica_compaction);
             need_to_save = true;
         }
+        if (tablet_meta_info.__isset.disable_auto_compaction) {
+            std::shared_lock rlock(tablet->get_header_lock());
+            tablet->tablet_meta()->mutable_tablet_schema()->set_disable_auto_compaction(
+                    tablet_meta_info.disable_auto_compaction);
+            for (auto& rowset_meta : tablet->tablet_meta()->all_mutable_rs_metas()) {
+                rowset_meta->tablet_schema()->set_disable_auto_compaction(
+                        tablet_meta_info.disable_auto_compaction);
+            }
+            tablet->tablet_schema_unlocked()->set_disable_auto_compaction(
+                    tablet_meta_info.disable_auto_compaction);
+            need_to_save = true;
+        }
 
         if (tablet_meta_info.__isset.skip_write_index_on_load) {
             std::shared_lock rlock(tablet->get_header_lock());
@@ -1499,17 +1511,19 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
-                    int64_t published_count =
-                            tablet->published_count.fetch_add(1, std::memory_order_relaxed);
-                    if (published_count % 10 == 0) {
-                        auto st = _engine.submit_compaction_task(
-                                tablet, CompactionType::CUMULATIVE_COMPACTION, true);
-                        if (!st.ok()) [[unlikely]] {
-                            LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
-                                         << ", published=" << published_count << " : " << st;
-                        } else {
-                            LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
-                                      << ", published:" << published_count;
+                    if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                        int64_t published_count =
+                                tablet->published_count.fetch_add(1, std::memory_order_relaxed);
+                        if (published_count % 10 == 0) {
+                            auto st = _engine.submit_compaction_task(
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                            if (!st.ok()) [[unlikely]] {
+                                LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
+                                             << ", published=" << published_count << " : " << st;
+                            } else {
+                                LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
+                                          << ", published:" << published_count;
+                            }
                         }
                     }
                 } else {

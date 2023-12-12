@@ -335,9 +335,17 @@ public class LoadAction extends RestBaseController {
     private TNetworkAddress selectRedirectBackend(String clusterName, boolean groupCommit) throws LoadException {
         Backend backend = null;
         BeSelectionPolicy policy = null;
+        String qualifiedUser = ConnectContext.get().getQualifiedUser();
+        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
+        policy = new BeSelectionPolicy.Builder()
+                .addTags(userTags)
+                .needLoadAvailable().build();
+        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (backendIds.isEmpty()) {
+            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
         if (groupCommit) {
-            List<Long> allBackendIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
-            for (Long backendId : allBackendIds) {
+            for (Long backendId : backendIds) {
                 Backend candidateBe = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (!candidateBe.isDecommissioned()) {
                     backend = candidateBe;
@@ -345,15 +353,6 @@ public class LoadAction extends RestBaseController {
                 }
             }
         } else {
-            String qualifiedUser = ConnectContext.get().getQualifiedUser();
-            Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(qualifiedUser);
-            policy = new BeSelectionPolicy.Builder()
-                    .addTags(userTags)
-                    .needLoadAvailable().build();
-            List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
-            if (backendIds.isEmpty()) {
-                throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
-            }
             backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
         }
         if (backend == null) {

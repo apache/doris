@@ -1244,7 +1244,6 @@ PARTITION `p599` VALUES IN (599)
 
     assert all_finished(show_result)
 
-
     // Test truncate table will drop table stats too.
     sql """ANALYZE TABLE ${tbl} WITH SYNC"""
     def result_before_truncate = sql """show column stats ${tbl}"""
@@ -1254,8 +1253,6 @@ PARTITION `p599` VALUES IN (599)
     assertEquals(0, result_after_truncate.size())
     result_after_truncate = sql """show column cached stats ${tbl}"""
     assertEquals(0, result_after_truncate.size())
-
-
 
     sql """
         delete from ${tbl} where analyzetestlimitedk3 >= -2147483648
@@ -1276,5 +1273,193 @@ PARTITION `p599` VALUES IN (599)
     """
     assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][6].substring(1, 1025)
     assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][7].substring(1, 1025)
+
+    sql """TRUNCATE TABLE ${tbl}"""
+    result_after_truncate = sql """show column stats ${tbl}"""
+    assertEquals(0, result_after_truncate.size())
+    sql """ANALYZE TABLE ${tbl} WITH SYNC"""
+    result_after_truncate = sql """show column stats ${tbl}"""
+    assertEquals(14, result_after_truncate.size())
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk0);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk0", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk1);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk1", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk2);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk2", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk3);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk3", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk4);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk4", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk5);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk5", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk6);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk6", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk7);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk7", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk8);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk8", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk9);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk9", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk10);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk10", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk11);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk11", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk12);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk12", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk13);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk13", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    // Test analyze column with special character in name.
+    sql """
+      CREATE TABLE region  (
+       `r_regionkey`      int NOT NULL,
+       `r'name`     VARCHAR(25) NOT NULL,
+       `r_comment`    VARCHAR(152)
+      )ENGINE=OLAP
+      DUPLICATE KEY(`r_regionkey`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1"
+      );
+   """
+   sql """insert into region values(1,'name1', 'comment1') """
+   sql """insert into region values(2,'name2', 'comment2') """
+   sql """insert into region values(3,'name3', 'comment3') """
+   sql """ANALYZE TABLE region WITH SYNC"""
+   result = sql """show column stats region (`r'name`);"""
+   assertEquals(1, result.size())
+   assertEquals("r'name", result[0][0])
+   assertEquals("3.0", result[0][1])
+   assertEquals("3.0", result[0][2])
+   assertEquals("0.0", result[0][3])
+   assertEquals("\'name1\'", result[0][6])
+   assertEquals("\'name3\'", result[0][7])
 
 }

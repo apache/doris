@@ -631,6 +631,12 @@ DECLARE_mInt32(memory_gc_sleep_time_ms);
 // Sleep time in milliseconds between memtbale flush mgr memory refresh iterations
 DECLARE_mInt64(memtable_mem_tracker_refresh_interval_ms);
 
+// percent of (active memtables size / all memtables size) when reach hard limit
+DECLARE_mInt32(memtable_hard_limit_active_percent);
+
+// percent of (active memtables size / all memtables size) when reach soft limit
+DECLARE_mInt32(memtable_soft_limit_active_percent);
+
 // Alignment
 DECLARE_Int32(memory_max_alignment);
 
@@ -818,6 +824,8 @@ DECLARE_Int64(load_stream_idle_timeout_ms);
 DECLARE_Int64(load_stream_max_buf_size);
 // brpc streaming messages_in_batch
 DECLARE_Int32(load_stream_messages_in_batch);
+// brpc streaming StreamWait seconds on EAGAIN
+DECLARE_Int32(load_stream_eagain_wait_seconds);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -1042,7 +1050,6 @@ DECLARE_String(inverted_index_query_cache_limit);
 
 // inverted index
 DECLARE_mDouble(inverted_index_ram_buffer_size);
-DECLARE_Int32(query_bkd_inverted_index_limit_percent); // 5%
 // dict path for chinese analyzer
 DECLARE_String(inverted_index_dict_path);
 DECLARE_Int32(inverted_index_read_buffer_size);
@@ -1214,6 +1221,8 @@ DECLARE_Bool(enable_snapshot_action);
 
 // The max columns size for a tablet schema
 DECLARE_mInt32(variant_max_merged_tablet_schema_size);
+
+DECLARE_mInt64(local_exchange_buffer_mem_limit);
 
 #ifdef BE_TEST
 // test s3

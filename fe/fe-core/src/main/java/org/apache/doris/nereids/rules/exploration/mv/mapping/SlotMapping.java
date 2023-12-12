@@ -17,12 +17,13 @@
 
 package org.apache.doris.nereids.rules.exploration.mv.mapping;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -32,19 +33,19 @@ import javax.annotation.Nullable;
  */
 public class SlotMapping extends Mapping {
 
-    private final BiMap<MappedSlot, MappedSlot> slotMapping;
+    private final BiMap<MappedSlot, MappedSlot> relationSlotMap;
+    private Map<SlotReference, SlotReference> slotReferenceMap;
 
-    public SlotMapping(BiMap<MappedSlot, MappedSlot> slotMapping) {
-        this.slotMapping = slotMapping;
+    public SlotMapping(BiMap<MappedSlot, MappedSlot> relationSlotMap) {
+        this.relationSlotMap = relationSlotMap;
     }
 
-    public BiMap<MappedSlot, MappedSlot> getSlotBiMap() {
-        return slotMapping;
+    public BiMap<MappedSlot, MappedSlot> getRelationSlotMap() {
+        return relationSlotMap;
     }
 
     public SlotMapping inverse() {
-        return slotMapping == null
-                ? SlotMapping.of(HashBiMap.create()) : SlotMapping.of(slotMapping.inverse());
+        return SlotMapping.of(relationSlotMap.inverse());
     }
 
     public static SlotMapping of(BiMap<MappedSlot, MappedSlot> relationSlotMap) {
@@ -75,10 +76,23 @@ public class SlotMapping extends Mapping {
         return SlotMapping.of(relationSlotMap);
     }
 
+    public Map<MappedSlot, MappedSlot> toMappedSlotMap() {
+        return (Map) this.getRelationSlotMap();
+    }
+
     /**
-     * SlotMapping, getSlotMap
+     * SlotMapping, toSlotReferenceMap
      */
-    public Map<? extends Expression, ? extends Expression> getSlotMap() {
-        return (Map) this.getSlotBiMap();
+    public Map<SlotReference, SlotReference> toSlotReferenceMap() {
+        if (this.slotReferenceMap != null) {
+            return this.slotReferenceMap;
+        }
+        Map<SlotReference, SlotReference> slotReferenceSlotReferenceMap = new HashMap<>();
+        for (Map.Entry<MappedSlot, MappedSlot> entry : this.getRelationSlotMap().entrySet()) {
+            slotReferenceSlotReferenceMap.put((SlotReference) entry.getKey().getSlot(),
+                    (SlotReference) entry.getValue().getSlot());
+        }
+        this.slotReferenceMap = slotReferenceSlotReferenceMap;
+        return this.slotReferenceMap;
     }
 }

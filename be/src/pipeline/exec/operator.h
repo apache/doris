@@ -444,7 +444,7 @@ public:
 
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<OperatorBuilderType>(builder, node),
-              _child_block(vectorized::Block::create_unique()),
+              _child_block(vectorized::Block::create_shared()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;
@@ -484,7 +484,7 @@ public:
     }
 
 protected:
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::shared_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
 };
 

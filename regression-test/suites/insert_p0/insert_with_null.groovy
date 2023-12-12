@@ -67,10 +67,10 @@ suite("insert_with_null") {
         if (write_mode == "txn_insert") {
             sql "begin"
         } else if (write_mode == "group_commit_legacy") {
-            sql """ set enable_insert_group_commit = true; """
+            sql """ set group_commit = async_mode; """
             sql """ set enable_nereids_dml = false; """
         } else if (write_mode == "group_commit_nereids") {
-            sql """ set enable_insert_group_commit = true; """
+            sql """ set group_commit = async_mode; """
             sql """ set enable_nereids_dml = true; """
             sql """ set enable_nereids_planner=true; """
             //sql """ set enable_fallback_to_original_planner=false; """

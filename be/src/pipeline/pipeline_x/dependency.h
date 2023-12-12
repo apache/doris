@@ -603,6 +603,9 @@ public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     std::unique_ptr<Exchanger> exchanger {};
     std::vector<Dependency*> source_dependencies;
+    Dependency* sink_dependency;
+    std::vector<MemTracker*> mem_trackers;
+    std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
     void _set_ready_for_read() {
@@ -611,13 +614,29 @@ public:
             dep->set_ready();
         }
     }
+
     void set_dep_by_channel_id(Dependency* dep, int channel_id) {
         source_dependencies[channel_id] = dep;
     }
-    void set_ready_for_read(int channel_id) {
+
+    void set_ready_to_read(int channel_id) {
         auto* dep = source_dependencies[channel_id];
-        DCHECK(dep) << channel_id << " " << (int64_t)this;
+        DCHECK(dep) << channel_id;
         dep->set_ready();
+    }
+
+    void add_mem_usage(int channel_id, size_t delta) {
+        mem_trackers[channel_id]->consume(delta);
+        if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
+            sink_dependency->block();
+        }
+    }
+
+    void sub_mem_usage(int channel_id, size_t delta) {
+        mem_trackers[channel_id]->release(delta);
+        if (mem_usage.fetch_sub(delta) < config::local_exchange_buffer_mem_limit) {
+            sink_dependency->set_ready();
+        }
     }
 };
 

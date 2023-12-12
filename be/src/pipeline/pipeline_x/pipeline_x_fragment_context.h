@@ -19,6 +19,7 @@
 
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
+#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -52,6 +53,7 @@ class TDataSink;
 class TPipelineFragmentParams;
 
 namespace pipeline {
+struct LocalExchangeSinkDependency;
 
 class PipelineXFragmentContext : public PipelineFragmentContext {
 public:
@@ -64,22 +66,21 @@ public:
     PipelineXFragmentContext(const TUniqueId& query_id, const int fragment_id,
                              std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
                              const std::function<void(RuntimeState*, Status*)>& call_back,
-                             const report_status_callback& report_status_cb,
-                             bool group_commit = false);
+                             const report_status_callback& report_status_cb);
 
     ~PipelineXFragmentContext() override;
 
     void instance_ids(std::vector<TUniqueId>& ins_ids) const override {
-        ins_ids.resize(_runtime_states.size());
-        for (size_t i = 0; i < _runtime_states.size(); i++) {
-            ins_ids[i] = _runtime_states[i]->fragment_instance_id();
+        ins_ids.resize(_fragment_instance_ids.size());
+        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
+            ins_ids[i] = _fragment_instance_ids[i];
         }
     }
 
     void instance_ids(std::vector<string>& ins_ids) const override {
-        ins_ids.resize(_runtime_states.size());
-        for (size_t i = 0; i < _runtime_states.size(); i++) {
-            ins_ids[i] = print_id(_runtime_states[i]->fragment_instance_id());
+        ins_ids.resize(_fragment_instance_ids.size());
+        for (size_t i = 0; i < _fragment_instance_ids.size(); i++) {
+            ins_ids[i] = print_id(_fragment_instance_ids[i]);
         }
     }
 
@@ -103,13 +104,9 @@ public:
 
     Status send_report(bool) override;
 
-    RuntimeState* get_runtime_state(UniqueId fragment_instance_id) override {
-        std::lock_guard<std::mutex> l(_state_map_lock);
-        if (_instance_id_to_runtime_state.contains(fragment_instance_id)) {
-            return _instance_id_to_runtime_state[fragment_instance_id];
-        } else {
-            return _runtime_state.get();
-        }
+    RuntimeFilterMgr* get_runtime_filter_mgr(UniqueId fragment_instance_id) override {
+        DCHECK(_runtime_filter_mgr_map.contains(fragment_instance_id));
+        return _runtime_filter_mgr_map[fragment_instance_id].get();
     }
 
     [[nodiscard]] int next_operator_id() { return _operator_id++; }
@@ -129,6 +126,8 @@ private:
                                PipelinePtr cur_pipe, const std::vector<TExpr>& texprs,
                                ExchangeType exchange_type, bool* do_local_exchange, int num_buckets,
                                const std::map<int, int>& bucket_seq_to_instance_idx);
+    void _inherit_pipeline_properties(ExchangeType exchange_type, PipelinePtr pipe_with_source,
+                                      PipelinePtr pipe_with_sink);
 
     [[nodiscard]] Status _build_pipelines(ObjectPool* pool,
                                           const doris::TPipelineFragmentParams& request,
@@ -154,19 +153,18 @@ private:
                              const TPipelineFragmentParams& params, const RowDescriptor& row_desc,
                              RuntimeState* state, DescriptorTbl& desc_tbl,
                              PipelineId cur_pipeline_id);
-    Status _plan_local_shuffle(int num_buckets,
-                               const std::map<int, int>& bucket_seq_to_instance_idx);
-    Status _plan_local_shuffle(int num_buckets, int pip_idx, PipelinePtr pip,
-                               const std::map<int, int>& bucket_seq_to_instance_idx);
+    Status _plan_local_exchange(int num_buckets,
+                                const std::map<int, int>& bucket_seq_to_instance_idx);
+    Status _plan_local_exchange(int num_buckets, int pip_idx, PipelinePtr pip,
+                                const std::map<int, int>& bucket_seq_to_instance_idx);
 
     bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
+
+    bool _enable_local_shuffle() const { return _runtime_state->enable_local_shuffle(); }
 
     OperatorXPtr _root_op = nullptr;
     // this is a [n * m] matrix. n is parallelism of pipeline engine and m is the number of pipelines.
     std::vector<std::vector<std::unique_ptr<PipelineXTask>>> _tasks;
-
-    // Local runtime states for each pipeline task.
-    std::vector<std::unique_ptr<RuntimeState>> _runtime_states;
 
     // It is used to manage the lifecycle of RuntimeFilterMergeController
     std::vector<std::shared_ptr<RuntimeFilterMergeControllerEntity>> _merge_controller_handlers;
@@ -217,8 +215,22 @@ private:
 
     int _operator_id = 0;
     int _sink_operator_id = 0;
-    int _num_instances = 0;
-    std::map<PipelineId, std::shared_ptr<LocalExchangeSharedState>> _op_id_to_le_state;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                            std::shared_ptr<LocalExchangeSinkDependency>>>
+            _op_id_to_le_state;
+
+    // UniqueId -> runtime mgr
+    std::map<UniqueId, std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
+
+    //Here are two types of runtime states:
+    //    - _runtime state is at the Fragment level.
+    //    - _task_runtime_states is at the task level, unique to each task.
+
+    std::vector<TUniqueId> _fragment_instance_ids;
+    // Local runtime states for each task
+    std::vector<std::unique_ptr<RuntimeState>> _task_runtime_states;
+
+    std::vector<std::unique_ptr<RuntimeFilterParamsContext>> _runtime_filter_states;
 };
 
 } // namespace pipeline

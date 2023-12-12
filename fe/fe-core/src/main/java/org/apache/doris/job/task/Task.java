@@ -20,8 +20,6 @@ package org.apache.doris.job.task;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.thrift.TRow;
 
-import java.util.List;
-
 /**
  * The Task interface represents a task that can be executed and managed by a scheduler.
  * All extension tasks must implement this interface.
@@ -54,7 +52,7 @@ public interface Task {
      *
      * @param msg The error message associated with the failure.
      */
-    void onFail(String msg);
+    void onFail(String msg) throws JobException;
 
     /**
      * This method is called when the task executes successfully.
@@ -67,12 +65,6 @@ public interface Task {
      * Implementations should define the necessary steps to cancel the task.
      */
     void cancel() throws JobException;
-
-    /**
-     * get the job's show info, which is used to sql show the task information
-     * @return List<String> task common show info
-     */
-    List<String> getShowInfo();
 
     /**
      * get info for tvf `tasks`
