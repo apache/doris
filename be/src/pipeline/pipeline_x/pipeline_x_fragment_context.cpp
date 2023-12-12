@@ -228,15 +228,16 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     RETURN_IF_ERROR(_sink->init(request.fragment.output_sink));
     static_cast<void>(root_pipeline->set_sink(_sink));
 
+    for (PipelinePtr& pipeline : _pipelines) {
+        DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
+        static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
+    }
     if (_enable_local_shuffle()) {
         RETURN_IF_ERROR(
                 _plan_local_exchange(request.num_buckets, request.bucket_seq_to_instance_idx));
     }
-
     // 4. Initialize global states in pipelines.
     for (PipelinePtr& pipeline : _pipelines) {
-        DCHECK(pipeline->sink_x() != nullptr) << pipeline->operator_xs().size();
-        static_cast<void>(pipeline->sink_x()->set_child(pipeline->operator_xs().back()));
         pipeline->children().clear();
         RETURN_IF_ERROR(pipeline->prepare(_runtime_state.get()));
     }
@@ -266,8 +267,11 @@ Status PipelineXFragmentContext::_plan_local_exchange(
             }
         }
 
-        RETURN_IF_ERROR(_plan_local_exchange(num_buckets, pip_idx, _pipelines[pip_idx],
-                                             bucket_seq_to_instance_idx));
+        RETURN_IF_ERROR(_plan_local_exchange(
+                _pipelines[pip_idx]->operator_xs().front()->ignore_data_distribution()
+                        ? _num_instances
+                        : num_buckets,
+                pip_idx, _pipelines[pip_idx], bucket_seq_to_instance_idx));
     }
     return Status::OK();
 }
@@ -725,6 +729,12 @@ void PipelineXFragmentContext::_inherit_pipeline_properties(ExchangeType exchang
         pipe_with_sink->set_need_to_local_shuffle(pipe_with_source->need_to_local_shuffle());
         pipe_with_source->set_need_to_local_shuffle(true);
         break;
+    case ExchangeType::BROADCAST:
+        // If PASSTHROUGH local exchanger is planned, data will be split randomly. So we should make
+        // sure remaining operators should use local shuffle to make data distribution right.
+        pipe_with_sink->set_need_to_local_shuffle(pipe_with_source->need_to_local_shuffle());
+        pipe_with_source->set_need_to_local_shuffle(true);
+        break;
     default:
         __builtin_unreachable();
     }
@@ -764,8 +774,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
 
     // 3. Create and initialize LocalExchangeSharedState.
     auto shared_state = LocalExchangeSharedState::create_shared();
-    shared_state->source_dependencies.resize(_num_instances, nullptr);
-    shared_state->mem_trackers.resize(_num_instances);
+    auto num_sources = _num_instances;
     switch (exchange_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger =
@@ -774,15 +783,22 @@ Status PipelineXFragmentContext::_add_local_exchange(
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger =
                 BucketShuffleExchanger::create_unique(new_pip->num_tasks(), num_buckets);
+        num_sources = num_buckets;
         break;
     case ExchangeType::PASSTHROUGH:
         shared_state->exchanger =
                 PassthroughExchanger::create_unique(new_pip->num_tasks(), _num_instances);
         break;
+    case ExchangeType::BROADCAST:
+        shared_state->exchanger =
+                BroadcastExchanger::create_unique(new_pip->num_tasks(), _num_instances);
+        break;
     default:
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)exchange_type));
     }
+    shared_state->source_dependencies.resize(num_sources, nullptr);
+    shared_state->mem_trackers.resize(num_sources);
     auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
                                                                   _runtime_state->get_query_ctx());
     sink_dep->set_shared_state(shared_state);
@@ -838,6 +854,8 @@ Status PipelineXFragmentContext::_add_local_exchange(
     }
     cur_pipe->set_children(new_children);
     _dag[downstream_pipeline_id] = edges_with_source;
+    RETURN_IF_ERROR(new_pip->sink_x()->set_child(new_pip->operator_xs().back()));
+    RETURN_IF_ERROR(cur_pipe->sink_x()->set_child(cur_pipe->operator_xs().back()));
 
     CHECK(total_op_num + 1 == cur_pipe->operator_xs().size() + new_pip->operator_xs().size())
             << "total_op_num: " << total_op_num
@@ -855,35 +873,54 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
     std::stringstream error_msg;
     switch (tnode.node_type) {
     case TPlanNodeType::OLAP_SCAN_NODE: {
-        op.reset(new OlapScanOperatorX(pool, tnode, next_operator_id(), descs));
+        op.reset(new OlapScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
-        const bool shared_scan =
-                find_with_default(request.per_node_shared_scans, op->node_id(), false);
-        if (shared_scan) {
-            cur_pipe->set_num_tasks(1);
+        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
+            if (request.__isset.parallel_instances) {
+                cur_pipe->set_num_tasks(request.parallel_instances);
+            }
+            op->set_ignore_data_distribution();
         }
         break;
     }
     case doris::TPlanNodeType::JDBC_SCAN_NODE: {
         if (config::enable_java_support) {
-            op.reset(new JDBCScanOperatorX(pool, tnode, next_operator_id(), descs));
+            op.reset(new JDBCScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
             RETURN_IF_ERROR(cur_pipe->add_operator(op));
         } else {
             return Status::InternalError(
                     "Jdbc scan node is disabled, you can change be config enable_java_support "
                     "to true and restart be.");
         }
+        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
+            if (request.__isset.parallel_instances) {
+                cur_pipe->set_num_tasks(request.parallel_instances);
+            }
+            op->set_ignore_data_distribution();
+        }
         break;
     }
     case doris::TPlanNodeType::FILE_SCAN_NODE: {
-        op.reset(new FileScanOperatorX(pool, tnode, next_operator_id(), descs));
+        op.reset(new FileScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
+            if (request.__isset.parallel_instances) {
+                cur_pipe->set_num_tasks(request.parallel_instances);
+            }
+            op->set_ignore_data_distribution();
+        }
         break;
     }
     case TPlanNodeType::ES_SCAN_NODE:
     case TPlanNodeType::ES_HTTP_SCAN_NODE: {
-        op.reset(new EsScanOperatorX(pool, tnode, next_operator_id(), descs));
+        op.reset(new EsScanOperatorX(pool, tnode, next_operator_id(), descs, _num_instances));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (find_with_default(request.per_node_shared_scans, op->node_id(), false)) {
+            if (request.__isset.parallel_instances) {
+                cur_pipe->set_num_tasks(request.parallel_instances);
+            }
+            op->set_ignore_data_distribution();
+        }
         break;
     }
     case TPlanNodeType::EXCHANGE_NODE: {
@@ -891,6 +928,10 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         DCHECK_GT(num_senders, 0);
         op.reset(new ExchangeSourceOperatorX(pool, tnode, next_operator_id(), descs, num_senders));
         RETURN_IF_ERROR(cur_pipe->add_operator(op));
+        if (request.__isset.parallel_instances) {
+            cur_pipe->set_num_tasks(request.parallel_instances);
+            op->set_ignore_data_distribution();
+        }
         break;
     }
     case TPlanNodeType::AGGREGATION_NODE: {

@@ -863,6 +863,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
             // local exchanger will be used.
             aggregationNode.setColocate(true);
+
+            if (aggregate.getAggMode().isFinalPhase) {
+                inputPlanFragment.setHasColocateFinalizeAggNode(true);
+            }
         }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
@@ -1134,6 +1138,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 null, null, null, hashJoin.isMarkJoin());
 
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
+
+        if (joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN) {
+            currentFragment.setHasNullAwareLeftAntiJoin(true);
+        }
         if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
             // TODO: add reason
             hashJoinNode.setColocate(true, "");
