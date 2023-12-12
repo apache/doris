@@ -25,7 +25,7 @@
 #include "common/status.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
-#include "vec/core/future_block.h"
+#include "vec/sink/writer/vwal_writer.h"
 
 namespace doris {
 class ExecEnv;
@@ -49,11 +49,15 @@ public:
         _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
     };
 
-    Status add_block(std::shared_ptr<vectorized::FutureBlock> block);
+    Status add_block(std::shared_ptr<vectorized::Block> block, bool write_wal);
     Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
     Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
+    Status create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id, const std::string& import_label,
+                      WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
+                      int be_exe_version);
+    Status close_wal();
 
     static constexpr size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
     UniqueId load_instance_id;
@@ -63,7 +67,9 @@ public:
     bool need_commit = false;
     bool wait_internal_group_commit_finish = false;
     std::mutex mutex;
+    bool process_finish = false;
     std::condition_variable internal_group_commit_finish_cv;
+    Status status = Status::OK();
 
 private:
     std::chrono::steady_clock::time_point _start_time;
@@ -72,15 +78,15 @@ private:
     std::condition_variable _get_cond;
     // the set of load ids of all blocks in this queue
     std::set<UniqueId> _load_ids;
-    std::list<std::shared_ptr<vectorized::FutureBlock>> _block_queue;
+    std::list<std::shared_ptr<vectorized::Block>> _block_queue;
 
-    Status _status = Status::OK();
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
     // memory consumption of one load block queue, used for correctness check.
     std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
     // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
     int64_t _group_commit_interval_ms;
+    std::shared_ptr<vectorized::VWalWriter> _v_wal_writer;
 };
 
 class GroupCommitTable {
@@ -92,14 +98,17 @@ public:
               _db_id(db_id),
               _table_id(table_id),
               _all_block_queues_bytes(all_block_queue_bytes) {};
-    Status get_first_block_load_queue(int64_t table_id,
-                                      std::shared_ptr<vectorized::FutureBlock> block,
-                                      std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status get_first_block_load_queue(int64_t table_id, int64_t base_schema_version,
+                                      const UniqueId& load_id,
+                                      std::shared_ptr<vectorized::Block> block,
+                                      std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                      int be_exe_version);
     Status get_load_block_queue(const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
 
 private:
-    Status _create_group_commit_load(std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status _create_group_commit_load(std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                     int be_exe_version);
     Status _exec_plan_fragment(int64_t db_id, int64_t table_id, const std::string& label,
                                int64_t txn_id, bool is_pipeline,
                                const TExecPlanFragmentParams& params,
@@ -131,9 +140,11 @@ public:
     // used when init group_commit_scan_node
     Status get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
                                 std::shared_ptr<LoadBlockQueue>& load_block_queue);
-    Status get_first_block_load_queue(int64_t db_id, int64_t table_id,
-                                      std::shared_ptr<vectorized::FutureBlock> block,
-                                      std::shared_ptr<LoadBlockQueue>& load_block_queue);
+    Status get_first_block_load_queue(int64_t db_id, int64_t table_id, int64_t base_schema_version,
+                                      const UniqueId& load_id,
+                                      std::shared_ptr<vectorized::Block> block,
+                                      std::shared_ptr<LoadBlockQueue>& load_block_queue,
+                                      int be_exe_version);
 
 private:
     ExecEnv* _exec_env = nullptr;

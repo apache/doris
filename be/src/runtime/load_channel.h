@@ -17,10 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/internal_service.pb.h>
-#include <stdint.h>
-#include <time.h>
-
 #include <algorithm>
 #include <atomic>
 #include <functional>
@@ -38,17 +34,18 @@
 #include "olap/memtable_memory_limiter.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/tablets_channel.h"
 #include "util/runtime_profile.h"
 #include "util/spinlock.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
-//#include <gen_cpp/internal_service.pb.h>
 
 namespace doris {
 
 class PTabletWriterOpenRequest;
+class PTabletWriterAddBlockRequest;
+class PTabletWriterAddBlockResult;
 class OpenPartitionRequest;
+class BaseTabletsChannel;
 
 // A LoadChannel manages tablets channels for all indexes
 // corresponding to a certain load job
@@ -82,31 +79,11 @@ public:
     RuntimeProfile::Counter* get_handle_mem_limit_timer() { return _handle_mem_limit_timer; }
 
 protected:
-    Status _get_tablets_channel(std::shared_ptr<TabletsChannel>& channel, bool& is_finished,
-                                const int64_t index_id);
+    Status _get_tablets_channel(std::shared_ptr<BaseTabletsChannel>& channel, bool& is_finished,
+                                int64_t index_id);
 
-    Status _handle_eos(std::shared_ptr<TabletsChannel>& channel,
-                       const PTabletWriterAddBlockRequest& request,
-                       PTabletWriterAddBlockResult* response) {
-        _self_profile->add_info_string("EosHost", fmt::format("{}", request.backend_id()));
-        bool finished = false;
-        auto index_id = request.index_id();
-
-        RETURN_IF_ERROR(channel->close(
-                this, request.sender_id(), request.backend_id(), &finished, request.partition_ids(),
-                response->mutable_tablet_vec(), response->mutable_tablet_errors(),
-                request.slave_tablet_nodes(), response->mutable_success_slave_tablet_node_ids(),
-                request.write_single_replica()));
-        if (finished) {
-            std::lock_guard<std::mutex> l(_lock);
-            {
-                std::lock_guard<SpinLock> l(_tablets_channels_lock);
-                _tablets_channels.erase(index_id);
-            }
-            _finished_channel_ids.emplace(index_id);
-        }
-        return Status::OK();
-    }
+    Status _handle_eos(BaseTabletsChannel* channel, const PTabletWriterAddBlockRequest& request,
+                       PTabletWriterAddBlockResult* response);
 
     void _init_profile();
     // thread safety
@@ -129,7 +106,7 @@ private:
     // lock protect the tablets channel map
     std::mutex _lock;
     // index id -> tablets channel
-    std::unordered_map<int64_t, std::shared_ptr<TabletsChannel>> _tablets_channels;
+    std::unordered_map<int64_t, std::shared_ptr<BaseTabletsChannel>> _tablets_channels;
     SpinLock _tablets_channels_lock;
     // This is to save finished channels id, to handle the retry request.
     std::unordered_set<int64_t> _finished_channel_ids;

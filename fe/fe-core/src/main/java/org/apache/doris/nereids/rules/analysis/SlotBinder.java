@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.cluster.ClusterNamespace;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.CascadesContext;
@@ -41,6 +40,7 @@ import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableVarConverters;
@@ -315,7 +315,7 @@ public class SlotBinder extends SubExprAnalyzer {
     }
 
     private boolean sameTableName(String boundSlot, String unboundSlot) {
-        if (Config.lower_case_table_names != 1) {
+        if (GlobalVariable.lowerCaseTableNames != 1) {
             return boundSlot.equals(unboundSlot);
         } else {
             return boundSlot.equalsIgnoreCase(unboundSlot);

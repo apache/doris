@@ -241,8 +241,6 @@ private:
     PPlanFragmentCancelReason _cancel_reason;
     std::string _cancel_msg;
 
-    bool _group_commit = false;
-
     DescriptorTbl* _desc_tbl = nullptr;
 
     ObjectPool* obj_pool() { return _runtime_state->obj_pool(); }

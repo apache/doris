@@ -201,14 +201,15 @@ public class JdbcExecutor {
 
             for (int i = 0; i < columnCount; ++i) {
                 Object[] columnData = block.get(i);
-                Class<?> clz = findNonNullClass(columnData);
+                ColumnType type = outputTable.getColumnType(i);
+                Class<?> clz = findNonNullClass(columnData, type);
                 Object[] newColumn = (Object[]) Array.newInstance(clz, curBlockRows);
                 System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
                 boolean isNullable = Boolean.parseBoolean(nullableList[i]);
                 outputTable.appendData(
                         i,
                         newColumn,
-                        getOutputConverter(outputTable.getColumnType(i), clz, replaceStringList[i]),
+                        getOutputConverter(type, clz, replaceStringList[i]),
                         isNullable);
             }
         } catch (Exception e) {
@@ -366,13 +367,50 @@ public class JdbcExecutor {
         return tableType == TOdbcTableType.NEBULA;
     }
 
-    private Class<?> findNonNullClass(Object[] columnData) {
+    private Class<?> findNonNullClass(Object[] columnData, ColumnType type) {
         for (Object data : columnData) {
             if (data != null) {
                 return data.getClass();
             }
         }
-        return Object.class;
+        switch (type.getType()) {
+            case BOOLEAN:
+                return Boolean.class;
+            case TINYINT:
+                return Byte.class;
+            case SMALLINT:
+                return Short.class;
+            case INT:
+                return Integer.class;
+            case BIGINT:
+                return Long.class;
+            case LARGEINT:
+                return BigInteger.class;
+            case FLOAT:
+                return Float.class;
+            case DOUBLE:
+                return Double.class;
+            case DECIMALV2:
+            case DECIMAL32:
+            case DECIMAL64:
+            case DECIMAL128:
+                return BigDecimal.class;
+            case DATE:
+            case DATEV2:
+                return LocalDate.class;
+            case DATETIME:
+            case DATETIMEV2:
+                return LocalDateTime.class;
+            case CHAR:
+            case VARCHAR:
+            case STRING:
+                return String.class;
+            case ARRAY:
+                return List.class;
+            default:
+                throw new IllegalArgumentException(
+                        "Unsupported column type: " + type.getType());
+        }
     }
 
     public Object getColumnValue(TOdbcTableType tableType, int columnIndex, boolean isBitmapOrHll)
