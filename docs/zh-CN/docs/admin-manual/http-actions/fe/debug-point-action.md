@@ -54,8 +54,8 @@ BE 桩子示例代码
 void Status foo() {
 
      // dbug_be_foo_do_nothing 是一个木桩名字，
-     // 打开这个木桩之后，DEBUG_EXECUTE_IF 将会执行宏参数中的代码块
-     DEBUG_EXECUTE_IF("dbug_be_foo_do_nothing",  { return Status.Nothing; });
+     // 打开这个木桩之后，DBUG_EXECUTE_IF 将会执行宏参数中的代码块
+     DBUG_EXECUTE_IF("dbug_be_foo_do_nothing",  { return Status.Nothing; });
    
      do_foo_action();
      

@@ -53,8 +53,8 @@ BE 桩子示例代码
 ```c++
 void Status foo() {
      // dbug_be_foo_do_nothing is the debug point name.
-     // When it's active，DEBUG_EXECUTE_IF will execute the code block.
-     DEBUG_EXECUTE_IF("dbug_be_foo_do_nothing",  { return Status.Nothing; });
+     // When it's active，DBUG_EXECUTE_IF will execute the code block.
+     DBUG_EXECUTE_IF("dbug_be_foo_do_nothing",  { return Status.Nothing; });
    
      do_foo_action();
      
