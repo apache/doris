@@ -125,6 +125,7 @@ import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextH
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
@@ -433,6 +434,16 @@ public class StmtExecutor {
         execute(queryId);
     }
 
+    public boolean notAllowFallback() {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            if (logicalPlan instanceof CreateMTMVCommand) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
@@ -451,6 +462,10 @@ public class StmtExecutor {
                     // try to fall back to legacy planner
                     LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
                             + "\n because of " + e.getMessage(), e);
+                    if (notAllowFallback()) {
+                        LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                        throw ((NereidsException) e).getException();
+                    }
                     if (e instanceof NereidsException
                             && !context.getSessionVariable().enableFallbackToOriginalPlanner) {
                         LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);

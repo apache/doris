@@ -96,7 +96,7 @@ public class MTMVTask extends AbstractTask {
     }
 
     public enum MTMVTaskRefreshMode {
-        FULL,
+        COMPLETE,
         PARTITION,
         NOT_REFRESH
     }
@@ -244,9 +244,13 @@ public class MTMVTask extends AbstractTask {
 
     private MTMVTaskRefreshMode getRefreshMode() throws AnalysisException {
         // check whether the user manually triggers it
-        if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL && !CollectionUtils
-                .isEmpty(taskContext.getPartitions())) {
-            return MTMVTaskRefreshMode.PARTITION;
+        if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
+            if (taskContext.isComplete()) {
+                return MTMVTaskRefreshMode.COMPLETE;
+            } else if (!CollectionUtils
+                    .isEmpty(taskContext.getPartitions())) {
+                return MTMVTaskRefreshMode.PARTITION;
+            }
         }
         // check if data is fresh
         Set<String> excludedTriggerTables = mtmv.getExcludedTriggerTables();
@@ -256,11 +260,11 @@ public class MTMVTask extends AbstractTask {
         }
         // current, if partitionType is SELF_MANAGE, we can only FULL refresh
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return MTMVTaskRefreshMode.FULL;
+            return MTMVTaskRefreshMode.COMPLETE;
         }
         // if refreshMethod is COMPLETE, we only FULL refresh
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
-            return MTMVTaskRefreshMode.FULL;
+            return MTMVTaskRefreshMode.COMPLETE;
         }
         OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
         excludedTriggerTables.add(relatedTable.getName());
@@ -270,7 +274,7 @@ public class MTMVTask extends AbstractTask {
         if (fresh) {
             return MTMVTaskRefreshMode.PARTITION;
         } else {
-            return MTMVTaskRefreshMode.FULL;
+            return MTMVTaskRefreshMode.COMPLETE;
         }
     }
 

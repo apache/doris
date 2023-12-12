@@ -676,7 +676,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return new RefreshMTMVCommand(new RefreshMTMVInfo(new TableNameInfo(nameParts),
-                partitions));
+                partitions, ctx.COMPLETE() != null));
     }
 
     @Override

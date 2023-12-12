@@ -176,7 +176,8 @@ public class MTMVJobManager implements MTMVHookService {
             throw new DdlException("jobs not normal,should have one job,but job num is: " + jobs.size());
         }
         try {
-            MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, info.getPartitions());
+            MTMVTaskContext mtmvTaskContext = new MTMVTaskContext(MTMVTaskTriggerMode.MANUAL, info.getPartitions(),
+                    info.isComplete());
             Env.getCurrentEnv().getJobManager().triggerJob(jobs.get(0).getJobId(), mtmvTaskContext);
 
         } catch (JobException e) {

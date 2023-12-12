@@ -31,13 +31,17 @@ public class MTMVTaskContext {
     @SerializedName(value = "partitions")
     private List<String> partitions;
 
+    @SerializedName(value = "isComplete")
+    private boolean isComplete;
+
     public MTMVTaskContext(MTMVTaskTriggerMode triggerMode) {
         this.triggerMode = triggerMode;
     }
 
-    public MTMVTaskContext(MTMVTaskTriggerMode triggerMode, List<String> partitions) {
+    public MTMVTaskContext(MTMVTaskTriggerMode triggerMode, List<String> partitions, boolean isComplete) {
         this.triggerMode = triggerMode;
         this.partitions = partitions;
+        this.isComplete = isComplete;
     }
 
     public List<String> getPartitions() {
@@ -46,5 +50,9 @@ public class MTMVTaskContext {
 
     public MTMVTaskTriggerMode getTriggerMode() {
         return triggerMode;
+    }
+
+    public boolean isComplete() {
+        return isComplete;
     }
 }

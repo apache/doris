@@ -33,10 +33,12 @@ import java.util.Objects;
 public class RefreshMTMVInfo {
     private final TableNameInfo mvName;
     private List<String> partitions;
+    private boolean isComplete;
 
-    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions) {
+    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions, boolean isComplete) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
         this.partitions = Utils.copyRequiredList(partitions);
+        this.isComplete = Objects.requireNonNull(isComplete, "require isComplete object");
     }
 
     /**
@@ -71,5 +73,14 @@ public class RefreshMTMVInfo {
      */
     public List<String> getPartitions() {
         return partitions;
+    }
+
+    /**
+     * isComplete
+     *
+     * @return isComplete
+     */
+    public boolean isComplete() {
+        return isComplete;
     }
 }

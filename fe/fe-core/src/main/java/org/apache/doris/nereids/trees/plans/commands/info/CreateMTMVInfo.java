@@ -49,6 +49,7 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
@@ -184,6 +185,9 @@ public class CreateMTMVInfo {
         // create table as select
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
         Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
+            throw new AnalysisException("at least contain one table");
+        }
         // can not contain VIEW or MTMV
         analyzeBaseTables(plan);
         // can not contain Random function
