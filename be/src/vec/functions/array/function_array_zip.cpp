@@ -94,12 +94,16 @@ public:
                         size_t result, size_t input_rows_count) const override {
         size_t num_element = arguments.size();
 
-        // all the columns must have the same size as the first column
+        // all the columns must have the same size as the first column, except have NULL literal
         ColumnPtr first_array_column;
         Columns tuple_columns(num_element);
+        bool have_null_literal = false;
+        int nested_column_data_num = 0;
 
         for (size_t i = 0; i < num_element; ++i) {
             auto col = block.get_by_position(arguments[i]).column;
+            auto type = block.get_by_position(arguments[i]).type;
+            const auto& nested_type = assert_cast<const DataTypeArray&>(*type).get_nested_type();
             col = col->convert_to_full_column_if_const();
 
             const auto* column_array = check_and_get_column<ColumnArray>(col.get());
@@ -108,23 +112,39 @@ public:
                         "execute failed, function {}'s {}-th argument should be array bet get {}",
                         get_name(), i + 1, block.get_by_position(arguments[i]).type->get_name()));
             }
+            bool is_null_literal = nested_type->is_null_literal();
+            have_null_literal |= is_null_literal;
 
             if (i == 0) {
                 first_array_column = col;
-            } else if (!column_array->has_equal_offsets(
+            } else if (!have_null_literal &&
+                       !column_array->has_equal_offsets(
                                static_cast<const ColumnArray&>(*first_array_column))) {
                 return Status::RuntimeError(
                         fmt::format("execute failed, function {}'s {}-th argument should have same "
                                     "offsets with first argument",
                                     get_name(), i + 1));
             }
-
-            tuple_columns[i] = column_array->get_data_ptr();
+            if (is_null_literal) { //wants handle: select /*set_var(enable_fold_constant_by_be = true) */ array_zip([1, 2, 3], null, ['foo', 'bar', 'test']);
+                auto nullable_column =
+                        ColumnNullable::create(ColumnUInt8::create(nested_column_data_num, 1),
+                                               ColumnUInt8::create(nested_column_data_num, 1));
+                tuple_columns[i] = std::move(nullable_column);
+            } else {
+                tuple_columns[i] = column_array->get_data_ptr();
+                nested_column_data_num = column_array->get_data_ptr()->size();
+            }
         }
 
         auto tuples = ColumnStruct::create(tuple_columns);
-        auto nullable_tuples =
-                ColumnNullable::create(tuples, ColumnUInt8::create(tuples->size(), 0));
+
+        ColumnPtr null_map = nullptr;
+        if (have_null_literal) {
+            null_map = ColumnUInt8::create(tuples->size(), 1);
+        } else {
+            null_map = ColumnUInt8::create(tuples->size(), 0);
+        }
+        auto nullable_tuples = ColumnNullable::create(tuples, null_map);
         auto res_column = ColumnArray::create(
                 nullable_tuples,
                 static_cast<const ColumnArray&>(*first_array_column).get_offsets_ptr());
