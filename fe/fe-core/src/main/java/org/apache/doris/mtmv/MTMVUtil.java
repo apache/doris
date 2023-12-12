@@ -279,7 +279,7 @@ public class MTMVUtil {
     }
 
     /**
-     * like p_0000-01-01_2017-02-01
+     * like p_00000101_20170201
      *
      * @param desc
      * @return
