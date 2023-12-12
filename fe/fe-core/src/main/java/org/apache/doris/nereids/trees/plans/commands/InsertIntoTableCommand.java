@@ -219,12 +219,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
     private boolean analyzeGroupCommit(ConnectContext ctx, DataSink sink,
             PhysicalOlapTableSink<?> physicalOlapTableSink) {
         if (!(sink instanceof OlapTableSink) || !ctx.getSessionVariable().isEnableInsertGroupCommit()
-                || ctx.getSessionVariable()
-                .isEnableUniqueKeyPartialUpdate()) {
+                || ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
             return false;
         }
-        return ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
-                && ConnectContext.get().getSessionVariable().getSqlMode() == SqlModeHelper.MODE_DEFAULT
+        return ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && physicalOlapTableSink.getTargetTable() instanceof OlapTable && !ConnectContext.get().isTxnModel()
                 && sink.getFragment().getPlanRoot() instanceof UnionNode && physicalOlapTableSink.getPartitionIds()
                 .isEmpty();
