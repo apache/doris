@@ -133,8 +133,7 @@ void LoadBlockQueue::cancel(const Status& st) {
 
 Status GroupCommitTable::get_first_block_load_queue(
         int64_t table_id, int64_t base_schema_version, const UniqueId& load_id,
-        std::shared_ptr<vectorized::Block> block, std::shared_ptr<LoadBlockQueue>& load_block_queue,
-        int be_exe_version) {
+        std::shared_ptr<LoadBlockQueue>& load_block_queue, int be_exe_version) {
     DCHECK(table_id == _table_id);
     {
         std::unique_lock l(_lock);
@@ -425,7 +424,6 @@ void GroupCommitMgr::stop() {
 Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_id,
                                                   int64_t base_schema_version,
                                                   const UniqueId& load_id,
-                                                  std::shared_ptr<vectorized::Block> block,
                                                   std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                                   int be_exe_version) {
     std::shared_ptr<GroupCommitTable> group_commit_table;
@@ -439,7 +437,7 @@ Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_i
         group_commit_table = _table_map[table_id];
     }
     return group_commit_table->get_first_block_load_queue(table_id, base_schema_version, load_id,
-                                                          block, load_block_queue, be_exe_version);
+                                                          load_block_queue, be_exe_version);
 }
 
 Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,

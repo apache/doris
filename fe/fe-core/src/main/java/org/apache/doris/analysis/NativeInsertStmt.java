@@ -970,7 +970,7 @@ public class NativeInsertStmt extends InsertStmt {
             if (isGroupCommitStreamLoadSql) {
                 sink = new GroupCommitBlockSink((OlapTable) targetTable, olapTuple,
                         targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert(),
-                        ConnectContext.get().getSessionVariable().getGroupCommit());
+                        ConnectContext.get().getSessionVariable().getGroupCommit(), 0);
             } else {
                 sink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
                         analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());

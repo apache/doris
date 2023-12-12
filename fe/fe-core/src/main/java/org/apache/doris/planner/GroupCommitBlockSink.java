@@ -29,11 +29,13 @@ import java.util.List;
 
 public class GroupCommitBlockSink extends OlapTableSink {
     private String groupCommit;
+    private double maxFilterRatio;
 
     public GroupCommitBlockSink(OlapTable dstTable, TupleDescriptor tupleDescriptor, List<Long> partitionIds,
-            boolean singleReplicaLoad, String groupCommit) {
+            boolean singleReplicaLoad, String groupCommit, double maxFilterRatio) {
         super(dstTable, tupleDescriptor, partitionIds, singleReplicaLoad);
         this.groupCommit = groupCommit;
+        this.maxFilterRatio = maxFilterRatio;
     }
 
     protected TDataSinkType getDataSinkType() {
@@ -45,6 +47,7 @@ public class GroupCommitBlockSink extends OlapTableSink {
         TGroupCommitMode groupCommitMode = parseGroupCommit(groupCommit);
         Preconditions.checkNotNull(groupCommitMode, "Group commit is: " + groupCommit);
         tDataSink.olap_table_sink.setGroupCommitMode(groupCommitMode);
+        tDataSink.olap_table_sink.setMaxFilterRatio(maxFilterRatio);
         return tDataSink;
     }
 
