@@ -125,10 +125,10 @@ import org.apache.doris.nereids.rules.exploration.mv.InitMaterializationContextH
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
-import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapScanNode;
@@ -437,9 +437,7 @@ public class StmtExecutor {
     public boolean notAllowFallback() {
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
-            if (logicalPlan instanceof CreateMTMVCommand) {
-                return true;
-            }
+            return logicalPlan instanceof NotAllowFallback;
         }
         return false;
     }

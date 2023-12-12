@@ -286,7 +286,7 @@ public class MTMVUtil {
      */
     private static String generatePartitionName(PartitionKeyDesc desc) {
         String partitionName = "p_";
-        partitionName += desc.toSql().trim().replaceAll("\\(|\\)|\\[|\\]|'|\\s+", "")
+        partitionName += desc.toSql().trim().replaceAll("\\(|\\)|\\-|\\[|\\]|'|\\s+", "")
                 .replaceAll("\\(|\\)|\\,|\\[|\\]", "_");
         if (partitionName.length() > 50) {
             partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
