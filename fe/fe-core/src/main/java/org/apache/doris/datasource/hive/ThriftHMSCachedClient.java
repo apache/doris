@@ -65,9 +65,10 @@ import java.util.Optional;
 import java.util.Queue;
 
 /**
- * A hive metastore client pool for a specific catalog with hive configuration.
+ * This class uses the thrift protocol to directly access the HiveMetaStore service
+ * to obtain Hive metadata information
  */
-public class ThriftHMSCachedClient implements CachedClient {
+public class ThriftHMSCachedClient implements HMSCachedClient {
     private static final Logger LOG = LogManager.getLogger(ThriftHMSCachedClient.class);
 
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = t -> null;

@@ -17,17 +17,26 @@
 
 package org.apache.doris.datasource.hive;
 
+import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
 import com.google.common.base.Preconditions;
+import org.apache.hadoop.hive.conf.HiveConf;
 
-public abstract class HiveJdbcCachedClient extends JdbcClient implements CachedClient {
-    protected JdbcClientConfig jdbcClientConfig;
-
-    protected HiveJdbcCachedClient(JdbcClientConfig jdbcClientConfig) {
-        super(jdbcClientConfig);
-        Preconditions.checkNotNull(jdbcClientConfig, "JdbcClientConfig can not be null");
-        this.jdbcClientConfig = jdbcClientConfig;
+public class HMSCachedClientFactory {
+    public static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
+            JdbcClientConfig jdbcClientConfig) {
+        if (hiveConf != null) {
+            return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
+        }
+        Preconditions.checkNotNull(jdbcClientConfig, "hiveConf and jdbcClientConfig are both null");
+        String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
+        switch (dbType) {
+            case JdbcResource.POSTGRESQL:
+                return new PostgreSQLJdbcHMSCachedClient(jdbcClientConfig);
+            default:
+                throw new IllegalArgumentException("Unsupported DB type: " + dbType);
+        }
     }
 }

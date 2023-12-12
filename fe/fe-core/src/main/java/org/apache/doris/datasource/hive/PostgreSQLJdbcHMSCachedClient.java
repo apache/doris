@@ -53,16 +53,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class HivePostgreSQLCachedClient extends HiveJdbcCachedClient {
-    private static final Logger LOG = LogManager.getLogger(HivePostgreSQLCachedClient.class);
+public class PostgreSQLJdbcHMSCachedClient extends JdbcHMSCachedClient {
+    private static final Logger LOG = LogManager.getLogger(PostgreSQLJdbcHMSCachedClient.class);
 
-    public HivePostgreSQLCachedClient(JdbcClientConfig jdbcClientConfig) {
+    public PostgreSQLJdbcHMSCachedClient(JdbcClientConfig jdbcClientConfig) {
         super(jdbcClientConfig);
     }
 
     @Override
     public Database getDatabase(String dbName) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
@@ -424,54 +424,54 @@ public class HivePostgreSQLCachedClient extends HiveJdbcCachedClient {
 
     @Override
     public List<ColumnStatisticsObj> getTableColumnStatistics(String dbName, String tblName, List<String> columns) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     // no use
     @Override
     public Map<String, List<ColumnStatisticsObj>> getPartitionColumnStatistics(String dbName, String tblName,
             List<String> partNames, List<String> columns) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
     public CurrentNotificationEventId getCurrentNotificationEventId() {
-        throw new MetastoreNotificationFetchException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new MetastoreNotificationFetchException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
     public NotificationEventResponse getNextNotification(long lastEventId, int maxEvents, NotificationFilter filter) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
     public long openTxn(String user) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
     public void commitTxn(long txnId) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
     public ValidWriteIdList getValidWriteIds(String fullTableName, long currentTransactionId) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
     public void acquireSharedLock(String queryId, long txnId, String user, TableName tblName,
             List<String> partitionNames, long timeoutMs) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
     protected String getDatabaseQuery() {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 
     @Override
     protected Type jdbcTypeToDoris(JdbcFieldSchema fieldSchema) {
-        throw new HMSClientException("Do not support in JdbcPostgreSQLClientCachedClient.");
+        throw new HMSClientException("Do not support in PostgreSQLJdbcHMSCachedClient.");
     }
 }

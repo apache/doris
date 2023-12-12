@@ -17,26 +17,21 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
 import com.google.common.base.Preconditions;
-import org.apache.hadoop.hive.conf.HiveConf;
 
-public class CachedClientFactory {
-    public static CachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
-            JdbcClientConfig jdbcClientConfig) {
-        if (hiveConf != null) {
-            return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
-        }
-        Preconditions.checkNotNull(jdbcClientConfig, "hiveConf and jdbcClientConfig are both null");
-        String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
-        switch (dbType) {
-            case JdbcResource.POSTGRESQL:
-                return new HivePostgreSQLCachedClient(jdbcClientConfig);
-            default:
-                throw new IllegalArgumentException("Unsupported DB type: " + dbType);
-        }
+/**
+ * This class uses the JDBC protocol to directly access the relational databases under HMS
+ * to obtain Hive metadata information
+ */
+public abstract class JdbcHMSCachedClient extends JdbcClient implements HMSCachedClient {
+    protected JdbcClientConfig jdbcClientConfig;
+
+    protected JdbcHMSCachedClient(JdbcClientConfig jdbcClientConfig) {
+        super(jdbcClientConfig);
+        Preconditions.checkNotNull(jdbcClientConfig, "JdbcClientConfig can not be null");
+        this.jdbcClientConfig = jdbcClientConfig;
     }
 }

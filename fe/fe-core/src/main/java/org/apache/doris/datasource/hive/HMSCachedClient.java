@@ -33,7 +33,11 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import java.util.List;
 import java.util.Map;
 
-public interface CachedClient {
+/**
+ * A hive metastore client pool for a specific catalog with hive configuration.
+ * Currently, we support obtain hive metadata from thrift protocol and JDBC protocol.
+ */
+public interface HMSCachedClient {
     Database getDatabase(String dbName);
 
     List<String> getAllDatabases();

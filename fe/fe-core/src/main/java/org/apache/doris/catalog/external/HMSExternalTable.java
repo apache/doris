@@ -26,7 +26,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.CachedClient;
+import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -382,25 +382,25 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
-        CachedClient client = ((HMSExternalCatalog) catalog).getClient();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getTableColumnStatistics(dbName, name, columns);
     }
 
     public Map<String, List<ColumnStatisticsObj>> getHivePartitionColumnStats(
             List<String> partNames, List<String> columns) {
-        CachedClient client = ((HMSExternalCatalog) catalog).getClient();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getPartitionColumnStatistics(dbName, name, partNames, columns);
     }
 
     public Partition getPartition(List<String> partitionValues) {
-        CachedClient client = ((HMSExternalCatalog) catalog).getClient();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getPartition(dbName, name, partitionValues);
     }
 
     @Override
     public Set<String> getPartitionNames() {
         makeSureInitialized();
-        CachedClient client = ((HMSExternalCatalog) catalog).getClient();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         List<String> names = client.listPartitionNames(dbName, name);
         return new HashSet<>(names);
     }

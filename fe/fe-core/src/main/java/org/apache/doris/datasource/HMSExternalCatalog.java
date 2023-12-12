@@ -25,8 +25,8 @@ import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.hive.CachedClient;
-import org.apache.doris.datasource.hive.CachedClientFactory;
+import org.apache.doris.datasource.hive.HMSCachedClient;
+import org.apache.doris.datasource.hive.HMSCachedClientFactory;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.property.PropertyConverter;
@@ -56,7 +56,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(HMSExternalCatalog.class);
 
     private static final int MIN_CLIENT_POOL_SIZE = 8;
-    protected CachedClient client;
+    protected HMSCachedClient client;
     // Record the latest synced event id when processing hive events
     // Must set to -1 otherwise client.getNextNotification will throw exception
     // Reference to https://github.com/apDdlache/doris/issues/18251
@@ -182,10 +182,9 @@ public class HMSExternalCatalog extends ExternalCatalog {
             jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
             jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
         } else {
-            LOG.warn("Do not support hive.meta_type = " + hiveMetastoreType);
             throw new HMSClientException("Do not support hive.meta_type = %s", hiveMetastoreType);
         }
-        client = CachedClientFactory.createCachedClient(hiveConf,
+        client = HMSCachedClientFactory.createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size), jdbcClientConfig);
     }
 
@@ -217,7 +216,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return hmsExternalDatabase.getTable(getRealTableName(tblName)).isPresent();
     }
 
-    public CachedClient getClient() {
+    public HMSCachedClient getClient() {
         makeSureInitialized();
         return client;
     }
