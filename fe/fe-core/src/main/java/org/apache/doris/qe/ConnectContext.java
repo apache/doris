@@ -124,6 +124,8 @@ public class ConnectContext {
     // state
     protected volatile QueryState state;
     protected volatile long returnRows;
+
+    protected volatile long totalReturnRows;
     // the protocol capability which server say it can support
     protected volatile MysqlCapability serverCapability;
     // the protocol capability after server and client negotiate
@@ -311,6 +313,7 @@ public class ConnectContext {
     public void init() {
         state = new QueryState();
         returnRows = 0;
+        totalReturnRows = 0;
         isKilled = false;
         sessionVariable = VariableMgr.newSessionVariable();
         userVars = new HashMap<>();
@@ -586,6 +589,7 @@ public class ConnectContext {
     public void setStartTime() {
         startTime = System.currentTimeMillis();
         returnRows = 0;
+        totalReturnRows = 0;
     }
 
     public void updateReturnRows(int returnRows) {
@@ -598,6 +602,18 @@ public class ConnectContext {
 
     public void resetReturnRows() {
         returnRows = 0;
+    }
+
+    public long getTotalReturnRows() {
+        return totalReturnRows;
+    }
+
+    public void resetTotalReturnRows() {
+        totalReturnRows = 0;
+    }
+
+    public void setTotalReturnRows(long rows) {
+        totalReturnRows = rows;
     }
 
     public int getConnectionId() {
@@ -769,6 +785,7 @@ public class ConnectContext {
         closeChannel();
         threadLocalInfo.remove();
         returnRows = 0;
+        totalReturnRows = 0;
     }
 
     public boolean isKilled() {

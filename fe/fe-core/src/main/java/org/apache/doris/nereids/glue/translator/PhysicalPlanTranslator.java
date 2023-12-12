@@ -241,6 +241,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment translatePlan(PhysicalPlan physicalPlan) {
         PlanFragment rootFragment = physicalPlan.accept(this, context);
         List<Expr> outputExprs = Lists.newArrayList();
+
+        if (context.getSessionVariable().isEnableFoundRows()) {
+            rootFragment.getPlanRoot().setCalcFoundRows(true);
+        }
+
         physicalPlan.getOutput().stream().map(Slot::getExprId)
                 .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
         rootFragment.setOutputExprs(outputExprs);
@@ -357,8 +362,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment visitPhysicalResultSink(PhysicalResultSink<? extends Plan> physicalResultSink,
             PlanTranslatorContext context) {
         PlanFragment planFragment = physicalResultSink.child().accept(this, context);
-        planFragment.setSink(new ResultSink(planFragment.getPlanRoot().getId(),
-                ConnectContext.get().getResultSinkType()));
+        ResultSink rs = new ResultSink(planFragment.getPlanRoot().getId(), ConnectContext.get().getResultSinkType());
+        if (context.getSessionVariable().isEnableFoundRows()) {
+            rs.setLimit(planFragment.getPlanRoot().getLimit());
+            rs.setOffset(planFragment.getPlanRoot().getOffset());
+        }
+        planFragment.setSink(rs);
         return planFragment;
     }
 

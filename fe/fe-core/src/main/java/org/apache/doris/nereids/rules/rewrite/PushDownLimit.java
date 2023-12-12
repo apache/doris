@@ -46,7 +46,14 @@ public class PushDownLimit implements RewriteRuleFactory {
         return ImmutableList.of(
                 // limit -> join
                 logicalLimit(logicalJoin(any(), any())).whenNot(Limit::hasValidOffset)
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalJoin<Plan, Plan>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             Plan newJoin = pushLimitThroughJoin(limit, limit.child());
                             if (newJoin == null || limit.child().children().equals(newJoin.children())) {
                                 return null;
@@ -57,7 +64,14 @@ public class PushDownLimit implements RewriteRuleFactory {
 
                 // limit -> project -> join
                 logicalLimit(logicalProject(logicalJoin(any(), any()))).whenNot(Limit::hasValidOffset)
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalProject<LogicalJoin<Plan, Plan>>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalProject<LogicalJoin<Plan, Plan>> project = limit.child();
                             LogicalJoin<Plan, Plan> join = project.child();
                             Plan newJoin = pushLimitThroughJoin(limit, join);
@@ -69,7 +83,14 @@ public class PushDownLimit implements RewriteRuleFactory {
 
                 // limit -> window
                 logicalLimit(logicalWindow())
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalWindow<Plan>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalWindow<Plan> window = limit.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
                             Optional<Plan> newWindow = window.pushPartitionLimitThroughWindow(partitionLimit, true);
@@ -81,7 +102,14 @@ public class PushDownLimit implements RewriteRuleFactory {
 
                 // limit -> project -> window
                 logicalLimit(logicalProject(logicalWindow()))
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalProject<LogicalWindow<Plan>>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalProject<LogicalWindow<Plan>> project = limit.child();
                             LogicalWindow<Plan> window = project.child();
                             long partitionLimit = limit.getLimit() + limit.getOffset();
@@ -95,7 +123,14 @@ public class PushDownLimit implements RewriteRuleFactory {
                 // limit -> union
                 logicalLimit(logicalUnion(multi()).when(union -> union.getQualifier() == Qualifier.ALL))
                         .whenNot(Limit::hasValidOffset)
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalUnion> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalUnion union = limit.child();
                             ImmutableList<Plan> newUnionChildren = union.children()
                                     .stream()

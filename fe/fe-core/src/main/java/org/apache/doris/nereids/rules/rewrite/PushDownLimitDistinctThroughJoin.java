@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
 
@@ -42,7 +43,14 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                 // limit -> distinct -> join
                 logicalLimit(logicalAggregate(logicalJoin())
                         .when(LogicalAggregate::isDistinct))
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalAggregate<LogicalJoin<Plan, Plan>>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalAggregate<LogicalJoin<Plan, Plan>> agg = limit.child();
                             LogicalJoin<Plan, Plan> join = agg.child();
 
@@ -57,7 +65,14 @@ public class PushDownLimitDistinctThroughJoin implements RewriteRuleFactory {
                 // limit -> distinct -> project -> join
                 logicalLimit(logicalAggregate(logicalProject(logicalJoin()).when(LogicalProject::isAllSlots))
                         .when(LogicalAggregate::isDistinct))
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalAggregate<LogicalProject<LogicalJoin<Plan, Plan>>> agg = limit.child();
                             LogicalProject<LogicalJoin<Plan, Plan>> project = agg.child();
                             LogicalJoin<Plan, Plan> join = project.child();

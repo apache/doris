@@ -89,6 +89,8 @@ public enum RuleType {
 
     // rewrite rules
     NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
+
+    MARK_TOP_LIMIT(RuleTypeClass.REWRITE),
     NORMALIZE_SORT(RuleTypeClass.REWRITE),
     NORMALIZE_REPEAT(RuleTypeClass.REWRITE),
     EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS(RuleTypeClass.REWRITE),

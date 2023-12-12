@@ -20,7 +20,9 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 /**
  * Split limit into two phase
@@ -35,7 +37,14 @@ public class SplitLimit extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalLimit().when(limit -> !limit.isSplit())
-                .then(limit -> {
+                .thenApply(ctx -> {
+                    if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                        return null;
+                    }
+                    LogicalLimit<Plan> limit = ctx.root;
+                    if (limit.isTopLimit()) {
+                        return null;
+                    }
                     long l = limit.getLimit();
                     long o = limit.getOffset();
                     return new LogicalLimit<>(l, o,

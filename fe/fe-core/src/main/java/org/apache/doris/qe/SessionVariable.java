@@ -281,6 +281,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_RUNTIME_FILTER_PRUNE =
             "enable_runtime_filter_prune";
 
+    public static final String ENABLE_FOUND_ROWS = "enable_found_rows";
+
     static final String SESSION_CONTEXT = "session_context";
 
     public static final String DEFAULT_ORDER_BY_LIMIT = "default_order_by_limit";
@@ -1027,6 +1029,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_RUNTIME_FILTER_PRUNE, needForward = true)
     public boolean enableRuntimeFilterPrune = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_FOUND_ROWS, needForward = true)
+    public boolean enableFoundRows = false;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
@@ -2455,6 +2460,13 @@ public class SessionVariable implements Serializable, Writable {
         this.enableRuntimeFilterPrune = enableRuntimeFilterPrune;
     }
 
+    public boolean isEnableFoundRows() {
+        return enableFoundRows;
+    }
+
+    public void setEnableFoundRows(boolean enableFoundRows) {
+        this.enableFoundRows = enableFoundRows;
+    }
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
     }

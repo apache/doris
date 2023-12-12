@@ -20,9 +20,12 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
+import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -38,7 +41,14 @@ public class LimitSortToTopN implements RewriteRuleFactory {
         return ImmutableList.of(
                 // limit -> sort ==> topN
                 logicalLimit(logicalSort())
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalSort<Plan>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalSort<Plan> sort = limit.child();
                             return new LogicalTopN<>(sort.getOrderKeys(),
                                     limit.getLimit(),
@@ -47,7 +57,14 @@ public class LimitSortToTopN implements RewriteRuleFactory {
                         }).toRule(RuleType.LIMIT_SORT_TO_TOP_N),
                 // limit -> proj -> sort ==> proj -> topN
                 logicalLimit(logicalProject(logicalSort()))
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalProject<LogicalSort<Plan>>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalProject<LogicalSort<Plan>> project = limit.child();
                             LogicalSort<Plan> sort = limit.child().child();
                             LogicalTopN<Plan> topN = new LogicalTopN<>(sort.getOrderKeys(),
