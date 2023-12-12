@@ -111,7 +111,10 @@ public:
     friend class SetSinkLocalState<is_intersect>;
     SetSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
                      const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id), _cur_child_id(child_id) {}
+            : Base(sink_id, tnode.node_id, tnode.node_id),
+              _cur_child_id(child_id),
+              _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
+                                        : tnode.except_node.is_colocate) {}
     ~SetSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -126,6 +129,9 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    ExchangeType get_local_exchange_type() const override {
+        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+    }
 
 private:
     template <class HashTableContext, bool is_intersected>
@@ -140,6 +146,7 @@ private:
     int _child_quantity;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+    const bool _is_colocate;
     using OperatorBase::_child_x;
 };
 

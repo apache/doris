@@ -123,7 +123,10 @@ public:
     friend class SetProbeSinkLocalState<is_intersect>;
     SetProbeSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
                           const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id), _cur_child_id(child_id) {}
+            : Base(sink_id, tnode.node_id, tnode.node_id),
+              _cur_child_id(child_id),
+              _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
+                                        : tnode.except_node.is_colocate) {}
     ~SetProbeSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
@@ -140,6 +143,10 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
+    ExchangeType get_local_exchange_type() const override {
+        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+    }
+
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
     Status _extract_probe_column(SetProbeSinkLocalState<is_intersect>& local_state,
@@ -149,6 +156,7 @@ private:
     const int _cur_child_id;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+    const bool _is_colocate;
     using OperatorBase::_child_x;
 };
 
