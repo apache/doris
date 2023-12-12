@@ -993,6 +993,18 @@ public class SystemInfoService {
         return bes.stream().filter(b -> b.getLocationTag().equals(tag)).collect(Collectors.toList());
     }
 
+    public Map<Tag, Set<Long>> groupBackendsByTag(Set<Long> backendIds) {
+        Map<Tag, Set<Long>> res = Maps.newHashMap();
+        for (Long beId : backendIds) {
+            Backend backend = getBackend(beId);
+            if (backend != null) {
+                Tag tag = backend.getLocationTag();
+                res.computeIfAbsent(tag, k -> Sets.newHashSet()).add(beId);
+            }
+        }
+        return res;
+    }
+
     public int getMinPipelineExecutorSize() {
         if (idToBackendRef.size() == 0) {
             return 1;

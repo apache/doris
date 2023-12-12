@@ -29,4 +29,6 @@ public class DistributedPlanColocateRule {
             = "Inconsistent distribution of table and queries";
     public static final String NULL_AWARE_LEFT_ANTI_JOIN_MUST_BROADCAST
             = "Build side of null aware left anti join must be broadcast";
+    public static final String COLOCATE_GROUP_IS_STABLE_BUT_NO_CROSS_DATA
+            = "colocate group is stable, but no cross data for olpa scan nodes";
 }

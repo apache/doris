@@ -121,6 +121,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.tuple.ImmutableTriple;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
@@ -2300,8 +2301,8 @@ public class Coordinator implements CoordInterface {
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
         if (!fragmentIdToSeqToAddressMap.containsKey(scanNode.getFragmentId())) {
             fragmentIdToSeqToAddressMap.put(scanNode.getFragmentId(), new HashMap<>());
+            fragmentIdToSeqToLocationsMap.put(scanNode.getFragmentId(), new HashMap());
             fragmentIdTobucketSeqToScanRangeMap.put(scanNode.getFragmentId(), new BucketSeqToScanRange());
-
             // Same as bucket shuffle.
             int bucketNum = 0;
             if (scanNode.getOlapTable().isColocateTable()) {
@@ -2311,15 +2312,30 @@ public class Coordinator implements CoordInterface {
             }
             scanNode.getFragment().setBucketNum(bucketNum);
         }
-        Map<Integer, TNetworkAddress> bucketSeqToAddress = fragmentIdToSeqToAddressMap.get(scanNode.getFragmentId());
-        BucketSeqToScanRange bucketSeqToScanRange = fragmentIdTobucketSeqToScanRangeMap.get(scanNode.getFragmentId());
+
+        PlanFragmentId fragmentId = scanNode.getFragmentId();
+        Map<Integer, TScanRangeLocations> bucketSeqToLocations = fragmentIdToSeqToLocationsMap.get(fragmentId);
+        BucketSeqToScanRange bucketSeqToScanRange = fragmentIdTobucketSeqToScanRangeMap.get(fragmentId);
+
         for (Integer bucketSeq : scanNode.bucketSeq2locations.keySet()) {
             //fill scanRangeParamsList
-            List<TScanRangeLocations> locations = scanNode.bucketSeq2locations.get(bucketSeq);
-            if (!bucketSeqToAddress.containsKey(bucketSeq)) {
-                getExecHostPortForFragmentIDAndBucketSeq(locations.get(0),
-                        scanNode.getFragmentId(), bucketSeq, assignedBytesPerHost, replicaNumPerHost);
+            List<TScanRangeLocations> locations = Lists.newArrayList(scanNode.bucketSeq2locations.get(bucketSeq));
+            List<TScanRangeLocations> alternativeLocations = Lists.newArrayList(locations);
+
+            if (bucketSeqToLocations.containsKey(bucketSeq)) {
+                alternativeLocations.add(bucketSeqToLocations.get(bucketSeq));
             }
+
+            TScanRangeLocations currentAvailableLocations = scanNode.getSameLocations(alternativeLocations, bucketSeq);
+            LOG.debug("table : {} bucket seq : {} locations : {} cross locations : {}",
+                    scanNode.getOlapTable().getName(), bucketSeq, prettyString(locations),
+                    prettyString(Lists.newArrayList(currentAvailableLocations)));
+            if (CollectionUtils.isEmpty(currentAvailableLocations.locations)) {
+                throw new UserException("there is no scanNode Backend for Colocate");
+            }
+            bucketSeqToLocations.put(bucketSeq, currentAvailableLocations);
+            getExecHostPortForFragmentIDAndBucketSeq(currentAvailableLocations, fragmentId, bucketSeq,
+                    assignedBytesPerHost, replicaNumPerHost);
 
             for (TScanRangeLocations location : locations) {
                 Map<Integer, List<TScanRangeParams>> scanRanges =
@@ -2335,6 +2351,21 @@ public class Coordinator implements CoordInterface {
                 updateScanRangeNumByScanRange(scanRangeParams);
             }
         }
+    }
+
+    private String prettyString(List<TScanRangeLocations> locations) {
+        List<String> msg = new ArrayList<>();
+        for (TScanRangeLocations location : locations) {
+            if (CollectionUtils.isEmpty(location.locations)) {
+                return "";
+            }
+            List<String> backends = new ArrayList<>();
+            for (TScanRangeLocation rangeLocation : location.locations) {
+                backends.add(String.valueOf(rangeLocation.backend_id));
+            }
+            msg.add(String.join(",", backends));
+        }
+        return String.join("|", msg);
     }
 
     //ensure bucket sequence distribued to every host evenly
@@ -2951,6 +2982,7 @@ public class Coordinator implements CoordInterface {
 
     private final Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdTobucketSeqToScanRangeMap = Maps.newHashMap();
     private final Map<PlanFragmentId, Map<Integer, TNetworkAddress>> fragmentIdToSeqToAddressMap = Maps.newHashMap();
+    private Map<PlanFragmentId, Map<Integer, TScanRangeLocations>> fragmentIdToSeqToLocationsMap = Maps.newHashMap();
     // cache the fragment id to its scan node ids. Used for colocate join.
     private final Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds = Maps.newHashMap();
     private final Set<Integer> colocateFragmentIds = new HashSet<>();

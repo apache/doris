@@ -38,6 +38,7 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
@@ -1319,6 +1320,24 @@ public class OlapScanNode extends ScanNode {
         } else {
             return false;
         }
+    }
+
+    public TScanRangeLocations getSameLocations(List<TScanRangeLocations> locations, Integer bucketSeq) {
+        Set<TScanRangeLocation> intersection = locations.stream()
+                .map(TScanRangeLocations::getLocations)
+                .map(HashSet::new)
+                .reduce((a, b) -> {
+                    a.retainAll(b);
+                    return a;
+                }).orElse(new HashSet<>());
+        ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();
+        long tableId = getOlapTable().getId();
+        if (colocateIndex.isColocateTable(tableId)) {
+            GroupId groupId = colocateIndex.getGroup(tableId);
+            Set<Long> backendsForOneBucket = colocateIndex.getBackendsPerBucketSeqSet(groupId).get(bucketSeq);
+            intersection.removeIf(location -> !backendsForOneBucket.contains(location.backend_id));
+        }
+        return new TScanRangeLocations(null, Lists.newArrayList(intersection));
     }
 
     @Override

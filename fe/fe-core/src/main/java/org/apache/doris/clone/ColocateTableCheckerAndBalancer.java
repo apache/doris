@@ -34,6 +34,7 @@ import org.apache.doris.clone.TabletSchedCtx.Priority;
 import org.apache.doris.clone.TabletScheduler.AddResult;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -42,16 +43,20 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -68,6 +73,8 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
     }
 
     private static volatile ColocateTableCheckerAndBalancer INSTANCE = null;
+
+    private Map<GroupId, Boolean> nextLoopMap = new HashMap<>();
 
     public static ColocateTableCheckerAndBalancer getInstance() {
         if (INSTANCE == null) {
@@ -419,7 +426,17 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
             Map<Tag, Short> allocMap = replicaAlloc.getAllocMap();
 
+            List<Map.Entry<Tag, Short>> priorityTags = Lists.newArrayList();
             for (Map.Entry<Tag, Short> entry : allocMap.entrySet()) {
+                Tag tag = entry.getKey();
+                Set<Long> unavailableBeIds = getUnavailableBeIdsInGroup(infoService, colocateIndex, groupId, tag);
+                if (!unavailableBeIds.isEmpty()) {
+                    priorityTags.add(entry);
+                }
+            }
+
+            Collection<Entry<Tag, Short>> repairableTags = priorityTags.isEmpty() ? allocMap.entrySet() : priorityTags;
+            for (Map.Entry<Tag, Short> entry : repairableTags) {
                 Tag tag = entry.getKey();
                 LoadStatisticForTag statistic = statisticMap.get(tag);
                 if (statistic == null) {
@@ -437,12 +454,22 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 Set<Long> beIdsInOtherTag = colocateIndex.getBackendIdsExceptForTag(groupId, tag);
                 List<Long> availableBeIds = getAvailableBeIds(SystemInfoService.DEFAULT_CLUSTER, tag, beIdsInOtherTag,
                         infoService);
+
+                Set<Long> nonAliveBeIds = getNonAliveBeIds(unavailableBeIdsInGroup, infoService);
+                if ((CollectionUtils.isEmpty(unavailableBeIdsInGroup) || nonAliveBeIds.isEmpty())
+                        && !canNextLoop(groupId)) {
+                    LOG.info("skip this round relocate, because previous round repair not finished for {}",
+                            groupId);
+                    continue;
+                }
                 // try relocate or balance this group for specified tag
-                List<List<Long>> balancedBackendsPerBucketSeq = Lists.newArrayList();
-                if (relocateAndBalance(groupId, tag, unavailableBeIdsInGroup, availableBeIds, colocateIndex,
-                        infoService, statistic, globalColocateStatistic, balancedBackendsPerBucketSeq,
+                List<List<Long>> newBackendsPerBucketSeq = Lists.newArrayList();
+                if (doRelocate(groupId, tag, unavailableBeIdsInGroup, availableBeIds, colocateIndex,
+                        infoService, statistic, globalColocateStatistic, newBackendsPerBucketSeq,
                         balanceBetweenGroups)) {
-                    if (!colocateIndex.addBackendsPerBucketSeqByTag(groupId, tag, balancedBackendsPerBucketSeq,
+                    LOG.info("group {} for tag {}. change backends per bucket sequence from: {} to: {}",
+                            groupId, tag, backendsPerBucketSeq, newBackendsPerBucketSeq);
+                    if (!colocateIndex.addBackendsPerBucketSeqByTag(groupId, tag, newBackendsPerBucketSeq,
                             replicaAlloc)) {
                         LOG.warn("relocate group {} succ, but replica allocation has change, old replica alloc {}",
                                 groupId, replicaAlloc);
@@ -450,12 +477,12 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                     }
                     changeGroups.add(groupId);
                     Map<Tag, List<List<Long>>> balancedBackendsPerBucketSeqMap = Maps.newHashMap();
-                    balancedBackendsPerBucketSeqMap.put(tag, balancedBackendsPerBucketSeq);
+                    balancedBackendsPerBucketSeqMap.put(tag, newBackendsPerBucketSeq);
                     ColocatePersistInfo info = ColocatePersistInfo
                             .createForBackendsPerBucketSeq(groupId, balancedBackendsPerBucketSeqMap);
                     env.getEditLog().logColocateBackendsPerBucketSeq(info);
                     LOG.info("balance group {}. now backends per bucket sequence for tag {} is: {}",
-                            groupId, tag, balancedBackendsPerBucketSeq);
+                            groupId, tag, newBackendsPerBucketSeq);
                 }
             }
         }
@@ -478,8 +505,11 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         TabletScheduler tabletScheduler = env.getTabletScheduler();
 
         // check each group
-        Set<GroupId> groupIds = colocateIndex.getAllGroupIds();
+        List<GroupId> groupIds = Lists.newArrayList(colocateIndex.getAllGroupIds());
+        Collections.shuffle(groupIds);
         for (GroupId groupId : groupIds) {
+            nextLoopMap.put(groupId, true);
+            Map<Integer, Map<Tag, Set<Long>>> bucketSeqToUnavailableBeIds = Maps.newHashMap();
             List<Long> tableIds = colocateIndex.getAllTableIds(groupId);
             List<Set<Long>> backendBucketsSeq = colocateIndex.getBackendsPerBucketSeqSet(groupId);
             if (backendBucketsSeq.isEmpty()) {
@@ -489,6 +519,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             ColocateGroupSchema groupSchema = colocateIndex.getGroupSchema(groupId);
             ReplicaAllocation replicaAlloc = groupSchema.getReplicaAlloc();
             String unstableReason = null;
+            boolean isGroupStable = true;
             OUT:
             for (Long tableId : tableIds) {
                 long dbId = groupId.dbId;
@@ -524,15 +555,35 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                 TabletStatus st = tablet.getColocateHealthStatus(
                                         visibleVersion, replicaAlloc, bucketsSeq);
                                 if (st != TabletStatus.HEALTHY) {
+                                    nextLoopMap.put(groupId, false);
+                                    Set<Long> unAvailableBeIds = tablet.getUnavailableBeIdsForColocate(bucketsSeq,
+                                            visibleVersion);
+
                                     counter.unhealthyTabletNum++;
                                     unstableReason = String.format("get unhealthy tablet %d in colocate table."
                                             + " status: %s", tablet.getId(), st);
                                     LOG.debug(unstableReason);
 
-                                    if (!tablet.readyToBeRepaired(infoService, Priority.NORMAL)) {
+                                    if (Config.enable_colocate_balance_improve) {
+                                        if (!checkGroupStable(groupId, idx, unAvailableBeIds,
+                                                bucketSeqToUnavailableBeIds)) {
+                                            isGroupStable = false;
+                                        }
+                                    } else {
+                                        isGroupStable = false;
+                                    }
+
+                                    Priority priority = unAvailableBeIds.size() >= replicationNum / 2 + 1
+                                            ? Priority.HIGH : Priority.NORMAL;
+
+                                    if (!tablet.readyToBeRepaired(infoService, priority)) {
                                         counter.tabletNotReady++;
                                         continue;
                                     }
+
+                                    LOG.debug("get unhealthy tablet {} in co-locate table for {}, idx : {}, "
+                                            + "status : {}, {} / {}", tablet.getId(), groupId, idx, st,
+                                            unAvailableBeIds, bucketsSeq);
 
                                     TabletSchedCtx tabletCtx = new TabletSchedCtx(
                                             TabletSchedCtx.Type.REPAIR,
@@ -540,14 +591,23 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                                             replicaAlloc, System.currentTimeMillis());
                                     // the tablet status will be set again when being scheduled
                                     tabletCtx.setTabletStatus(st);
-                                    tabletCtx.setPriority(Priority.NORMAL);
+                                    tabletCtx.setPriority(priority);
                                     tabletCtx.setTabletOrderIdx(idx);
+                                    tabletCtx.setColocate(true);
 
                                     AddResult res = tabletScheduler.addTablet(tabletCtx, false /* not force */);
-                                    if (res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED) {
-                                        // tablet in scheduler exceed limit, or scheduler is disabled,
-                                        // skip this group and check next one.
-                                        LOG.info("tablet scheduler return: {}. stop colocate table check", res.name());
+
+                                    if (!isGroupStable && (res == AddResult.COLOCATE_LIMIT_EXCEED
+                                            || res == AddResult.LIMIT_EXCEED || res == AddResult.DISABLED)) {
+                                        if (res == AddResult.COLOCATE_LIMIT_EXCEED) {
+                                            LOG.info("number of scheduling co-locate tablets in tablet "
+                                                    + "scheduler exceed to co-locate limit {}",
+                                                    Config.max_scheduling_colocate_tablets);
+                                        } else if (res == AddResult.LIMIT_EXCEED) {
+                                            LOG.info("number of scheduling co-locate tablets in tablet "
+                                                    + "scheduler exceed to total limit {}",
+                                                    Config.max_scheduling_tablets);
+                                        }
                                         break OUT;
                                     } else if (res == AddResult.ADDED) {
                                         counter.addToSchedulerTabletNum++;
@@ -564,7 +624,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             } // end for tables
 
             // mark group as stable or unstable
-            if (Strings.isNullOrEmpty(unstableReason)) {
+            if (isGroupStable) {
                 colocateIndex.markGroupStable(groupId, true, replicaAlloc);
             } else {
                 colocateIndex.markGroupUnstable(groupId, unstableReason, true);
@@ -711,7 +771,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
      *  Return true if backends per bucket sequence change and new sequence is saved in balancedBackendsPerBucketSeq.
      *  Return false if nothing changed.
      */
-    private boolean relocateAndBalance(GroupId groupId, Tag tag, Set<Long> unavailableBeIds, List<Long> availableBeIds,
+    private boolean doRelocate(GroupId groupId, Tag tag, Set<Long> unavailableBeIds, List<Long> availableBeIds,
             ColocateTableIndex colocateIndex, SystemInfoService infoService, LoadStatisticForTag statistic,
             GlobalColocateStatistic globalColocateStatistic, List<List<Long>> balancedBackendsPerBucketSeq,
             boolean balanceBetweenGroups) {
@@ -722,12 +782,33 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
         // [[A,B,C],[B,C,D]] -> [A,B,C,B,C,D]
         List<Long> flatBackendsPerBucketSeq = backendsPerBucketSeq.stream()
                 .flatMap(List::stream).collect(Collectors.toList());
-
         int tagTotalBucketNum = globalColocateStatistic.getAllTagBucketNum().getOrDefault(tag, 0);
         int availableBeNum = availableBeIds.size();
         int highTotalBucketNumPerBe = availableBeNum == 0 ? 0 :
                 (tagTotalBucketNum + availableBeNum - 1) / availableBeNum;
         int lowTotalBucketNumPerBe = availableBeNum == 0 ? 0 : tagTotalBucketNum / availableBeNum;
+
+        boolean needBalance = unavailableBeIds.isEmpty();
+        /*
+         * unavailable be nodes in the group are divided into two categories:
+         * one is alive & queryable, the other is dead.
+         * dead nodes need to be replaced immediately, and alive & queryable nodes need to be replaced one by one.
+         */
+        boolean canRepairAliveBe = false;
+        Set<Long> replaceableBeIds = Sets.newHashSet();
+        LOG.debug("group {} has unavailable bes : {}", groupId, unavailableBeIds);
+        if (!unavailableBeIds.isEmpty()) {
+            Set<Long> nonAliveBeIds = getNonAliveBeIds(unavailableBeIds, infoService);
+            if (!nonAliveBeIds.isEmpty()) {
+                replaceableBeIds = nonAliveBeIds;
+                LOG.info("group {} has non alive be : {},  alive be : {}", groupId, nonAliveBeIds,
+                        Sets.difference(unavailableBeIds, nonAliveBeIds));
+            } else {
+                replaceableBeIds = unavailableBeIds;
+                LOG.info("group {} only has alive be : {}", groupId, unavailableBeIds);
+                canRepairAliveBe = true;
+            }
+        }
 
         boolean isChanged = false;
         int times = 0;
@@ -738,10 +819,6 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             // update backends and hosts at each round
             backendsPerBucketSeq = Lists.partition(flatBackendsPerBucketSeq, replicaNum);
             List<List<String>> hostsPerBucketSeq = getHostsPerBucketSeq(backendsPerBucketSeq, infoService);
-            if (hostsPerBucketSeq == null) {
-                // error happens, change nothing
-                return false;
-            }
             Preconditions.checkState(backendsPerBucketSeq.size() == hostsPerBucketSeq.size());
             times++;
             if (times > 10 * backendsPerBucketSeq.size()) {
@@ -750,35 +827,23 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 break;
             }
 
-            long srcBeId = -1;
-            List<Integer> seqIndexes = null;
-            boolean srcBeUnavailable = false;
-            // first choose the unavailable be as src be
-            for (Long beId : unavailableBeIds) {
-                seqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, beId);
-                if (!seqIndexes.isEmpty()) {
-                    srcBeId = beId;
-                    srcBeUnavailable = true;
-                    LOG.info("find unavailable backend {} in colocate group: {}", beId, groupId);
-                    break;
-                }
-            }
-
             // sort backends with replica num in desc order
             List<Map.Entry<Long, Long>> backendWithReplicaNum =
                     getSortedBackendReplicaNumPairs(availableBeIds, unavailableBeIds, statistic,
                             globalColocateStatistic, flatBackendsPerBucketSeq);
 
             // if there is only one available backend and no unavailable bucketId to relocate, end the outer loop
-            if (backendWithReplicaNum.size() <= 1 && !srcBeUnavailable) {
+            if (backendWithReplicaNum.size() <= 1 && needBalance) {
                 break;
             }
 
-            if (seqIndexes == null || seqIndexes.isEmpty()) {
-                // choose max bucketId num be as src be
-                Preconditions.checkState(backendsPerBucketSeq.size() > 0);
-                srcBeId = backendWithReplicaNum.get(0).getKey();
-                seqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, srcBeId);
+            Pair<Long, List<Integer>> res = chooseReplaceableBeAsSrc(backendWithReplicaNum, replaceableBeIds,
+                    flatBackendsPerBucketSeq, needBalance);
+            long srcBeId = res.first;
+            List<Integer> seqIndexes = res.second;
+            if (!needBalance && srcBeId == -1 && seqIndexes.isEmpty()) {
+                LOG.info("all unavailable be already replaced for {}", groupId);
+                break;
             }
 
             boolean isThisRoundChanged = false;
@@ -787,7 +852,7 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 // if replace failed(eg: both backends are on some host), select next low backend and try(j--)
                 Map.Entry<Long, Long> lowBackend = backendWithReplicaNum.get(j);
                 long destBeId = lowBackend.getKey();
-                if (!srcBeUnavailable) {
+                if (needBalance) {
                     long diffThisGroup = seqIndexes.size() - lowBackend.getValue();
                     if (diffThisGroup < 1) {
                         // balanced
@@ -910,8 +975,14 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
                 // flatBackendsPerBucketSeq is changed.
                 isChanged = true;
                 isThisRoundChanged = true;
-                LOG.info("replace backend {} with backend {} in colocate group {}, idx: {}",
-                        srcBeId, destBeId, groupId, targetSeqIndex);
+                LOG.info("replace backend {} with backend {} in colocate group {}, idx: {}, isBalance: {}",
+                        srcBeId, destBeId, groupId, targetSeqIndex, needBalance);
+
+                // just do one bucket replace for balance or decommissioned be
+                if (needBalance || canRepairAliveBe) {
+                    break OUT;
+                }
+
                 break;
             }
 
@@ -929,6 +1000,54 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             balancedBackendsPerBucketSeq.addAll(Lists.partition(flatBackendsPerBucketSeq, replicaNum));
         }
         return isChanged;
+    }
+
+    private boolean checkGroupStable(GroupId groupId, int idx, Set<Long> unAvailableBeIds, Map<Integer, Map<Tag,
+            Set<Long>>> bucketSeqToUnavailableBeIds) {
+        Map<Tag, Set<Long>> unAvailableBeIdsByTag = Env.getCurrentSystemInfo().groupBackendsByTag(unAvailableBeIds);
+        Map<Tag, Set<Long>> unAvailableBeIdsByTagForIdx = bucketSeqToUnavailableBeIds
+                .computeIfAbsent(idx, key -> Maps.newHashMap());
+        boolean isStable = true;
+        for (Entry<Tag, Set<Long>> entry : unAvailableBeIdsByTag.entrySet()) {
+            Tag tag = entry.getKey();
+            Set<Long> unAvailableBeIdsForIdx = unAvailableBeIdsByTagForIdx
+                    .computeIfAbsent(tag, key -> Sets.newHashSet());
+            unAvailableBeIdsForIdx.addAll(entry.getValue());
+            List<List<Long>> backendsPerBucketSeqByTag = Env.getCurrentColocateIndex()
+                    .getBackendsPerBucketSeqByTag(groupId, tag);
+            int replicaNumForTag = backendsPerBucketSeqByTag.get(idx).size();
+            if (unAvailableBeIdsForIdx.size() >= replicaNumForTag) {
+                isStable = false;
+                LOG.debug("group {} is unstable for tag {}, unavailable be {} of idx {}, "
+                        + "unavailable({}) / total({}).", groupId, tag, unAvailableBeIdsForIdx, idx,
+                        unAvailableBeIdsByTagForIdx.size(), replicaNumForTag);
+            }
+        }
+        return isStable;
+    }
+
+    private boolean canNextLoop(GroupId groupId) {
+        return nextLoopMap.containsKey(groupId) && nextLoopMap.get(groupId);
+    }
+
+    private Pair<Long, List<Integer>> chooseReplaceableBeAsSrc(List<Map.Entry<Long, Long>> backendWithReplicaNum,
+            Set<Long> replaceableBeIds, List<Long> flatBackendsPerBucketSeq, boolean needBalance) {
+        long srcBeId = -1;
+        List<Integer> seqIndexes = Lists.newArrayList();
+        if (needBalance) {
+            // choose max bucketId num be as src be
+            srcBeId = backendWithReplicaNum.get(0).getKey();
+            seqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, srcBeId);
+        } else {
+            for (Long beId : replaceableBeIds) {
+                seqIndexes = getBeSeqIndexes(flatBackendsPerBucketSeq, beId);
+                if (!seqIndexes.isEmpty()) {
+                    srcBeId = beId;
+                    break;
+                }
+            }
+        }
+        return Pair.of(srcBeId, seqIndexes);
     }
 
     // change the backend id to backend host
@@ -1144,6 +1263,24 @@ public class ColocateTableCheckerAndBalancer extends MasterDaemon {
             }
         }
         return unavailableBeIds;
+    }
+
+    /*
+     * unavailable be nodes in the group are divided into two categories:
+     * one is alive & queryable, the other is dead.
+     * dead nodes need to be replaced immediately, and alive & queryable nodes need to be replaced one by one.
+     */
+    private Set<Long> getNonAliveBeIds(Set<Long> unavailableBeIds, SystemInfoService infoService) {
+        Set<Long> nonAliveBeIds = Sets.newHashSet();
+        long currTime = System.currentTimeMillis();
+        for (Long beId : unavailableBeIds) {
+            Backend be = infoService.getBackend(beId);
+            if (!(be != null && be.isAlive() && currTime - be.getLastUpdateMs()
+                    <= Config.colocate_group_relocate_delay_second * 1000L)) {
+                nonAliveBeIds.add(beId);
+            }
+        }
+        return nonAliveBeIds;
     }
 
     private List<Long> getAvailableBeIds(String cluster, Tag tag, Set<Long> excludedBeIds,

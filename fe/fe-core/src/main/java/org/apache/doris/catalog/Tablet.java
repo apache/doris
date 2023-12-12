@@ -691,6 +691,23 @@ public class Tablet extends MetaObject implements Writable {
         return TabletStatus.HEALTHY;
     }
 
+    public Set<Long> getUnavailableBeIdsForColocate(Set<Long> backendsSet, long visibleVersion) {
+        Set<Long> replicaBackendIds = getBackendIds();
+        Set<Long> unavailableBeIds = Sets.newHashSet(Sets.difference(backendsSet, replicaBackendIds));
+        for (Replica replica : replicas) {
+            long backendId = replica.getBackendId();
+            if (backendsSet.contains(backendId)) {
+                if (!replica.isAlive()) {
+                    unavailableBeIds.add(backendId);
+                }
+                if (replica.getLastFailedVersion() > 0 || replica.getVersion() < visibleVersion) {
+                    unavailableBeIds.add(backendId);
+                }
+            }
+        }
+        return unavailableBeIds;
+    }
+
     /**
      * check if this tablet is ready to be repaired, based on priority.
      * VERY_HIGH: repair immediately

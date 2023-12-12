@@ -2324,4 +2324,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int max_scheduling_colocate_tablets = 2000;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_colocate_balance_improve = true;
 }
