@@ -2922,19 +2922,31 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (partition == null) {
                         throw new DdlException("Partition " + partName + " does not exist");
                     }
+                    // If need absolutely correct, should check running txn here.
+                    // But if the txn is in prepare state, cann't known which partitions had load data.
+                    if (!partition.hasData()) {
+                        continue;
+                    }
                     origPartitions.put(partName, partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
                     rowsToTruncate += partition.getBaseIndex().getRowCount();
                 }
             } else {
                 for (Partition partition : olapTable.getPartitions()) {
+                    // If need absolutely correct, should check running txn here.
+                    // But if the txn is in prepare state, cann't known which partitions had load data.
+                    if (!partition.hasData()) {
+                        continue;
+                    }
                     origPartitions.put(partition.getName(), partition.getId());
                     partitionsDistributionInfo.put(partition.getId(), partition.getDistributionInfo());
                 }
             }
-            // if table currently has no partitions, this sql like empty command and do nothing, should return directly
-            // at the same time, it will avoid throwing IllegalStateException when `bufferSize` equals zero
-            if (origPartitions.isEmpty()) {
+            // if table currently has no partitions, this sql like empty command and do nothing, should return directly.
+            // but if truncate whole table, the temporary partitions also need drop
+            if (origPartitions.isEmpty() && (!truncateEntireTable || olapTable.getTempPartitions().isEmpty())) {
+                LOG.info("finished to truncate table {}, no partition contains data, do nothing",
+                        tblRef.getName().toSql());
                 return;
             }
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), IndexExtState.VISIBLE, false);
@@ -2948,8 +2960,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         List<Partition> newPartitions = Lists.newArrayList();
         // tabletIdSet to save all newly created tablet ids.
         Set<Long> tabletIdSet = Sets.newHashSet();
-        long bufferSize = IdGeneratorUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
-        IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
         Map<Integer, Integer> clusterKeyMap = new TreeMap<>();
         for (int i = 0; i < olapTable.getBaseSchema().size(); i++) {
             Column column = olapTable.getBaseSchema().get(i);
@@ -2959,6 +2969,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         List<Integer> clusterKeyIdxes = clusterKeyMap.values().stream().collect(Collectors.toList());
         try {
+            long bufferSize = IdGeneratorUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
+            IdGeneratorBuffer idGeneratorBuffer =
+                    origPartitions.isEmpty() ? null : Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
             for (Map.Entry<String, Long> entry : origPartitions.entrySet()) {
                 // the new partition must use new id
                 // If we still use the old partition id, the behavior of current load jobs on this partition
