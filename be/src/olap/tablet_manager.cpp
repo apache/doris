@@ -32,6 +32,7 @@
 #include <mutex>
 #include <ostream>
 
+#include "bvar/bvar.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -79,23 +80,25 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_schema_columns_count, MetricUnit::NOUNIT, "",
+DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTES, "",
                                    mem_consumption, Labels({{"type", "tablet_meta"}}));
 
+bvar::Adder<int64_t> g_tablet_meta_schema_columns_count("tablet_meta_schema_columns_count");
+
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _tablet_meta_schema_columns_tracker(
-                  std::make_shared<MemTracker>("TabletMetaSchemaColumnsCount")),
+        : _tablet_meta_mem_tracker(std::make_shared<MemTracker>(
+                  "TabletMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
     CHECK_EQ(_tablets_shards_size & _tablets_shards_mask, 0);
     _tablets_shards.resize(_tablets_shards_size);
-    REGISTER_HOOK_METRIC(tablet_meta_schema_columns_count,
-                         [this]() { return _tablet_meta_schema_columns_tracker->consumption(); });
+    REGISTER_HOOK_METRIC(tablet_meta_mem_consumption,
+                         [this]() { return _tablet_meta_mem_tracker->consumption(); });
 }
 
 TabletManager::~TabletManager() {
-    DEREGISTER_HOOK_METRIC(tablet_meta_schema_columns_count);
+    DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
@@ -234,12 +237,11 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
     _add_tablet_to_partition(tablet);
-    // TODO: memory size of TabletSchema cannot be accurately tracked.
     // TODO: remove multiply 2 of tablet meta mem size
     // Because table schema will copy in tablet, there will be double mem cost
     // so here multiply 2
-    // _tablet_meta_schema_columns_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
-    _tablet_meta_schema_columns_tracker->consume(tablet->tablet_meta()->tablet_columns_num());
+    _tablet_meta_mem_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
+    g_tablet_meta_schema_columns_count << tablet->tablet_meta()->tablet_columns_num();
     COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "RegisterTabletInfo", "AddTablet"),
                    static_cast<int64_t>(watch.reset()));
 
@@ -577,9 +579,8 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     }
 
     to_drop_tablet->deregister_tablet_from_dir();
-    // _tablet_meta_schema_columns_tracker->release(to_drop_tablet->tablet_meta()->mem_size() * 2);
-    _tablet_meta_schema_columns_tracker->release(
-            to_drop_tablet->tablet_meta()->tablet_columns_num());
+    _tablet_meta_mem_tracker->release(to_drop_tablet->tablet_meta()->mem_size() * 2);
+    g_tablet_meta_schema_columns_count << -to_drop_tablet->tablet_meta()->tablet_columns_num();
     return Status::OK();
 }
 

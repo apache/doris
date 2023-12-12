@@ -186,7 +186,7 @@ public:
     UIntGauge* query_mem_consumption = nullptr;
     UIntGauge* schema_change_mem_consumption = nullptr;
     UIntGauge* storage_migration_mem_consumption = nullptr;
-    UIntGauge* tablet_meta_schema_columns_count = nullptr;
+    UIntGauge* tablet_meta_mem_consumption = nullptr;
 
     // Cache metrics
     UIntGauge* query_cache_memory_total_byte = nullptr;
