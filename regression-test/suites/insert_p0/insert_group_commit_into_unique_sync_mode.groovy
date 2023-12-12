@@ -22,7 +22,7 @@ suite("insert_group_commit_into_unique_sync_mode") {
     def tableName = "insert_group_commit_into_unique_sync"
     def dbTableName = dbName + "." + tableName
 
-    // For async mode mode, the rows should be visible once the load is finished,
+    // For sync mode mode, the rows should be visible once the load is finished,
     // but we meet publish_timeout sometimes
     def getRowCount = { expectedRowCount ->
         def retry = 0
