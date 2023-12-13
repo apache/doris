@@ -706,7 +706,7 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
     temp_arguments[1] = num_columns_without_result;     // pos
     temp_arguments[2] = num_columns_without_result + 1; // len
     size_t result_column_id = num_columns_without_result + 2;
-    SubstringUtil::substring_execute(*block, temp_arguments, result_column_id, block->rows());
+    SubstringUtil::substring_execute(*block, temp_arguments, result_column_id, block->rows(), true);
     block->replace_by_position(idx, block->get_by_position(result_column_id).column);
     Block::erase_useless_column(block, num_columns_without_result);
 }

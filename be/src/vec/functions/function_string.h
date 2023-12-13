@@ -126,7 +126,7 @@ struct SubstringUtil {
     static constexpr auto name = "substring";
 
     static void substring_execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                                  size_t input_rows_count) {
+                                  size_t input_rows_count, const bool is_nullable) {
         DCHECK_EQ(arguments.size(), 3);
         auto res = ColumnString::create();
         auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -161,8 +161,12 @@ struct SubstringUtil {
                            specific_start_column->get_data(), specific_len_column->get_data(),
                            null_map->get_data(), res->get_chars(), res->get_offsets());
         }
-        block.get_by_position(result).column =
-                ColumnNullable::create(std::move(res), std::move(null_map));
+        if (is_nullable) {
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+        } else {
+            block.replace_by_position(result, std::move(res));
+        }
     }
 
 private:
@@ -330,7 +334,7 @@ struct Substr3Impl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        SubstringUtil::substring_execute(block, arguments, result, input_rows_count);
+        SubstringUtil::substring_execute(block, arguments, result, input_rows_count, true);
         return Status::OK();
     }
 };
@@ -366,7 +370,7 @@ struct Substr2Impl {
         block.insert({std::move(col_len), std::make_shared<DataTypeInt32>(), "strlen"});
         ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
 
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count, true);
         return Status::OK();
     }
 };
@@ -566,7 +570,11 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        is_nullable = (arguments[0]->is_nullable() || arguments[1]->is_nullable());
+        if (is_nullable) {
+            return make_nullable(std::make_shared<DataTypeString>());
+        }
+        return std::make_shared<DataTypeString>();
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -581,9 +589,12 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = arguments[1];
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count, is_nullable);
         return Status::OK();
     }
+
+    // is_nullable for judgement resule is or not nullable
+    mutable bool is_nullable;
 };
 
 class FunctionRight : public IFunction {
@@ -593,7 +604,11 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        is_nullable = (arguments[0]->is_nullable() || arguments[1]->is_nullable());
+        if (is_nullable) {
+            return make_nullable(std::make_shared<DataTypeString>());
+        }
+        return std::make_shared<DataTypeString>();
     }
 
     bool use_default_implementation_for_nulls() const override { return false; }
@@ -642,9 +657,11 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count, is_nullable);
         return Status::OK();
     }
+    // is_nullable for judgement resule is or not nullable
+    mutable bool is_nullable;
 };
 
 struct NullOrEmptyImpl {
