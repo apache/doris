@@ -1755,6 +1755,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!setOperation.getPhysicalProperties().equals(PhysicalProperties.ANY)
                 && findOlapScanNodesByPassExchangeAndJoinNode(setOperationFragment.getPlanRoot())) {
             setOperationFragment.setHasColocatePlanNode(true);
+            setOperationNode.setColocate(true);
         }
 
         return setOperationFragment;
