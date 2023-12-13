@@ -296,6 +296,11 @@ public abstract class ExternalCatalog
         }
     }
 
+    public void onRefresh(boolean invalidCache) {
+        setUninitialized(invalidCache);
+        onClose();
+    }
+
     public void updateDbList() {
         Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
     }
