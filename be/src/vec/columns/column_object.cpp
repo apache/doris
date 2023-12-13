@@ -639,11 +639,12 @@ void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
 }
 
 void ColumnObject::insert_from(const IColumn& src, size_t n) {
-    const auto& src_v = assert_cast<const ColumnObject&>(src);
+    const auto* src_v = check_and_get_column<ColumnObject>(src);
     // optimize when src and this column are scalar variant, since try_insert is inefficiency
-    if (src_v.is_scalar_variant() && is_scalar_variant() &&
-        src_v.get_root_type()->equals(*get_root_type()) && src_v.is_finalized() && is_finalized()) {
-        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v.get_root(), n);
+    if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
+        src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
+        is_finalized()) {
+        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v->get_root(), n);
         ++num_rows;
         return;
     }

@@ -25,6 +25,7 @@
 #include <butil/errno.h>
 #include <butil/iobuf.h>
 #include <fcntl.h>
+#include <fmt/core.h>
 #include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
@@ -46,6 +47,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -1730,6 +1732,34 @@ auto scope_timer_run(Func fn, int64_t* cost) -> decltype(fn()) {
     return res;
 }
 
+struct IteratorKey {
+    int64_t tablet_id;
+    RowsetId rowset_id;
+    uint64_t segment_id;
+    int slot_id;
+
+    // unordered map std::equal_to
+    bool operator==(const IteratorKey& rhs) const {
+        return tablet_id == rhs.tablet_id && rowset_id == rhs.rowset_id &&
+               segment_id == rhs.segment_id && slot_id == rhs.slot_id;
+    }
+};
+
+struct HashOfIteratorKey {
+    size_t operator()(const IteratorKey& key) const {
+        size_t hashValue = 0;
+        std::hash<long> h1;
+        std::hash<unsigned long> h3;
+        std::hash<int> h4;
+        hashValue ^= h1(key.tablet_id) + 0x9e3779b9 + (hashValue << 6) + (hashValue >> 2);
+        hashValue ^=
+                HashOfRowsetId()(key.rowset_id) + 0x9e3779b9 + (hashValue << 6) + (hashValue >> 2);
+        hashValue ^= h3(key.segment_id) + 0x9e3779b9 + (hashValue << 6) + (hashValue >> 2);
+        hashValue ^= h4(key.slot_id) + 0x9e3779b9 + (hashValue << 6) + (hashValue >> 2);
+        return hashValue;
+    }
+};
+
 Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                                         PMultiGetResponse* response) {
     OlapReaderStatistics stats;
@@ -1753,6 +1783,9 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
     for (const ColumnPB& column_pb : request.column_desc()) {
         full_read_schema.append_column(TabletColumn(column_pb));
     }
+
+    std::unordered_map<IteratorKey, std::unique_ptr<ColumnIterator>, HashOfIteratorKey>
+            iterator_map;
 
     // read row by row
     for (size_t i = 0; i < request.row_locs_size(); ++i) {
@@ -1821,37 +1854,22 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         if (result_block.is_empty_column()) {
             result_block = vectorized::Block(desc.slots(), request.row_locs().size());
         }
+        VLOG_DEBUG << "Read row location "
+                   << fmt::format("{}, {}, {}, {}", row_location.tablet_id,
+                                  row_location.row_location.rowset_id.to_string(),
+                                  row_location.row_location.segment_id,
+                                  row_location.row_location.row_id);
         for (int x = 0; x < desc.slots().size(); ++x) {
-            int index = -1;
-            if (desc.slots()[x]->col_unique_id() >= 0) {
-                // light sc enabled
-                index = full_read_schema.field_index(desc.slots()[x]->col_unique_id());
-            } else {
-                index = full_read_schema.field_index(desc.slots()[x]->col_name());
-            }
-            if (index < 0) {
-                std::stringstream ss;
-                ss << "field name is invalid. field=" << desc.slots()[x]->col_name()
-                   << ", field_name_to_index=" << full_read_schema.get_all_field_names();
-                return Status::InternalError(ss.str());
-            }
-            std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
+            auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
-            StorageReadOptions storage_read_opt;
-            storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
-            RETURN_IF_ERROR(segment->new_column_iterator(full_read_schema.column(index),
-                                                         &column_iterator, &storage_read_opt));
-            segment_v2::ColumnIteratorOptions opt {
-                    .use_page_cache = !config::disable_storage_page_cache,
-                    .file_reader = segment->file_reader().get(),
-                    .stats = &stats,
-                    .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
-            };
-            static_cast<void>(column_iterator->init(opt));
-            std::vector<segment_v2::rowid_t> single_row_loc {
-                    static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
-            RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));
+            IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
+                                      .rowset_id = rowset_id,
+                                      .segment_id = row_loc.segment_id(),
+                                      .slot_id = desc.slots()[x]->id()};
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
+                                                            row_id, column, stats,
+                                                            iterator_map[iterator_key]));
         }
     }
     // serialize block if not empty
@@ -1871,11 +1889,13 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                          "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                          "io_latency:{}ns, "
                          "uncompressed_bytes_read:{},"
+                         "bytes_read:{},"
                          "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
                          "lookup_row_data_ms:{}",
                          stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
-                         stats.io_ns, stats.uncompressed_bytes_read, acquire_tablet_ms,
-                         acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms);
+                         stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
+                         acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
+                         lookup_row_data_ms);
     return Status::OK();
 }
 
