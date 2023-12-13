@@ -263,6 +263,10 @@ struct TQueryOptions {
   93: optional i32 inverted_index_max_expansions = 50;
 
   94: optional i32 inverted_index_skip_threshold = 50;
+
+  95: optional bool enable_parquet_merge_small_io = true
+
+  96: optional bool enable_orc_merge_small_io = true
 }
 
 

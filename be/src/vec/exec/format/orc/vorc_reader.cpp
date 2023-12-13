@@ -149,6 +149,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
           _is_hive(params.__isset.slot_name_to_schema_pos),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_merge_small_io(state->query_options().enable_orc_merge_small_io),
           _is_dict_cols_converted(false) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     VecDateTimeValue t;
@@ -169,6 +170,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _file_system(nullptr),
           _io_ctx(io_ctx),
           _enable_lazy_mat(enable_lazy_mat),
+          _enable_merge_small_io(true),
           _is_dict_cols_converted(false) {
     _init_system_properties();
     _init_file_description();
@@ -236,7 +238,8 @@ Status OrcReader::_create_file_reader() {
                 _profile, _system_properties, _file_description, reader_options, &_file_system,
                 &inner_reader, io::DelegateReader::AccessMode::RANDOM, _io_ctx));
         _file_input_stream.reset(new ORCFileInputStream(_scan_range.path, inner_reader,
-                                                        &_statistics, _io_ctx, _profile));
+                                                        &_statistics, _io_ctx, _profile,
+                                                        _enable_merge_small_io));
     }
     if (_file_input_stream->getLength() == 0) {
         return Status::EndOfFile("empty orc file: " + _scan_range.path);
@@ -2218,6 +2221,10 @@ MutableColumnPtr OrcReader::_convert_dict_column_to_string_column(
 void ORCFileInputStream::beforeReadStripe(
         std::unique_ptr<orc::StripeInformation> current_strip_information,
         std::vector<bool> selected_columns) {
+    if (!_enable_merge_small_io) {
+        _file_reader = _inner_reader;
+        return;
+    }
     // Generate prefetch ranges, build stripe file reader.
     uint64_t offset = current_strip_information->getOffset();
     std::vector<io::PrefetchRange> prefetch_ranges;

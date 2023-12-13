@@ -658,6 +658,14 @@ try (Connection conn = DriverManager.getConnection("jdbc:mysql://127.0.0.1:9030/
 
   控制 orc reader 是否启用延迟物化技术。默认为 true。
 
+* `enable_parquet_merge_small_io`
+
+  控制 parquet reader 是否启用小 IO 合并。默认为 true。
+
+* `enable_orc_merge_small_Io`
+
+  控制 orc reader 是否启用小 IO 合并。默认为 true。
+
 * `enable_strong_consistency_read`
 
   用以开启强一致读。Doris 默认支持同一个会话内的强一致性，即同一个会话内对数据的变更操作是实时可见的。如需要会话间的强一致读，则需将此变量设置为true。
