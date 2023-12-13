@@ -392,6 +392,9 @@ private:
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
+    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
+    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
+    // maybe have to use ColumnReader count as segment meta size.
     std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
