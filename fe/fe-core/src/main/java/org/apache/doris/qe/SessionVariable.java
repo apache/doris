@@ -388,6 +388,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_ORC_LAZY_MAT = "enable_orc_lazy_materialization";
 
+    public static final String ENABLE_PARQUET_MERGE_SMALL_IO = "enable_parquet_merge_small_io";
+
+    public static final String ENABLE_ORC_MERGE_SMALL_IO = "enable_orc_merge_small_io";
+
     public static final String INLINE_CTE_REFERENCED_THRESHOLD = "inline_cte_referenced_threshold";
 
     public static final String ENABLE_CTE_MATERIALIZE = "enable_cte_materialize";
@@ -1497,6 +1501,23 @@ public class SessionVariable implements Serializable, Writable {
             description = { "当开启use_fix_replica时遇到故障，是否漂移到其他健康的副本",
                 "use other health replica when the use_fix_replica meet error" })
     public boolean fallbackOtherReplicaWhenFixedCorrupt = false;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_PARQUET_MERGE_SMALL_IO,
+            description = {"控制 parquet reader 是否启用小 IO 合并。默认为 true。",
+                    "Controls whether to merge small range io in parquet reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableParquetMergeSmallIO = true;
+
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_ORC_MERGE_SMALL_IO,
+            description = {"控制 orc reader 是否启用小 IO 合并。默认为 true。",
+                    "Controls whether to merge small range io in orc reader. "
+                            + "The default value is true."},
+            needForward = true)
+    public boolean enableOrcMergeSmallIO = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -2618,6 +2639,22 @@ public class SessionVariable implements Serializable, Writable {
         this.loadStreamPerNode = loadStreamPerNode;
     }
 
+    public boolean isEnableParquetMergeSmallIO() {
+        return enableParquetMergeSmallIO;
+    }
+
+    public void setEnableParquetMergeSmallIO(boolean enableParquetMergeSmallIO) {
+        this.enableParquetMergeSmallIO = enableParquetMergeSmallIO;
+    }
+
+    public boolean isEnableOrcMergeSmallIO() {
+        return enableOrcMergeSmallIO;
+    }
+
+    public void setEnableOrcMergeSmallIO(boolean enableOrcMergeSmallIO) {
+        this.enableOrcMergeSmallIO = enableOrcMergeSmallIO;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -2727,6 +2764,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipMissingVersion(skipMissingVersion);
 
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
+        tResult.setEnableParquetMergeSmallIo(enableParquetMergeSmallIO);
+        tResult.setEnableOrcMergeSmallIo(enableOrcMergeSmallIO);
 
         return tResult;
     }
