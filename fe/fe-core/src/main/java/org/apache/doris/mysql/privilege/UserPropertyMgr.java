@@ -73,7 +73,8 @@ public class UserPropertyMgr implements Writable {
         }
     }
 
-    public void updateUserProperty(String user, List<Pair<String, String>> properties, boolean isReplay) throws UserException {
+    public void updateUserProperty(String user, List<Pair<String, String>> properties, boolean isReplay)
+            throws UserException {
         UserProperty property = propertyMap.get(user);
         if (property == null) {
             throw new DdlException("Unknown user(" + user + ")");
