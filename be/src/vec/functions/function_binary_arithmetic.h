@@ -972,7 +972,6 @@ public:
         }
 
         bool check_overflow_for_decimal = context->check_overflow_for_decimal();
-        Status status;
         bool valid = cast_both_types(
                 left_generic, right_generic, result_generic,
                 [&](const auto& left, const auto& right, const auto& res) {
@@ -990,16 +989,6 @@ public:
                                                         (IsDataTypeDecimal<LeftDataType> ||
                                                          IsDataTypeDecimal<RightDataType>))) {
                         if (check_overflow_for_decimal) {
-                            // !is_to_null_type: plus, minus, multiply,
-                            //                   pow, bitxor, bitor, bitand
-                            // if check_overflow and params are decimal types:
-                            //   for functions pow, bitxor, bitor, bitand, return error
-                            if constexpr (IsDataTypeDecimal<ResultDataType> && !is_to_null_type &&
-                                          !OpTraits::is_multiply && !OpTraits::is_plus_minus) {
-                                status = Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                                        "cannot check overflow with decimal for function {}", name);
-                                return false;
-                            }
                             auto column_result = ConstOrVectorAdapter<
                                     LeftDataType, RightDataType,
                                     std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
@@ -1029,11 +1018,8 @@ public:
                     return false;
                 });
         if (!valid) {
-            if (status.ok()) {
-                return Status::RuntimeError("{}'s arguments do not match the expected data types",
-                                            get_name());
-            }
-            return status;
+            return Status::RuntimeError("{}'s arguments do not match the expected data types",
+                                        get_name());
         }
 
         return Status::OK();
