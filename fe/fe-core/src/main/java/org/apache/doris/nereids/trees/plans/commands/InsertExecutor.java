@@ -474,7 +474,12 @@ public class InsertExecutor {
                 .setTimeout((int) timeoutSecond)
                 .setTimezone(timeZone)
                 .setSendBatchParallelism(sendBatchParallelism)
-                .setTrimDoubleQuotes(true);
+                .setTrimDoubleQuotes(true)
+                .setSequenceCol(columns.stream()
+                        .filter(c -> Column.SEQUENCE_COL.equalsIgnoreCase(c.getName()))
+                        .map(Column::getName)
+                        .findFirst()
+                        .orElse(null));
 
         // execute begin txn
         InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);

@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -156,7 +157,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     physicalOlapTableSink.getTargetTable(), label, planner);
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(sink, physicalOlapTableSink.isPartialUpdate(),
-                    physicalOlapTableSink.isFromNativeInsertStmt());
+                    physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT);
         } finally {
             targetTableIf.readUnlock();
         }
