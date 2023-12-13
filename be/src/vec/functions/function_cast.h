@@ -339,12 +339,9 @@ struct ConvertImpl {
                     std::visit(
                             [&](auto multiply_may_overflow, auto narrow_integral) {
                                 if constexpr (IsDataTypeDecimal<FromDataType>) {
-                                    for (size_t i = 0; i < size; ++i) {
-                                        vec_to[i] = convert_from_decimal<FromDataType, ToDataType,
-                                                                         narrow_integral>(
-                                                vec_from[i], vec_from.get_scale(), min_result,
-                                                max_result);
-                                    }
+                                    convert_from_decimal<FromDataType, ToDataType, narrow_integral>(
+                                            vec_to.data(), vec_from.data(), vec_from.get_scale(),
+                                            size);
                                 } else {
                                     convert_to_decimal<FromDataType, ToDataType,
                                                        multiply_may_overflow, narrow_integral>(
@@ -510,22 +507,11 @@ struct ConvertImplToTimeType {
                 from_scale = from_decimal_type.get_scale();
             }
             bool narrow_integral = to_precision < (from_precision - from_scale);
-            auto max_result = type_limit<DataTypeInt64::FieldType>::max();
-            auto min_result = type_limit<DataTypeInt64::FieldType>::min();
             std::visit(
                     [&](auto narrow_integral) {
                         for (size_t i = 0; i < size; ++i) {
                             auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
-                            if constexpr (IsDecimalNumber<FromFieldType>) {
-                                // TODO: should we consider the scale of datetimev2?
-                                vec_null_map_to[i] = !date_value.from_date_int64(
-                                        convert_from_decimal<FromDataType, DataTypeInt64,
-                                                             narrow_integral>(
-                                                vec_from[i], vec_from.get_scale(), min_result,
-                                                max_result));
-                            } else {
-                                vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
-                            }
+                            vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
                             // DateType of VecDateTimeValue should cast to date
                             if constexpr (IsDateType<ToDataType>) {
                                 date_value.cast_to_date();
