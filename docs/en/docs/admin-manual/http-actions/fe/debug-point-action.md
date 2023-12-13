@@ -62,14 +62,14 @@ void Status foo() {
 }
 ```
 
-## Global config
+## Global Config
 
-To activate debug points globally, you need to set `enable_debug_points` to true.
+To enable debug points globally, we need to set `enable_debug_points` to true.
 
 `enable_debug_points` is located in FE's fe.conf and BE's be.conf。
 
 
-## Enable Debug Point
+## Activate Specified Debug Point
 
 After debug points are enabled globally, 
 we need to specify a debug point name we want to activate, by sending a http request to FE or BE node,
@@ -120,7 +120,7 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 
 
 ## Pass Custom Parameters
-Besides "timeout" and "execute" mentioned above, when activating debug point, we can also pass our own parameters.
+When activating debug point, besides "timeout" and "execute" mentioned above, we can also pass our own parameters.
 
 ### API
 
@@ -128,8 +128,8 @@ Besides "timeout" and "execute" mentioned above, when activating debug point, we
 POST /api/debug_point/add/{debug_point_name}[?k1=v1&k2=v2&k3=v3...]
 ```
 * `k1=v1` <br>
-  The parameters are in a key=value fasion, k1 is parameter name and v1 is parameter value, <br>
-  multiple key-value pairs are concatenated by '&'.
+  The parameters are passed in a key=value fashion, k1 is parameter name and v1 is parameter value, <br>
+  multiple key-value pairs are concatenated by `&`.
 
   
 ### Request body
@@ -146,8 +146,7 @@ None
 ```
 
 ### Examples
-Assuming a FE node with configuration http_port=8030 in fe.conf, <br>
-the following http request activates a debug point named `foo` and passes two parameters to the FE node: <br>
+Assuming a FE node with configuration http_port=8030 in fe.conf, the following http request activates a debug point named `foo` in FE node, and passes two parameters:
 		
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5&duration=3"
@@ -155,18 +154,18 @@ curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5
 
 ```
 NOTE:
-Inside FE and BE code, they are taken as strings.
-Parameter names and values in http request and FE/BE code are case sensitive.
-FE and BE share the same url path, it's just their IPs and Ports are different.
+1. Inside FE and BE code, names and values of parameters are taken as strings.
+2. Parameter names and values in http request and FE/BE code are case sensitive.
+3. FE and BE share the same url path, it's just their IPs and Ports are different.
 ```
 
-### Using Parameters In FE and BE Code
-Following request activates debug point "OlapTableSink.write_random_choose_sink" in FE and passes two parameters:
+### Using parameters in FE and BE code
+Following request activates debug point `OlapTableSink.write_random_choose_sink` in FE and passes two parameters:
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/OlapTableSink.write_random_choose_sink?needCatchUp=true&sinkNum=3"
 ```
 
-The code in FE checks debug point "OlapTableSink.write_random_choose_sink" and gets values of parameter "needCatchUp" and "sinkNum":
+The code in FE checks debug point `OlapTableSink.write_random_choose_sink` and gets values of parameter `needCatchUp` and `sinkNum`:
 ```java
 private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
     DebugPoint debugPoint = DebugPointUtil.getDebugPoint("OlapTableSink.write_random_choose_sink");
@@ -179,12 +178,12 @@ private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Lo
 }
 ```
 
-Following request activates debug point "TxnManager.prepare_txn.random_failed" in BE and passes one parameter:
+Following request activates debug point `TxnManager.prepare_txn.random_failed` in BE and passes one parameter:
 ```
 curl -X POST "http://127.0.0.1:8040/api/debug_point/add/TxnManager.prepare_txn.random_failed?percent=0.7
 ```
 
-The code in BE checks debug point "TxnManager.prepare_txn.random_failed" and gets value of parameter "percent":
+The code in BE checks debug point `TxnManager.prepare_txn.random_failed` and gets value of parameter `percent`:
 ```c++
 DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 		{if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
