@@ -433,7 +433,7 @@ Status WalManager::wait_relay_wal_finish(int64_t wal_id) {
     if (st.ok()) {
         std::unique_lock l(*(lock));
         LOG(INFO) << "start wait " << wal_id;
-        if (cv->wait_for(l, std::chrono::seconds(300)) == std::cv_status::timeout) {
+        if (cv->wait_for(l, std::chrono::seconds(180)) == std::cv_status::timeout) {
             LOG(WARNING) << "wait for " << wal_id << " is time out";
         }
         LOG(INFO) << "get wal " << wal_id << ",finish wait";
