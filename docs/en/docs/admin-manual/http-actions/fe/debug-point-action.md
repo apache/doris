@@ -37,7 +37,7 @@ FE example
 ```java
 private Status foo() {
 	// dbug_fe_foo_do_nothing is the debug point name.
-	// When activated，DebugPointUtil.isEnable("dbug_fe_foo_do_nothing") will return true.
+	// When it's active，DebugPointUtil.isEnable("dbug_fe_foo_do_nothing") will return true.
 	if (DebugPointUtil.isEnable("dbug_fe_foo_do_nothing")) {
       	return Status.Nothing;
     }
@@ -53,7 +53,7 @@ BE example
 ```c++
 void Status foo() {
      // dbug_be_foo_do_nothing is the debug point name.
-     // When activated，DBUG_EXECUTE_IF will execute the code block.
+     // When it's active，DBUG_EXECUTE_IF will execute the code block.
      DBUG_EXECUTE_IF("dbug_be_foo_do_nothing",  { return Status.Nothing; });
    
      do_foo_action();
@@ -64,17 +64,21 @@ void Status foo() {
 
 ## Global config
 
-To activate debug points, you need to set `enable_debug_points` to true.
+To activate debug points globally, you need to set `enable_debug_points` to true.
 
 `enable_debug_points` is located in FE's fe.conf and BE's be.conf。
 
 
 ## Enable Debug Point
 
+After debug points are enabled globally, 
+we need to specify a debug point name we want to activate, by sending a http request to FE or BE node,
+only after that, when program running into the specified debug point, related code can be executed.
+
 ### API
 
 ```
-	POST /api/debug_point/add/{debug_point_name}[?timeout=<int>&execute=<int>]
+POST /api/debug_point/add/{debug_point_name}[?timeout=<int>&execute=<int>]
 ```
 
 
@@ -106,26 +110,25 @@ None
 ### Examples
 
 
-After enabling debug point `foo`, executed no more than five times.
+After activating debug point `foo`, executed no more than five times.
 	
 	
 ```
 curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 
 ```
-NOTE: You need to send the http request first, then run the code containing the debug point.
 
-## Passing custom parameters to debug point
-Besides "timeout" and "execute" mentioned above, when enabling debug point, we can also pass other parameters.
+
+## Pass Custom Parameters
+Besides "timeout" and "execute" mentioned above, when activating debug point, we can also pass our own parameters.
 
 ### API
 
 ```
-POST /api/debug_point/add/{debug_point_name}[?key1=value1&key2=value2&key3=value3...]
+POST /api/debug_point/add/{debug_point_name}[?k1=v1&k2=v2&k3=v3...]
 ```
-* `key1=value1` <br>
-  key1 is parameter name and value1 is parameter value, <br>
-  The parameters passed to debug points in FE or BE code are in key=value fashion, <br>
+* `k1=v1` <br>
+  The parameters are in a key=value fasion, k1 is parameter name and v1 is parameter value, <br>
   multiple key-value pairs are concatenated by '&'.
 
   
@@ -143,24 +146,27 @@ None
 ```
 
 ### Examples
-Assuming a FE node with configuration http_port=8030 in fe.conf,
-the following http request enables a debug point named "foo" and passes two key-value pairs
-to the FE node: key="percent" with value="0.5" and key="duration" with value="3", 
-they are taken as strings in FE and BE code. 
+Assuming a FE node with configuration http_port=8030 in fe.conf, <br>
+the following http request activates a debug point named `foo` and passes two parameters to the FE node: <br>
 		
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5&duration=3"
 ```
 
-FE and BE share the same url path, it's just their IPs and Ports are different. 
+```
+NOTE:
+Inside FE and BE code, they are taken as strings.
+Parameter names and values in http request and FE/BE code are case sensitive.
+FE and BE share the same url path, it's just their IPs and Ports are different.
+```
 
-### Getting and Using debug point parameters in FE and BE code
-Following request enables the debug point "OlapTableSink.write_random_choose_sink" in FE code and passes two parameters:
+### Using Parameters In FE and BE Code
+Following request activates debug point "OlapTableSink.write_random_choose_sink" in FE and passes two parameters:
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/OlapTableSink.write_random_choose_sink?needCatchUp=true&sinkNum=3"
 ```
 
-The code in FE checks debug point "OlapTableSink.write_random_choose_sink" and gets parameters(parameter names are case sensitive):
+The code in FE checks debug point "OlapTableSink.write_random_choose_sink" and gets values of parameter "needCatchUp" and "sinkNum":
 ```java
 private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
     DebugPoint debugPoint = DebugPointUtil.getDebugPoint("OlapTableSink.write_random_choose_sink");
@@ -173,21 +179,12 @@ private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Lo
 }
 ```
 
-```
-NOTE:
-debugPoint.param("needCatchUp", false) is declared as
-public <E> E param(String key, E defaultValue)
-in which "key" is parameter name, and defaultValue is default value,
-set default value can help compiler induce the return type of param(),
-otherwise, you have to explicitly specify value type E, e.g. debugPoint.param<boolean>("needCatchUp").
-```
-
-Following request enables the debug point "TxnManager.prepare_txn.random_failed" in BE code and passed one key-value pairs:
+Following request activates debug point "TxnManager.prepare_txn.random_failed" in BE and passes one parameter:
 ```
 curl -X POST "http://127.0.0.1:8040/api/debug_point/add/TxnManager.prepare_txn.random_failed?percent=0.7
 ```
 
-The code in BE checks debug point "TxnManager.prepare_txn.random_failed" and gets parameters(parameter names are case sensitive):
+The code in BE checks debug point "TxnManager.prepare_txn.random_failed" and gets value of parameter "percent":
 ```c++
 DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 		{if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
@@ -196,14 +193,7 @@ DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 		}}
 );
 ```
-```
-NOTE:
-dp->param("percent", 0.5) is declared as
-template <typename T> T param(const std::string& key, T default_value = T())
-in which "key" is parameter name, and defaultValue is default value,
-set default value can help compiler induce the return type of param(),
-otherwise, you have to explicitly specify value type T, e.g. dp->param<double>("percent", 0.5).
-```
+
 
 ## Disable Debug Point
 
