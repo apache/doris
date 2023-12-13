@@ -90,7 +90,7 @@ suite("test_jdbc_hive_orc", "all_types,p0,external,hive,external_docker,external
             sql """drop catalog if exists ${catalog_name}"""
             sql """create catalog if not exists ${catalog_name} properties (
                     'type'='hms',
-                    'hive.meta_type' = 'jdbc',
+                    'hive.metastore.type' = 'jdbc',
                     "user"="hive",
                     "password"="hive",
                     "jdbc_url" = "jdbc:postgresql://${externalEnvIp}:${hive_pg_port}/metastore?useSSL=false",

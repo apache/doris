@@ -148,8 +148,15 @@ public class HMSExternalCatalog extends ExternalCatalog {
     protected void initLocalObjectsImpl() {
         HiveConf hiveConf = null;
         JdbcClientConfig jdbcClientConfig = null;
-        String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_META_TYPE, "hms");
-        if (hiveMetastoreType.equalsIgnoreCase("hms")) {
+        String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");
+        if (hiveMetastoreType.equalsIgnoreCase("jdbc")) {
+            jdbcClientConfig = new JdbcClientConfig();
+            jdbcClientConfig.setUser(catalogProperty.getOrDefault("user", ""));
+            jdbcClientConfig.setPassword(catalogProperty.getOrDefault("password", ""));
+            jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault("jdbc_url", ""));
+            jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
+            jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
+        } else {
             hiveConf = new HiveConf();
             for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
                 hiveConf.set(kv.getKey(), kv.getValue());
@@ -174,15 +181,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
                     throw new HMSClientException("login with kerberos auth failed for catalog %s", e, this.getName());
                 }
             }
-        } else if (hiveMetastoreType.equalsIgnoreCase("jdbc")) {
-            jdbcClientConfig = new JdbcClientConfig();
-            jdbcClientConfig.setUser(catalogProperty.getOrDefault("user", ""));
-            jdbcClientConfig.setPassword(catalogProperty.getOrDefault("password", ""));
-            jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault("jdbc_url", ""));
-            jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
-            jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
-        } else {
-            throw new HMSClientException("Do not support hive.meta_type = %s", hiveMetastoreType);
         }
         client = HMSCachedClientFactory.createCachedClient(hiveConf,
                 Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size), jdbcClientConfig);
