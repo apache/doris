@@ -174,32 +174,27 @@ suite("test_routine_load","p0") {
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     def kafka_broker = "${externalEnvIp}:${kafka_port}"
 
-    def j = 0
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        try {
-            
-            // define kafka 
-            def props = new Properties()
-            props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
-            props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-            props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
-            // Create kafka producer
-            def producer = new KafkaProducer<>(props)
+        // define kafka 
+        def props = new Properties()
+        props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "${kafka_broker}".toString())
+        props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+        props.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, "org.apache.kafka.common.serialization.StringSerializer")
+        // Create kafka producer
+        def producer = new KafkaProducer<>(props)
 
-            for (String csvTopic in kafkaCsvTpoics) {
-                def txt = new File("""${context.file.parent}/data/csvTopic.csv""").text
-                logger.info("=====${txt}========")
-                def record = new ProducerRecord<>(csvTopic, null, txt)
-                producer.send(record)
-            }
-            for (String jsonTopic in kafkaJsonTopics) {
-                def txt = new File("""${context.file.parent}/data/jsonTopic.json""").text
-                logger.info("=====${txt}========")
-                def record = new ProducerRecord<>(jsonTopic, null, txt)
-                producer.send(record)
-            }            
-
-        }   
+        for (String kafkaCsvTopic in kafkaCsvTpoics) {
+            def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
+            logger.info("=====${txt}========")
+            def record = new ProducerRecord<>(kafkaCsvTopic, null, txt)
+            producer.send(record)
+        }
+        for (String kafkaJsonTopic in kafkaJsonTopics) {
+            def txt = new File("""${context.file.parent}/data/${kafkaJsonTopic}.json""").text
+            logger.info("=====${txt}========")
+            def record = new ProducerRecord<>(kafkaJsonTopic, null, txt)
+            producer.send(record)
+        } 
     }  
 
     // send_batch_parallelism
