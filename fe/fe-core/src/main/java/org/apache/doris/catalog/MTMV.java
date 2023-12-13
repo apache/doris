@@ -95,6 +95,7 @@ public class MTMV extends OlapTable {
         this.jobInfo = new MTMVJobInfo(MTMVJobManager.MTMV_JOB_PREFIX + params.tableId);
         this.mvProperties = params.mvProperties;
         this.mvPartitionInfo = params.mvPartitionInfo;
+        this.relation = params.relation;
         mvRwLock = new ReentrantReadWriteLock(true);
     }
 

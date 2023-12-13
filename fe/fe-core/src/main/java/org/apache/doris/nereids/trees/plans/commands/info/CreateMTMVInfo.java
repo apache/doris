@@ -37,7 +37,9 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -92,6 +94,7 @@ public class CreateMTMVInfo {
     private final EnvInfo envInfo;
     private final MTMVPartitionInfo mvPartitionInfo;
     private PartitionDesc partitionDesc;
+    private MTMVRelation relation;
 
     /**
      * constructor for create MTMV
@@ -197,14 +200,22 @@ public class CreateMTMVInfo {
         if (containTableQueryOperator) {
             throw new AnalysisException("can not contain invalid expression");
         }
+        getRelation(planner);
         getColumns(plan);
         analyzePartition(planner);
     }
 
+    private void getRelation(NereidsPlanner planner) {
+        Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.NONE);
+        this.relation = MTMVPlanUtil.generateMTMVRelation(plan);
+    }
+
     private void analyzePartition(NereidsPlanner planner) {
         if (mvPartitionInfo.getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
+            Plan mvRewrittenPlan =
+                    planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.REWRITTEN_PLAN);
             Optional<RelatedTableInfo> relatedTableInfo = MaterializedViewUtils
-                    .getRelatedTableInfo(mvPartitionInfo.getPartitionCol(), planner.getAnalyzedPlan());
+                    .getRelatedTableInfo(mvPartitionInfo.getPartitionCol(), mvRewrittenPlan);
             if (!relatedTableInfo.isPresent() || !relatedTableInfo.get().isPctPossible()) {
                 throw new AnalysisException("Unable to find a suitable base table for partitioning");
             }
@@ -311,7 +322,7 @@ public class CreateMTMVInfo {
                 .collect(Collectors.toList());
         return new CreateMTMVStmt(ifNotExists, tableName, catalogColumns, refreshInfo, keysDesc,
                 distribution.translateToCatalogStyle(), properties, mvProperties, querySql, comment, envInfo,
-                partitionDesc, mvPartitionInfo);
+                partitionDesc, mvPartitionInfo, relation);
     }
 
 }

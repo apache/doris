@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.mtmv.EnvInfo;
 import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRelation;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,11 +34,12 @@ public class CreateMTMVStmt extends CreateTableStmt {
     private final EnvInfo envInfo;
     private Map<String, String> mvProperties;
     private MTMVPartitionInfo mvPartitionInfo;
+    private MTMVRelation relation;
 
     public CreateMTMVStmt(boolean ifNotExists, TableName mvName, List<Column> columns,
             MTMVRefreshInfo refreshInfo, KeysDesc keyDesc, DistributionDesc distributionDesc,
             Map<String, String> properties, Map<String, String> mvProperties, String querySql, String comment,
-            EnvInfo envInfo, PartitionDesc partitionDesc, MTMVPartitionInfo mvPartitionInfo) {
+            EnvInfo envInfo, PartitionDesc partitionDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelation relation) {
         super(ifNotExists, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc, partitionDesc,
                 distributionDesc, properties, null, comment, null, null);
         this.refreshInfo = refreshInfo;
@@ -45,6 +47,7 @@ public class CreateMTMVStmt extends CreateTableStmt {
         this.envInfo = envInfo;
         this.mvProperties = mvProperties;
         this.mvPartitionInfo = mvPartitionInfo;
+        this.relation = relation;
     }
 
     public MTMVRefreshInfo getRefreshInfo() {
@@ -65,5 +68,9 @@ public class CreateMTMVStmt extends CreateTableStmt {
 
     public MTMVPartitionInfo getMvPartitionInfo() {
         return mvPartitionInfo;
+    }
+
+    public MTMVRelation getRelation() {
+        return relation;
     }
 }

@@ -144,7 +144,8 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
                     unboundRelation.getNameParts());
             TableIf table = RelationUtil.getTable(tableQualifier, Env.getCurrentEnv());
             if (table instanceof OlapTable && predicates.containsKey(table)) {
-                return new LogicalFilter<>(predicates.get(table), unboundRelation);
+                return new LogicalFilter<>(ImmutableSet.of(ExpressionUtils.or(predicates.get(table))),
+                        unboundRelation);
             }
             return unboundRelation;
         }

@@ -115,6 +115,7 @@ public class MTMVTask extends AbstractTask {
     private MTMV mtmv;
     private MTMVRelation relation;
     private StmtExecutor executor;
+    private Set<Long> refreshPartitionIds = Sets.newHashSet();
 
     public MTMVTask() {
     }
@@ -133,20 +134,12 @@ public class MTMVTask extends AbstractTask {
             // Every time a task is run, the relation is regenerated because baseTables and baseViews may change,
             // such as deleting a table and creating a view with the same name
             relation = MTMVPlanUtil.generateMTMVRelation(mtmv, ctx);
-
-            Set<Long> refreshPartitionIds = Sets.newHashSet();
-            refreshMode = getRefreshMode();
+            calculateRefreshInfo();
             Map<OlapTable, String> tableWithPartKey = Maps.newHashMap();
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             } else if (refreshMode == MTMVTaskRefreshMode.PARTITION) {
                 OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
-                relatedTable.writeLock();
-                if (CollectionUtils.isEmpty(taskContext.getPartitions())) {
-                    refreshPartitionIds = MTMVUtil.getMTMVStalePartitions(mtmv, relatedTable);
-                } else {
-                    refreshPartitionIds = MTMVUtil.getPartitionsIdsByNames(mtmv, taskContext.getPartitions());
-                }
                 tableWithPartKey.put(relatedTable, mtmv.getMvPartitionInfo().getRelatedCol());
             }
             refreshPartitions = MTMVUtil.getPartitionNamesByIds(mtmv, refreshPartitionIds);
@@ -236,41 +229,51 @@ public class MTMVTask extends AbstractTask {
         mtmv = null;
         relation = null;
         executor = null;
+        refreshPartitionIds = null;
     }
 
-    private MTMVTaskRefreshMode getRefreshMode() throws AnalysisException {
+    private void calculateRefreshInfo() throws AnalysisException {
         // check whether the user manually triggers it
         if (taskContext.getTriggerMode() == MTMVTaskTriggerMode.MANUAL) {
             if (taskContext.isComplete()) {
-                return MTMVTaskRefreshMode.COMPLETE;
+                this.refreshMode = MTMVTaskRefreshMode.COMPLETE;
+                return;
             } else if (!CollectionUtils
                     .isEmpty(taskContext.getPartitions())) {
-                return MTMVTaskRefreshMode.PARTITION;
+                this.refreshMode = MTMVTaskRefreshMode.PARTITION;
+                this.refreshPartitionIds = MTMVUtil.getPartitionsIdsByNames(mtmv, taskContext.getPartitions());
+                return;
             }
         }
         // check if data is fresh
         Set<String> excludedTriggerTables = mtmv.getExcludedTriggerTables();
         boolean fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables, 0L);
         if (fresh) {
-            return MTMVTaskRefreshMode.NOT_REFRESH;
+            this.refreshMode = MTMVTaskRefreshMode.NOT_REFRESH;
+            return;
         }
         // current, if partitionType is SELF_MANAGE, we can only FULL refresh
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return MTMVTaskRefreshMode.COMPLETE;
+            this.refreshMode = MTMVTaskRefreshMode.COMPLETE;
+            return;
         }
         // if refreshMethod is COMPLETE, we only FULL refresh
         if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
-            return MTMVTaskRefreshMode.COMPLETE;
+            this.refreshMode = MTMVTaskRefreshMode.COMPLETE;
+            return;
         }
         OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
         excludedTriggerTables.add(relatedTable.getName());
         // check if every table except relatedTable is fresh
-        fresh = MTMVUtil.isMTMVSync(mtmv, relation.getBaseTables(), excludedTriggerTables, 0L);
+        Set<Long> mtmvNeedRefreshPartitions = MTMVUtil.getMTMVNeedRefreshPartitions(mtmv);
         // if true, we can use `Partition`, otherwise must `FULL`
-        if (fresh) {
-            return MTMVTaskRefreshMode.PARTITION;
+        if (mtmvNeedRefreshPartitions.size() != mtmv.getPartitionNum()) {
+            this.refreshMode = MTMVTaskRefreshMode.PARTITION;
+            this.refreshPartitionIds = mtmvNeedRefreshPartitions;
+            return;
         } else {
-            return MTMVTaskRefreshMode.COMPLETE;
+            this.refreshMode = MTMVTaskRefreshMode.COMPLETE;
+            return;
         }
     }
 

@@ -62,6 +62,10 @@ public class MTMVPlanUtil {
 
     public static MTMVRelation generateMTMVRelation(MTMV mtmv, ConnectContext ctx) {
         Plan plan = getPlanBySql(mtmv.getQuerySql(), ctx);
+        return generateMTMVRelation(plan);
+    }
+
+    public static MTMVRelation generateMTMVRelation(Plan plan) {
         return new MTMVRelation(getBaseTables(plan), getBaseViews(plan));
     }
 

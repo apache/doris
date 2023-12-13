@@ -538,7 +538,7 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(mv.getQuerySql()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getEnvInfo().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
-                trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().getPartitionCol()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().toString()));
                 trow.addToColumnValue(new TCell().setBoolVal(MTMVUtil.isMTMVSync(mv)));
                 dataBatch.add(trow);
             }

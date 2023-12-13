@@ -82,4 +82,14 @@ public class MTMVPartitionInfo {
     public void setPartitionCol(String partitionCol) {
         this.partitionCol = partitionCol;
     }
+
+    @Override
+    public String toString() {
+        return "MTMVPartitionInfo{"
+                + "partitionType=" + partitionType
+                + ", relatedTable=" + relatedTable
+                + ", relatedCol='" + relatedCol + '\''
+                + ", partitionCol='" + partitionCol + '\''
+                + '}';
+    }
 }

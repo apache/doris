@@ -79,7 +79,7 @@ public class MTMVUtil {
      */
     public static boolean isMTMVSync(MTMV mtmv, Set<BaseTableInfo> tables,
             Set<String> excludedTriggerTables, Long gracePeriod) {
-        return isSync(getTableLastVisibleVersionTime(mtmv), tables, excludedTriggerTables, gracePeriod);
+        return isSync(getTableMinVisibleVersionTime(mtmv), tables, excludedTriggerTables, gracePeriod);
     }
 
     /**
@@ -103,7 +103,8 @@ public class MTMVUtil {
             PartitionItem item = mtmv.getPartitionInfo().getItemOrAnalysisException(partitionId);
             long relatedPartitionId = getExistPartitionId(item,
                     relatedTable.getPartitionInfo().getIdToItem(false));
-            if (partitionId == -1L) {
+            if (relatedPartitionId == -1L) {
+                LOG.warn("can not found related partition: " + partitionId);
                 return false;
             }
             isSyncWithPartition = isSyncWithPartition(mtmv, partitionId, relatedTable, relatedPartitionId);
@@ -262,6 +263,24 @@ public class MTMVUtil {
         return res;
     }
 
+    public static Set<Long> getMTMVNeedRefreshPartitions(MTMV mtmv) {
+        Collection<Partition> allPartitions = mtmv.getPartitions();
+        Set<Long> res = Sets.newHashSet();
+        for (Partition partition : allPartitions) {
+            try {
+                if (!isMTMVPartitionSync(mtmv, partition.getId(), mtmv.getRelation().getBaseTables(),
+                        mtmv.getExcludedTriggerTables(),
+                        0L)) {
+                    res.add(partition.getId());
+                }
+            } catch (AnalysisException e) {
+                res.add(partition.getId());
+                LOG.warn("check isMTMVPartitionSync failed", e);
+            }
+        }
+        return res;
+    }
+
     /**
      * compare last update time of mtmvPartition and tablePartition
      *
@@ -274,7 +293,7 @@ public class MTMVUtil {
      */
     private static boolean isSyncWithPartition(MTMV mtmv, Long mtmvPartitionId, OlapTable relatedTable,
             Long relatedTablePartitionId) throws AnalysisException {
-        return mtmv.getPartitionOrAnalysisException(mtmvPartitionId).getVisibleVersionTimeIgnoreInit() > relatedTable
+        return mtmv.getPartitionOrAnalysisException(mtmvPartitionId).getVisibleVersionTimeIgnoreInit() >= relatedTable
                 .getPartitionOrAnalysisException(relatedTablePartitionId).getVisibleVersionTimeIgnoreInit();
     }
 
@@ -350,17 +369,35 @@ public class MTMVUtil {
     }
 
     /**
-     * get the last update time of the table
+     * Get the maximum update time among all partitions
      *
      * @param table
      * @return
      */
-    private static long getTableLastVisibleVersionTime(OlapTable table) {
+    private static long getTableMaxVisibleVersionTime(OlapTable table) {
         long result = 0L;
         long visibleVersionTime;
         for (Partition partition : table.getAllPartitions()) {
             visibleVersionTime = partition.getVisibleVersionTimeIgnoreInit();
             if (visibleVersionTime > result) {
+                result = visibleVersionTime;
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Get the minimum update time among all partitions
+     *
+     * @param table
+     * @return
+     */
+    private static long getTableMinVisibleVersionTime(OlapTable table) {
+        long result = Long.MAX_VALUE;
+        long visibleVersionTime;
+        for (Partition partition : table.getAllPartitions()) {
+            visibleVersionTime = partition.getVisibleVersionTimeIgnoreInit();
+            if (visibleVersionTime < result) {
                 result = visibleVersionTime;
             }
         }
@@ -419,7 +456,7 @@ public class MTMVUtil {
             if (!(table instanceof OlapTable)) {
                 continue;
             }
-            long tableLastVisibleVersionTime = getTableLastVisibleVersionTime((OlapTable) table);
+            long tableLastVisibleVersionTime = getTableMaxVisibleVersionTime((OlapTable) table);
             if (tableLastVisibleVersionTime > maxAvailableTime) {
                 return false;
             }
