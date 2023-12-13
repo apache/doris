@@ -589,7 +589,8 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = arguments[1];
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count, is_nullable);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count,
+                                         is_nullable);
         return Status::OK();
     }
 
@@ -657,7 +658,8 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count, is_nullable);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count,
+                                         is_nullable);
         return Status::OK();
     }
     // is_nullable for judgement resule is or not nullable
