@@ -35,6 +35,8 @@ public class LogicalResultSinkToPhysicalResultSink extends OneImplementationRule
             LogicalResultSink<? extends Plan> sink = ctx.root;
             return new PhysicalResultSink<>(
                     sink.getOutputExprs(),
+                    sink.getLimit(),
+                    sink.getOffset(),
                     Optional.empty(),
                     sink.getLogicalProperties(),
                     sink.child());
