@@ -170,6 +170,14 @@ private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Lo
 }
 ```
 
+```
+注意：
+debugPoint.param("needCatchUp", false) 的原型为
+public <E> E param(String key, E defaultValue)
+key 是传递来的参数名，defaultValue 是参数默认值，填写默认值可以帮助推导 param() 返回值的类型，
+否则需要在调用时指定E的类型，例如 debugPoint.param<boolean>("needCatchUp")。
+```
+
 激活 BE 中的木桩并传递参数:
 ```
 curl -X POST "http://127.0.0.1:8040/api/debug_point/add/TxnManager.prepare_txn.random_failed?percent=0.7
@@ -182,6 +190,13 @@ DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 		        return Status::InternalError("debug prepare txn random failed");
 		}}
 );
+```
+```
+注意：
+dp->param("percent", 0.5) 的原型为
+template <typename T> T param(const std::string& key, T default_value = T()) 
+key 是传递来的参数名，default_value 是参数默认值，填写默认值可以帮助推导 param() 返回值的类型，
+否则需要在调用时指定T的类型，例如 dp->param<double>("percent", 0.5)。
 ```
 
 ## 关闭木桩
@@ -229,8 +244,6 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/remove/foo"
 ```
 POST /api/debug_point/clear
 ```
-
-
 
 ### Request body
 
