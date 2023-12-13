@@ -61,6 +61,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
                               num_parallel_instances),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
           _scanners(scanners_),
+          _scanners_ref(scanners_.begin(), scanners_.end()),
           _num_parallel_instances(num_parallel_instances) {
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
@@ -326,6 +327,11 @@ void ScannerContext::set_should_stop() {
     std::lock_guard l(_transfer_lock);
     _should_stop = true;
     _set_scanner_done();
+    for (const VScannerWPtr& scanner : _scanners_ref) {
+        if (VScannerSPtr sc = scanner.lock()) {
+            sc->try_stop();
+        }
+    }
     _blocks_queue_added_cv.notify_one();
     set_ready_to_finish();
 }
