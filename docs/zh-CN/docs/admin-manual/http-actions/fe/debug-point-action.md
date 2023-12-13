@@ -118,15 +118,15 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
     
 ## 向木桩传递参数
 
-除了 timeout 和 execute，激活木桩时，还可以传递其它自定义参数。
+激活木桩时，除了除了前文所述的 timeout 和 execute，还可以传递其它自定义参数。
 
 ### API
 
 ```
-POST /api/debug_point/add/{debug_point_name}[?key1=value1&key2=value2&key3=value3...]
+POST /api/debug_point/add/{debug_point_name}[?k1=v1&k2=v2&k3=v3...]
 ```
-* `key1=value1`
-  向木桩传递自定义参数，名称为 key1，值为 value1，多个参数用&分隔，“&”前后没有空格。
+* `k1=v1`
+  向木桩传递的自定义参数是key=value格式，k1为参数名称，v1为参数值，多个参数用&分隔。
 ### Request body
 
 无
@@ -142,22 +142,25 @@ POST /api/debug_point/add/{debug_point_name}[?key1=value1&key2=value2&key3=value
 
 ### Examples
 
-向 FE 或 BE 传递参数的 REST API 格式相同，只是 IP 地址和端口不同。
-
-假设 FE 的 http_port=8030，则下面的请求激活 FE 中的木桩`foo`，并传递了两个参数：
-
-一个名称为 percent 值为 0.5，另一个名称为 duration 值为 3。
+假设 FE 在 fe.conf 中有配置 http_port=8030，则下面的请求激活 FE 中的木桩`foo`，并传递了两个参数：
 		
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5&duration=3"
 ```
 
+```
+注意：
+1、在FE或BE的代码中，参数名和参数值都是字符串。
+2、在FE或BE的代码中和http请求中的参数名称和值都是大小写敏感的。
+3、发给FE或BE的http请求，路径部分格式是相同的，只是IP地址和端口号不同。
+```
+
 ### 在FE、BE代码中使用参数
-激活 FE 中的木桩并传递参数:
+激活 FE 中的木桩`OlapTableSink.write_random_choose_sink`并传递参数:
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/OlapTableSink.write_random_choose_sink?needCatchUp=true&sinkNum=3"
 ```
-在 FE 代码中使用木桩 OlapTableSink.write_random_choose_sink 的参数 needCatchUp 和 sinkNum（区分大小写）：
+在 FE 代码中使用木桩 OlapTableSink.write_random_choose_sink 的参数 `needCatchUp` 和 `sinkNum`：
 ```java
 private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
     DebugPoint debugPoint = DebugPointUtil.getDebugPoint("OlapTableSink.write_random_choose_sink");
@@ -170,19 +173,12 @@ private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Lo
 }
 ```
 
-```
-注意：
-debugPoint.param("needCatchUp", false) 的原型为
-public <E> E param(String key, E defaultValue)
-key 是传递来的参数名，defaultValue 是参数默认值，填写默认值可以帮助推导 param() 返回值的类型，
-否则需要在调用时指定E的类型，例如 debugPoint.param<boolean>("needCatchUp")。
-```
 
-激活 BE 中的木桩并传递参数:
+激活 BE 中的木桩`TxnManager.prepare_txn.random_failed`并传递参数:
 ```
 curl -X POST "http://127.0.0.1:8040/api/debug_point/add/TxnManager.prepare_txn.random_failed?percent=0.7
 ```
-在 BE 代码中使用木桩 TxnManager.prepare_txn.random_failed 的参数 percent（区分大小写）：
+在 BE 代码中使用木桩 `TxnManager.prepare_txn.random_failed` 的参数 `percent`：
 ```c++
 DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 		{if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
@@ -191,13 +187,7 @@ DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 		}}
 );
 ```
-```
-注意：
-dp->param("percent", 0.5) 的原型为
-template <typename T> T param(const std::string& key, T default_value = T()) 
-key 是传递来的参数名，default_value 是参数默认值，填写默认值可以帮助推导 param() 返回值的类型，
-否则需要在调用时指定T的类型，例如 dp->param<double>("percent", 0.5)。
-```
+
 
 ## 关闭木桩
 
