@@ -60,10 +60,12 @@
 #include "util/slice.h" // Slice
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_object.h"
+#include "vec/json/path_in_data.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -350,8 +352,8 @@ static vectorized::DataTypePtr get_data_type_from_column_meta(
 
 vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignore_children) const {
     // Path has higher priority
-    if (!field.path().empty()) {
-        auto node = _sub_column_tree.find_leaf(field.path());
+    if (!path.empty()) {
+        auto node = _sub_column_tree.find_leaf(path);
         if (node) {
             if (ignore_children || node->children.empty()) {
                 return node->data.file_column_type;
@@ -365,6 +367,13 @@ vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignor
         if (it != _file_column_types.end()) {
             return it->second;
         }
+<<<<<<< HEAD
+=======
+        // it contains children or column missing in storage, so treat it as variant
+        return is_nullable
+                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>())
+                       : std::make_shared<vectorized::DataTypeObject>();
+>>>>>>> 892cc8e23a ([performance](variant) support topn 2phase read for variant column)
     }
     return nullptr;
 }
@@ -670,6 +679,64 @@ bool Segment::is_same_file_col_type_with_expected(int32_t cid, const Schema& sch
     }
 #endif
     return (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
+}
+
+Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
+                                       uint32_t row_id, vectorized::MutableColumnPtr& result,
+                                       OlapReaderStatistics& stats,
+                                       std::unique_ptr<ColumnIterator>& iterator_hint) {
+    StorageReadOptions storage_read_opt;
+    storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+    segment_v2::ColumnIteratorOptions opt {
+            .use_page_cache = !config::disable_storage_page_cache,
+            .file_reader = file_reader().get(),
+            .stats = &stats,
+            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+    };
+    std::vector<segment_v2::rowid_t> single_row_loc {row_id};
+    if (!slot->column_paths().empty()) {
+        vectorized::PathInData path(schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
+                                    slot->column_paths());
+        auto storage_type = get_data_type_of(path, slot->is_nullable(), false);
+        vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
+        DCHECK(storage_type != nullptr);
+        TabletColumn column = TabletColumn::create_materialized_variant_column(
+                schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
+                slot->col_unique_id());
+        if (iterator_hint == nullptr) {
+            RETURN_IF_ERROR(
+                    new_column_iterator_with_path(column, &iterator_hint, &storage_read_opt));
+            RETURN_IF_ERROR(iterator_hint->init(opt));
+        }
+        RETURN_IF_ERROR(
+                iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
+        // iterator_hint.reset(nullptr);
+        // Get it's inner field, for JSONB case
+        vectorized::Field field = remove_nullable(storage_type)->get_default();
+        file_storage_column->get(0, field);
+        result->insert(field);
+    } else {
+        int index = -1;
+        if (slot->col_unique_id() >= 0) {
+            index = schema.field_index(slot->col_name());
+        } else {
+            index = schema.field_index(slot->col_name());
+        }
+        if (index < 0) {
+            std::stringstream ss;
+            ss << "field name is invalid. field=" << slot->col_name()
+               << ", field_name_to_index=" << schema.get_all_field_names();
+            return Status::InternalError(ss.str());
+        }
+        storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+        if (iterator_hint == nullptr) {
+            RETURN_IF_ERROR(
+                    new_column_iterator(schema.column(index), &iterator_hint, &storage_read_opt));
+            RETURN_IF_ERROR(iterator_hint->init(opt));
+        }
+        RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
+    }
+    return Status::OK();
 }
 
 } // namespace segment_v2

@@ -89,6 +89,10 @@ private:
                                       const std::vector<FunctionFilter>& function_filters);
 
     [[nodiscard]] Status _init_return_columns();
+<<<<<<< HEAD
+=======
+    [[nodiscard]] Status _init_variant_columns();
+>>>>>>> 892cc8e23a ([performance](variant) support topn 2phase read for variant column)
 
     vectorized::PathInData _build_path(SlotDescriptor* slot);
     Status _init_variant_columns();

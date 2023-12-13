@@ -39,9 +39,14 @@
 #include "olap/rowset/segment_v2/page_handle.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
+#include "runtime/descriptors.h"
 #include "util/once.h"
 #include "util/slice.h"
+#include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
+#include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_nullable.h"
+#include "vec/json/path_in_data.h"
 
 namespace doris {
 namespace vectorized {
@@ -123,6 +128,10 @@ public:
     Status lookup_row_key(const Slice& key, bool with_seq_col, RowLocation* row_location);
 
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
+
+    Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot, uint32_t row_id,
+                                  vectorized::MutableColumnPtr& result, OlapReaderStatistics& stats,
+                                  std::unique_ptr<ColumnIterator>& iterator_hint);
 
     Status load_index();
 

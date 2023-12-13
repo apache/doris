@@ -798,8 +798,7 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("only support duplicate key or MOW model");
             return false;
         }
-        if (!olapTable.getEnableLightSchemaChange() || !Strings.isNullOrEmpty(olapTable.getStoragePolicy())
-                    || olapTable.hasVariantColumns()) {
+        if (!olapTable.getEnableLightSchemaChange()) {
             return false;
         }
         if (getOrderByElements() != null) {
