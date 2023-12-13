@@ -37,6 +37,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -51,8 +53,13 @@ import java.util.regex.Pattern;
 /*
  * UserProperty contains properties set for a user
  * This user is just qualified by cluster name, not host which it connected from.
+ *
+ * If UserProperty and SessionVeriable have the same name, UserProperty has a higher priority than SessionVeriable.
+ * This usually means that the cluster administrator force user restrictions.
+ * Users cannot modify these SessionVeriables with the same name.
  */
 public class UserProperty implements Writable {
+    private static final Logger LOG = LogManager.getLogger(UserProperty.class);
     // advanced properties
     private static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
     private static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
@@ -172,7 +179,7 @@ public class UserProperty implements Writable {
         return commonProperties.getExecMemLimit();
     }
 
-    public void update(List<Pair<String, String>> properties) throws UserException {
+    public void update(List<Pair<String, String>> properties, boolean isReplay) throws UserException {
         // copy
         long newMaxConn = this.commonProperties.getMaxConn();
         long newMaxQueryInstances = this.commonProperties.getMaxQueryInstances();
@@ -312,7 +319,14 @@ public class UserProperty implements Writable {
                 }
                 workloadGroup = value;
             } else {
-                throw new DdlException("Unknown user property(" + key + ")");
+                if (isReplay) {
+                    // After using SET PROPERTY to modify the user property, if FE rolls back to a version without
+                    // this property, `Unknown user property` error will be reported when replay EditLog,
+                    // just ignore it.
+                    LOG.warn("Unknown user property(" + key + "), maybe FE rolled back version, Ignore it");
+                } else {
+                    throw new DdlException("Unknown user property(" + key + ")");
+                }
             }
         }
 
