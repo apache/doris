@@ -649,13 +649,13 @@ public class NativeInsertStmt extends InsertStmt {
             }
         }
 
+        if (analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+            trySetPartialUpdate();
+        }
+
         // check if size of select item equal with columns mentioned in statement
         if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
-        }
-
-        if (analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
-            trySetPartialUpdate();
         }
 
         // Check if all columns mentioned is enough
@@ -1183,7 +1183,7 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Partial update is only allowed in unique table with merge-on-write enabled.");
+            throw new UserException("Partial update is only allowed on unique table with merge-on-write enabled.");
         }
         if (hasEmptyTargetColumns) {
             throw new AnalysisException("You must explicitly specify the columns to be updated when "
