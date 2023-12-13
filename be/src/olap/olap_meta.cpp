@@ -17,6 +17,7 @@
 
 #include "olap/olap_meta.h"
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <fmt/ranges.h>
 #include <rocksdb/env.h>
@@ -55,6 +56,10 @@ namespace doris {
 using namespace ErrorCode;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
+
+bvar::Adder<uint64_t> g_meta_put_cnt("meta_put_cnt");
+bvar::Adder<uint64_t> g_meta_get_cnt("meta_get_cnt");
+bvar::Adder<uint64_t> g_meta_remove_cnt("meta_remove_cnt");
 
 OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path) {}
 
@@ -124,6 +129,7 @@ Status OlapMeta::get(const int column_family_index, const std::string& key, std:
     {
         SCOPED_RAW_TIMER(&duration_ns);
         s = _db->Get(ReadOptions(), handle.get(), rocksdb::Slice(key), value);
+        g_meta_get_cnt << 1;
     }
     DorisMetrics::instance()->meta_read_request_duration_us->increment(duration_ns / 1000);
     if (s.IsNotFound()) {
@@ -203,6 +209,7 @@ Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
         s = _db->Write(write_options, &write_batch);
+        g_meta_put_cnt << 1;
     }
 
     if (!s.ok()) {
@@ -225,6 +232,7 @@ Status OlapMeta::put(rocksdb::WriteBatch* batch) {
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
         s = _db->Write(write_options, batch);
+        g_meta_put_cnt << 1;
     }
 
     if (!s.ok()) {
@@ -243,6 +251,7 @@ Status OlapMeta::remove(const int column_family_index, const std::string& key) {
         WriteOptions write_options;
         write_options.sync = config::sync_tablet_meta;
         s = _db->Delete(write_options, handle.get(), rocksdb::Slice(key));
+        g_meta_remove_cnt << 1;
     }
     DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
@@ -266,6 +275,7 @@ Status OlapMeta::remove(const int column_family_index, const std::vector<std::st
             batch.Delete(handle.get(), rocksdb::Slice(key));
         }
         s = _db->Write(write_options, &batch);
+        g_meta_remove_cnt << 1;
     }
     DorisMetrics::instance()->meta_write_request_duration_us->increment(duration_ns / 1000);
     if (!s.ok()) {
