@@ -265,9 +265,12 @@ private:
                     make_bool_variant(need_adjust_scale && check_overflow));
 
             if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
+                int8_t sig[size];
                 for (size_t i = 0; i < size; i++) {
-                    c[i].value = (c[i].value + sgn(c[i].value) * scale_diff_multiplier.value / 2) /
-                                 scale_diff_multiplier.value;
+                    sig[i] = sgn(c[i].value);
+                }
+                for (size_t i = 0; i < size; i++) {
+                    c[i].value = (c[i].value - sig[i]) / scale_diff_multiplier.value + sig[i];
                 }
             }
         }

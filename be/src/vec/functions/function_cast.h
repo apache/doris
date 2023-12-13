@@ -328,7 +328,7 @@ struct ConvertImpl {
                 bool multiply_may_overflow = context->check_overflow_for_decimal();
                 if (to_scale > from_scale) {
                     multiply_may_overflow &=
-                            (from_precision + to_scale - from_scale) > to_max_digits;
+                            (from_precision + to_scale - from_scale) >= to_max_digits;
                 }
 
                 std::visit(
