@@ -297,7 +297,7 @@ public abstract class ExternalCatalog
     }
 
     public void onRefresh(boolean invalidCache) {
-        this.objectCreated = true;
+        this.objectCreated = false;
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {

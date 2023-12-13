@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.jdbc;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.common.DdlException;
@@ -65,6 +66,12 @@ public class JdbcExternalCatalog extends ExternalCatalog {
                 throw new DdlException("Required property '" + requiredProperty + "' is missing");
             }
         }
+    }
+
+    @Override
+    public void onRefresh(boolean invalidCache) {
+        super.onRefresh(invalidCache);
+        onClose();
     }
 
     @Override
