@@ -78,11 +78,7 @@ public class BindSink implements AnalysisRuleFactory {
                     Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
                     Database database = pair.first;
                     OlapTable table = pair.second;
-                    // if `sink.isFromNativeInsertStmt()` is true, `sink.isPartialUpdate()` is the value of
-                    // of the session variable `enable_unique_key_partial_update`, which should not affect the
-                    // behavior of insert statement if the target table is not merge-on-write unique table.
-                    boolean isPartialUpdate = sink.isPartialUpdate()
-                            && (!sink.isFromNativeInsertStmt() || table.getEnableUniqueKeyMergeOnWrite());
+                    boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
 
                     LogicalPlan child = ((LogicalPlan) sink.child());
                     boolean childHasSeqCol = child.getOutput().stream()

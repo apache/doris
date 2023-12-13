@@ -158,6 +158,8 @@ public class NativeInsertStmt extends InsertStmt {
 
     private InsertType insertType = InsertType.NATIVE_INSERT;
 
+    boolean hasEmptyTargetColumns = false;
+
     enum InsertType {
         NATIVE_INSERT("insert_"),
         UPDATE("update_"),
@@ -545,11 +547,7 @@ public class NativeInsertStmt extends InsertStmt {
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         List<String> realTargetColumnNames;
         if (targetColumnNames == null) {
-            if (!isFromDeleteOrUpdateStmt
-                    && analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
-                throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                        + "updating partial columns using the INSERT statement.");
-            }
+            hasEmptyTargetColumns = true;
             // the mentioned columns are columns which are visible to user, so here we use
             // getBaseSchema(), not getFullSchema()
             for (Column col : targetTable.getBaseSchema(false)) {
@@ -1181,8 +1179,15 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         OlapTable olapTable = (OlapTable) targetTable;
+        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+            return;
+        }
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
             throw new UserException("Partial update is only allowed in unique table with merge-on-write enabled.");
+        }
+        if (hasEmptyTargetColumns) {
+            throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                    + "updating partial columns using the INSERT statement.");
         }
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;
