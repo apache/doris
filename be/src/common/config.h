@@ -131,7 +131,7 @@ DECLARE_Double(soft_mem_limit_frac);
 // performed about 1000 times per second.
 //
 // P.S. This is also required, because tcmalloc can not allocate a chunk of
-// memory greater than 16 GB.
+// memory greater than 16  GB.
 DECLARE_mInt64(mmap_threshold); // bytes
 
 // When hash table capacity is greater than 2^double_grow_degree(default 2G), grow when 75% of the capacity is satisfied.
