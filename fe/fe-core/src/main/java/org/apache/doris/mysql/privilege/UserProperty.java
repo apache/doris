@@ -179,6 +179,10 @@ public class UserProperty implements Writable {
         return commonProperties.getExecMemLimit();
     }
 
+    public void update(List<Pair<String, String>> properties) throws UserException {
+        update(properties, false);
+    }
+
     public void update(List<Pair<String, String>> properties, boolean isReplay) throws UserException {
         // copy
         long newMaxConn = this.commonProperties.getMaxConn();
