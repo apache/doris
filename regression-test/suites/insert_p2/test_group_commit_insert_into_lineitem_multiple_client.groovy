@@ -103,13 +103,13 @@ PROPERTIES (
     "replication_num" = "1"
 );
         """
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
     }
 
     def do_insert_into = { file_name ->
         logger.info("file:" + file_name)
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
         //read and insert
         BufferedReader reader;

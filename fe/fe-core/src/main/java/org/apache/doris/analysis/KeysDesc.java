@@ -50,6 +50,12 @@ public class KeysDesc implements Writable {
         this.clusterKeysColumnNames = clusterKeyColumnNames;
     }
 
+    public KeysDesc(KeysType type, List<String> keysColumnNames, List<String> clusterKeyColumnNames,
+                    List<Integer> clusterKeysColumnIds) {
+        this(type, keysColumnNames, clusterKeyColumnNames);
+        this.clusterKeysColumnIds = clusterKeysColumnIds;
+    }
+
     public KeysType getKeysType() {
         return type;
     }

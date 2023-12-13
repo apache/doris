@@ -56,6 +56,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
             ConnectContext context = new ConnectContext(connection);
+            LOG.info("Connection query timeout: {}", context.getSessionVariable().getQueryTimeoutS());
             context.setEnv(Env.getCurrentEnv());
             connectScheduler.submit(context);
 
@@ -80,6 +81,8 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
                     context.setStartTime();
                     context.setUserQueryTimeout(
                             context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser()));
+                    LOG.info("Connection set query timeout {}",
+                                    context.getSessionVariable().getQueryTimeoutS());
                     context.setUserInsertTimeout(
                             context.getEnv().getAuth().getInsertTimeout(context.getQualifiedUser()));
                     ConnectProcessor processor = new MysqlConnectProcessor(context);

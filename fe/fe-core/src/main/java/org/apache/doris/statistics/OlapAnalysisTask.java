@@ -112,7 +112,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
             params.put("dbId", String.valueOf(db.getId()));
             params.put("tblId", String.valueOf(tbl.getId()));
             params.put("idxId", String.valueOf(info.indexId));
-            params.put("colId", String.valueOf(info.colName));
+            params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
             params.put("dataSizeFunction", getDataSizeFunction(col, false));
             params.put("dbName", db.getFullName());
             params.put("colName", info.colName);
@@ -184,7 +184,7 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
         params.put("dbId", String.valueOf(db.getId()));
         params.put("tblId", String.valueOf(tbl.getId()));
         params.put("idxId", String.valueOf(info.indexId));
-        params.put("colId", String.valueOf(info.colName));
+        params.put("colId", StatisticsUtil.escapeSQL(String.valueOf(info.colName)));
         params.put("dataSizeFunction", getDataSizeFunction(col, false));
         params.put("catalogName", catalog.getName());
         params.put("dbName", db.getFullName());

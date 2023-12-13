@@ -114,7 +114,7 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 RowCache::RowCache(int64_t capacity, int num_shards) {
     // Create Row Cache
     _cache = std::unique_ptr<Cache>(
-            new_lru_cache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
+            new ShardedLRUCache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
 }
 
 // Create global instance of this class

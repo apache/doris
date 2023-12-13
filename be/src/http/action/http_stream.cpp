@@ -168,8 +168,18 @@ int HttpStreamAction::on_header(HttpRequest* req) {
     ctx->load_src_type = TLoadSourceType::RAW;
 
     Status st = Status::OK();
-    if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
-        config::wait_internal_group_commit_finish) {
+    std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
+    if (iequal(group_commit_mode, "off_mode")) {
+        group_commit_mode = "";
+    }
+    if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
+        !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
+        st = Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
+        if (iequal(group_commit_mode, "off_mode")) {
+            group_commit_mode = "";
+        }
+    }
+    if (!group_commit_mode.empty() || config::wait_internal_group_commit_finish) {
         ctx->group_commit = load_size_smaller_than_wal_limit(req);
         if (!ctx->group_commit) {
             LOG(WARNING) << "The data size for this http load("
@@ -185,6 +195,7 @@ int HttpStreamAction::on_header(HttpRequest* req) {
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
               << " sql : " << req->header(HTTP_SQL);
+
     if (st.ok()) {
         st = _on_header(req, ctx);
     }
@@ -310,7 +321,13 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     request.__set_load_sql(http_req->header(HTTP_SQL));
     request.__set_loadId(ctx->id.to_thrift());
     request.__set_label(ctx->label);
-    request.__set_group_commit(ctx->group_commit);
+    if (ctx->group_commit) {
+        if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
+            request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
+        } else {
+            request.__set_group_commit_mode("sync_mode");
+        }
+    }
     if (_exec_env->master_info()->__isset.backend_id) {
         request.__set_backend_id(_exec_env->master_info()->backend_id);
     } else {

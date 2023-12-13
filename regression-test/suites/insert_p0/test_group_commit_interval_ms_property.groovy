@@ -60,7 +60,7 @@ suite("test_group_commit_interval_ms_property") {
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
 
-            sql "set enable_insert_group_commit = true;"
+            sql """ set group_commit = async_mode; """
 
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """

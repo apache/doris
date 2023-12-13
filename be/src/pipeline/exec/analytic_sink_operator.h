@@ -107,6 +107,15 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
+    ExchangeType get_local_exchange_type() const override {
+        if (_partition_by_eq_expr_ctxs.empty()) {
+            return ExchangeType::PASSTHROUGH;
+        } else if (_order_by_eq_expr_ctxs.empty()) {
+            return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+        }
+        return ExchangeType::NOOP;
+    }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
@@ -123,6 +132,8 @@ private:
     const TTupleId _buffered_tuple_id;
 
     std::vector<size_t> _num_agg_input;
+    const bool _is_colocate;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

@@ -31,6 +31,7 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.nereids.parser.ParseDialect;
 import org.apache.doris.nereids.parser.ParseDialect.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
@@ -398,7 +399,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_TABLE_ANALYZE_PART_NUM = "external_table_analyze_part_num";
 
     public static final String ENABLE_STRONG_CONSISTENCY = "enable_strong_consistency_read";
-    public static final String ENABLE_INSERT_GROUP_COMMIT = "enable_insert_group_commit";
+    public static final String GROUP_COMMIT = "group_commit";
 
     public static final String PARALLEL_SYNC_ANALYZE_TASK_NUM = "parallel_sync_analyze_task_num";
 
@@ -528,8 +529,8 @@ public class SessionVariable implements Serializable, Writable {
     private long defaultOrderByLimit = -1;
 
     // query timeout in second.
-    @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
-    public int queryTimeoutS = 900;
+    @VariableMgr.VarAttr(name = QUERY_TIMEOUT, checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
+    private int queryTimeoutS = 900;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, flag = VariableMgr.GLOBAL, needForward = true)
@@ -1323,8 +1324,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 20;
 
-    @VariableMgr.VarAttr(name = ENABLE_INSERT_GROUP_COMMIT)
-    public boolean enableInsertGroupCommit = false;
+    @VariableMgr.VarAttr(name = GROUP_COMMIT)
+    public String groupCommit = "off_mode";
 
     @VariableMgr.VarAttr(name = INVERTED_INDEX_CONJUNCTION_OPT_THRESHOLD,
             description = {"在match_all中求取多个倒排索引的交集时,如果最大的倒排索引中的总数是最小倒排索引中的总数的整数倍,"
@@ -1850,7 +1851,23 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setQueryTimeoutS(int queryTimeoutS) {
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Setting invalid query timeout", new RuntimeException(""));
+        }
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    // This method will be called by VariableMgr.replayGlobalVariableV2
+    // We dont want any potential exception is thrown during replay oplog
+    // so we do not check its validation. Here potential excaption
+    // will become real in cases where user set global query timeout 0 before
+    // upgrading to this version.
+    public void setQueryTimeoutS(String queryTimeoutS) {
+        int newQueryTimeoutS = Integer.valueOf(queryTimeoutS);
+        if (newQueryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", newQueryTimeoutS, new RuntimeException(""));
+        }
+        this.queryTimeoutS = newQueryTimeoutS;
     }
 
     public void setAnalyzeTimeoutS(int analyzeTimeoutS) {
@@ -1860,11 +1877,17 @@ public class SessionVariable implements Serializable, Writable {
     public void setMaxExecutionTimeMS(int maxExecutionTimeMS) {
         this.maxExecutionTimeMS = maxExecutionTimeMS;
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", queryTimeoutS, new RuntimeException(""));
+        }
     }
 
     public void setMaxExecutionTimeMS(String maxExecutionTimeMS) {
         this.maxExecutionTimeMS = Integer.valueOf(maxExecutionTimeMS);
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", queryTimeoutS, new RuntimeException(""));
+        }
     }
 
     public void setPipelineTaskNum(String value) throws Exception {
@@ -2496,6 +2519,14 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkQueryTimeoutValid(String newQueryTimeout) {
+        int value = Integer.valueOf(newQueryTimeout);
+        if (value <= 0) {
+            LOG.warn("Setting invalid query timeout {}", value, new RuntimeException(""));
+            throw new UnsupportedOperationException("Query timeout must be greater than 0");
+        }
+    }
+
     public boolean isEnableFileCache() {
         return enableFileCache;
     }
@@ -3095,7 +3126,14 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableInsertGroupCommit() {
-        return enableInsertGroupCommit || Config.wait_internal_group_commit_finish;
+        return Config.wait_internal_group_commit_finish || GroupCommitBlockSink.parseGroupCommit(groupCommit) != null;
+    }
+
+    public String getGroupCommit() {
+        if (Config.wait_internal_group_commit_finish) {
+            return "sync_mode";
+        }
+        return groupCommit;
     }
 
     public boolean isEnableMaterializedViewRewrite() {
