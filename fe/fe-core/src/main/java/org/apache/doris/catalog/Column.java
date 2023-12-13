@@ -245,6 +245,17 @@ public class Column implements Writable, GsonPostProcessable {
         }
     }
 
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType,
+            boolean isAllowNull, boolean isAutoInc, String defaultValue, String comment,
+            boolean visible, DefaultValueExprDef defaultValueExprDef, int colUniqueId,
+            String realDefaultValue, boolean hasOnUpdateDefaultValue,
+            DefaultValueExprDef onUpdateDefaultValueExprDef, int clusterKeyId) {
+        this(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue, comment,
+                visible, defaultValueExprDef, colUniqueId, realDefaultValue,
+                hasOnUpdateDefaultValue, onUpdateDefaultValueExprDef);
+        this.clusterKeyId = clusterKeyId;
+    }
+
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             boolean isAutoInc, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue, int clusterKeyId) {
