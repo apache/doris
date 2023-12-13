@@ -218,8 +218,8 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql """set describe_extend_variant_column = true"""
         qt_sql_11 """desc ${table_name}"""
 
-        // varaint column name: chinese name, unicode 
-        table_name = "no_data_table"
+        // varaint subcolumn: empty
+        table_name = "no_subcolumn_table"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
                 k bigint,
@@ -229,6 +229,8 @@ suite("regression_test_variant_desc", "nonConcurrent"){
             DISTRIBUTED BY HASH(k) BUCKETS 5
             properties("replication_num" = "1", "disable_auto_compaction" = "false");
         """
+        sql """ insert into ${table_name} values (0, '{}')"""
+        sql """ insert into ${table_name} values (0, '100')"""
         sql """set describe_extend_variant_column = true"""
         qt_sql_12 """desc ${table_name}"""
     } finally {
