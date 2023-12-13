@@ -123,7 +123,7 @@ DECLARE_Double(soft_mem_limit_frac);
 // Many modern allocators (for example) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
 // you to increase performance and reduce memory consumption during realloc.
-// To fix this, we do mremap manually if the chunk of memory is large enough.
+// To fix this, we do mremap manually if the chunk of memory is  large enough.
 //
 // The threshold (128 MB, 128 * (1ULL << 20)) is chosen quite large, since changing the address
 // space is very slow, especially in the case of a large number of threads. We
