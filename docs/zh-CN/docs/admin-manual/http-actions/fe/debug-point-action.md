@@ -117,35 +117,47 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 注意，要先激活木桩，然后再执行含有木桩的代码，代码中的木桩才会生效。
     
 ## 向木桩传递参数
-激活木桩时，还可以向木桩传递参数。
+
+除了 timeout 和 execute，激活木桩时，还可以传递其它自定义参数。
+
 ### API
 
 ```
 POST /api/debug_point/add/{debug_point_name}[?key1=value1&key2=value2&key3=value3...]
 ```
 * `key1=value1`
-  向木桩传递名为key1值为value1的参数，多个参数用&分隔，注意“&”前后没用空格。
+  向木桩传递自定义参数，名称为 key1，值为 value1，多个参数用&分隔，“&”前后没有空格。
+### Request body
+
+无
+
+### Response
+
+```
+{
+    msg: "OK",
+    code: 0
+}
+```
 
 ### Examples
 
-向FE或BE传递参数的API格式是相同的，只是IP地址和端口不同。
+向 FE 或 BE 传递参数的 REST API 格式相同，只是 IP 地址和端口不同。
 
-假设FE的http_port=8030，则下面的请求激活FE中的木桩`foo`，并传递了两个参数：
+假设 FE 的 http_port=8030，则下面的请求激活 FE 中的木桩`foo`，并传递了两个参数：
 
-一个名称为percent值为0.5，另一个名称为duration值为3。
+一个名称为 percent 值为 0.5，另一个名称为 duration 值为 3。
 		
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5&duration=3"
-
 ```
 
 ### 在FE、BE代码中使用参数
-激活FE中的木桩:
+激活 FE 中的木桩并传递参数:
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/OlapTableSink.write_random_choose_sink?needCatchUp=true&sinkNum=3"
-
 ```
-在FE 代码中使用木桩OlapTableSink.write_random_choose_sink的参数needCatchUp和sinkNum：
+在 FE 代码中使用木桩 OlapTableSink.write_random_choose_sink 的参数 needCatchUp 和 sinkNum（区分大小写）：
 ```java
 private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
     DebugPoint debugPoint = DebugPointUtil.getDebugPoint("OlapTableSink.write_random_choose_sink");
@@ -154,36 +166,22 @@ private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Lo
     }
     boolean needCatchup = debugPoint.param("needCatchUp", false);
     int sinkNum = debugPoint.param("sinkNum", 0);
-    if (sinkNum == 0) {
-        sinkNum = new SecureRandom().nextInt() % bePathsMap.size() + 1;
-    }
     ...
 }
 ```
 
-激活BE中的木桩:
+激活 BE 中的木桩并传递参数:
 ```
 curl -X POST "http://127.0.0.1:8040/api/debug_point/add/TxnManager.prepare_txn.random_failed?percent=0.7
-
 ```
-在BE代码中使用木桩TxnManager.prepare_txn.random_failed的参数percent：
+在 BE 代码中使用木桩 TxnManager.prepare_txn.random_failed 的参数 percent（区分大小写）：
 ```c++
-Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transaction_id,
-                               TTabletId tablet_id, TabletUid tablet_uid, const PUniqueId& load_id,
-                               bool ingest) {
-    TxnKey key(partition_id, transaction_id);
-    TabletInfo tablet_info(tablet_id, tablet_uid);
-    std::lock_guard<std::shared_mutex> txn_wrlock(_get_txn_map_lock(transaction_id));
-    txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
-
-    DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed", {
-        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-            LOG_WARNING("TxnManager.prepare_txn.random_failed random failed");
-            return Status::InternalError("debug prepare txn random failed");
-        }
-    });
-    ...
-}
+DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
+		{if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+		        LOG_WARNING("TxnManager.prepare_txn.random_failed random failed");
+		        return Status::InternalError("debug prepare txn random failed");
+		}}
+);
 ```
 
 ## 关闭木桩
@@ -222,7 +220,6 @@ POST /api/debug_point/remove/{debug_point_name}
 	
 ```
 curl -X POST "http://127.0.0.1:8030/api/debug_point/remove/foo"
-
 ```
     
 ## 清除所有木桩
