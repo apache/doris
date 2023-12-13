@@ -59,7 +59,6 @@ public:
                           const wasmtime::Span<uint8_t>& wasm);
     std::vector<wasmtime::Val> runElemFunc(const std::string functionName,
                                            std::vector<wasmtime::Val> args);
-    void runWat(const std::string& watString) const;
     bool DeleteFunction(std::string functionName);
 };
 

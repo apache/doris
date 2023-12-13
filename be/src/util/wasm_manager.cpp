@@ -84,9 +84,4 @@ bool WasmFunctionManager::DeleteFunction(std::string functionName) {
     return true;
 }
 
-void WasmFunctionManager::runWat(const std::string& watString) const {
-    auto module = wasmtime::Module::compile(*engine, watString).unwrap();
-    auto instance = wasmtime::Instance::create(store, module, {}).unwrap();
-}
-
 } // namespace doris

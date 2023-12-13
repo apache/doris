@@ -36,6 +36,7 @@
 #include "olap/tablet_fwd.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
+#include "util/wasm_manager.h"
 
 namespace doris {
 namespace vectorized {
@@ -192,6 +193,9 @@ public:
     BrpcClientCache<PFunctionService_Stub>* brpc_function_client_cache() const {
         return _function_client_cache;
     }
+    std::shared_ptr<WasmFunctionManager> wasm_function_manager() const {
+        return _wasm_function_manager;
+    }
     LoadChannelMgr* load_channel_mgr() { return _load_channel_mgr; }
     std::shared_ptr<NewLoadStreamMgr> new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
@@ -334,6 +338,7 @@ private:
     std::shared_ptr<NewLoadStreamMgr> _new_load_stream_mgr;
     BrpcClientCache<PBackendService_Stub>* _internal_client_cache = nullptr;
     BrpcClientCache<PFunctionService_Stub>* _function_client_cache = nullptr;
+    std::shared_ptr<WasmFunctionManager> _wasm_function_manager = nullptr;
 
     std::shared_ptr<StreamLoadExecutor> _stream_load_executor;
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
