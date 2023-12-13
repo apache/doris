@@ -428,6 +428,7 @@ public class StreamLoadTask implements LoadTaskInfo {
             throw new AnalysisException("Negative is only used when merge type is APPEND.");
         }
         if (request.isSetSequenceCol()) {
+            LOG("DEBUG: set sequenceCol at setOptionalFromTSLPutRequest")
             sequenceCol = request.getSequenceCol();
         }
         if (request.isSetSendBatchParallelism()) {
