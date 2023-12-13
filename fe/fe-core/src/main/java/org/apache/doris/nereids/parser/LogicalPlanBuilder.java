@@ -2327,7 +2327,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         //comment should remove '\' and '(") at the beginning and end
-        String comment = ctx.comment != null ? ctx.comment.getText().substring(1, ctx.comment.getText().length() - 1).replace("\\","") : "";
+        String comment = ctx.comment != null ? ctx.comment.getText().substring(1, ctx.comment.getText().length() - 1)
+            .replace("\\", "") : "";
         boolean isAutoInc = ctx.AUTO_INCREMENT() != null;
         return new ColumnDefinition(colName, colType, isKey, aggType, !isNotNull, isAutoInc, defaultValue,
                 onUpdateDefaultValue, comment);
