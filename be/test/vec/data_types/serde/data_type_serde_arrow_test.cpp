@@ -70,6 +70,8 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
@@ -98,6 +100,8 @@ void serialize_and_deserialize_arrow_test() {
                 {"k5", FieldType::OLAP_FIELD_TYPE_DECIMAL32, 5, TYPE_DECIMAL32, false},
                 {"k6", FieldType::OLAP_FIELD_TYPE_DECIMAL64, 6, TYPE_DECIMAL64, false},
                 {"k12", FieldType::OLAP_FIELD_TYPE_DATETIMEV2, 12, TYPE_DATETIMEV2, false},
+                {"k8", FieldType::OLAP_FIELD_TYPE_IPV4, 8, TYPE_IPV4, false},
+                {"k9", FieldType::OLAP_FIELD_TYPE_IPV6, 9, TYPE_IPV6, false},
         };
     } else {
         cols = {{"a", FieldType::OLAP_FIELD_TYPE_ARRAY, 6, TYPE_ARRAY, true},
@@ -286,7 +290,7 @@ void serialize_and_deserialize_arrow_test() {
                 auto column_vector_date_v2 = vectorized::ColumnVector<vectorized::UInt32>::create();
                 auto& date_v2_data = column_vector_date_v2->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    vectorized::DateV2Value<doris::vectorized::DateV2ValueType> value;
+                    DateV2Value<DateV2ValueType> value;
                     value.from_date((uint32_t)((2022 << 9) | (6 << 5) | 6));
                     date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
                 }
@@ -303,7 +307,7 @@ void serialize_and_deserialize_arrow_test() {
                 auto column_vector_date = vectorized::ColumnVector<vectorized::Int64>::create();
                 auto& date_data = column_vector_date->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    vectorized::VecDateTimeValue value;
+                    VecDateTimeValue value;
                     value.from_date_int64(20210501);
                     date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
                 }
@@ -319,7 +323,7 @@ void serialize_and_deserialize_arrow_test() {
                 auto column_vector_datetime = vectorized::ColumnVector<vectorized::Int64>::create();
                 auto& datetime_data = column_vector_datetime->get_data();
                 for (int i = 0; i < row_num; ++i) {
-                    vectorized::VecDateTimeValue value;
+                    VecDateTimeValue value;
                     value.from_date_int64(20210501080910);
                     datetime_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
                 }
@@ -445,6 +449,34 @@ void serialize_and_deserialize_arrow_test() {
                 block.insert(type_and_name);
             }
             break;
+        case TYPE_IPV4:
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                auto vec = vectorized::ColumnIPv4::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(i);
+                }
+                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
+                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
+                                                                col_name);
+                block.insert(std::move(type_and_name));
+            }
+            break;
+        case TYPE_IPV6:
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                auto vec = vectorized::ColumnIPv6::create();
+                auto& data = vec->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    data.push_back(i);
+                }
+                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
+                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
+                                                                col_name);
+                block.insert(std::move(type_and_name));
+            }
+            break;
         default:
             break;
         }
@@ -488,7 +520,7 @@ void serialize_and_deserialize_arrow_test() {
                     auto& date_data = static_cast<ColumnVector<Int64>&>(col).get_data();
                     for (int i = 0; i < strcol->size(); ++i) {
                         StringRef str = strcol->get_data_at(i);
-                        vectorized::VecDateTimeValue value;
+                        VecDateTimeValue value;
                         value.from_date_str(str.data, str.size);
                         date_data.push_back(*reinterpret_cast<vectorized::Int64*>(&value));
                     }

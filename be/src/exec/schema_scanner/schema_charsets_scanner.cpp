@@ -74,7 +74,7 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(_s_charsets[i].charset, strlen(_s_charsets[i].charset));
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 0, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
     }
     // DEFAULT_COLLATE_NAME
     {
@@ -84,7 +84,7 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
                                 strlen(_s_charsets[i].default_collation));
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 1, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // DESCRIPTION
     {
@@ -93,7 +93,7 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 2, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // maxlen
     {
@@ -102,7 +102,7 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
             srcs[i] = _s_charsets[i].maxlen;
             datas[i] = srcs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 3, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     return Status::OK();
 }

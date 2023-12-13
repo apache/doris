@@ -30,12 +30,13 @@
 #include <type_traits>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_impl.h"
+#include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/cow.h"
@@ -92,8 +93,6 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    bool can_be_inside_nullable() const override { return true; }
-
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
@@ -110,7 +109,7 @@ public:
     const char* deserialize_and_insert_from_arena(const char* pos) override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
-
+    MutableColumnPtr get_shrinked_column() override;
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     size_t filter(const Filter& filter) override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
@@ -123,13 +122,15 @@ public:
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
+        __builtin_unreachable();
     }
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
     }
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
@@ -180,7 +181,7 @@ public:
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,
@@ -189,7 +190,8 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data = nullptr) const override;
 
-    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
     /******************** keys and values ***************/

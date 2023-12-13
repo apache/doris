@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <gen_cpp/FrontendService_types.h>
+#include <gen_cpp/PaloInternalService_types.h>
 #include <stdint.h>
 
 #include <map>
+#include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
@@ -56,9 +59,14 @@ private:
 // or plan's statistics and QueryStatisticsRecvr is responsible for collecting it.
 class QueryStatistics {
 public:
-    QueryStatistics()
-            : scan_rows(0), scan_bytes(0), cpu_ms(0), returned_rows(0), max_peak_memory_bytes(0) {}
-    ~QueryStatistics();
+    QueryStatistics(TQueryType::type query_type = TQueryType::type::SELECT)
+            : scan_rows(0),
+              scan_bytes(0),
+              cpu_ms(0),
+              returned_rows(0),
+              max_peak_memory_bytes(0),
+              _query_type(query_type) {}
+    virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
 
@@ -88,6 +96,7 @@ public:
 
     void merge(QueryStatisticsRecvr* recvr);
 
+    void merge(QueryStatisticsRecvr* recvr, int sender_id);
     // Get the maximum value from the peak memory collected by all node statistics
     int64_t calculate_max_peak_memory_bytes();
 
@@ -100,13 +109,21 @@ public:
         returned_rows = 0;
         max_peak_memory_bytes = 0;
         clearNodeStatistics();
+        //clear() is used before collection, so calling "clear" is equivalent to being collected.
+        set_collected();
     }
 
     void to_pb(PQueryStatistics* statistics);
-
+    void to_thrift(TQueryStatistics* statistics) const;
     void from_pb(const PQueryStatistics& statistics);
+    bool collected() const { return _collected; }
+    void set_collected() { _collected = true; }
+
+    // LOAD does not need to collect information on the exchange node.
+    bool collect_dml_statistics() { return _query_type == TQueryType::LOAD; }
 
 private:
+    friend class QueryStatisticsRecvr;
     int64_t scan_rows;
     int64_t scan_bytes;
     int64_t cpu_ms;
@@ -117,29 +134,37 @@ private:
     // only set once by result sink when closing.
     int64_t max_peak_memory_bytes;
     // The statistics of the query on each backend.
-    typedef std::unordered_map<int64_t, NodeStatistics*> NodeStatisticsMap;
+    using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;
+    bool _collected = false;
+    const TQueryType::type _query_type;
 };
-
+using QueryStatisticsPtr = std::shared_ptr<QueryStatistics>;
 // It is used for collecting sub plan query statistics in DataStreamRecvr.
 class QueryStatisticsRecvr {
 public:
-    ~QueryStatisticsRecvr();
+    ~QueryStatisticsRecvr() = default;
 
+    // Transmitted via RPC, incurring serialization overhead.
     void insert(const PQueryStatistics& statistics, int sender_id);
+
+    // using local_exchange for transmission, only need to hold a shared pointer.
+    void insert(QueryStatisticsPtr statistics, int sender_id);
+
+    QueryStatisticsPtr find(int sender_id);
 
 private:
     friend class QueryStatistics;
 
     void merge(QueryStatistics* statistics) {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         for (auto& pair : _query_statistics) {
             statistics->merge(*(pair.second));
         }
     }
 
-    std::map<int, QueryStatistics*> _query_statistics;
-    SpinLock _lock;
+    std::map<int, QueryStatisticsPtr> _query_statistics;
+    std::mutex _lock;
 };
 
 } // namespace doris

@@ -61,8 +61,8 @@ public:
     // the bthread will continue to execute.
     static void run_task(std::function<void()> fn, io::FileSystemType file_type) {
         DCHECK(bthread_self() != 0);
-        doris::Mutex mutex;
-        doris::ConditionVariable cv;
+        std::mutex mutex;
+        std::condition_variable cv;
         std::unique_lock l(mutex);
 
         AsyncIOCtx* ctx = static_cast<AsyncIOCtx*>(bthread_getspecific(btls_io_ctx_key));

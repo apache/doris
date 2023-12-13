@@ -116,6 +116,20 @@ suite("test_least_greatest") {
     qt_select "SELECT GREATEST('zzz', v5) FROM test_least_greatest order by k1"
 
     sql """ drop table if exists test_least_greatest; """
+
+    sql """ drop table if exists test_least_greatest2; """
+    sql """
+        CREATE TABLE `test_least_greatest2` (
+            id int,
+            name1 decimalv3(9,2),
+            name2 decimalv3(9,2)
+        ) DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1");
+    """
+    sql """insert into test_least_greatest2 values(1, 12.34, 23.45), (2, 34.45, 45.56);"""
+    sql "sync"
+    qt_decimalv3_scale0 " select least(name1, name2) from test_least_greatest2 order by name1, name2;"
+    qt_decimalv3_scale1 " select greatest(name1, name2) from test_least_greatest2 order by name1, name2;"
 }
 
 

@@ -257,10 +257,10 @@ public:
     }
 
     static void TearDownTestSuite() {
+        k_engine.reset();
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_storage_engine(nullptr);
         exec_env->set_memtable_memory_limiter(nullptr);
-        k_engine.reset();
     }
 };
 
@@ -361,9 +361,9 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
 
-    DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get()));
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -384,7 +384,7 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
         int32_t c3 = 1;
         columns[2]->insert_data((const char*)&c3, sizeof(c2));
 
-        vectorized::VecDateTimeValue c4;
+        VecDateTimeValue c4;
         c4.from_date_str("2020-07-16 19:39:43", 19);
         int64_t c4_int = c4.to_int64();
         columns[3]->insert_data((const char*)&c4_int, sizeof(c4));
@@ -397,9 +397,8 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     ASSERT_EQ(Status::OK(), st);
     st = delta_writer->build_rowset();
     ASSERT_EQ(Status::OK(), st);
-    st = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    st = delta_writer->commit_txn(PSlaveTabletNodes());
     ASSERT_EQ(Status::OK(), st);
-    delete delta_writer;
 
     // publish version success
     *tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);

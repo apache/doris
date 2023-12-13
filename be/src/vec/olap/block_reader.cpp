@@ -60,6 +60,16 @@ BlockReader::~BlockReader() {
     }
 }
 
+Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
+    auto res = (this->*_next_block_func)(block, eof);
+    if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        if (!res.ok()) [[unlikely]] {
+            static_cast<Tablet*>(_tablet.get())->report_error(res);
+        }
+    }
+    return res;
+}
+
 bool BlockReader::_rowsets_overlapping(const ReaderParams& read_params) {
     std::string cur_max_key;
     const std::vector<RowSetSplits>& rs_splits = read_params.rs_splits;
@@ -123,7 +133,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
-    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     std::vector<RowsetReaderSharedPtr> valid_rs_readers;
 
     for (int i = 0; i < read_params.rs_splits.size(); ++i) {
@@ -223,11 +232,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
     }
 
     auto status = _init_collect_iter(read_params);
-    if (!status.ok()) {
-        if (UNLIKELY(!status.ok() && !status.is<ErrorCode::END_OF_FILE>())) {
-            _tablet->report_error(status);
+    if (!status.ok()) [[unlikely]] {
+        if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+            static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
-
         return status;
     }
 

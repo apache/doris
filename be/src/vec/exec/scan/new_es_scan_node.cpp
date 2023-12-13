@@ -109,7 +109,8 @@ Status NewEsScanNode::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-void NewEsScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void NewEsScanNode::set_scan_ranges(RuntimeState* state,
+                                    const std::vector<TScanRangeParams>& scan_ranges) {
     for (auto& es_scan_range : scan_ranges) {
         DCHECK(es_scan_range.scan_range.__isset.es_scan_range);
         _scan_ranges.emplace_back(new TEsScanRange(es_scan_range.scan_range.es_scan_range));

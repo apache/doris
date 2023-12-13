@@ -41,6 +41,7 @@ import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * All data type literal expression in Nereids.
@@ -132,8 +133,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
     }
 
     @Override
-    protected String getExpressionName() {
-        return "literal";
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of("literal");
+        }
+        return this.exprName.get();
     }
 
     @Override
@@ -214,11 +218,11 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             }
         }
         if (targetType.isTinyIntType()) {
-            return Literal.of(Double.valueOf(desc).byteValue());
+            return Literal.of(Byte.valueOf(desc).byteValue());
         } else if (targetType.isSmallIntType()) {
-            return Literal.of(Double.valueOf(desc).shortValue());
+            return Literal.of(Short.valueOf(desc).shortValue());
         } else if (targetType.isIntegerType()) {
-            return Literal.of(Double.valueOf(desc).intValue());
+            return Literal.of(Integer.valueOf(desc).intValue());
         } else if (targetType.isBigIntType()) {
             return Literal.of(Long.valueOf(desc));
         } else if (targetType.isLargeIntType()) {
@@ -249,6 +253,10 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
         } else if (targetType.isJsonType()) {
             return new JsonLiteral(desc);
+        } else if (targetType.isIPv4Type()) {
+            return new IPv4Literal(desc);
+        } else if (targetType.isIPv6Type()) {
+            return new IPv6Literal(desc);
         }
         throw new AnalysisException("cannot cast " + desc + " from type " + this.dataType + " to type " + targetType);
     }
@@ -296,6 +304,10 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
             return new DateTimeV2Literal(stringValue);
         } else if (dataType.isJsonType()) {
             return new JsonLiteral(stringValue);
+        } else if (dataType.isIPv4Type()) {
+            return new IPv4Literal(stringValue);
+        } else if (dataType.isIPv6Type()) {
+            return new IPv6Literal(stringValue);
         } else {
             throw new AnalysisException("Unsupported convert the " + literalExpr.getType()
                     + " of legacy literal to nereids literal");

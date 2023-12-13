@@ -65,7 +65,7 @@ public class CheckExpressionLegalityTest implements MemoPatternMatchSupported {
                 ));
 
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "column must use with specific function", () ->
+                "COUNT DISTINCT could not process type", () ->
                         PlanChecker.from(connectContext)
                                 .analyze("select count(distinct id) from (select to_bitmap(1) id) tbl")
                                 .applyBottomUp(new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE))

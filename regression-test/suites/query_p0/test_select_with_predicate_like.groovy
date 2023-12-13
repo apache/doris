@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_select_with_predicate_like") {
+suite("test_select_with_predicate_like", "arrow_flight_sql") {
     def tables=["test_basic_agg"]
 
     for (String table in tables) {

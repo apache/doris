@@ -33,20 +33,16 @@ using namespace ErrorCode;
 Status CalcDeleteBitmapToken::submit(TabletSharedPtr tablet, RowsetSharedPtr cur_rowset,
                                      const segment_v2::SegmentSharedPtr& cur_segment,
                                      const std::vector<RowsetSharedPtr>& target_rowsets,
-                                     int64_t end_version, RowsetWriter* rowset_writer) {
+                                     int64_t end_version, DeleteBitmapPtr delete_bitmap,
+                                     RowsetWriter* rowset_writer) {
     {
         std::shared_lock rlock(_lock);
         RETURN_IF_ERROR(_status);
     }
 
-    DeleteBitmapPtr bitmap = std::make_shared<DeleteBitmap>(tablet->tablet_id());
-    {
-        std::lock_guard wlock(_lock);
-        _delete_bitmaps.push_back(bitmap);
-    }
     return _thread_token->submit_func([=, this]() {
         auto st = tablet->calc_segment_delete_bitmap(cur_rowset, cur_segment, target_rowsets,
-                                                     bitmap, end_version, rowset_writer);
+                                                     delete_bitmap, end_version, rowset_writer);
         if (!st.ok()) {
             LOG(WARNING) << "failed to calc segment delete bitmap, tablet_id: "
                          << tablet->tablet_id() << " rowset: " << cur_rowset->rowset_id()
@@ -64,17 +60,6 @@ Status CalcDeleteBitmapToken::wait() {
     _thread_token->wait();
     // all tasks complete here, don't need lock;
     return _status;
-}
-
-Status CalcDeleteBitmapToken::get_delete_bitmap(DeleteBitmapPtr res_bitmap) {
-    std::lock_guard wlock(_lock);
-    RETURN_IF_ERROR(_status);
-
-    for (auto bitmap : _delete_bitmaps) {
-        res_bitmap->merge(*bitmap);
-    }
-    _delete_bitmaps.clear();
-    return Status::OK();
 }
 
 void CalcDeleteBitmapExecutor::init() {

@@ -18,6 +18,7 @@
 package org.apache.doris.planner.external;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.ColumnDef.DefaultValue;
 import org.apache.doris.analysis.ImportColumnDesc;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.SlotRef;
@@ -188,7 +189,8 @@ public class LoadScanProvider {
         // add columnExpr for sequence column
         TableIf targetTable = getTargetTable();
         if (targetTable instanceof OlapTable && ((OlapTable) targetTable).hasSequenceCol()) {
-            String sequenceCol = ((OlapTable) targetTable).getSequenceMapCol();
+            OlapTable olapTable = (OlapTable) targetTable;
+            String sequenceCol = olapTable.getSequenceMapCol();
             if (sequenceCol != null) {
                 String finalSequenceCol = sequenceCol;
                 Optional<ImportColumnDesc> foundCol = columnDescs.descs.stream()
@@ -199,8 +201,14 @@ public class LoadScanProvider {
                     columnDescs.descs.add(new ImportColumnDesc(Column.SEQUENCE_COL,
                             new SlotRef(null, sequenceCol)));
                 } else if (!fileGroupInfo.isPartialUpdate()) {
-                    throw new UserException("Table " + targetTable.getName()
-                            + " has sequence column, need to specify the sequence column");
+                    Column seqCol = olapTable.getFullSchema().stream()
+                                    .filter(col -> col.getName().equals(olapTable.getSequenceMapCol()))
+                                    .findFirst().get();
+                    if (seqCol.getDefaultValue() == null
+                                    || !seqCol.getDefaultValue().equals(DefaultValue.CURRENT_TIMESTAMP)) {
+                        throw new UserException("Table " + olapTable.getName()
+                                + " has sequence column, need to specify the sequence column");
+                    }
                 }
             } else {
                 sequenceCol = context.fileGroup.getSequenceCol();

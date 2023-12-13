@@ -76,7 +76,7 @@ class OutputUtils {
                 double expectDouble = Double.parseDouble(expectCell)
                 double realDouble = Double.parseDouble(realCell)
 
-                double realRelativeError = Math.abs(expectDouble - realDouble) / realDouble
+                double realRelativeError = Math.abs(expectDouble - realDouble) / Math.abs(realDouble)
                 double expectRelativeError = 1e-8
 
                 if (expectRelativeError < realRelativeError) {

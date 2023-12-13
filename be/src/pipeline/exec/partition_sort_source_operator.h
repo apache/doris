@@ -49,39 +49,75 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-class PartitionSortSourceOperatorX;
-class PartitionSortSourceLocalState final : public PipelineXLocalState<PartitionSortDependency> {
-    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
-
+class PartitionSortSourceDependency final : public Dependency {
 public:
-    using Base = PipelineXLocalState<PartitionSortDependency>;
+    using SharedState = PartitionSortNodeSharedState;
+    PartitionSortSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSourceDependency", query_ctx) {}
+    ~PartitionSortSourceDependency() override = default;
+
+    void block() override {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_always_ready) {
+            return;
+        }
+        Dependency::block();
+    }
+
+    void set_always_ready() {
+        if (_always_ready) {
+            return;
+        }
+        std::unique_lock<std::mutex> lc(_always_done_lock);
+        if (_always_ready) {
+            return;
+        }
+        _always_ready = true;
+        set_ready();
+    }
+
+    std::string debug_string(int indentation_level = 0) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer, "{}, _always_ready = {}",
+                       Dependency::debug_string(indentation_level), _always_ready);
+        return fmt::to_string(debug_string_buffer);
+    }
+
+private:
+    bool _always_ready {false};
+    std::mutex _always_done_lock;
+};
+
+class PartitionSortSourceOperatorX;
+class PartitionSortSourceLocalState final
+        : public PipelineXLocalState<PartitionSortSourceDependency> {
+public:
+    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
+    using Base = PipelineXLocalState<PartitionSortSourceDependency>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<PartitionSortDependency>(state, parent),
-              _get_sorted_timer(nullptr),
-              _get_next_timer(nullptr),
-              _num_rows_returned(0) {}
+            : PipelineXLocalState<PartitionSortSourceDependency>(state, parent),
+              _get_sorted_timer(nullptr) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class PartitionSortSourceOperatorX;
     RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _get_next_timer;
-    int64_t _num_rows_returned;
-    int _sort_idx = 0;
+    std::atomic<int> _sort_idx = 0;
 };
 
 class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {
 public:
     using Base = OperatorX<PartitionSortSourceLocalState>;
-    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    PartitionSortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                  const DescriptorTbl& descs)
-            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, descs) {}
+            : OperatorX<PartitionSortSourceLocalState>(pool, tnode, operator_id, descs) {}
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
-
-    Dependency* wait_for_dependency(RuntimeState* state) override;
 
     bool is_source() const override { return true; }
 

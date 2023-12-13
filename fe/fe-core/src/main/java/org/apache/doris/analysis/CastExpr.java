@@ -268,7 +268,7 @@ public class CastExpr extends Expr {
         } else if (type.isMapType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.MAP),
                     type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
+                    Lists.newArrayList(getActualArgTypes(collectChildReturnTypes())[0]), false,
                     "doris::CastFunctions::cast_to_map_val", null, null, true);
         } else if (type.isStructType()) {
             fn = ScalarFunction.createBuiltin(getFnName(Type.STRUCT),
@@ -399,8 +399,8 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public Expr getResultValue(boolean inView) throws AnalysisException {
-        recursiveResetChildrenResult(inView);
+    public Expr getResultValue(boolean forPushDownPredicatesToView) throws AnalysisException {
+        recursiveResetChildrenResult(forPushDownPredicatesToView);
         final Expr value = children.get(0);
         if (!(value instanceof LiteralExpr)) {
             return this;
@@ -514,6 +514,7 @@ public class CastExpr extends Expr {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 // normal decimal
                 if (targetType.getPrecision() != 0) {
                     newTargetType = targetType;

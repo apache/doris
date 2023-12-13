@@ -45,13 +45,16 @@ public:
             : ScanLocalState<JDBCScanLocalState>(state, parent) {}
     Status _init_scanners(std::list<vectorized::VScannerSPtr>* scanners) override;
 
+    std::string name_suffix() const override;
+
 private:
     friend class vectorized::NewJdbcScanner;
 };
 
 class JDBCScanOperatorX final : public ScanOperatorX<JDBCScanLocalState> {
 public:
-    JDBCScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    JDBCScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                      const DescriptorTbl& descs);
 
 private:
     friend class JDBCScanLocalState;

@@ -40,21 +40,24 @@ statement
         AS type=(RESTRICTIVE | PERMISSIVE)
         TO (user=userIdentify | ROLE roleName=identifier)
         USING LEFT_PAREN booleanExpression RIGHT_PAREN                 #createRowPolicy
-    | CREATE TABLE (IF NOT EXISTS)? name=multipartIdentifier
-        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs indexDefs? RIGHT_PAREN))
+    | CREATE (EXTERNAL)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
+        ((ctasCols=identifierList)? | (LEFT_PAREN columnDefs (COMMA indexDefs)? RIGHT_PAREN))
         (ENGINE EQ engine=identifier)?
-        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList)?
+        ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList (CLUSTER BY clusterKeys=identifierList)?)?
         (COMMENT STRING_LITERAL)?
-        (PARTITION BY (RANGE | LIST) partitionKeys=identifierList LEFT_PAREN partitions=partitionsDef RIGHT_PAREN)?
-        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS INTEGER_VALUE | AUTO)?)?
+        ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST) (partitionKeys=identifierList | partitionExpr=functionCallExpression)
+          LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
-        propertyClause?
+        properties=propertyClause?
+        (BROKER extProperties=propertyClause)?
         (AS query)?                                                    #createTable
-    | explain? INSERT (INTO | OVERWRITE TABLE) tableName=multipartIdentifier
-        (PARTITION partition=identifierList)?  // partition define
+    | explain? INSERT (INTO | OVERWRITE TABLE)
+        (tableName=multipartIdentifier | DORIS_INTERNAL_TABLE_ID LEFT_PAREN tableId=INTEGER_VALUE RIGHT_PAREN)
+        partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
-        query                                                          #insertIntoQuery
+        (query | inlineTable)                                          #insertTable
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
@@ -82,6 +85,42 @@ statement
         TO filePath=STRING_LITERAL
         (propertyClause)?
         (withRemoteStorageSystem)?                                     #export
+    | CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
+        (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)? buildMode?
+        (REFRESH refreshMethod? refreshTrigger?)?
+        (KEY keys=identifierList)?
+        (COMMENT STRING_LITERAL)?
+        (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
+        propertyClause?
+        AS query                                                        #createMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier              #refreshMTMV
+    | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
+       | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
+       | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
+    | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
+    | ALTER TABLE table=relation
+        ADD CONSTRAINT constraintName=errorCapturingIdentifier
+        constraint                                                        #addConstraint
+    | ALTER TABLE table=relation
+        DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
+    | CALL functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
+    ;
+
+constraint
+    : PRIMARY KEY slots=identifierList
+    | UNIQUE slots=identifierList
+    | FOREIGN KEY slots=identifierList
+        REFERENCES referenceTable=multipartIdentifier
+        referencedSlots=identifierList
+    ;
+
+partitionSpec
+    : TEMPORARY? (PARTITION | PARTITIONS) partitions=identifierList
+    | TEMPORARY? PARTITION partition=errorCapturingIdentifier
+    // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
+    // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
+    // | PARTITIONS WITH RECENT
+        LEFT_PAREN referenceSlots+=errorCapturingIdentifier (COMMA referenceSlots+=errorCapturingIdentifier)* RIGHT_PAREN
     ;
 
 dataDesc
@@ -109,6 +148,26 @@ dataDesc
     ;
 
 // -----------------Command accessories-----------------
+buildMode
+    : BUILD (IMMEDIATE | DEFERRED)
+    ;
+
+refreshTrigger
+    : ON MANUAL
+    | ON SCHEDULE refreshSchedule
+    ;
+
+refreshSchedule
+    : EVERY INTEGER_VALUE mvRefreshUnit (STARTS STRING_LITERAL)?
+    ;
+
+mvRefreshUnit
+    : SECOND | MINUTE | HOUR | DAY | WEEK
+    ;
+
+refreshMethod
+    : COMPLETE
+    ;
 
 identifierOrText
     : errorCapturingIdentifier
@@ -123,7 +182,7 @@ userIdentify
 
 explain
     : (EXPLAIN planType? | DESC | DESCRIBE)
-          level=(VERBOSE | GRAPH | PLAN)?
+          level=(VERBOSE | TREE | GRAPH | PLAN)?
     ;
 
 planType
@@ -229,7 +288,6 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
-    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification
@@ -412,16 +470,24 @@ multipartIdentifier
     ;
     
 // ----------------Create Table Fields----------
-    
+simpleColumnDefs
+    : cols+=simpleColumnDef (COMMA cols+=simpleColumnDef)*
+    ;
+
+simpleColumnDef
+    : colName=identifier (COMMENT comment=STRING_LITERAL)?
+    ;
+
 columnDefs
     : cols+=columnDef (COMMA cols+=columnDef)*
     ;
     
 columnDef
     : colName=identifier type=dataType
-        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)?
+        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)? (AUTO_INCREMENT)?
         (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
-            | CURRENT_TIMESTAMP (LEFT_PAREN precision=number RIGHT_PAREN)?))?
+            | CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+        (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
     
@@ -430,7 +496,7 @@ indexDefs
     ;
     
 indexDef
-    : INDEX indexName=identifier cols=identifierList (USING BITMAP)? (comment=STRING_LITERAL)?
+    : INDEX indexName=identifier cols=identifierList (USING indexType=(BITMAP | INVERTED | NGRAM_BF))? (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)? (COMMENT comment=STRING_LITERAL)?
     ;
     
 partitionsDef
@@ -454,8 +520,8 @@ stepPartitionDef
     ;
 
 inPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
-        (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq)
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
+        (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq))?
     ;
     
 constantSeq
@@ -521,13 +587,17 @@ booleanExpression
     ;
 
 rowConstructor
-    : LEFT_PAREN namedExpression (COMMA namedExpression)+ RIGHT_PAREN
+    : LEFT_PAREN (rowConstructorItem (COMMA rowConstructorItem)*)? RIGHT_PAREN
+    ;
+
+rowConstructorItem
+    : namedExpression | DEFAULT
     ;
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -600,13 +670,7 @@ primaryExpression
           RIGHT_PAREN                                                                         #charFunction
     | CONVERT LEFT_PAREN argument=expression USING charSet=identifierOrText RIGHT_PAREN       #convertCharSet
     | CONVERT LEFT_PAREN argument=expression COMMA type=dataType RIGHT_PAREN                  #convertType
-    | functionIdentifier 
-        LEFT_PAREN (
-            (DISTINCT|ALL)? 
-            arguments+=expression (COMMA arguments+=expression)*
-            (ORDER BY sortItem (COMMA sortItem)*)?
-        )? RIGHT_PAREN
-      (OVER windowSpec)?                                                                       #functionCall
+    | functionCallExpression                                                                   #functionCall
     | value=primaryExpression LEFT_BRACKET index=valueExpression RIGHT_BRACKET                 #elementAt
     | value=primaryExpression LEFT_BRACKET begin=valueExpression
       COLON (end=valueExpression)? RIGHT_BRACKET                                               #arraySlice
@@ -620,6 +684,16 @@ primaryExpression
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
+    ;
+
+functionCallExpression
+    : functionIdentifier
+              LEFT_PAREN (
+                  (DISTINCT|ALL)?
+                  arguments+=expression (COMMA arguments+=expression)*
+                  (ORDER BY sortItem (COMMA sortItem)*)?
+              )? RIGHT_PAREN
+            (OVER windowSpec)?
     ;
 
 functionIdentifier 
@@ -682,7 +756,7 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | type=(DATE | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral
@@ -734,6 +808,8 @@ primitiveColType:
     | type=TIME
     | type=DATEV2
     | type=DATETIMEV2
+    | type=DATEV1
+    | type=DATETIMEV1
     | type=BITMAP
     | type=QUANTILE_STATE
     | type=HLL
@@ -745,7 +821,10 @@ primitiveColType:
     | type=VARCHAR
     | type=CHAR
     | type=DECIMAL
+    | type=DECIMALV2
     | type=DECIMALV3
+    | type=IPV4
+    | type=IPV6
     | type=ALL
     ;
 
@@ -835,6 +914,7 @@ nonReserved
     | BUILD
     | BUILTIN
     | CACHED
+    | CALL
     | CATALOG
     | CATALOGS
     | CHAIN
@@ -873,10 +953,13 @@ nonReserved
     | DATETIME
     | DATETIMEV2
     | DATEV2
+    | DATETIMEV1
+    | DATEV1
     | DAY
     | DAYS_ADD
     | DAYS_SUB
     | DECIMAL
+    | DECIMALV2
     | DECIMALV3
     | DEFERRED
     | DEMAND
@@ -884,6 +967,7 @@ nonReserved
     | DISTINCTPC
     | DISTINCTPCSA
     | DO
+    | DORIS_INTERNAL_TABLE_ID
     | DYNAMIC
     | ENABLE
     | ENCRYPTKEY
@@ -948,6 +1032,7 @@ nonReserved
     | LOCATION
     | LOCK
     | LOGICAL
+    | MANUAL
     | MAP
     | MATERIALIZED
     | MAX
@@ -1023,6 +1108,7 @@ nonReserved
     | ROUTINE
     | S3
     | SAMPLE
+    | SCHEDULE
     | SCHEDULER
     | SCHEMA
     | SECOND
@@ -1056,6 +1142,7 @@ nonReserved
     | TIMESTAMPADD
     | TIMESTAMPDIFF
     | TRANSACTION
+    | TREE
     | TRIGGERS
     | TRUNCATE
     | TYPE

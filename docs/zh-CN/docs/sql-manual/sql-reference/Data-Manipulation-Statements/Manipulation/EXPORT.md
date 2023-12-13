@@ -90,6 +90,8 @@ EXPORT
 
   - `delete_existing_files`: 默认为false，若指定为true,则会先删除`export_path`所指定目录下的所有文件，然后导出数据到该目录下。例如："export_path" = "/user/tmp", 则会删除"/user/"下所有文件及目录；"file_path" = "/user/tmp/", 则会删除"/user/tmp/"下所有文件及目录。
 
+  - `timeout`：导出作业的超时时间，默认为2小时，单位是秒。
+
   > 注意：要使用delete_existing_files参数，还需要在fe.conf中添加配置`enable_delete_existing_files = true`并重启fe，此时delete_existing_files才会生效。delete_existing_files = true 是一个危险的操作，建议只在测试环境中使用。
 
 
@@ -361,5 +363,3 @@ Export 作业拆分成多个`SELECT INTO OUTFILE`的具体逻辑是：将该表�
 - 目前在export时只是简单检查tablets版本是否一致，建议在执行export过程中不要对该表进行导入数据操作。
 
 - 一个Export Job允许导出的分区数量最大为2000，可以在fe.conf中添加参数`maximum_number_of_export_partitions`并重启FE来修改该设置。
-
-- `EXPORT`命令的超时时间同查询的超时时间。可以通过 SET query_timeout=xxx 进行设置

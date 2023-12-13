@@ -93,6 +93,8 @@ private:
     std::map<int, int64_t> _min_decimal64_val;
     std::map<int, int128_t> _max_decimal128_val;
     std::map<int, int128_t> _min_decimal128_val;
+    std::map<int, wide::Int256> _max_decimal256_val;
+    std::map<int, wide::Int256> _min_decimal256_val;
 
     std::vector<char> _filter_map;
 
@@ -101,7 +103,7 @@ private:
 
     size_t _batch_size;
     std::optional<size_t> _auto_inc_col_idx;
-    AutoIncIDBuffer* _auto_inc_id_buffer;
+    AutoIncIDBuffer* _auto_inc_id_buffer = nullptr;
     AutoIncIDAllocator _auto_inc_id_allocator;
 };
 

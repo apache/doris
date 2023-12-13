@@ -280,7 +280,7 @@ private:
         }
         DataTypePtr indices_type(std::make_shared<MapIndiceDataType>());
         ColumnWithTypeAndName indices(matched_indices, indices_type, "indices");
-        ColumnWithTypeAndName data(val_arr, val_type, "value");
+        ColumnWithTypeAndName data(val_arr, std::make_shared<DataTypeArray>(val_type), "value");
         ColumnsWithTypeAndName args = {data, indices};
         return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
     }
@@ -342,58 +342,66 @@ private:
         }
 
         ColumnPtr res = nullptr;
+        auto left_element_type = remove_nullable(
+                assert_cast<const DataTypeArray&>(*remove_nullable(arguments[0].type))
+                        .get_nested_type());
+        WhichDataType which_type(left_element_type);
         // because we impl use_default_implementation_for_nulls
         // we should handle array index column by-self, and array index should not be nullable.
         auto idx_col = remove_nullable(arguments[1].column);
-        if (nested_column->is_date_type()) {
+        // we should dispatch branch according to data type rather than column type
+        if (which_type.is_date()) {
             res = _execute_number<ColumnDate>(offsets, *nested_column, src_null_map, *idx_col,
                                               nested_null_map, dst_null_map);
-        } else if (nested_column->is_datetime_type()) {
+        } else if (which_type.is_date_time()) {
             res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map, *idx_col,
                                                   nested_null_map, dst_null_map);
-        } else if (check_column<ColumnDateV2>(nested_column)) {
+        } else if (which_type.is_date_v2()) {
             res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map, *idx_col,
                                                 nested_null_map, dst_null_map);
-        } else if (check_column<ColumnDateTimeV2>(nested_column)) {
+        } else if (which_type.is_date_time_v2()) {
             res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map, *idx_col,
                                                   nested_null_map, dst_null_map);
-        } else if (check_column<ColumnUInt8>(*nested_column)) {
+        } else if (which_type.is_uint8()) {
             res = _execute_number<ColumnUInt8>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
-        } else if (check_column<ColumnInt8>(*nested_column)) {
+        } else if (which_type.is_int8()) {
             res = _execute_number<ColumnInt8>(offsets, *nested_column, src_null_map, *idx_col,
                                               nested_null_map, dst_null_map);
-        } else if (check_column<ColumnInt16>(*nested_column)) {
+        } else if (which_type.is_int16()) {
             res = _execute_number<ColumnInt16>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
-        } else if (check_column<ColumnInt32>(*nested_column)) {
+        } else if (which_type.is_int32()) {
             res = _execute_number<ColumnInt32>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
-        } else if (check_column<ColumnInt64>(*nested_column)) {
+        } else if (which_type.is_int64()) {
             res = _execute_number<ColumnInt64>(offsets, *nested_column, src_null_map, *idx_col,
                                                nested_null_map, dst_null_map);
-        } else if (check_column<ColumnInt128>(*nested_column)) {
+        } else if (which_type.is_int128()) {
             res = _execute_number<ColumnInt128>(offsets, *nested_column, src_null_map, *idx_col,
                                                 nested_null_map, dst_null_map);
-        } else if (check_column<ColumnFloat32>(*nested_column)) {
+        } else if (which_type.is_float32()) {
             res = _execute_number<ColumnFloat32>(offsets, *nested_column, src_null_map, *idx_col,
                                                  nested_null_map, dst_null_map);
-        } else if (check_column<ColumnFloat64>(*nested_column)) {
+        } else if (which_type.is_float64()) {
             res = _execute_number<ColumnFloat64>(offsets, *nested_column, src_null_map, *idx_col,
                                                  nested_null_map, dst_null_map);
-        } else if (check_column<ColumnDecimal32>(*nested_column)) {
+        } else if (which_type.is_decimal32()) {
             res = _execute_number<ColumnDecimal32>(offsets, *nested_column, src_null_map, *idx_col,
                                                    nested_null_map, dst_null_map);
-        } else if (check_column<ColumnDecimal64>(*nested_column)) {
+        } else if (which_type.is_decimal64()) {
             res = _execute_number<ColumnDecimal64>(offsets, *nested_column, src_null_map, *idx_col,
                                                    nested_null_map, dst_null_map);
-        } else if (check_column<ColumnDecimal128I>(*nested_column)) {
+        } else if (which_type.is_decimal128i()) {
             res = _execute_number<ColumnDecimal128I>(offsets, *nested_column, src_null_map,
                                                      *idx_col, nested_null_map, dst_null_map);
-        } else if (check_column<ColumnDecimal128>(*nested_column)) {
+        } else if (which_type.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(offsets, *nested_column, src_null_map, *idx_col,
                                                     nested_null_map, dst_null_map);
-        } else if (check_column<ColumnString>(*nested_column)) {
+        } else if (which_type.is_decimal256()) {
+            res = _execute_number<ColumnDecimal256>(offsets, *nested_column, src_null_map, *idx_col,
+                                                    nested_null_map, dst_null_map);
+        } else if (which_type.is_string_or_fixed_string()) {
             res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
                                   dst_null_map);
         } else {

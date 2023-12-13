@@ -21,7 +21,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <array>
 #include <atomic>
@@ -37,11 +36,9 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/hash_table/hash.h"
 #include "vec/common/hash_table/hash_map_context_creator.h"
-#include "vec/common/hash_table/hash_table_utils.h"
 #include "vec/common/hash_table/partitioned_hash_map.h"
 #include "vec/common/hash_table/string_hash_table.h"
 #include "vec/common/string_buffer.hpp"
@@ -107,9 +104,7 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
         : ExecNode(pool, tnode, descs),
           _hash_table_compute_timer(nullptr),
           _hash_table_input_counter(nullptr),
-          _build_timer(nullptr),
           _expr_timer(nullptr),
-          _exec_timer(nullptr),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
@@ -254,10 +249,8 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _serialize_key_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
             "SerializeKeyArena", TUnit::BYTES, "MemoryUsage");
 
-    _build_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "BuildTime", 1);
     _build_table_convert_timer = ADD_TIMER(runtime_profile(), "BuildConvertToPartitionedTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTime");
-    _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(runtime_profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(runtime_profile(), "GetResultsTime");
@@ -298,7 +291,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
 
     // set profile timer to evaluators
     for (auto& evaluator : _aggregate_evaluators) {
-        evaluator->set_timer(_exec_timer, _merge_timer, _expr_timer);
+        evaluator->set_timer(_merge_timer, _expr_timer);
     }
 
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
@@ -409,7 +402,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                    _is_merge ? "true" : "false", _needs_finalize ? "true" : "false",
                    _is_streaming_preagg ? "true" : "false",
                    std::to_string(_aggregate_evaluators.size()), std::to_string(_limit));
-    runtime_profile()->add_info_string("AggInfos:", fmt::to_string(msg));
+    runtime_profile()->add_info_string("AggInfos", fmt::to_string(msg));
     return Status::OK();
 }
 
@@ -417,11 +410,13 @@ Status AggregationNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(prepare_profile(state));
     return Status::OK();
 }
 
 Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
@@ -472,6 +467,7 @@ Status AggregationNode::open(RuntimeState* state) {
 
 Status AggregationNode::do_pre_agg(vectorized::Block* input_block,
                                    vectorized::Block* output_block) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(_executor.pre_agg(input_block, output_block));
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
@@ -510,6 +506,7 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
 }
 
 Status AggregationNode::pull(doris::RuntimeState* state, vectorized::Block* block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_ERROR(_executor.get_result(state, block, eos));
     _make_nullable_output_key(block);
     // dispose the having clause, should not be execute in prestreaming agg
@@ -520,6 +517,7 @@ Status AggregationNode::pull(doris::RuntimeState* state, vectorized::Block* bloc
 }
 
 Status AggregationNode::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
+    SCOPED_TIMER(_exec_timer);
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(_executor.execute(in_block));
         RETURN_IF_ERROR(_try_spill_disk());
@@ -675,7 +673,6 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
 
 Status AggregationNode::_execute_without_key(Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
-    SCOPED_TIMER(_build_timer);
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_single_add(
                 block, _agg_data->without_key + _offsets_of_aggregate_states[i],
@@ -901,7 +898,6 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
 
 Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                                      doris::vectorized::Block* out_block) {
-    SCOPED_TIMER(_build_timer);
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();

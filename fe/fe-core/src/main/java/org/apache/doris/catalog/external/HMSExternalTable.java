@@ -41,6 +41,7 @@ import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.MapUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
@@ -82,6 +83,9 @@ public class HMSExternalTable extends ExternalTable {
 
     private static final String TBL_PROP_TXN_PROPERTIES = "transactional_properties";
     private static final String TBL_PROP_INSERT_ONLY = "insert_only";
+
+    private static final String TBL_PROP_TRANSIENT_LAST_DDL_TIME = "transient_lastDdlTime";
+
     private static final String NUM_ROWS = "numRows";
 
     static {
@@ -104,19 +108,19 @@ public class HMSExternalTable extends ExternalTable {
         SUPPORTED_HUDI_FILE_FORMATS.add("com.uber.hoodie.hadoop.realtime.HoodieRealtimeInputFormat");
     }
 
-    protected volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
-    protected List<Column> partitionColumns;
+    private volatile org.apache.hadoop.hive.metastore.api.Table remoteTable = null;
+    private List<Column> partitionColumns;
 
-    protected DLAType dlaType = DLAType.UNKNOWN;
+    private DLAType dlaType = DLAType.UNKNOWN;
 
     // No as precise as row count in TableStats, but better than none.
     private long estimatedRowCount = -1;
 
-    // record the partition update time when enable hms event listener
-    protected volatile long partitionUpdateTime;
+    // record the event update time when enable hms event listener
+    protected volatile long eventUpdateTime;
 
     public enum DLAType {
-        UNKNOWN, HIVE, HUDI, ICEBERG, DELTALAKE
+        UNKNOWN, HIVE, HUDI, ICEBERG
     }
 
     /**
@@ -129,10 +133,6 @@ public class HMSExternalTable extends ExternalTable {
      */
     public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.HMS_EXTERNAL_TABLE);
-    }
-
-    public HMSExternalTable(long id, String name, String dbName, HMSExternalCatalog catalog, TableType type) {
-        super(id, name, catalog, dbName, type);
     }
 
     public boolean isSupportedHmsTable() {
@@ -198,9 +198,15 @@ public class HMSExternalTable extends ExternalTable {
      */
     private boolean supportedHiveTable() {
         String inputFileFormat = remoteTable.getSd().getInputFormat();
-        boolean supportedFileFormat = inputFileFormat != null && SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        if (inputFileFormat == null) {
+            return false;
+        }
+        boolean supportedFileFormat = SUPPORTED_HIVE_FILE_FORMATS.contains(inputFileFormat);
+        if (!supportedFileFormat) {
+            throw new IllegalArgumentException("Unsupported hive input format: " + inputFileFormat);
+        }
         LOG.debug("hms table {} is {} with file format: {}", name, remoteTable.getTableType(), inputFileFormat);
-        return supportedFileFormat;
+        return true;
     }
 
     /**
@@ -400,6 +406,20 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     @Override
+    public List<Column> initSchemaAndUpdateTime() {
+        org.apache.hadoop.hive.metastore.api.Table table = ((HMSExternalCatalog) catalog).getClient()
+                .getTable(dbName, name);
+        // try to use transient_lastDdlTime from hms client
+        schemaUpdateTime = MapUtils.isNotEmpty(table.getParameters())
+                && table.getParameters().containsKey(TBL_PROP_TRANSIENT_LAST_DDL_TIME)
+                ? Long.parseLong(table.getParameters().get(TBL_PROP_TRANSIENT_LAST_DDL_TIME)) * 1000
+                // use current timestamp if lastDdlTime does not exist (hive views don't have this prop)
+                : System.currentTimeMillis();
+        return initSchema();
+    }
+
+
+    @Override
     public List<Column> initSchema() {
         makeSureInitialized();
         List<Column> columns;
@@ -411,7 +431,7 @@ public class HMSExternalTable extends ExternalTable {
         } else {
             List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
             for (FieldSchema field : schema) {
-                tmpSchema.add(new Column(field.getName(),
+                tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
                         HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
                         true, field.getComment(), true, -1));
             }
@@ -430,6 +450,23 @@ public class HMSExternalTable extends ExternalTable {
                     true, null, true, null, "", true, null, -1, null));
         }
         return tmpSchema;
+    }
+
+    @Override
+    public long getCacheRowCount() {
+        //Cached accurate information
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+        if (tableStats != null) {
+            long rowCount = tableStats.rowCount;
+            LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+            return rowCount;
+        }
+
+        //estimated information
+        if (estimatedRowCount != -1) {
+            return estimatedRowCount;
+        }
+        return -1;
     }
 
     @Override
@@ -460,7 +497,7 @@ public class HMSExternalTable extends ExternalTable {
         Schema schema = icebergTable.schema();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(hmsSchema.size());
         for (FieldSchema field : hmsSchema) {
-            tmpSchema.add(new Column(field.getName(),
+            tmpSchema.add(new Column(field.getName().toLowerCase(Locale.ROOT),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
                             IcebergExternalTable.ICEBERG_DATETIME_SCALE_MS),
                     true, null, true, false, null, field.getComment(), true, null,
@@ -469,14 +506,14 @@ public class HMSExternalTable extends ExternalTable {
         return tmpSchema;
     }
 
-    protected void initPartitionColumns(List<Column> schema) {
+    private void initPartitionColumns(List<Column> schema) {
         List<String> partitionKeys = remoteTable.getPartitionKeys().stream().map(FieldSchema::getName)
                 .collect(Collectors.toList());
         partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
         for (String partitionKey : partitionKeys) {
             // Do not use "getColumn()", which will cause dead loop
             for (Column column : schema) {
-                if (partitionKey.equals(column.getName())) {
+                if (partitionKey.equalsIgnoreCase(column.getName())) {
                     // For partition column, if it is string type, change it to varchar(65535)
                     // to be same as doris managed table.
                     // This is to avoid some unexpected behavior such as different partition pruning result
@@ -500,7 +537,7 @@ public class HMSExternalTable extends ExternalTable {
                 return getHiveColumnStats(colName);
             case ICEBERG:
                 return StatisticsUtil.getIcebergColumnStats(colName,
-                    Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
+                        Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache().getIcebergTable(this));
             default:
                 LOG.warn("get column stats for dlaType {} is not supported.", dlaType);
         }
@@ -629,15 +666,15 @@ public class HMSExternalTable extends ExternalTable {
         }
     }
 
-    public void setPartitionUpdateTime(long updateTime) {
-        this.partitionUpdateTime = updateTime;
+    public void setEventUpdateTime(long updateTime) {
+        this.eventUpdateTime = updateTime;
     }
 
     @Override
-    // get the max value of `schemaUpdateTime` and `partitionUpdateTime`
-    // partitionUpdateTime will be refreshed after processing partition events with hms event listener enabled
+    // get the max value of `schemaUpdateTime` and `eventUpdateTime`
+    // eventUpdateTime will be refreshed after processing events with hms event listener enabled
     public long getUpdateTime() {
-        return Math.max(this.schemaUpdateTime, this.partitionUpdateTime);
+        return Math.max(this.schemaUpdateTime, this.eventUpdateTime);
     }
 
     @Override
@@ -674,6 +711,18 @@ public class HMSExternalTable extends ExternalTable {
             total += size;
         }
         return total;
+    }
+
+    @Override
+    public boolean isDistributionColumn(String columnName) {
+        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
+            .collect(Collectors.toSet()).contains(columnName.toLowerCase());
+    }
+
+    @Override
+    public Set<String> getDistributionColumnNames() {
+        return getRemoteTable().getSd().getBucketCols().stream().map(String::toLowerCase)
+            .collect(Collectors.toSet());
     }
 }
 

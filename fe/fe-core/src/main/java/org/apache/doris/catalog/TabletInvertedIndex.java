@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.task.PublishVersionTask;
@@ -41,6 +42,7 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Ordering;
+import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
 import org.apache.logging.log4j.LogManager;
@@ -140,7 +142,8 @@ public class TabletInvertedIndex {
                     // traverse replicas in meta with this backend
                     replicaMetaWithBackend.entrySet().parallelStream().forEach(entry -> {
                         long tabletId = entry.getKey();
-                        Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
+                        Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                                "tablet " + tabletId + " not exists, backend " + backendId);
                         TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
 
                         if (backendTablets.containsKey(tabletId)) {
@@ -569,7 +572,9 @@ public class TabletInvertedIndex {
     public void addReplica(long tabletId, Replica replica) {
         long stamp = writeLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
+            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                    "tablet " + tabletId + " not exists, replica " + replica.getId()
+                    + ", backend " + replica.getBackendId());
             replicaMetaTable.put(tabletId, replica.getBackendId(), replica);
             replicaToTabletMap.put(replica.getId(), tabletId);
             backingReplicaMetaTable.put(replica.getBackendId(), tabletId, replica);
@@ -583,7 +588,8 @@ public class TabletInvertedIndex {
     public void deleteReplica(long tabletId, long backendId) {
         long stamp = writeLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId));
+            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                    "tablet " + tabletId + " not exists, backend " + backendId);
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
                 replicaToTabletMap.remove(replica.getId());
@@ -604,7 +610,8 @@ public class TabletInvertedIndex {
     public Replica getReplica(long tabletId, long backendId) {
         long stamp = readLock();
         try {
-            Preconditions.checkState(tabletMetaMap.containsKey(tabletId), tabletId);
+            Preconditions.checkState(tabletMetaMap.containsKey(tabletId),
+                    "tablet " + tabletId + " not exists, backend " + backendId);
             return replicaMetaTable.get(tabletId, backendId);
         } finally {
             readUnlock(stamp);
@@ -714,6 +721,13 @@ public class TabletInvertedIndex {
     // Only build from available bes, exclude colocate tables
     public Map<TStorageMedium, TreeMultimap<Long, PartitionBalanceInfo>> buildPartitionInfoBySkew(
             List<Long> availableBeIds) {
+        Set<Long> dbIds = Sets.newHashSet();
+        Set<Long> tableIds = Sets.newHashSet();
+        Set<Long> partitionIds = Sets.newHashSet();
+        // Clone ut mocked env, but CatalogRecycleBin is not mockable (it extends from Thread)
+        if (!FeConstants.runningUnitTest) {
+            Env.getCurrentRecycleBin().getRecycleIds(dbIds, tableIds, partitionIds);
+        }
         long stamp = readLock();
 
         // 1. gen <partitionId-indexId, <beId, replicaCount>>
@@ -733,10 +747,14 @@ public class TabletInvertedIndex {
                 try {
                     Preconditions.checkState(availableBeIds.contains(beId), "dead be " + beId);
                     TabletMeta tabletMeta = tabletMetaMap.get(tabletId);
+                    if (dbIds.contains(tabletMeta.getDbId()) || tableIds.contains(tabletMeta.getTableId())
+                            || partitionIds.contains(tabletMeta.getPartitionId())) {
+                        continue;
+                    }
                     Preconditions.checkNotNull(tabletMeta, "invalid tablet " + tabletId);
                     Preconditions.checkState(
                             !Env.getCurrentColocateIndex().isColocateTable(tabletMeta.getTableId()),
-                            "should not be the colocate table");
+                            "table " + tabletMeta.getTableId() + " should not be the colocate table");
 
                     TStorageMedium medium = tabletMeta.getStorageMedium();
                     Table<Long, Long, Map<Long, Long>> partitionReplicasInfo = partitionReplicasInfoMaps.get(medium);
@@ -809,22 +827,42 @@ public class TabletInvertedIndex {
 
     // just for ut
     public Table<Long, Long, Replica> getReplicaMetaTable() {
-        return replicaMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(replicaMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Table<Long, Long, Replica> getBackingReplicaMetaTable() {
-        return backingReplicaMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(backingReplicaMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Table<Long, Long, TabletMeta> getTabletMetaTable() {
-        return tabletMetaTable;
+        long stamp = readLock();
+        try {
+            return HashBasedTable.create(tabletMetaTable);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     // just for ut
     public Map<Long, TabletMeta> getTabletMetaMap() {
-        return tabletMetaMap;
+        long stamp = readLock();
+        try {
+            return new HashMap(tabletMetaMap);
+        } finally {
+            readUnlock(stamp);
+        }
     }
 
     private boolean isLocal(TStorageMedium storageMedium) {

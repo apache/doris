@@ -45,8 +45,8 @@ Status DataGenOperator::close(RuntimeState* state) {
 }
 
 DataGenSourceOperatorX::DataGenSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                               const DescriptorTbl& descs)
-        : OperatorX<DataGenLocalState>(pool, tnode, descs),
+                                               int operator_id, const DescriptorTbl& descs)
+        : OperatorX<DataGenLocalState>(pool, tnode, operator_id, descs),
           _tuple_id(tnode.data_gen_scan_node.tuple_id),
           _tuple_desc(nullptr),
           _runtime_filter_descs(tnode.runtime_filters) {}
@@ -80,7 +80,7 @@ Status DataGenSourceOperatorX::get_block(RuntimeState* state, vectorized::Block*
         return Status::InternalError("input is NULL pointer");
     }
     RETURN_IF_CANCELLED(state);
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     bool eos = false;
     Status res = local_state._table_func->get_next(state, block, &eos);
     source_state = eos ? SourceState::FINISHED : source_state;
@@ -102,14 +102,14 @@ Status DataGenLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         IRuntimeFilter* runtime_filter = nullptr;
         if (filter_desc.__isset.opt_remote_rf && filter_desc.opt_remote_rf) {
             RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, state->query_options(), p.id(), false));
+                    filter_desc, state->query_options(), p.node_id(), false));
             RETURN_IF_ERROR(state->get_query_ctx()->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, p.id(), &runtime_filter));
+                    filter_desc.filter_id, p.node_id(), &runtime_filter));
         } else {
             RETURN_IF_ERROR(state->runtime_filter_mgr()->register_consumer_filter(
-                    filter_desc, state->query_options(), p.id(), false));
+                    filter_desc, state->query_options(), p.node_id(), false));
             RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filter(
-                    filter_desc.filter_id, p.id(), &runtime_filter));
+                    filter_desc.filter_id, p.node_id(), &runtime_filter));
         }
         runtime_filter->init_profile(_runtime_profile.get());
     }

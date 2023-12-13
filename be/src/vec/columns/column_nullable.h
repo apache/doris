@@ -27,7 +27,6 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/olap_common.h"
@@ -84,6 +83,8 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    void update_null_data();
+
     MutableColumnPtr get_shrinked_column() override;
 
     const char* get_family_name() const override { return "Nullable"; }
@@ -93,6 +94,7 @@ public:
     bool is_null_at(size_t n) const override {
         return assert_cast<const ColumnUInt8&>(*null_map).get_data()[n] != 0;
     }
+    bool is_default_at(size_t n) const override { return is_null_at(n); }
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     bool get_bool(size_t n) const override {
@@ -121,8 +123,9 @@ public:
     void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
+
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 
@@ -215,13 +218,14 @@ public:
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_hashes_with_value(std::vector<SipHash>& hashes,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
@@ -260,6 +264,8 @@ public:
     bool is_column_decimal() const override { return get_nested_column().is_column_decimal(); }
     bool is_column_string() const override { return get_nested_column().is_column_string(); }
     bool is_column_array() const override { return get_nested_column().is_column_array(); }
+    bool is_column_map() const override { return get_nested_column().is_column_map(); }
+    bool is_column_struct() const override { return get_nested_column().is_column_struct(); }
     bool is_fixed_and_contiguous() const override { return false; }
     bool values_have_fixed_size() const override { return nested_column->values_have_fixed_size(); }
 
@@ -349,6 +355,10 @@ public:
     MutableColumnPtr convert_to_predicate_column_if_dictionary() override {
         nested_column = get_nested_column().convert_to_predicate_column_if_dictionary();
         return get_ptr();
+    }
+
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return get_ratio_of_default_rows_impl<ColumnNullable>(sample_ratio);
     }
 
     void convert_dict_codes_if_necessary() override {

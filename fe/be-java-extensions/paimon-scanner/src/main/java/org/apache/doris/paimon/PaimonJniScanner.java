@@ -40,7 +40,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
     private static final String PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
@@ -118,14 +117,16 @@ public class PaimonJniScanner extends JniScanner {
                         fields[i], paimonAllFieldNames));
             }
             DataType dataType = table.rowType().getTypeAt(index);
-            columnTypes[i] = ColumnType.parseType(fields[i], dataType.toString());
+            columnTypes[i] = PaimonTypeUtils.fromPaimonType(fields[i], dataType);
         }
         super.types = columnTypes;
     }
 
     @Override
     public void close() throws IOException {
-        reader.close();
+        if (reader != null) {
+            reader.close();
+        }
     }
 
     @Override

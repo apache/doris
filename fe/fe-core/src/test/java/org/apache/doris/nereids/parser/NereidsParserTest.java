@@ -153,6 +153,16 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testExplainTree() {
+        String sql = "explain tree select `AD``D` from t1 where a = 1";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        ExplainCommand explainCommand = (ExplainCommand) logicalPlan;
+        ExplainLevel explainLevel = explainCommand.getLevel();
+        Assertions.assertEquals(ExplainLevel.TREE, explainLevel);
+    }
+
+    @Test
     public void testExplainGraph() {
         String sql = "explain graph select `AD``D` from t1 where a = 1";
         NereidsParser nereidsParser = new NereidsParser();
@@ -177,7 +187,7 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testParseSQLWithDialect() {
+    public void testParseSQLWithTrinoDialect() {
         String sql = "select `AD``D` from t1 where a = 1;explain graph select `AD``D` from t1 where a = 1;";
         NereidsParser nereidsParser = new NereidsParser();
         SessionVariable sessionVariable = new SessionVariable();
@@ -191,6 +201,24 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
         Assertions.assertTrue(logicalPlan0 instanceof UnboundResultSink);
         Assertions.assertTrue(logicalPlan1 instanceof ExplainCommand);
+    }
+
+    @Test
+    public void testParseSQLWithSparkSqlDialect() {
+        // doris parser will throw a ParseException when derived table does not have alias
+        String sql1 = "select * from (select * from t1);";
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSQL(sql1),
+                    "Every derived table must have its own alias");
+
+        // test parse with spark-sql dialect
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setSqlDialect("spark_sql");
+        List<StatementBase> statementBases = nereidsParser.parseSQL(sql1, sessionVariable);
+        Assertions.assertEquals(1, statementBases.size());
+        Assertions.assertTrue(statementBases.get(0) instanceof LogicalPlanAdapter);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
+        Assertions.assertTrue(logicalPlan instanceof UnboundResultSink);
     }
 
     @Test

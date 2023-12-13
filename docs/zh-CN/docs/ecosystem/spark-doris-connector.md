@@ -270,6 +270,7 @@ kafkaSource.selectExpr("CAST(value as STRING)")
 | doris.sink.task.partition.size   | --                | Doris写入任务对应的 Partition 个数。Spark RDD 经过过滤等操作，最后写入的 Partition 数可能会比较大，但每个 Partition 对应的记录数比较少，导致写入频率增加和计算资源浪费。<br/>此数值设置越小，可以降低 Doris 写入频率，减少 Doris 合并压力。该参数配合 doris.sink.task.use.repartition 使用。                                                                        |
 | doris.sink.task.use.repartition  | false             | 是否采用 repartition 方式控制 Doris写入 Partition数。默认值为 false，采用 coalesce 方式控制（注意: 如果在写入之前没有 Spark action 算子，可能会导致整个计算并行度降低）。<br/>如果设置为 true，则采用 repartition 方式（注意: 可设置最后 Partition 数，但会额外增加 shuffle 开销）。                                                                         |
 | doris.sink.batch.interval.ms     | 50                | 每个批次sink的间隔时间，单位 ms。                                                                                                                                                                                                                                                    |
+| doris.sink.enable-2pc            | false             | 是否开启两阶段提交。开启后将会在作业结束时提交事务，而部分任务失败时会将所有预提交状态的事务会滚。                                                                                                                                                |
 
 ### SQL 和 Dataframe 专有配置
 

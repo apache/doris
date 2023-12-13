@@ -40,8 +40,13 @@ import java.util.stream.Collectors;
  * Rule for change inner join LAsscom (associative and commutive).
  */
 public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
-    public static final InnerJoinLAsscomProject INSTANCE = new InnerJoinLAsscomProject();
+    public static final InnerJoinLAsscomProject INSTANCE = new InnerJoinLAsscomProject(false);
+    public static final InnerJoinLAsscomProject LEFT_ZIG_ZAG = new InnerJoinLAsscomProject(true);
+    private final boolean enableLeftZigZag;
 
+    public InnerJoinLAsscomProject(boolean enableLeftZigZag) {
+        this.enableLeftZigZag = enableLeftZigZag;
+    }
     /*
      *        topJoin                   newTopJoin
      *        /     \                   /        \
@@ -51,10 +56,11 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
      *    /   \                     /   \
      *   A     B                   A     C
      */
+
     @Override
     public Rule build() {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
-                .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
+                .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child(), enableLeftZigZag))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .whenNot(join -> join.isMarkJoin() || join.left().child().isMarkJoin())
                 .when(join -> join.left().isAllSlots())
@@ -83,9 +89,6 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     /* ********** new Plan ********** */
                     LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
                             newBottomOtherConjuncts, a, c);
-                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
-                    newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
-                    newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
                     // merge newTopHashConjuncts newTopOtherConjuncts topJoin.getOutputExprIdSet()
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());

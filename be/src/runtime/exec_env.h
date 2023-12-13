@@ -33,6 +33,7 @@
 #include "olap/memtable_memory_limiter.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
+#include "olap/tablet_fwd.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
 #include "util/threadpool.h"
 
@@ -44,7 +45,9 @@ class DeltaWriterV2Pool;
 } // namespace vectorized
 namespace pipeline {
 class TaskScheduler;
-}
+class BlockedTaskScheduler;
+struct RuntimeFilterTimerQueue;
+} // namespace pipeline
 namespace taskgroup {
 class TaskGroupManager;
 }
@@ -109,6 +112,12 @@ inline bool k_doris_exit = false;
 // once to properly initialise service state.
 class ExecEnv {
 public:
+#ifdef CLOUD_MODE
+    using Engine = CloudStorageEngine; // TODO(plat1ko)
+#else
+    using Engine = StorageEngine;
+#endif
+
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
@@ -128,6 +137,9 @@ public:
         return &s_exec_env;
     }
 
+    // Requires ExenEnv ready
+    static Result<BaseTabletSPtr> get_tablet(int64_t tablet_id);
+
     static bool ready() { return _s_ready.load(std::memory_order_acquire); }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
@@ -138,10 +150,8 @@ public:
     ClientCache<FrontendServiceClient>* frontend_client_cache() { return _frontend_client_cache; }
     ClientCache<TPaloBrokerServiceClient>* broker_client_cache() { return _broker_client_cache; }
 
-    pipeline::TaskScheduler* pipeline_task_scheduler() { return _pipeline_task_scheduler; }
-    pipeline::TaskScheduler* pipeline_task_group_scheduler() {
-        return _pipeline_task_group_scheduler;
-    }
+    pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
+    pipeline::TaskScheduler* pipeline_task_group_scheduler() { return _with_group_task_scheduler; }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
 
     // using template to simplify client cache management
@@ -264,7 +274,13 @@ public:
         return _inverted_index_query_cache;
     }
 
-    CgroupCpuCtl* get_cgroup_cpu_ctl() { return _cgroup_cpu_ctl.get(); }
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
+        return _global_block_scheduler;
+    }
+
+    doris::pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
+        return _runtime_filter_timer_queue;
+    }
 
 private:
     ExecEnv();
@@ -298,7 +314,7 @@ private:
     // Ideally, all threads are expected to attach to the specified tracker, so that "all memory has its own ownership",
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
-    MemTrackerLimiter* _orphan_mem_tracker_raw;
+    MemTrackerLimiter* _orphan_mem_tracker_raw = nullptr;
     std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
     // page size not in cache, data page/index page/etc.
     std::shared_ptr<MemTracker> _page_no_cache_mem_tracker;
@@ -321,8 +337,8 @@ private:
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     FragmentMgr* _fragment_mgr = nullptr;
-    pipeline::TaskScheduler* _pipeline_task_scheduler = nullptr;
-    pipeline::TaskScheduler* _pipeline_task_group_scheduler = nullptr;
+    pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
+    pipeline::TaskScheduler* _with_group_task_scheduler = nullptr;
     taskgroup::TaskGroupManager* _task_group_manager = nullptr;
 
     ResultCache* _result_cache = nullptr;
@@ -371,7 +387,14 @@ private:
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
 
-    std::unique_ptr<CgroupCpuCtl> _cgroup_cpu_ctl = nullptr;
+    // used for query with group cpu hard limit
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;
+    // used for query without workload group
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _without_group_block_scheduler;
+    // used for query with workload group cpu soft limit
+    std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
+
+    doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
 };
 
 template <>

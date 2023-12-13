@@ -36,6 +36,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import java.util.Optional;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
     private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
@@ -75,6 +76,7 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 literalExpr = new DecimalLiteral(value);
                 break;
             case CHAR:
@@ -93,6 +95,12 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
             case DATETIMEV2:
                 literalExpr = new DateLiteral(value, type);
                 break;
+            case IPV4:
+                literalExpr = new IPv4Literal(value);
+                break;
+            case IPV6:
+                literalExpr = new IPv6Literal(value);
+                break;
             default:
                 throw new AnalysisException("Type[" + type.toSql() + "] not supported.");
         }
@@ -100,6 +108,21 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         Preconditions.checkNotNull(literalExpr);
         return literalExpr;
     }
+
+
+    public static String getStringLiteralForComplexType(Expr v) {
+        if (!(v instanceof NullLiteral) && v.getType().isScalarType()
+                && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
+                || v.getType() == Type.BOOLEAN)) {
+            return v.getStringValueInFe();
+        } else if (v.getType().isComplexType()) {
+            // these type should also call getStringValueInFe which should handle special case for itself
+            return v.getStringValueInFe();
+        } else {
+            return v.getStringValueForArray();
+        }
+    }
+
 
     /**
      * Init LiteralExpr's Type information
@@ -225,6 +248,10 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     // method unescapes string values.
     @Override
     public abstract String getStringValue();
+
+    public String getStringValueInFe() {
+        return getStringValue();
+    }
 
     @Override
     public abstract String getStringValueForArray();
@@ -358,8 +385,11 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     }
 
     @Override
-    protected String getExprName() {
-        return "literal";
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of("literal");
+        }
+        return this.exprName.get();
     }
 
     // Port from mysql get_param_length

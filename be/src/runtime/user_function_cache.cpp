@@ -91,7 +91,6 @@ struct UserFunctionCacheEntry {
     // used to lookup a symbol
     void* lib_handle = nullptr;
 
-    SpinLock map_lock;
     // from symbol_name to function pointer
     std::unordered_map<std::string, void*> fptr_map;
 
@@ -198,14 +197,6 @@ Status UserFunctionCache::_load_cached_lib() {
         RETURN_IF_ERROR(io::global_local_filesystem()->iterate_directory(sub_dir, scan_cb));
     }
     return Status::OK();
-}
-
-std::string get_real_symbol(const std::string& symbol) {
-    static std::regex rx1("8palo_udf");
-    std::string str1 = std::regex_replace(symbol, rx1, "9doris_udf");
-    static std::regex rx2("4palo");
-    std::string str2 = std::regex_replace(str1, rx2, "5doris");
-    return str2;
 }
 
 Status UserFunctionCache::_get_cache_entry(int64_t fid, const std::string& url,

@@ -17,11 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
-#include <gen_cpp/types.pb.h>
-#include <stdint.h>
-
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -33,12 +28,10 @@
 #include "olap/delta_writer_context.h"
 #include "olap/olap_common.h"
 #include "olap/partial_update_info.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
-#include "util/spinlock.h"
-#include "util/uid_util.h"
+#include "olap/tablet_fwd.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 
@@ -58,42 +51,40 @@ class Block;
 
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
-class RowsetBuilder {
+class BaseRowsetBuilder {
 public:
-    RowsetBuilder(const WriteRequest& req, StorageEngine* storage_engine, RuntimeProfile* profile);
+    BaseRowsetBuilder(const WriteRequest& req, RuntimeProfile* profile);
 
-    ~RowsetBuilder();
+    virtual ~BaseRowsetBuilder();
 
-    Status init();
+    virtual Status init() = 0;
 
     Status build_rowset();
 
-    Status submit_calc_delete_bitmap_task();
+    virtual Status submit_calc_delete_bitmap_task() = 0;
 
     Status wait_calc_delete_bitmap();
 
-    Status commit_txn();
+    virtual Status commit_txn() = 0;
 
     Status cancel();
 
-    std::shared_ptr<RowsetWriter> rowset_writer() const { return _rowset_writer; }
+    const std::shared_ptr<RowsetWriter>& rowset_writer() const { return _rowset_writer; }
 
-    TabletSharedPtr tablet() const { return _tablet; }
+    const BaseTabletSPtr& tablet() const { return _tablet; }
 
-    RowsetSharedPtr rowset() const { return _rowset; }
+    const RowsetSharedPtr& rowset() const { return _rowset; }
 
-    TabletSchemaSPtr tablet_schema() const { return _tablet_schema; }
+    const TabletSchemaSPtr& tablet_schema() const { return _tablet_schema; }
 
     // For UT
-    DeleteBitmapPtr get_delete_bitmap() { return _delete_bitmap; }
+    const DeleteBitmapPtr& get_delete_bitmap() { return _delete_bitmap; }
 
     std::shared_ptr<PartialUpdateInfo> get_partial_update_info() const {
         return _partial_update_info;
     }
 
-private:
-    void _garbage_collection();
-
+protected:
     void _build_current_tablet_schema(int64_t index_id,
                                       const OlapTableSchemaParam* table_schema_param,
                                       const TabletSchema& ori_tablet_schema);
@@ -104,12 +95,11 @@ private:
     bool _is_cancelled = false;
     bool _is_committed = false;
     WriteRequest _req;
-    TabletSharedPtr _tablet;
+    BaseTabletSPtr _tablet;
     RowsetSharedPtr _rowset;
     std::shared_ptr<RowsetWriter> _rowset_writer;
+    PendingRowsetGuard _pending_rs_guard;
     TabletSchemaSPtr _tablet_schema;
-
-    StorageEngine* _storage_engine = nullptr;
 
     std::mutex _lock;
 
@@ -125,6 +115,35 @@ private:
     RuntimeProfile::Counter* _submit_delete_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _wait_delete_bitmap_timer = nullptr;
     RuntimeProfile::Counter* _commit_txn_timer = nullptr;
+};
+
+// `StorageEngine` mixin for `BaseRowsetBuilder`
+class RowsetBuilder final : public BaseRowsetBuilder {
+public:
+    RowsetBuilder(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile);
+
+    ~RowsetBuilder() override;
+
+    Status init() override;
+
+    Status commit_txn() override;
+
+    Status submit_calc_delete_bitmap_task() override;
+
+private:
+    Status check_tablet_version_count();
+
+    Status prepare_txn();
+
+    void _garbage_collection();
+
+    Status init_mow_context(std::shared_ptr<MowContext>& mow_context);
+
+    // Cast `BaseTablet` to `Tablet`
+    Tablet* tablet();
+    TabletSharedPtr tablet_sptr();
+
+    StorageEngine& _engine;
 };
 
 } // namespace doris

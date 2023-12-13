@@ -30,24 +30,24 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
-#include "agent/task_worker_pool.h"
 #include "common/status.h"
 #include "gutil/ref_counted.h"
 #include "olap/calc_delete_bitmap_executor.h"
 #include "olap/compaction_permit_limiter.h"
 #include "olap/olap_common.h"
 #include "olap/options.h"
-#include "olap/rowset/rowset.h"
+#include "olap/rowset/pending_rowset_helper.h"
+#include "olap/rowset/rowset_fwd.h"
 #include "olap/rowset/rowset_id_generator.h"
 #include "olap/rowset/segment_v2/segment.h"
-#include "olap/tablet.h"
+#include "olap/tablet_fwd.h"
 #include "olap/task/index_builder.h"
-#include "runtime/exec_env.h"
 #include "runtime/heartbeat_flags.h"
 #include "util/countdown_latch.h"
 
@@ -69,6 +69,7 @@ class TabletManager;
 class Thread;
 class ThreadPool;
 class TxnManager;
+class ReportWorker;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
@@ -135,12 +136,10 @@ public:
     Status load_header(const std::string& shard_path, const TCloneReq& request,
                        bool restore = false);
 
-    void register_report_listener(TaskWorkerPool* listener);
-    void deregister_report_listener(TaskWorkerPool* listener);
+    void register_report_listener(ReportWorker* listener);
+    void deregister_report_listener(ReportWorker* listener);
     void notify_listeners();
-    void notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type);
-
-    Status execute_task(EngineTask* task);
+    void notify_listener(std::string_view name);
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
@@ -149,17 +148,13 @@ public:
         return _calc_delete_bitmap_executor.get();
     }
 
+    // Rowset garbage collection helpers
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
+    PendingRowsetSet& pending_local_rowsets() { return _pending_local_rowsets; }
+    PendingRowsetSet& pending_remote_rowsets() { return _pending_remote_rowsets; }
+    PendingRowsetGuard add_pending_rowset(const RowsetWriterContext& ctx);
 
     RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); }
-
-    bool rowset_id_in_use(const RowsetId& rowset_id) {
-        return _rowset_id_generator->id_in_use(rowset_id);
-    }
-
-    void release_rowset_id(const RowsetId& rowset_id) {
-        return _rowset_id_generator->release_id(rowset_id);
-    }
 
     RowsetTypePB default_rowset_type() const {
         if (_heartbeat_flags != nullptr && _heartbeat_flags->is_set_default_rowset_type_to_beta()) {
@@ -289,11 +284,9 @@ private:
     // path gc process function
     void _path_gc_thread_callback(DataDir* data_dir);
 
-    void _path_scan_thread_callback(DataDir* data_dir);
+    void _tablet_path_check_callback();
 
     void _tablet_checkpoint_callback(const std::vector<DataDir*>& data_dirs);
-
-    void _tablet_path_check_callback();
 
     // parse the default rowset type config to RowsetTypePB
     void _parse_default_rowset_type();
@@ -340,6 +333,8 @@ private:
     void _gc_binlogs(int64_t tablet_id, int64_t version);
 
     void _async_publish_callback();
+
+    void _process_async_publish();
 
     Status _persist_broken_paths();
 
@@ -388,8 +383,9 @@ private:
     std::atomic_bool _stopped {false};
 
     std::mutex _gc_mutex;
-    // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
-    std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
+    std::unordered_map<RowsetId, RowsetSharedPtr, HashOfRowsetId> _unused_rowsets;
+    PendingRowsetSet _pending_local_rowsets;
+    PendingRowsetSet _pending_remote_rowsets;
 
     // Hold reference of quering rowsets
     std::mutex _quering_rowsets_mutex;
@@ -399,6 +395,9 @@ private:
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
+    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
+    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
+    // maybe have to use ColumnReader count as segment meta size.
     std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
@@ -424,7 +423,7 @@ private:
 
     // For tablet and disk-stat report
     std::mutex _report_mtx;
-    std::set<TaskWorkerPool*> _report_listeners;
+    std::vector<ReportWorker*> _report_listeners;
 
     std::mutex _engine_task_mutex;
 
@@ -440,7 +439,7 @@ private:
     // Type of new loaded data
     RowsetTypePB _default_rowset_type;
 
-    HeartbeatFlags* _heartbeat_flags;
+    HeartbeatFlags* _heartbeat_flags = nullptr;
 
     std::unique_ptr<ThreadPool> _base_compaction_thread_pool;
     std::unique_ptr<ThreadPool> _cumu_compaction_thread_pool;
@@ -491,7 +490,7 @@ private:
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
-    std::mutex _async_publish_mutex;
+    std::shared_mutex _async_publish_lock;
 
     bool _clear_segment_cache = false;
 

@@ -104,7 +104,7 @@ public class MapType extends DataType {
 
     @Override
     public String toSql() {
-        return "MAP<" + keyType.toSql() + ", " + valueType.toSql() + ">";
+        return "MAP<" + keyType.toSql() + "," + valueType.toSql() + ">";
     }
 
     @Override

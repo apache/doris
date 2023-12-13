@@ -19,16 +19,21 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MutableState;
 import org.apache.doris.nereids.util.MutableState.EmptyMutableState;
 import org.apache.doris.nereids.util.TreeStringUtils;
+import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import org.json.JSONArray;
@@ -45,6 +50,8 @@ import javax.annotation.Nullable;
  */
 public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Plan {
     public static final String FRAGMENT_ID = "fragment";
+    private static final ObjectId zeroId = new ObjectId(0);
+    protected final ObjectId id;
 
     protected final Statistics statistics;
     protected final PlanType type;
@@ -57,10 +64,6 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     // we should avoid using it as much as possible, because mutable state is easy to cause bugs and
     // difficult to locate.
     private MutableState mutableState = EmptyMutableState.INSTANCE;
-
-    protected AbstractPlan(PlanType type, List<Plan> children) {
-        this(type, Optional.empty(), Optional.empty(), null, children);
-    }
 
     /**
      * all parameter constructor.
@@ -75,6 +78,19 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         this.logicalPropertiesSupplier = Suppliers.memoize(() -> optLogicalProperties.orElseGet(
                 this::computeLogicalProperties));
         this.statistics = statistics;
+        this.id = StatementScopeIdGenerator.newObjectId();
+    }
+
+    protected AbstractPlan(PlanType type, Optional<GroupExpression> groupExpression,
+            Supplier<LogicalProperties> logicalPropertiesSupplier, @Nullable Statistics statistics,
+            List<Plan> children, boolean useZeroId) {
+        super(children);
+        this.type = Objects.requireNonNull(type, "type can not be null");
+        this.groupExpression = Objects.requireNonNull(groupExpression, "groupExpression can not be null");
+        this.logicalPropertiesSupplier = logicalPropertiesSupplier;
+        this.statistics = statistics;
+        Preconditions.checkArgument(useZeroId);
+        this.id = zeroId;
     }
 
     @Override
@@ -155,7 +171,11 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
         if (hasUnboundChild || hasUnboundExpression()) {
             return UnboundLogicalProperties.INSTANCE;
         } else {
-            return new LogicalProperties(this::computeOutput);
+            Supplier<List<Slot>> outputSupplier = Suppliers.memoize(this::computeOutput);
+            Supplier<FunctionalDependencies> fdSupplier = () -> this instanceof LogicalPlan
+                    ? ((LogicalPlan) this).computeFuncDeps(outputSupplier)
+                    : FunctionalDependencies.EMPTY_FUNC_DEPS;
+            return new LogicalProperties(outputSupplier, fdSupplier);
         }
     }
 
@@ -167,5 +187,13 @@ public abstract class AbstractPlan extends AbstractTreeNode<Plan> implements Pla
     @Override
     public void setMutableState(String key, Object state) {
         this.mutableState = this.mutableState.set(key, state);
+    }
+
+    /**
+     * used for PhysicalPlanTranslator only
+     * @return PlanNodeId
+     */
+    public PlanNodeId translatePlanNodeId() {
+        return id.toPlanNodeId();
     }
 }

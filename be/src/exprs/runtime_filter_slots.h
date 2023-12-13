@@ -37,7 +37,7 @@ public:
             const std::vector<TRuntimeFilterDesc>& runtime_filter_descs)
             : _build_expr_context(build_expr_ctxs), _runtime_filter_descs(runtime_filter_descs) {}
 
-    Status init(RuntimeState* state, int64_t hash_table_size, size_t build_bf_cardinality) {
+    Status init(RuntimeState* state, int64_t hash_table_size) {
         // runtime filter effect strategy
         // 1. we will ignore IN filter when hash_table_size is too big
         // 2. we will ignore BLOOM filter and MinMax filter when hash_table_size
@@ -47,7 +47,7 @@ public:
 
         auto ignore_local_filter = [state](int filter_id) {
             std::vector<IRuntimeFilter*> filters;
-            static_cast<void>(state->runtime_filter_mgr()->get_consume_filters(filter_id, filters));
+            RETURN_IF_ERROR(state->runtime_filter_mgr()->get_consume_filters(filter_id, filters));
             if (filters.empty()) {
                 throw Exception(ErrorCode::INTERNAL_ERROR, "filters empty, filter_id={}",
                                 filter_id);
@@ -56,6 +56,7 @@ public:
                 filter->set_ignored();
                 filter->signal();
             }
+            return Status::OK();
         };
 
         auto ignore_remote_filter = [](IRuntimeFilter* runtime_filter, std::string& msg) {
@@ -110,7 +111,7 @@ public:
             }
 
             if (runtime_filter->is_bloomfilter()) {
-                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(build_bf_cardinality));
+                RETURN_IF_ERROR(runtime_filter->init_bloom_filter(hash_table_size));
             }
 
             // Note:
@@ -128,7 +129,7 @@ public:
                                << " ignore runtime filter(in filter id " << filter_desc.filter_id
                                << ") because: in_num(" << hash_table_size << ") >= max_in_num("
                                << max_in_num << ")";
-                    ignore_local_filter(filter_desc.filter_id);
+                    RETURN_IF_ERROR(ignore_local_filter(filter_desc.filter_id));
                     continue;
                 } else if (!is_in_filter && exists_in_filter) {
                     // do not create 'bloom filter' and 'minmax filter' when 'in filter' has created
@@ -137,7 +138,7 @@ public:
                                << " ignore runtime filter("
                                << IRuntimeFilter::to_string(runtime_filter->type()) << " id "
                                << filter_desc.filter_id << ") because: already exists in filter";
-                    ignore_local_filter(filter_desc.filter_id);
+                    RETURN_IF_ERROR(ignore_local_filter(filter_desc.filter_id));
                     continue;
                 }
             } else if (is_in_filter && over_max_in_num) {
@@ -161,7 +162,7 @@ public:
         return Status::OK();
     }
 
-    void insert(std::unordered_map<const vectorized::Block*, std::vector<int>>& datas) {
+    void insert(const std::unordered_set<const vectorized::Block*>& datas) {
         for (int i = 0; i < _build_expr_context.size(); ++i) {
             auto iter = _runtime_filters.find(i);
             if (iter == _runtime_filters.end()) {
@@ -169,29 +170,10 @@ public:
             }
 
             int result_column_id = _build_expr_context[i]->get_last_result_column_id();
-            for (auto it : datas) {
-                auto& column = it.first->get_by_position(result_column_id).column;
-
-                if (auto* nullable =
-                            vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                    auto& column_nested = nullable->get_nested_column_ptr();
-                    auto& column_nullmap = nullable->get_null_map_column_ptr();
-                    std::vector<int> indexs;
-                    for (int row_num : it.second) {
-                        if (assert_cast<const vectorized::ColumnUInt8*>(column_nullmap.get())
-                                    ->get_bool(row_num)) {
-                            continue;
-                        }
-                        indexs.push_back(row_num);
-                    }
-                    for (auto filter : iter->second) {
-                        filter->insert_batch(column_nested, indexs);
-                    }
-
-                } else {
-                    for (auto filter : iter->second) {
-                        filter->insert_batch(column, it.second);
-                    }
+            for (const auto* it : datas) {
+                auto column = it->get_by_position(result_column_id).column;
+                for (auto* filter : iter->second) {
+                    filter->insert_batch(column, 1);
                 }
             }
         }
@@ -243,13 +225,13 @@ public:
                 if (ret == context->runtime_filters.end()) {
                     return Status::Aborted("invalid runtime filter id: {}", filter_id);
                 }
-                static_cast<void>(filter->copy_from_shared_context(ret->second));
+                RETURN_IF_ERROR(filter->copy_from_shared_context(ret->second));
             }
         }
         return Status::OK();
     }
 
-    bool empty() { return !_runtime_filters.size(); }
+    bool empty() { return _runtime_filters.empty(); }
 
 private:
     const std::vector<std::shared_ptr<vectorized::VExprContext>>& _build_expr_context;

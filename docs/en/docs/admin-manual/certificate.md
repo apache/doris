@@ -65,7 +65,7 @@ openssl x509 -req -in client-req.pem -days 3600 \
 openssl verify -CAfile ca.pem server-cert.pem client-cert.pem
 ```
 
-3. Combine your key and certificate in a PKCS#12 (P12) bundle.
+3. Combine your key and certificate in a PKCS#12 (P12) bundle. You can also specify a certificate format (PKCS12 by default). You can modify the conf/fe.conf configuration file and add parameter ssl_trust_store_type to specify the certificate format.
 ```bash
 # Package the CA key and certificate
 openssl pkcs12 -inkey ca-key.pem -in ca.pem -export -out ca_certificate.p12

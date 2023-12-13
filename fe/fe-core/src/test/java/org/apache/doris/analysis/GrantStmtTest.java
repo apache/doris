@@ -87,7 +87,7 @@ public class GrantStmtTest {
         List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ALL));
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new TablePattern("testDb", "*"), privileges);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:testUser", stmt.getUserIdent().getQualifiedUser());
+        Assert.assertEquals("testUser", stmt.getUserIdent().getQualifiedUser());
         Assert.assertEquals("testCluster:testDb", stmt.getTblPattern().getQualifiedDb());
 
         privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.READ_ONLY), new AccessPrivilegeWithCols(AccessPrivilege.ALL));
@@ -107,7 +107,7 @@ public class GrantStmtTest {
         stmt = new GrantStmt(new UserIdentity("testUser", "%"), null, new ResourcePattern("*"), privileges);
         stmt.analyze(analyzer);
         Assert.assertEquals(Auth.PrivLevel.GLOBAL, stmt.getResourcePattern().getPrivLevel());
-        Assert.assertEquals("GRANT Usage_priv ON RESOURCE '*' TO 'testCluster:testUser'@'%'", stmt.toSql());
+        Assert.assertEquals("GRANT Usage_priv ON RESOURCE '*' TO 'testUser'@'%'", stmt.toSql());
     }
 
     @Test(expected = AnalysisException.class)

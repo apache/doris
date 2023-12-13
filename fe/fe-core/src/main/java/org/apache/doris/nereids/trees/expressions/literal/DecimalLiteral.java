@@ -18,8 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.literal;
 
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DecimalV2Type;
+
+import com.google.common.base.Preconditions;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -36,9 +39,15 @@ public class DecimalLiteral extends Literal {
         this(DecimalV2Type.createDecimalV2Type(value), value);
     }
 
+    /**
+     * Constructor for DecimalLiteral
+     */
     public DecimalLiteral(DecimalV2Type dataType, BigDecimal value) {
         super(dataType);
-        BigDecimal adjustedValue = value.scale() < 0 ? value : value.setScale(dataType.getScale(), RoundingMode.DOWN);
+        Objects.requireNonNull(value, "value not be null");
+        checkPrecisionAndScale(dataType.getPrecision(), dataType.getScale(), value);
+        BigDecimal adjustedValue = value.scale() < 0 ? value
+                : value.setScale(dataType.getScale(), RoundingMode.HALF_UP);
         this.value = Objects.requireNonNull(adjustedValue);
     }
 
@@ -60,5 +69,28 @@ public class DecimalLiteral extends Literal {
     @Override
     public double getDouble() {
         return value.doubleValue();
+    }
+
+    /**
+     * check precision and scale is enough for value.
+     */
+    public static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
+        Preconditions.checkNotNull(value);
+        int realPrecision = value.precision();
+        int realScale = value.scale();
+        boolean valid = true;
+        if (precision != -1 && scale != -1) {
+            if (precision < realPrecision || scale < realScale) {
+                valid = false;
+            }
+        } else {
+            valid = false;
+        }
+
+        if (!valid) {
+            throw new AnalysisException(
+                    String.format("Invalid precision and scale - expect (%d, %d), but (%d, %d)",
+                            precision, scale, realPrecision, realScale));
+        }
     }
 }

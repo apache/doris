@@ -51,6 +51,7 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
             new Column("Join", ScalarType.createStringType()),
             new Column("Alive", ScalarType.createStringType()),
             new Column("ReplayedJournalId", ScalarType.createStringType()),
+            new Column("LastStartTime", ScalarType.createStringType()),
             new Column("LastHeartbeat", ScalarType.createStringType()),
             new Column("IsHelper", ScalarType.createStringType()),
             new Column("ErrMsg", ScalarType.createStringType()),

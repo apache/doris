@@ -54,12 +54,12 @@
 
 namespace doris::vectorized {
 
-VCSVTransformer::VCSVTransformer(doris::io::FileWriter* file_writer,
+VCSVTransformer::VCSVTransformer(RuntimeState* state, doris::io::FileWriter* file_writer,
                                  const VExprContextSPtrs& output_vexpr_ctxs,
                                  bool output_object_data, std::string_view header_type,
                                  std::string_view header, std::string_view column_separator,
                                  std::string_view line_delimiter)
-        : VFileFormatTransformer(output_vexpr_ctxs, output_object_data),
+        : VFileFormatTransformer(state, output_vexpr_ctxs, output_object_data),
           _column_separator(column_separator),
           _line_delimiter(line_delimiter),
           _file_writer(file_writer) {

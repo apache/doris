@@ -17,15 +17,12 @@
 
 #include "vec/exec/vselect_node.h"
 
-#include <opentelemetry/nostd/shared_ptr.h>
-
 #include <functional>
 #include <memory>
 #include <vector>
 
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -74,6 +71,7 @@ Status VSelectNode::get_next(RuntimeState* state, vectorized::Block* block, bool
 }
 
 Status VSelectNode::pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) {
+    SCOPED_TIMER(_exec_timer);
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, output_block, output_block->columns()));
     reached_limit(output_block, eos);

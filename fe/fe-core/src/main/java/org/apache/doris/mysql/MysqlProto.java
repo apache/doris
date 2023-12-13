@@ -87,9 +87,8 @@ public class MysqlProto {
             tmpUser = strList[0];
         }
 
-        String qualifiedUser = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, tmpUser);
-        context.setQualifiedUser(qualifiedUser);
-        return qualifiedUser;
+        context.setQualifiedUser(tmpUser);
+        return tmpUser;
     }
 
     // send response packet(OK/EOF/ERR).

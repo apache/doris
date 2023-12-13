@@ -40,7 +40,6 @@
 namespace doris {
 
 class LineReader;
-class TextConverter;
 class Decompressor;
 class SlotDescriptor;
 class RuntimeProfile;
@@ -91,7 +90,7 @@ class BaseCsvTextFieldSplitter : public BaseLineFieldSplitter<BaseCsvTextFieldSp
 public:
     explicit BaseCsvTextFieldSplitter(bool trim_tailing_space, bool trim_ends,
                                       size_t value_sep_len = 1, char trimming_char = 0)
-            : trimming_char(trimming_char), value_sep_len(value_sep_len) {
+            : _trimming_char(trimming_char), _value_sep_len(value_sep_len) {
         if (trim_tailing_space) {
             if (trim_ends) {
                 process_value_func = &BaseCsvTextFieldSplitter::_process_value<true, true>;
@@ -112,8 +111,8 @@ public:
     }
 
 protected:
-    const char trimming_char;
-    const size_t value_sep_len;
+    const char _trimming_char;
+    const size_t _value_sep_len;
     ProcessValueFunc process_value_func;
 
 private:
@@ -198,7 +197,7 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
-    void close() override;
+    Status close() override;
 
 private:
     // used for stream/broker load of csv file.
@@ -231,9 +230,9 @@ private:
     // and the line is skipped as unqualified row, and the process should continue.
     Status _validate_line(const Slice& line, bool* success);
 
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
-    ScannerCounter* _counter;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
+    ScannerCounter* _counter = nullptr;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
     io::FileSystemProperties _system_properties;
@@ -284,7 +283,7 @@ private:
     // `should_not_trim` is to manage the case that: user do not expect to trim double quotes but enclose is double quotes
     bool _not_trim_enclose = true;
 
-    io::IOContext* _io_ctx;
+    io::IOContext* _io_ctx = nullptr;
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;

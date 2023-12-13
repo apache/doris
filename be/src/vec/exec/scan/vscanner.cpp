@@ -95,6 +95,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                     break;
                 }
                 _num_rows_read += block->rows();
+                _num_byte_read += block->allocated_bytes();
             }
 
             // 2. Filter the output block finally.
@@ -105,7 +106,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
-        } while (!state->is_cancelled() && block->rows() == 0 && !(*eof) &&
+        } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
 
@@ -191,6 +192,7 @@ void VScanner::_update_counters_before_close() {
     if (_parent) {
         COUNTER_UPDATE(_parent->_scan_cpu_timer, _scan_cpu_timer);
         COUNTER_UPDATE(_parent->_rows_read_counter, _num_rows_read);
+        COUNTER_UPDATE(_parent->_byte_read_counter, _num_byte_read);
     } else {
         COUNTER_UPDATE(_local_state->_scan_cpu_timer, _scan_cpu_timer);
         COUNTER_UPDATE(_local_state->_rows_read_counter, _num_rows_read);

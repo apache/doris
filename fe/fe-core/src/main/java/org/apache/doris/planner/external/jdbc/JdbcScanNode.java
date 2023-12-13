@@ -138,7 +138,7 @@ public class JdbcScanNode extends ExternalScanNode {
         List<Expr> pushDownConjuncts = collectConjunctsToPushDown(conjunctsList, errors);
 
         for (Expr individualConjunct : pushDownConjuncts) {
-            String filter = conjunctExprToString(jdbcType, individualConjunct);
+            String filter = conjunctExprToString(jdbcType, individualConjunct, tbl);
             filters.add(filter);
             conjuncts.remove(individualConjunct);
         }
@@ -169,9 +169,9 @@ public class JdbcScanNode extends ExternalScanNode {
                 continue;
             }
             Column col = slot.getColumn();
-            columns.add(JdbcTable.databaseProperName(jdbcType, col.getName()));
+            columns.add(tbl.getProperRealColumnName(jdbcType, col.getName()));
         }
-        if (0 == columns.size()) {
+        if (columns.isEmpty()) {
             columns.add("*");
         }
     }
@@ -324,12 +324,12 @@ public class JdbcScanNode extends ExternalScanNode {
         return !fnExprList.isEmpty();
     }
 
-    public static String conjunctExprToString(TOdbcTableType tableType, Expr expr) {
+    public static String conjunctExprToString(TOdbcTableType tableType, Expr expr, JdbcTable tbl) {
         if (expr instanceof CompoundPredicate) {
             StringBuilder result = new StringBuilder();
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
             for (Expr child : compoundPredicate.getChildren()) {
-                result.append(conjunctExprToString(tableType, child));
+                result.append(conjunctExprToString(tableType, child, tbl));
                 result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
             }
             // Remove the last operator
@@ -350,6 +350,23 @@ public class JdbcScanNode extends ExternalScanNode {
                 filter += children.get(1).toMySql();
             }
 
+            return filter;
+        }
+
+        if (expr.contains(SlotRef.class) && expr instanceof BinaryPredicate) {
+            ArrayList<Expr> children = expr.getChildren();
+            String filter;
+            if (children.get(0) instanceof SlotRef) {
+                if (tbl != null) {
+                    filter = tbl.getProperRealColumnName(tableType, children.get(0).toMySql());
+                } else {
+                    filter = JdbcTable.databaseProperName(tableType, children.get(0).toMySql());
+                }
+            } else {
+                filter = children.get(0).toMySql();
+            }
+            filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
+            filter += children.get(1).toMySql();
             return filter;
         }
 

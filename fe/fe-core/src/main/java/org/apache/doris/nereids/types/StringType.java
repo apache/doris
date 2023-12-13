@@ -43,7 +43,7 @@ public class StringType extends CharacterType {
 
     @Override
     public String simpleString() {
-        return "string";
+        return "text";
     }
 
     @Override

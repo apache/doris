@@ -151,7 +151,7 @@ public class FEFunctions {
         return new StringLiteral(result);
     }
 
-    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIME")
+    @FEFunction(name = "str_to_date", argTypes = { "VARCHAR", "VARCHAR" }, returnType = "DATETIMEV2")
     public static DateLiteral dateParse(StringLiteral date, StringLiteral fmtLiteral) throws AnalysisException {
         DateLiteral dateLiteral = new DateLiteral();
         try {
@@ -231,10 +231,11 @@ public class FEFunctions {
         return new IntLiteral(unixTime, Type.INT);
     }
 
-    @FEFunction(name = "from_unixtime", argTypes = { "INT" }, returnType = "VARCHAR")
+    @FEFunction(name = "from_unixtime", argTypes = { "BIGINT" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= Integer.MAX_VALUE) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() > 32536771199L) {
             throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
@@ -242,10 +243,11 @@ public class FEFunctions {
         return new StringLiteral(dl.getStringValue());
     }
 
-    @FEFunction(name = "from_unixtime", argTypes = { "INT", "VARCHAR" }, returnType = "VARCHAR")
+    @FEFunction(name = "from_unixtime", argTypes = { "BIGINT", "VARCHAR" }, returnType = "VARCHAR")
     public static StringLiteral fromUnixTime(LiteralExpr unixTime, StringLiteral fmtLiteral) throws AnalysisException {
         // if unixTime < 0, we should return null, throw a exception and let BE process
-        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= Integer.MAX_VALUE) {
+        // 32536771199L is max valid timestamp of mysql from_unix_time
+        if (unixTime.getLongValue() < 0 || unixTime.getLongValue() >= 32536771199L) {
             throw new AnalysisException("unix timestamp out of range");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),

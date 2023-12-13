@@ -1087,3 +1087,37 @@
 1	1992	true
 1	32767	false
 
+-- !sql_row_number2 --
+1	-32767	false
+1	255	false
+1	1985	true
+1	1986	false
+1	1989	false
+1	1991	false
+1	1992	true
+1	32767	false
+
+-- !sql_rank2 --
+1	-32767	false
+1	-32767	false
+1	255	false
+1	1985	true
+1	1986	false
+1	1989	false
+1	1991	false
+1	1991	false
+1	1992	true
+1	32767	false
+
+-- !sql_dense_rank2 --
+1	-32767	false
+1	-32767	false
+1	255	false
+1	1985	true
+1	1986	false
+1	1989	false
+1	1991	false
+1	1991	false
+1	1992	true
+1	32767	false
+

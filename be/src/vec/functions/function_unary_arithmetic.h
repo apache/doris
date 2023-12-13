@@ -72,8 +72,8 @@ class FunctionUnaryArithmetic : public IFunction {
                                    DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
                                    DataTypeInt128, DataTypeFloat32, DataTypeFloat64,
                                    DataTypeDecimal<Decimal32>, DataTypeDecimal<Decimal64>,
-                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>>(
-                type, std::forward<F>(f));
+                                   DataTypeDecimal<Decimal128>, DataTypeDecimal<Decimal128I>,
+                                   DataTypeDecimal<Decimal256>>(type, std::forward<F>(f));
     }
 
 public:
@@ -146,8 +146,6 @@ public:
         }
         return Status::OK();
     }
-
-    bool has_information_about_monotonicity() const override { return false; }
 };
 
 struct PositiveMonotonicity {

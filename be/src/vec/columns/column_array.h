@@ -30,7 +30,6 @@
 #include <type_traits>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "vec/columns/column.h"
@@ -52,9 +51,10 @@ class Arena;
 } // namespace doris
 
 //TODO: use marcos below to decouple array function calls
-#define ALL_COLUMNS_NUMBER                                                                       \
-    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32, \
-            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128
+#define ALL_COLUMNS_NUMBER                                                                        \
+    ColumnUInt8, ColumnInt8, ColumnInt16, ColumnInt32, ColumnInt64, ColumnInt128, ColumnFloat32,  \
+            ColumnFloat64, ColumnDecimal32, ColumnDecimal64, ColumnDecimal128I, ColumnDecimal128, \
+            ColumnDecimal256
 #define ALL_COLUMNS_TIME ColumnDate, ColumnDateTime, ColumnDateV2, ColumnDateTimeV2
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
 #define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString
@@ -126,7 +126,6 @@ public:
     std::string get_name() const override;
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     void resize(size_t n) override;
@@ -140,7 +139,7 @@ public:
     void update_hash_with_value(size_t n, SipHash& hash) const override;
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     void update_hashes_with_value(std::vector<SipHash>& hashes,
@@ -149,7 +148,8 @@ public:
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data = nullptr) const override;
 
-    void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
@@ -166,10 +166,12 @@ public:
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
+        __builtin_unreachable();
     }
     [[noreturn]] void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                                       Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
+        __builtin_unreachable();
     }
     void reserve(size_t n) override;
     size_t byte_size() const override;
@@ -219,8 +221,8 @@ public:
         callback(data);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         DCHECK(size() > self_row);
@@ -263,6 +265,8 @@ public:
     }
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
+    double get_ratio_of_default_rows(double sample_ratio) const override;
 
 private:
     // [[2,1,5,9,1], [1,2,4]] --> data column [2,1,5,9,1,1,2,4], offset[-1] = 0, offset[0] = 5, offset[1] = 8

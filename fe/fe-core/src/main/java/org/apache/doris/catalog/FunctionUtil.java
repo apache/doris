@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SetType;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -256,5 +257,17 @@ public class FunctionUtil {
                     function.getName(), e);
         }
         return false;
+    }
+
+    public static void checkEnableJavaUdf() throws AnalysisException {
+        if (!Config.enable_java_udf) {
+            throw new AnalysisException("java_udf has been disabled.");
+        }
+    }
+
+    public static void checkEnableJavaUdfForNereids() {
+        if (!Config.enable_java_udf) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException("java_udf has been disabled.");
+        }
     }
 }

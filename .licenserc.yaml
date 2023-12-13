@@ -19,6 +19,7 @@ header:
     - ".licenserc.yaml"
     - ".rat-excludes"
     - ".github/**"
+    - ".dockerignore"
     - "be/src/common/status.cpp"
     - "be/src/common/status.h"
     - "be/src/env/env.h"

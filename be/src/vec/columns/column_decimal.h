@@ -106,7 +106,6 @@ public:
 
     bool is_numeric() const override { return false; }
     bool is_column_decimal() const override { return true; }
-    bool can_be_inside_nullable() const override { return true; }
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
@@ -120,14 +119,14 @@ public:
         data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
-        const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+        const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
-        for (int i = 0; i < new_size; ++i) {
+        for (uint32_t i = 0; i < new_size; ++i) {
             data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
@@ -176,12 +175,13 @@ public:
                                   const uint8_t* __restrict null_data) const override;
     void update_hashes_with_value(uint64_t* __restrict hashes,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crcs_with_value(std::vector<uint64_t>& hashes, PrimitiveType type,
+    void update_crcs_with_value(uint32_t* __restrict hashes, PrimitiveType type, uint32_t rows,
+                                uint32_t offset,
                                 const uint8_t* __restrict null_data) const override;
 
     void update_xxHash_with_value(size_t start, size_t end, uint64_t& hash,
                                   const uint8_t* __restrict null_data) const override;
-    void update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+    void update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                const uint8_t* __restrict null_data) const override;
 
     int compare_at(size_t n, size_t m, const IColumn& rhs_, int nan_direction_hint) const override;
@@ -200,7 +200,7 @@ public:
     }
     void get(size_t n, Field& res) const override { res = (*this)[n]; }
     bool get_bool(size_t n) const override { return bool(data[n]); }
-    Int64 get_int(size_t n) const override { return Int64(data[n] * scale); }
+    Int64 get_int(size_t n) const override { return Int64(data[n].value * scale); }
     UInt64 get64(size_t n) const override;
     bool is_default_at(size_t n) const override { return data[n].value == 0; }
 
@@ -295,8 +295,8 @@ protected:
                               [this](size_t a, size_t b) { return data[a] < data[b]; });
     }
 
-    void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint64_t& hash) const {
-        const DecimalV2Value& dec_val = (const DecimalV2Value&)data[i];
+    void ALWAYS_INLINE decimalv2_do_crc(size_t i, uint32_t& hash) const {
+        const auto& dec_val = (const DecimalV2Value&)data[i];
         int64_t int_val = dec_val.int_value();
         int32_t frac_val = dec_val.frac_value();
         hash = HashUtil::zlib_crc_hash(&int_val, sizeof(int_val), hash);

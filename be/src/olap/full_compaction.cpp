@@ -88,7 +88,7 @@ Status FullCompaction::execute_compact_impl() {
     _tablet->cumulative_compaction_policy()->update_cumulative_point(_tablet.get(), _input_rowsets,
                                                                      _output_rowset, last_version);
     VLOG_CRITICAL << "after cumulative compaction, current cumulative point is "
-                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->full_name();
+                  << _tablet->cumulative_layer_point() << ", tablet=" << _tablet->tablet_id();
 
     return Status::OK();
 }
@@ -147,8 +147,7 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
     std::vector<RowsetSharedPtr> tmp_rowsets {};
 
     // tablet is under alter process. The delete bitmap will be calculated after conversion.
-    if (_tablet->tablet_state() == TABLET_NOTREADY &&
-        SchemaChangeHandler::tablet_in_converting(_tablet->tablet_id())) {
+    if (_tablet->tablet_state() == TABLET_NOTREADY) {
         LOG(INFO) << "tablet is under alter process, update delete bitmap later, tablet_id="
                   << _tablet->tablet_id();
         return Status::OK();
@@ -157,7 +156,7 @@ Status FullCompaction::_full_compaction_update_delete_bitmap(const RowsetSharedP
     int64_t max_version = _tablet->max_version().second;
     DCHECK(max_version >= rowset->version().second);
     if (max_version > rowset->version().second) {
-        static_cast<void>(_tablet->capture_consistent_rowsets(
+        RETURN_IF_ERROR(_tablet->capture_consistent_rowsets(
                 {rowset->version().second + 1, max_version}, &tmp_rowsets));
     }
 

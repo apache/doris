@@ -231,4 +231,31 @@ suite("nereids_scalar_fn_M") {
 	qt_sql_murmur_hash3_64_Varchar_notnull "select murmur_hash3_64(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_murmur_hash3_64_String "select murmur_hash3_64(kstr) from fn_test order by kstr"
 	qt_sql_murmur_hash3_64_String_notnull "select murmur_hash3_64(kstr) from fn_test_not_nullable order by kstr"
+
+	// bugfix
+	qt_bugfix_months_diff_1 "select months_diff('2023-10-14 00:00:00', '1975-10-18 00:00:00');"
+	qt_bugfix_months_diff_2 "select months_diff(cast('2023-10-14' as datev2), cast('1975-10-18 00:00:00' as datetimev2));"
+	qt_bugfix_months_diff_3 "select months_diff(cast('2023-10-14 00:00:00' as datetimev2), cast('1975-10-18' as datev2));"
+
+	// 2023.2, max day is 28
+	qt_bugfix_months_diff_4 "select months_diff('2023-02-28 00:00:00', '2023-01-27 00:00:00');"
+	qt_bugfix_months_diff_5 "select months_diff('2023-02-28 00:00:00', '2023-01-28 00:00:00');"
+	qt_bugfix_months_diff_6 "select months_diff('2023-02-28 00:00:00', '2023-01-29 00:00:00');"
+	qt_bugfix_months_diff_7 "select months_diff('2023-02-28 00:00:00', '2023-01-31 00:00:00');"
+
+	qt_bugfix_months_diff_8 "select months_diff('2023-03-27 00:00:00', '2023-02-28 00:00:00');"
+	qt_bugfix_months_diff_9 "select months_diff('2023-03-28 00:00:00', '2023-02-28 00:00:00');"
+
+	// 2023.3, max day is 31
+	// 2023.4, max day is 30
+	// 2023.5, max day is 31
+	qt_bugfix_months_diff_10 "select months_diff('2023-04-30 00:00:00', '2023-03-29 00:00:00');"
+	qt_bugfix_months_diff_11 "select months_diff('2023-04-30 00:00:00', '2023-03-30 00:00:00');"
+	qt_bugfix_months_diff_12 "select months_diff('2023-04-30 00:00:00', '2023-03-31 00:00:00');"
+
+	qt_bugfix_months_diff_13 "select months_diff('2023-05-30 00:00:00', '2023-04-29 00:00:00');"
+	qt_bugfix_months_diff_14 "select months_diff('2023-05-30 00:00:00', '2023-04-30 00:00:00');"
+
+	qt_bugfix_months_diff_16 "select months_diff('2023-05-31 00:00:00', '2023-04-29 00:00:00');"
+	qt_bugfix_months_diff_17 "select months_diff('2023-05-31 00:00:00', '2023-04-30 00:00:00');"
 }

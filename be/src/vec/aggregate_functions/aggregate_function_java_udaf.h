@@ -37,6 +37,7 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
+#include "vec/exec/jni_connector.h"
 #include "vec/io/io_helper.h"
 
 namespace doris::vectorized {
@@ -45,10 +46,10 @@ const char* UDAF_EXECUTOR_CLASS = "org/apache/doris/udf/UdafExecutor";
 const char* UDAF_EXECUTOR_CTOR_SIGNATURE = "([B)V";
 const char* UDAF_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* UDAF_EXECUTOR_DESTROY_SIGNATURE = "()V";
-const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZJJ)V";
+const char* UDAF_EXECUTOR_ADD_SIGNATURE = "(ZIIJILjava/util/Map;)V";
 const char* UDAF_EXECUTOR_SERIALIZE_SIGNATURE = "(J)[B";
 const char* UDAF_EXECUTOR_MERGE_SIGNATURE = "(J[B)V";
-const char* UDAF_EXECUTOR_RESULT_SIGNATURE = "(JJ)Z";
+const char* UDAF_EXECUTOR_GET_SIGNATURE = "(JLjava/util/Map;)J";
 const char* UDAF_EXECUTOR_RESET_SIGNATURE = "(J)V";
 // Calling Java method about those signature means: "(argument-types)return-type"
 // https://www.iitk.ac.in/esc101/05Aug/tutorial/native1.1/implementing/method.html
@@ -60,10 +61,14 @@ public:
 
     ~AggregateJavaUdafData() {
         JNIEnv* env;
-        Status status;
-        RETURN_IF_STATUS_ERROR(status, JniUtil::GetJNIEnv(&env));
+        if (!JniUtil::GetJNIEnv(&env).ok()) {
+            LOG(WARNING) << "Failed to get JNIEnv";
+        }
         env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_close_id);
-        RETURN_IF_STATUS_ERROR(status, JniUtil::GetJniExceptionMsg(env));
+        Status st = JniUtil::GetJniExceptionMsg(env);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to close JAVA UDAF: " << st.to_string();
+        }
         env->DeleteGlobalRef(executor_cl);
         env->DeleteGlobalRef(executor_obj);
     }
@@ -103,126 +108,24 @@ public:
                int place_offset) {
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf add function");
-        jclass obj_class = env->FindClass("[Ljava/lang/Object;");
-        jobjectArray arg_objects = env->NewObjectArray(argument_size, obj_class, nullptr);
-        int64_t nullmap_address = 0;
 
-        for (int arg_idx = 0; arg_idx < argument_size; ++arg_idx) {
-            bool arg_column_nullable = false;
-            auto data_col = columns[arg_idx];
-            if (auto* nullable = check_and_get_column<const ColumnNullable>(*columns[arg_idx])) {
-                arg_column_nullable = true;
-                auto null_col = nullable->get_null_map_column_ptr();
-                data_col = nullable->get_nested_column_ptr();
-                nullmap_address = reinterpret_cast<int64_t>(
-                        check_and_get_column<ColumnVector<UInt8>>(null_col)->get_data().data());
-            }
-            // convert argument column data into java type
-            jobjectArray arr_obj = nullptr;
-            if (data_col->is_numeric() || data_col->is_column_decimal()) {
-                arr_obj = (jobjectArray)env->CallObjectMethod(
-                        executor_obj, executor_convert_basic_argument_id, arg_idx,
-                        arg_column_nullable, row_num_start, row_num_end, nullmap_address,
-                        reinterpret_cast<int64_t>(data_col->get_raw_data().data), 0);
-            } else if (data_col->is_column_string()) {
-                const ColumnString* str_col = assert_cast<const ColumnString*>(data_col);
-                arr_obj = (jobjectArray)env->CallObjectMethod(
-                        executor_obj, executor_convert_basic_argument_id, arg_idx,
-                        arg_column_nullable, row_num_start, row_num_end, nullmap_address,
-                        reinterpret_cast<int64_t>(str_col->get_chars().data()),
-                        reinterpret_cast<int64_t>(str_col->get_offsets().data()));
-            } else if (data_col->is_column_array()) {
-                const ColumnArray* array_col = assert_cast<const ColumnArray*>(data_col);
-                const ColumnNullable& array_nested_nullable =
-                        assert_cast<const ColumnNullable&>(array_col->get_data());
-                auto data_column_null_map = array_nested_nullable.get_null_map_column_ptr();
-                auto data_column = array_nested_nullable.get_nested_column_ptr();
-                auto offset_address = reinterpret_cast<int64_t>(
-                        array_col->get_offsets_column().get_raw_data().data);
-                auto nested_nullmap_address = reinterpret_cast<int64_t>(
-                        check_and_get_column<ColumnVector<UInt8>>(data_column_null_map)
-                                ->get_data()
-                                .data());
-                int64_t nested_data_address = 0, nested_offset_address = 0;
-                // array type need pass address: [nullmap_address], offset_address, nested_nullmap_address, nested_data_address/nested_char_address,nested_offset_address
-                if (data_column->is_column_string()) {
-                    const ColumnString* col = assert_cast<const ColumnString*>(data_column.get());
-                    nested_data_address = reinterpret_cast<int64_t>(col->get_chars().data());
-                    nested_offset_address = reinterpret_cast<int64_t>(col->get_offsets().data());
-                } else {
-                    nested_data_address =
-                            reinterpret_cast<int64_t>(data_column->get_raw_data().data);
-                }
-                arr_obj = (jobjectArray)env->CallObjectMethod(
-                        executor_obj, executor_convert_array_argument_id, arg_idx,
-                        arg_column_nullable, row_num_start, row_num_end, nullmap_address,
-                        offset_address, nested_nullmap_address, nested_data_address,
-                        nested_offset_address);
-            } else if (data_col->is_column_map()) {
-                const ColumnMap* map_col = assert_cast<const ColumnMap*>(data_col);
-                auto offset_address = reinterpret_cast<int64_t>(
-                        map_col->get_offsets_column().get_raw_data().data);
-                const ColumnNullable& map_key_column_nullable =
-                        assert_cast<const ColumnNullable&>(map_col->get_keys());
-                auto key_data_column_null_map = map_key_column_nullable.get_null_map_column_ptr();
-                auto key_data_column = map_key_column_nullable.get_nested_column_ptr();
-
-                auto key_nested_nullmap_address = reinterpret_cast<int64_t>(
-                        check_and_get_column<ColumnVector<UInt8>>(key_data_column_null_map)
-                                ->get_data()
-                                .data());
-                int64_t key_nested_data_address = 0, key_nested_offset_address = 0;
-                if (key_data_column->is_column_string()) {
-                    const ColumnString* col =
-                            assert_cast<const ColumnString*>(key_data_column.get());
-                    key_nested_data_address = reinterpret_cast<int64_t>(col->get_chars().data());
-                    key_nested_offset_address =
-                            reinterpret_cast<int64_t>(col->get_offsets().data());
-                } else {
-                    key_nested_data_address =
-                            reinterpret_cast<int64_t>(key_data_column->get_raw_data().data);
-                }
-
-                const ColumnNullable& map_value_column_nullable =
-                        assert_cast<const ColumnNullable&>(map_col->get_values());
-                auto value_data_column_null_map =
-                        map_value_column_nullable.get_null_map_column_ptr();
-                auto value_data_column = map_value_column_nullable.get_nested_column_ptr();
-                auto value_nested_nullmap_address = reinterpret_cast<int64_t>(
-                        check_and_get_column<ColumnVector<UInt8>>(value_data_column_null_map)
-                                ->get_data()
-                                .data());
-                int64_t value_nested_data_address = 0, value_nested_offset_address = 0;
-                if (value_data_column->is_column_string()) {
-                    const ColumnString* col =
-                            assert_cast<const ColumnString*>(value_data_column.get());
-                    value_nested_data_address = reinterpret_cast<int64_t>(col->get_chars().data());
-                    value_nested_offset_address =
-                            reinterpret_cast<int64_t>(col->get_offsets().data());
-                } else {
-                    value_nested_data_address =
-                            reinterpret_cast<int64_t>(value_data_column->get_raw_data().data);
-                }
-                arr_obj = (jobjectArray)env->CallObjectMethod(
-                        executor_obj, executor_convert_map_argument_id, arg_idx,
-                        arg_column_nullable, row_num_start, row_num_end, nullmap_address,
-                        offset_address, key_nested_nullmap_address, key_nested_data_address,
-                        key_nested_offset_address, value_nested_nullmap_address,
-                        value_nested_data_address, value_nested_offset_address);
-            } else {
-                return Status::InvalidArgument(
-                        strings::Substitute("Java UDAF doesn't support type is $0 now !",
-                                            argument_types[arg_idx]->get_name()));
-            }
-            env->SetObjectArrayElement(arg_objects, arg_idx, arr_obj);
-            env->DeleteLocalRef(arr_obj);
+        Block input_block;
+        for (size_t i = 0; i < argument_size; ++i) {
+            input_block.insert(ColumnWithTypeAndName(columns[i]->get_ptr(), argument_types[i],
+                                                     std::to_string(i)));
         }
-        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        std::unique_ptr<long[]> input_table;
+        RETURN_IF_ERROR(JniConnector::to_java_table(&input_block, input_table));
+        auto input_table_schema = JniConnector::parse_table_schema(&input_block);
+        std::map<String, String> input_params = {
+                {"meta_address", std::to_string((long)input_table.get())},
+                {"required_fields", input_table_schema.first},
+                {"columns_types", input_table_schema.second}};
+        jobject input_map = JniUtil::convert_to_java_map(env, input_params);
         // invoke add batch
         env->CallObjectMethod(executor_obj, executor_add_batch_id, is_single_place, row_num_start,
-                              row_num_end, places_address, place_offset, arg_objects);
-        env->DeleteLocalRef(arg_objects);
-        env->DeleteLocalRef(obj_class);
+                              row_num_end, places_address, place_offset, input_map);
+        env->DeleteLocalRef(input_map);
         return JniUtil::GetJniExceptionMsg(env);
     }
 
@@ -275,160 +178,33 @@ public:
     }
 
     Status get(IColumn& to, const DataTypePtr& result_type, int64_t place) const {
-        to.insert_default();
         JNIEnv* env = nullptr;
         RETURN_NOT_OK_STATUS_WITH_WARN(JniUtil::GetJNIEnv(&env), "Java-Udaf get value function");
-        int64_t nullmap_address = 0;
-        if (result_type->is_nullable()) {
-            auto& nullable = assert_cast<ColumnNullable&>(to);
-            nullmap_address =
-                    reinterpret_cast<int64_t>(nullable.get_null_map_column().get_raw_data().data);
-            auto& data_col = nullable.get_nested_column();
-            RETURN_IF_ERROR(get_result(to, result_type, place, env, data_col, nullmap_address));
-        } else {
-            nullmap_address = -1;
-            auto& data_col = to;
-            RETURN_IF_ERROR(get_result(to, result_type, place, env, data_col, nullmap_address));
-        }
-        return JniUtil::GetJniExceptionMsg(env);
+
+        Block output_block;
+        output_block.insert(ColumnWithTypeAndName(to.get_ptr(), result_type, "_result_"));
+        auto output_table_schema = JniConnector::parse_table_schema(&output_block);
+        std::string output_nullable = result_type->is_nullable() ? "true" : "false";
+        std::map<String, String> output_params = {{"is_nullable", output_nullable},
+                                                  {"required_fields", output_table_schema.first},
+                                                  {"columns_types", output_table_schema.second}};
+        jobject output_map = JniUtil::convert_to_java_map(env, output_params);
+        long output_address =
+                env->CallLongMethod(executor_obj, executor_get_value_id, place, output_map);
+        RETURN_IF_ERROR(JniUtil::GetJniExceptionMsg(env));
+        env->DeleteLocalRef(output_map);
+
+        return JniConnector::fill_block(&output_block, {0}, output_address);
     }
 
 private:
-    Status get_result(IColumn& to, const DataTypePtr& return_type, int64_t place, JNIEnv* env,
-                      IColumn& data_col, int64_t nullmap_address) const {
-        jobject result_obj = env->CallNonvirtualObjectMethod(executor_obj, executor_cl,
-                                                             executor_get_value_id, place);
-        bool result_nullable = return_type->is_nullable();
-        if (data_col.is_column_string()) {
-            const ColumnString* str_col = check_and_get_column<ColumnString>(data_col);
-            ColumnString::Chars& chars = const_cast<ColumnString::Chars&>(str_col->get_chars());
-            ColumnString::Offsets& offsets =
-                    const_cast<ColumnString::Offsets&>(str_col->get_offsets());
-            int increase_buffer_size = 0;
-            int64_t buffer_size = JniUtil::IncreaseReservedBufferSize(increase_buffer_size);
-            chars.resize(buffer_size);
-            env->CallNonvirtualVoidMethod(
-                    executor_obj, executor_cl, executor_copy_basic_result_id, result_obj,
-                    to.size() - 1, nullmap_address, reinterpret_cast<int64_t>(chars.data()),
-                    reinterpret_cast<int64_t>(&chars), reinterpret_cast<int64_t>(offsets.data()));
-        } else if (data_col.is_numeric() || data_col.is_column_decimal()) {
-            env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_copy_basic_result_id,
-                                          result_obj, to.size() - 1, nullmap_address,
-                                          reinterpret_cast<int64_t>(data_col.get_raw_data().data),
-                                          0, 0);
-        } else if (data_col.is_column_array()) {
-            jclass arraylist_class = env->FindClass("Ljava/util/ArrayList;");
-            ColumnArray* array_col = assert_cast<ColumnArray*>(&data_col);
-            ColumnNullable& array_nested_nullable =
-                    assert_cast<ColumnNullable&>(array_col->get_data());
-            auto data_column_null_map = array_nested_nullable.get_null_map_column_ptr();
-            auto data_column = array_nested_nullable.get_nested_column_ptr();
-            auto& offset_column = array_col->get_offsets_column();
-            auto offset_address = reinterpret_cast<int64_t>(offset_column.get_raw_data().data);
-            auto& null_map_data =
-                    assert_cast<ColumnVector<UInt8>*>(data_column_null_map.get())->get_data();
-            auto nested_nullmap_address = reinterpret_cast<int64_t>(null_map_data.data());
-            jmethodID list_size = env->GetMethodID(arraylist_class, "size", "()I");
-
-            size_t has_put_element_size = array_col->get_offsets().back();
-            size_t arrar_list_size = env->CallIntMethod(result_obj, list_size);
-            size_t element_size = has_put_element_size + arrar_list_size;
-            array_nested_nullable.resize(element_size);
-            memset(null_map_data.data() + has_put_element_size, 0, arrar_list_size);
-            int64_t nested_data_address = 0, nested_offset_address = 0;
-            if (data_column->is_column_string()) {
-                ColumnString* str_col = assert_cast<ColumnString*>(data_column.get());
-                ColumnString::Chars& chars =
-                        assert_cast<ColumnString::Chars&>(str_col->get_chars());
-                ColumnString::Offsets& offsets =
-                        assert_cast<ColumnString::Offsets&>(str_col->get_offsets());
-                nested_data_address = reinterpret_cast<int64_t>(&chars);
-                nested_offset_address = reinterpret_cast<int64_t>(offsets.data());
-            } else {
-                nested_data_address = reinterpret_cast<int64_t>(data_column->get_raw_data().data);
-            }
-            int row = to.size() - 1;
-            env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_copy_array_result_id,
-                                          has_put_element_size, result_nullable, row, result_obj,
-                                          nullmap_address, offset_address, nested_nullmap_address,
-                                          nested_data_address, nested_offset_address);
-            env->DeleteLocalRef(arraylist_class);
-        } else if (data_col.is_column_map()) {
-            jclass hashmap_class = env->FindClass("Ljava/util/HashMap;");
-            ColumnMap* map_col = assert_cast<ColumnMap*>(&data_col);
-            auto& offset_column = map_col->get_offsets_column();
-            auto offset_address = reinterpret_cast<int64_t>(offset_column.get_raw_data().data);
-            ColumnNullable& map_key_column_nullable =
-                    assert_cast<ColumnNullable&>(map_col->get_keys());
-            auto key_data_column_null_map = map_key_column_nullable.get_null_map_column_ptr();
-            auto key_data_column = map_key_column_nullable.get_nested_column_ptr();
-            auto& key_null_map_data =
-                    assert_cast<ColumnVector<UInt8>*>(key_data_column_null_map.get())->get_data();
-            auto key_nested_nullmap_address = reinterpret_cast<int64_t>(key_null_map_data.data());
-            ColumnNullable& map_value_column_nullable =
-                    assert_cast<ColumnNullable&>(map_col->get_values());
-            auto value_data_column_null_map = map_value_column_nullable.get_null_map_column_ptr();
-            auto value_data_column = map_value_column_nullable.get_nested_column_ptr();
-            auto& value_null_map_data =
-                    assert_cast<ColumnVector<UInt8>*>(value_data_column_null_map.get())->get_data();
-            auto value_nested_nullmap_address =
-                    reinterpret_cast<int64_t>(value_null_map_data.data());
-            jmethodID map_size = env->GetMethodID(hashmap_class, "size", "()I");
-            size_t has_put_element_size = map_col->get_offsets().back();
-            size_t hashmap_size = env->CallIntMethod(result_obj, map_size);
-            size_t element_size = has_put_element_size + hashmap_size;
-            map_key_column_nullable.resize(element_size);
-            memset(key_null_map_data.data() + has_put_element_size, 0, hashmap_size);
-            map_value_column_nullable.resize(element_size);
-            memset(value_null_map_data.data() + has_put_element_size, 0, hashmap_size);
-
-            int64_t key_nested_data_address = 0, key_nested_offset_address = 0;
-            if (key_data_column->is_column_string()) {
-                ColumnString* str_col = assert_cast<ColumnString*>(key_data_column.get());
-                ColumnString::Chars& chars =
-                        assert_cast<ColumnString::Chars&>(str_col->get_chars());
-                ColumnString::Offsets& offsets =
-                        assert_cast<ColumnString::Offsets&>(str_col->get_offsets());
-                key_nested_data_address = reinterpret_cast<int64_t>(&chars);
-                key_nested_offset_address = reinterpret_cast<int64_t>(offsets.data());
-            } else {
-                key_nested_data_address =
-                        reinterpret_cast<int64_t>(key_data_column->get_raw_data().data);
-            }
-
-            int64_t value_nested_data_address = 0, value_nested_offset_address = 0;
-            if (value_data_column->is_column_string()) {
-                ColumnString* str_col = assert_cast<ColumnString*>(value_data_column.get());
-                ColumnString::Chars& chars =
-                        assert_cast<ColumnString::Chars&>(str_col->get_chars());
-                ColumnString::Offsets& offsets =
-                        assert_cast<ColumnString::Offsets&>(str_col->get_offsets());
-                value_nested_data_address = reinterpret_cast<int64_t>(&chars);
-                value_nested_offset_address = reinterpret_cast<int64_t>(offsets.data());
-            } else {
-                value_nested_data_address =
-                        reinterpret_cast<int64_t>(value_data_column->get_raw_data().data);
-            }
-            int row = to.size() - 1;
-            env->CallNonvirtualVoidMethod(executor_obj, executor_cl, executor_copy_map_result_id,
-                                          has_put_element_size, result_nullable, row, result_obj,
-                                          nullmap_address, offset_address,
-                                          key_nested_nullmap_address, key_nested_data_address,
-                                          key_nested_offset_address, value_nested_nullmap_address,
-                                          value_nested_data_address, value_nested_offset_address);
-            env->DeleteLocalRef(hashmap_class);
-        } else {
-            return Status::InvalidArgument(strings::Substitute(
-                    "Java UDAF doesn't support return type is $0 now !", return_type->get_name()));
-        }
-        return Status::OK();
-    }
-
     Status register_func_id(JNIEnv* env) {
         auto register_id = [&](const char* func_name, const char* func_sign, jmethodID& func_id) {
             func_id = env->GetMethodID(executor_cl, func_name, func_sign);
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) {
+                LOG(WARNING) << "Failed to register function " << func_name << ": "
+                             << s.to_string();
                 return Status::InternalError(strings::Substitute(
                         "Java-Udaf register_func_id meet error and error is $0", s.to_string()));
             }
@@ -440,27 +216,12 @@ private:
         RETURN_IF_ERROR(register_id("merge", UDAF_EXECUTOR_MERGE_SIGNATURE, executor_merge_id));
         RETURN_IF_ERROR(
                 register_id("serialize", UDAF_EXECUTOR_SERIALIZE_SIGNATURE, executor_serialize_id));
-        RETURN_IF_ERROR(register_id("getValue", "(J)Ljava/lang/Object;", executor_get_value_id));
+        RETURN_IF_ERROR(
+                register_id("getValue", UDAF_EXECUTOR_GET_SIGNATURE, executor_get_value_id));
         RETURN_IF_ERROR(
                 register_id("destroy", UDAF_EXECUTOR_DESTROY_SIGNATURE, executor_destroy_id));
-        RETURN_IF_ERROR(register_id("convertBasicArguments", "(IZIIJJJ)[Ljava/lang/Object;",
-                                    executor_convert_basic_argument_id));
-        RETURN_IF_ERROR(register_id("convertArrayArguments", "(IZIIJJJJJ)[Ljava/lang/Object;",
-                                    executor_convert_array_argument_id));
-        RETURN_IF_ERROR(register_id("convertMapArguments", "(IZIIJJJJJJJJ)[Ljava/lang/Object;",
-                                    executor_convert_map_argument_id));
-
-        RETURN_IF_ERROR(register_id("copyTupleBasicResult", "(Ljava/lang/Object;IJJJJ)V",
-                                    executor_copy_basic_result_id));
-
-        RETURN_IF_ERROR(register_id("copyTupleArrayResult", "(JZILjava/lang/Object;JJJJJ)V",
-                                    executor_copy_array_result_id));
-
-        RETURN_IF_ERROR(register_id("copyTupleMapResult", "(JZILjava/lang/Object;JJJJJJJJ)V",
-                                    executor_copy_map_result_id));
-
         RETURN_IF_ERROR(
-                register_id("addBatch", "(ZIIJI[Ljava/lang/Object;)V", executor_add_batch_id));
+                register_id("addBatch", UDAF_EXECUTOR_ADD_SIGNATURE, executor_add_batch_id));
         return Status::OK();
     }
 
@@ -478,12 +239,6 @@ private:
     jmethodID executor_reset_id;
     jmethodID executor_close_id;
     jmethodID executor_destroy_id;
-    jmethodID executor_convert_basic_argument_id;
-    jmethodID executor_convert_array_argument_id;
-    jmethodID executor_convert_map_argument_id;
-    jmethodID executor_copy_basic_result_id;
-    jmethodID executor_copy_array_result_id;
-    jmethodID executor_copy_map_result_id;
     int argument_size = 0;
     std::string serialize_data;
 };
@@ -492,18 +247,18 @@ class AggregateJavaUdaf final
         : public IAggregateFunctionDataHelper<AggregateJavaUdafData, AggregateJavaUdaf> {
 public:
     ENABLE_FACTORY_CREATOR(AggregateJavaUdaf);
-    AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types,
+    AggregateJavaUdaf(const TFunction& fn, const DataTypes& argument_types_,
                       const DataTypePtr& return_type)
-            : IAggregateFunctionDataHelper(argument_types),
+            : IAggregateFunctionDataHelper(argument_types_),
               _fn(fn),
               _return_type(return_type),
               _first_created(true),
               _exec_place(nullptr) {}
     ~AggregateJavaUdaf() override = default;
 
-    static AggregateFunctionPtr create(const TFunction& fn, const DataTypes& argument_types,
+    static AggregateFunctionPtr create(const TFunction& fn, const DataTypes& argument_types_,
                                        const DataTypePtr& return_type) {
-        return std::make_shared<AggregateJavaUdaf>(fn, argument_types, return_type);
+        return std::make_shared<AggregateJavaUdaf>(fn, argument_types_, return_type);
     }
     //Note: The condition is added because maybe the BE can't find java-udaf impl jar
     //So need to check as soon as possible, before call Data function

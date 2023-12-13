@@ -40,15 +40,16 @@ protected:
     template <typename LocalStateType>
     friend class JoinBuildSinkOperatorX;
 
-    RuntimeProfile::Counter* _build_rows_counter;
-    RuntimeProfile::Counter* _push_down_timer;
-    RuntimeProfile::Counter* _push_compute_timer;
+    RuntimeProfile::Counter* _build_rows_counter = nullptr;
+    RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
 };
 
 template <typename LocalStateType>
 class JoinBuildSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
-    JoinBuildSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    JoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                           const DescriptorTbl& descs);
     ~JoinBuildSinkOperatorX() override = default;
 
 protected:
@@ -56,7 +57,7 @@ protected:
     template <typename DependencyType, typename Derived>
     friend class JoinBuildSinkLocalState;
 
-    TJoinOp::type _join_op;
+    const TJoinOp::type _join_op;
     vectorized::JoinOpVariants _join_op_variants;
 
     const bool _have_other_join_conjunct;

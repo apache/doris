@@ -63,6 +63,10 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
         return visitor(field.template get<DecimalField<Decimal128>>());
     case Field::Types::Decimal128I:
         return visitor(field.template get<DecimalField<Decimal128I>>());
+    case Field::Types::Decimal256:
+        return visitor(field.template get<DecimalField<Decimal256>>());
+    case Field::Types::JSONB:
+        return visitor(field.template get<JsonbField>());
     default:
         LOG(FATAL) << "Bad type of Field";
         return {};

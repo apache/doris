@@ -170,6 +170,25 @@ PROPERTIES
 );
 ```
 
+9. 创建仓库并删除已经存在的 snapshot
+
+```sql
+CREATE REPOSITORY `s3_repo`
+WITH S3
+ON LOCATION "s3://s3-repo"
+PROPERTIES
+(
+    "s3.endpoint" = "http://s3-REGION.amazonaws.com",
+    "s3.region" = "s3-REGION",
+    "s3.access_key" = "AWS_ACCESS_KEY",
+    "s3.secret_key"="AWS_SECRET_KEY",
+    "s3.region" = "REGION",
+    "delete_if_exists" = "true"
+);
+```
+
+注：目前只有 s3 支持 "delete_if_exists" 属性。
+
 ### Keywords
 
     CREATE, REPOSITORY

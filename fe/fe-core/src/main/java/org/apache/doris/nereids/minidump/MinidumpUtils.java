@@ -23,7 +23,6 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -42,7 +41,8 @@ import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
 import org.apache.doris.statistics.Histogram;
 
-import lombok.extern.slf4j.Slf4j;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -61,10 +61,11 @@ import java.util.Optional;
 /**
  * Util for minidump
  */
-@Slf4j
 public class MinidumpUtils {
 
-    public static String DUMP_PATH = null;
+    private static final Logger LOG = LogManager.getLogger(MinidumpUtils.class);
+
+    private static String DUMP_PATH = null;
 
     /**
      * Saving of minidump file to fe log path
@@ -75,7 +76,7 @@ public class MinidumpUtils {
         try (FileWriter file = new FileWriter(dumpPath + ".json")) {
             file.write(jsonMinidump);
         } catch (IOException e) {
-            log.info("failed to save minidump file", e);
+            LOG.info("failed to save minidump file", e);
         }
     }
 
@@ -158,7 +159,7 @@ public class MinidumpUtils {
             String inputString = sb.toString();
             return jsonMinidumpLoadFromString(inputString);
         } catch (IOException e) {
-            log.info("failed to open minidump file", e);
+            LOG.info("failed to open minidump file", e);
         }
         return null;
     }
@@ -262,7 +263,8 @@ public class MinidumpUtils {
             for (Column column : columns) {
                 String colName = column.getName();
                 ColumnStatistic cache =
-                        Config.enable_stats ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
+                        ConnectContext.get().getSessionVariable().enableStats
+                        ? getColumnStatistic(table, colName) : ColumnStatistic.UNKNOWN;
                 if (cache.avgSizeByte <= 0) {
                     cache = new ColumnStatisticBuilder(cache)
                         .setAvgSizeByte(column.getType().getSlotSize())
@@ -286,8 +288,6 @@ public class MinidumpUtils {
 
     /**
      * serialize output plan to dump file and persistent into disk
-     * @param resultPlan
-     *
      */
     public static void serializeOutputToDumpFile(Plan resultPlan) {
         if (ConnectContext.get().getSessionVariable().isPlayNereidsDump()
@@ -401,22 +401,22 @@ public class MinidumpUtils {
                 }
                 switch (field.getType().getSimpleName()) {
                     case "boolean":
-                        root.put(attr.name(), (Boolean) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "int":
-                        root.put(attr.name(), (Integer) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "long":
-                        root.put(attr.name(), (Long) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "float":
-                        root.put(attr.name(), (Float) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "double":
-                        root.put(attr.name(), (Double) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     case "String":
-                        root.put(attr.name(), (String) field.get(sessionVariable));
+                        root.put(attr.name(), field.get(sessionVariable));
                         break;
                     default:
                         // Unsupported type variable.

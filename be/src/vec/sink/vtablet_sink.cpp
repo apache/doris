@@ -35,7 +35,6 @@
 #include <gen_cpp/internal_service.pb.h>
 #include <glog/logging.h>
 #include <google/protobuf/stubs/common.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <sys/param.h>
 #include <sys/types.h>
 
@@ -54,7 +53,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "runtime/datetime_value.h"
 #include "util/runtime_profile.h"
 #include "vec/core/columns_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -68,7 +66,6 @@
 #include <unordered_set>
 #endif
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "common/object_pool.h"
@@ -79,7 +76,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
-#include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "service/brpc.h"
 #include "util/binary_cast.hpp"
@@ -90,7 +86,6 @@
 #include "util/network_util.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
@@ -112,7 +107,6 @@
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
-#include "vec/core/future_block.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -127,14 +121,12 @@ class TExpr;
 namespace vectorized {
 
 VOlapTableSink::VOlapTableSink(ObjectPool* pool, const RowDescriptor& row_desc,
-                               const std::vector<TExpr>& texprs, bool group_commit)
-        : AsyncWriterSink<VTabletWriter, VOLAP_TABLE_SINK>(row_desc, texprs),
-          _pool(pool),
-          _group_commit(group_commit) {}
+                               const std::vector<TExpr>& texprs)
+        : AsyncWriterSink<VTabletWriter, VOLAP_TABLE_SINK>(row_desc, texprs), _pool(pool) {}
 
 Status VOlapTableSink::init(const TDataSink& t_sink) {
     RETURN_IF_ERROR(AsyncWriterSink::init(t_sink));
-    RETURN_IF_ERROR(_writer->init_properties(_pool, _group_commit));
+    RETURN_IF_ERROR(_writer->init_properties(_pool));
     return Status::OK();
 }
 

@@ -153,7 +153,7 @@ private:
     protected:
         const TabletSchema& _schema;
         IteratorRowRef _ref;
-        std::vector<uint32_t>* _compare_columns;
+        std::vector<uint32_t>* _compare_columns = nullptr;
     };
 
     // Compare row cursors between multiple merge elements,

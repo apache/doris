@@ -46,6 +46,7 @@ public class SimpleSchedulerTest {
 
     @BeforeClass
     public static void setUp() {
+        SimpleScheduler.init();
         FeConstants.heartbeat_interval_second = 2;
         be1 = new Backend(1000L, "192.168.100.0", 9050);
         be2 = new Backend(1001L, "192.168.100.1", 9050);

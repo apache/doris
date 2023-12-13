@@ -18,6 +18,7 @@
 package org.apache.doris.plugin.audit;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditPlugin;
 import org.apache.doris.plugin.Plugin;
@@ -84,7 +85,6 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
             this.lastLoadTimeSlowLog = System.currentTimeMillis();
 
             loadConfig(ctx, info.getProperties());
-
             this.auditEventQueue = Queues.newLinkedBlockingDeque(conf.maxQueueSize);
             this.streamLoader = new DorisStreamLoader(conf);
             this.loadThread = new Thread(new LoadWorker(this.streamLoader), "audit loader thread");
@@ -209,7 +209,16 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         if (logBuffer.length() >= conf.maxBatchSize || currentTime - lastLoadTime >= conf.maxBatchIntervalSec * 1000) {         
             // begin to load
             try {
-                DorisStreamLoader.LoadResponse response = loader.loadBatch(logBuffer, slowLog);
+                String token = "";
+                if (conf.use_auth_token) {
+                    try {
+                        // Acquire token from master
+                        token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+                    } catch (Exception e) {
+                        LOG.error("Failed to get auth token: {}", e);
+                    }
+                }  
+                DorisStreamLoader.LoadResponse response = loader.loadBatch(logBuffer, slowLog, token);
                 LOG.debug("audit loader response: {}", response);
             } catch (Exception e) {
                 LOG.debug("encounter exception when putting current audit batch, discard current batch", e);
@@ -248,6 +257,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         public static final String PROP_ENABLE_SLOW_LOG = "enable_slow_log";
         // the max stmt length to be loaded in audit table.
         public static final String MAX_STMT_LENGTH = "max_stmt_length";
+        public static final String USE_AUTH_TOKEN = "use_auth_token";
 
         public long maxBatchSize = 50 * 1024 * 1024;
         public long maxBatchIntervalSec = 60;
@@ -262,6 +272,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         // the identity of FE which run this plugin
         public String feIdentity = "";
         public int max_stmt_length = 4096;
+        // auth_token is not used by default
+        public boolean use_auth_token = false;
+        
 
         public void init(Map<String, String> properties) throws PluginException {
             try {
@@ -301,6 +314,9 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
                 }
                 if (properties.containsKey(MAX_STMT_LENGTH)) {
                     max_stmt_length = Integer.parseInt(properties.get(MAX_STMT_LENGTH));
+                }
+                if (properties.containsKey(USE_AUTH_TOKEN)) {
+                    use_auth_token = Boolean.valueOf(properties.get(USE_AUTH_TOKEN));
                 }
             } catch (Exception e) {
                 throw new PluginException(e.getMessage());

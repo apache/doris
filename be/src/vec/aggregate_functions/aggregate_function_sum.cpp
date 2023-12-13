@@ -27,6 +27,8 @@ namespace doris::vectorized {
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("sum", creator_with_type::creator<AggregateFunctionSumSimple>);
+    factory.register_function_both(
+            "sum_decimal256", creator_with_type::creator<AggregateFunctionSumSimpleDecimal256>);
 }
 
 } // namespace doris::vectorized

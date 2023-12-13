@@ -127,6 +127,10 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::INT64;
     case TypeIndex::Int128:
         return PGenericType::INT128;
+    case TypeIndex::IPv4:
+        return PGenericType::IPV4;
+    case TypeIndex::IPv6:
+        return PGenericType::IPV6;
     case TypeIndex::Float32:
         return PGenericType::FLOAT;
     case TypeIndex::Float64:
@@ -139,6 +143,8 @@ PGenericType_TypeId IDataType::get_pdata_type(const IDataType* data_type) {
         return PGenericType::DECIMAL128;
     case TypeIndex::Decimal128I:
         return PGenericType::DECIMAL128I;
+    case TypeIndex::Decimal256:
+        return PGenericType::DECIMAL256;
     case TypeIndex::String:
         return PGenericType::STRING;
     case TypeIndex::Date:

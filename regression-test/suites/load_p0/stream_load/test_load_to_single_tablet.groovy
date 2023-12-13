@@ -17,17 +17,6 @@
 
 import groovy.json.JsonSlurper
 
-/**
- *   @Params url is "/xxx"
- *   @Return response body
- */
-def http_get(url) {
-    def conn = new URL(url).openConnection()
-    conn.setRequestMethod("GET")
-    //token for root
-    return conn.getInputStream().getText()
-}
-
 suite("test_load_to_single_tablet", "p0") {
     sql "show tables"
 
@@ -65,25 +54,19 @@ suite("test_load_to_single_tablet", "p0") {
 
     sql "sync"
     def totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 10)
+    assertEquals(10, totalCount[0][0])
     def res = sql "show tablets from ${tableName}"
-    def tabletMetaUrl1 = res[0][17]
-    def tabletMetaUrl2 = res[1][17]
-    def tabletMetaUrl3 = res[2][17]
-    def tabletMetaRes1 = http_get(tabletMetaUrl1)
-    def tabletMetaRes2 = http_get(tabletMetaUrl2)
-    def tabletMetaRes3 = http_get(tabletMetaUrl3)
+    def tablet1 = res[0][0]
+    def tablet2 = res[1][0]
+    def tablet3 = res[2][0]
+    def rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
+    def rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
+    def rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
 
-    def obj1 = new JsonSlurper().parseText(tabletMetaRes1)
-    def obj2 = new JsonSlurper().parseText(tabletMetaRes2)
-    def obj3 = new JsonSlurper().parseText(tabletMetaRes3)
-    def rowCount1 = obj1.rs_metas[0].num_rows + obj1.rs_metas[1].num_rows
-    def rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows
-    def rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows
-
-    assertEquals(rowCount1, 10)
-    assertEquals(rowCount2, 0)
-    assertEquals(rowCount3, 0)
+    assertEquals(10, rowCount1[0][0])
+    assertEquals(0, rowCount2[0][0])
+    assertEquals(0, rowCount3[0][0])
+    
 
     // load second time
     streamLoad {
@@ -98,21 +81,13 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 20)
-    tabletMetaRes1 = http_get(tabletMetaUrl1)
-    tabletMetaRes2 = http_get(tabletMetaUrl2)
-    tabletMetaRes3 = http_get(tabletMetaUrl3)
-
-    obj1 = new JsonSlurper().parseText(tabletMetaRes1)
-    obj2 = new JsonSlurper().parseText(tabletMetaRes2)
-    obj3 = new JsonSlurper().parseText(tabletMetaRes3)
-
-    rowCount1 = obj1.rs_metas[0].num_rows + obj1.rs_metas[1].num_rows + obj1.rs_metas[2].num_rows
-    rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows + obj2.rs_metas[2].num_rows
-    rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows + obj3.rs_metas[2].num_rows
-    assertEquals(rowCount1, 10)
-    assertEquals(rowCount2, 10)
-    assertEquals(rowCount3, 0)
+    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
+    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
+    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
+    assertEquals(20, totalCount[0][0])
+    assertEquals(10, rowCount1[0][0])
+    assertEquals(10, rowCount2[0][0])
+    assertEquals(0, rowCount3[0][0])
 
     // load third time
     streamLoad {
@@ -127,23 +102,16 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 30)
-    tabletMetaRes1 = http_get(tabletMetaUrl1)
-    tabletMetaRes2 = http_get(tabletMetaUrl2)
-    tabletMetaRes3 = http_get(tabletMetaUrl3)
-
-    obj1 = new JsonSlurper().parseText(tabletMetaRes1)
-    obj2 = new JsonSlurper().parseText(tabletMetaRes2)
-    obj3 = new JsonSlurper().parseText(tabletMetaRes3)
-
-    rowCount1 = obj1.rs_metas[0].num_rows + obj1.rs_metas[1].num_rows + obj1.rs_metas[2].num_rows + obj1.rs_metas[3].num_rows
-    rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows + obj2.rs_metas[2].num_rows + obj2.rs_metas[3].num_rows
-    rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows + obj3.rs_metas[2].num_rows + obj3.rs_metas[3].num_rows
-    assertEquals(rowCount1, 10)
-    assertEquals(rowCount2, 10)
-    assertEquals(rowCount3, 10)
+    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
+    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
+    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
+    assertEquals(30, totalCount[0][0])
+    assertEquals(10, rowCount1[0][0])
+    assertEquals(10, rowCount2[0][0])
+    assertEquals(10, rowCount3[0][0])
 
     // test partitioned table
+    tableName = "test_load_to_single_tablet_partitioned"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
         CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -180,40 +148,27 @@ suite("test_load_to_single_tablet", "p0") {
 
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 10)
+    assertEquals(10, totalCount[0][0])
     res = sql "show tablets from ${tableName} partitions(p20231011, p20231012)"
-    tabletMetaUrl1 = res[0][17]
-    tabletMetaUrl2 = res[1][17]
-    tabletMetaUrl3 = res[2][17]
-    tabletMetaUrl4 = res[10][17]
-    tabletMetaUrl5 = res[11][17]
-    tabletMetaUrl6 = res[12][17]
-    tabletMetaRes1 = http_get(tabletMetaUrl1)
-    tabletMetaRes2 = http_get(tabletMetaUrl2)
-    tabletMetaRes3 = http_get(tabletMetaUrl3)
-    tabletMetaRes4 = http_get(tabletMetaUrl4)
-    tabletMetaRes5 = http_get(tabletMetaUrl5)
-    tabletMetaRes6 = http_get(tabletMetaUrl6)
+    tablet1 = res[0][0]
+    tablet2 = res[1][0]
+    tablet3 = res[2][0]
+    tablet4 = res[10][0]
+    tablet5 = res[11][0]
+    tablet6 = res[12][0]
 
-    obj1 = new JsonSlurper().parseText(tabletMetaRes1)
-    obj2 = new JsonSlurper().parseText(tabletMetaRes2)
-    obj3 = new JsonSlurper().parseText(tabletMetaRes3)
-    obj4 = new JsonSlurper().parseText(tabletMetaRes4)
-    obj5 = new JsonSlurper().parseText(tabletMetaRes5)
-    obj6 = new JsonSlurper().parseText(tabletMetaRes6)
-
-    rowCount1 = obj1.rs_metas[0].num_rows + obj1.rs_metas[1].num_rows
-    rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows
-    rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows
-    def rowCount4 = obj4.rs_metas[0].num_rows + obj4.rs_metas[1].num_rows
-    def rowCount5 = obj5.rs_metas[0].num_rows + obj5.rs_metas[1].num_rows
-    def rowCount6 = obj6.rs_metas[0].num_rows + obj6.rs_metas[1].num_rows
-    assertEquals(rowCount1, 5)
-    assertEquals(rowCount2, 0)
-    assertEquals(rowCount3, 0)
-    assertEquals(rowCount4, 5)
-    assertEquals(rowCount5, 0)
-    assertEquals(rowCount6, 0)
+    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
+    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
+    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
+    def rowCount4 = sql "select count() from ${tableName} tablet(${tablet4})"
+    def rowCount5 = sql "select count() from ${tableName} tablet(${tablet5})"
+    def rowCount6 = sql "select count() from ${tableName} tablet(${tablet6})"
+    assertEquals(5, rowCount1[0][0])
+    assertEquals(0, rowCount2[0][0])
+    assertEquals(0, rowCount3[0][0])
+    assertEquals(5, rowCount4[0][0])
+    assertEquals(0, rowCount5[0][0])
+    assertEquals(0, rowCount6[0][0])
 
     // load second time
     streamLoad {
@@ -228,33 +183,19 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 20)
-    tabletMetaRes1 = http_get(tabletMetaUrl1)
-    tabletMetaRes2 = http_get(tabletMetaUrl2)
-    tabletMetaRes3 = http_get(tabletMetaUrl3)
-    tabletMetaRes4 = http_get(tabletMetaUrl4)
-    tabletMetaRes5 = http_get(tabletMetaUrl5)
-    tabletMetaRes6 = http_get(tabletMetaUrl6)
-
-    obj1 = new JsonSlurper().parseText(tabletMetaRes1)
-    obj2 = new JsonSlurper().parseText(tabletMetaRes2)
-    obj3 = new JsonSlurper().parseText(tabletMetaRes3)
-    obj4 = new JsonSlurper().parseText(tabletMetaRes4)
-    obj5 = new JsonSlurper().parseText(tabletMetaRes5)
-    obj6 = new JsonSlurper().parseText(tabletMetaRes6)
-
-    rowCount1 = obj1.rs_metas[0].num_rows + obj1.rs_metas[1].num_rows + obj1.rs_metas[2].num_rows
-    rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows + obj2.rs_metas[2].num_rows
-    rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows + obj3.rs_metas[2].num_rows
-    rowCount4 = obj4.rs_metas[0].num_rows + obj4.rs_metas[1].num_rows + obj4.rs_metas[2].num_rows
-    rowCount5 = obj5.rs_metas[0].num_rows + obj5.rs_metas[1].num_rows + obj5.rs_metas[2].num_rows
-    rowCount6 = obj6.rs_metas[0].num_rows + obj6.rs_metas[1].num_rows + obj6.rs_metas[2].num_rows
-    assertEquals(rowCount1, 5)
-    assertEquals(rowCount2, 5)
-    assertEquals(rowCount3, 0)
-    assertEquals(rowCount4, 5)
-    assertEquals(rowCount5, 5)
-    assertEquals(rowCount6, 0)
+    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
+    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
+    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
+    rowCount4 = sql "select count() from ${tableName} tablet(${tablet4})"
+    rowCount5 = sql "select count() from ${tableName} tablet(${tablet5})"
+    rowCount6 = sql "select count() from ${tableName} tablet(${tablet6})"
+    assertEquals(20, totalCount[0][0])
+    assertEquals(5, rowCount1[0][0])
+    assertEquals(5, rowCount2[0][0])
+    assertEquals(0, rowCount3[0][0])
+    assertEquals(5, rowCount4[0][0])
+    assertEquals(5, rowCount5[0][0])
+    assertEquals(0, rowCount6[0][0])
 
     // load third time
     streamLoad {
@@ -269,32 +210,18 @@ suite("test_load_to_single_tablet", "p0") {
     }
     sql "sync"
     totalCount = sql "select count() from ${tableName}"
-    assertEquals(totalCount[0][0], 30)
-    tabletMetaRes1 = http_get(tabletMetaUrl1)
-    tabletMetaRes2 = http_get(tabletMetaUrl2)
-    tabletMetaRes3 = http_get(tabletMetaUrl3)
-    tabletMetaRes4 = http_get(tabletMetaUrl4)
-    tabletMetaRes5 = http_get(tabletMetaUrl5)
-    tabletMetaRes6 = http_get(tabletMetaUrl6)
-
-    obj1 = new JsonSlurper().parseText(tabletMetaRes1)
-    obj2 = new JsonSlurper().parseText(tabletMetaRes2)
-    obj3 = new JsonSlurper().parseText(tabletMetaRes3)
-    obj4 = new JsonSlurper().parseText(tabletMetaRes4)
-    obj5 = new JsonSlurper().parseText(tabletMetaRes5)
-    obj6 = new JsonSlurper().parseText(tabletMetaRes6)
-
-    rowCount1 = obj1.rs_metas[0].num_rows + obj1.rs_metas[1].num_rows + obj1.rs_metas[2].num_rows + obj1.rs_metas[3].num_rows
-    rowCount2 = obj2.rs_metas[0].num_rows + obj2.rs_metas[1].num_rows + obj2.rs_metas[2].num_rows + obj2.rs_metas[3].num_rows
-    rowCount3 = obj3.rs_metas[0].num_rows + obj3.rs_metas[1].num_rows + obj3.rs_metas[2].num_rows + obj3.rs_metas[3].num_rows
-    rowCount4 = obj4.rs_metas[0].num_rows + obj4.rs_metas[1].num_rows + obj4.rs_metas[2].num_rows + obj4.rs_metas[3].num_rows
-    rowCount5 = obj5.rs_metas[0].num_rows + obj5.rs_metas[1].num_rows + obj5.rs_metas[2].num_rows + obj5.rs_metas[3].num_rows
-    rowCount6 = obj6.rs_metas[0].num_rows + obj6.rs_metas[1].num_rows + obj6.rs_metas[2].num_rows + obj6.rs_metas[3].num_rows
-    assertEquals(rowCount1, 5)
-    assertEquals(rowCount2, 5)
-    assertEquals(rowCount3, 5)
-    assertEquals(rowCount4, 5)
-    assertEquals(rowCount5, 5)
-    assertEquals(rowCount6, 5)
+    rowCount1 = sql "select count() from ${tableName} tablet(${tablet1})"
+    rowCount2 = sql "select count() from ${tableName} tablet(${tablet2})"
+    rowCount3 = sql "select count() from ${tableName} tablet(${tablet3})"
+    rowCount4 = sql "select count() from ${tableName} tablet(${tablet4})"
+    rowCount5 = sql "select count() from ${tableName} tablet(${tablet5})"
+    rowCount6 = sql "select count() from ${tableName} tablet(${tablet6})"
+    assertEquals(30, totalCount[0][0])
+    assertEquals(5, rowCount1[0][0])
+    assertEquals(5, rowCount2[0][0])
+    assertEquals(5, rowCount3[0][0])
+    assertEquals(5, rowCount4[0][0])
+    assertEquals(5, rowCount5[0][0])
+    assertEquals(5, rowCount6[0][0])
 }
 

@@ -104,6 +104,16 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+inline bool is_final_state(PipelineTaskState idx) {
+    switch (idx) {
+    case PipelineTaskState::FINISHED:
+    case PipelineTaskState::CANCELED:
+        return true;
+    default:
+        return false;
+    }
+}
+
 class TaskQueue;
 class PriorityTaskQueue;
 
@@ -116,8 +126,6 @@ public:
     PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
                  PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile);
     virtual ~PipelineTask() = default;
-
-    PipelineTask() = default;
 
     virtual Status prepare(RuntimeState* state);
 
@@ -135,7 +143,7 @@ public:
         _wait_worker_watcher.start();
     }
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
-    PipelineTaskState get_state() { return _cur_state; }
+    PipelineTaskState get_state() const { return _cur_state; }
     void set_state(PipelineTaskState state);
 
     virtual bool is_pending_finish() {
@@ -163,7 +171,7 @@ public:
 
     virtual bool sink_can_write() { return _sink->can_write() || _pipeline->_always_can_write; }
 
-    virtual Status finalize();
+    virtual void finalize() {}
 
     PipelineFragmentContext* fragment_context() { return _fragment_context; }
 
@@ -184,7 +192,7 @@ public:
         _previous_schedule_id = id;
     }
 
-    bool has_dependency();
+    virtual bool has_dependency();
 
     OperatorPtr get_root() { return _root; }
 
@@ -193,9 +201,9 @@ public:
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
     void set_task_queue(TaskQueue* task_queue);
+    TaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
-    static constexpr auto THREAD_TIME_SLICE_US = 100000L; // 100ms
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -249,16 +257,12 @@ public:
 
     TUniqueId instance_id() const { return _state->fragment_instance_id(); }
 
-    void set_empty_task(bool is_empty_task) { _is_empty_task = is_empty_task; }
+    void set_parent_profile(RuntimeProfile* profile) { _parent_profile = profile; }
 
-    bool is_empty_task() const { return _is_empty_task; }
+    virtual bool is_pipelineX() const { return false; }
 
-    void yield();
-
-    void set_task_group_entity(
-            taskgroup::TaskGroupEntity<std::queue<pipeline::PipelineTask*>>* empty_group_entity) {
-        _empty_group_entity = empty_group_entity;
-    }
+    bool is_running() { return _running.load(); }
+    void set_running(bool running) { _running = running; }
 
 protected:
     void _finish_p_dependency() {
@@ -277,13 +281,13 @@ protected:
 
     bool _prepared;
     bool _opened;
-    RuntimeState* _state;
+    RuntimeState* _state = nullptr;
     int _previous_schedule_id = -1;
     uint32_t _schedule_time = 0;
     PipelineTaskState _cur_state;
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
-    PipelineFragmentContext* _fragment_context;
+    PipelineFragmentContext* _fragment_context = nullptr;
     TaskQueue* _task_queue = nullptr;
 
     // used for priority queue
@@ -299,41 +303,34 @@ protected:
 
     bool _try_close_flag = false;
 
-    bool _is_empty_task = false;
-    taskgroup::TaskGroupEntity<std::queue<pipeline::PipelineTask*>>* _empty_group_entity;
-    int _core_num = CpuInfo::num_cores();
-    int _total_query_thread_num =
-            config::doris_scanner_thread_pool_thread_num + config::pipeline_executor_size;
-
-    RuntimeProfile* _parent_profile;
+    RuntimeProfile* _parent_profile = nullptr;
     std::unique_ptr<RuntimeProfile> _task_profile;
-    RuntimeProfile::Counter* _task_cpu_timer;
-    RuntimeProfile::Counter* _prepare_timer;
-    RuntimeProfile::Counter* _open_timer;
-    RuntimeProfile::Counter* _exec_timer;
-    RuntimeProfile::Counter* _get_block_timer;
-    RuntimeProfile::Counter* _get_block_counter;
-    RuntimeProfile::Counter* _sink_timer;
-    RuntimeProfile::Counter* _finalize_timer;
-    RuntimeProfile::Counter* _close_timer;
-    RuntimeProfile::Counter* _block_counts;
-    RuntimeProfile::Counter* _block_by_source_counts;
-    RuntimeProfile::Counter* _block_by_sink_counts;
-    RuntimeProfile::Counter* _schedule_counts;
+    RuntimeProfile::Counter* _task_cpu_timer = nullptr;
+    RuntimeProfile::Counter* _prepare_timer = nullptr;
+    RuntimeProfile::Counter* _open_timer = nullptr;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _get_block_timer = nullptr;
+    RuntimeProfile::Counter* _get_block_counter = nullptr;
+    RuntimeProfile::Counter* _sink_timer = nullptr;
+    RuntimeProfile::Counter* _close_timer = nullptr;
+    RuntimeProfile::Counter* _block_counts = nullptr;
+    RuntimeProfile::Counter* _block_by_source_counts = nullptr;
+    RuntimeProfile::Counter* _block_by_sink_counts = nullptr;
+    RuntimeProfile::Counter* _schedule_counts = nullptr;
     MonotonicStopWatch _wait_source_watcher;
-    RuntimeProfile::Counter* _wait_source_timer;
+    RuntimeProfile::Counter* _wait_source_timer = nullptr;
     MonotonicStopWatch _wait_bf_watcher;
-    RuntimeProfile::Counter* _wait_bf_timer;
-    RuntimeProfile::Counter* _wait_bf_counts;
+    RuntimeProfile::Counter* _wait_bf_timer = nullptr;
+    RuntimeProfile::Counter* _wait_bf_counts = nullptr;
     MonotonicStopWatch _wait_sink_watcher;
-    RuntimeProfile::Counter* _wait_sink_timer;
+    RuntimeProfile::Counter* _wait_sink_timer = nullptr;
     MonotonicStopWatch _wait_worker_watcher;
-    RuntimeProfile::Counter* _wait_worker_timer;
-    RuntimeProfile::Counter* _wait_dependency_counts;
-    RuntimeProfile::Counter* _pending_finish_counts;
+    RuntimeProfile::Counter* _wait_worker_timer = nullptr;
+    RuntimeProfile::Counter* _wait_dependency_counts = nullptr;
+    RuntimeProfile::Counter* _pending_finish_counts = nullptr;
     // TODO we should calculate the time between when really runnable and runnable
-    RuntimeProfile::Counter* _yield_counts;
-    RuntimeProfile::Counter* _core_change_times;
+    RuntimeProfile::Counter* _yield_counts = nullptr;
+    RuntimeProfile::Counter* _core_change_times = nullptr;
 
     // The monotonic time of the entire lifecycle of the pipelinetask, almost synchronized with the pipfragmentctx
     // There are several important time points:
@@ -345,31 +342,36 @@ protected:
     MonotonicStopWatch _pipeline_task_watcher;
     // time 1
     bool _is_first_time_to_execute = false;
-    RuntimeProfile::Counter* _begin_execute_timer;
+    RuntimeProfile::Counter* _begin_execute_timer = nullptr;
     int64_t _begin_execute_time = 0;
     // time 2
     bool _is_eos = false;
-    RuntimeProfile::Counter* _eos_timer;
+    RuntimeProfile::Counter* _eos_timer = nullptr;
     int64_t _eos_time = 0;
     //time 3
     bool _is_src_pending_finish_over = false;
-    RuntimeProfile::Counter* _src_pending_finish_over_timer;
+    RuntimeProfile::Counter* _src_pending_finish_over_timer = nullptr;
     int64_t _src_pending_finish_over_time = 0;
     // time 4
     bool _is_dst_pending_finish_over = false;
-    RuntimeProfile::Counter* _dst_pending_finish_over_timer;
+    RuntimeProfile::Counter* _dst_pending_finish_over_timer = nullptr;
     int64_t _dst_pending_finish_over_time = 0;
     // time 5
     bool _is_close_pipeline = false;
-    RuntimeProfile::Counter* _close_pipeline_timer;
+    RuntimeProfile::Counter* _close_pipeline_timer = nullptr;
     int64_t _close_pipeline_time = 0;
 
-    RuntimeProfile::Counter* _pip_task_total_timer;
+    RuntimeProfile::Counter* _pip_task_total_timer = nullptr;
+    std::shared_ptr<QueryStatistics> _query_statistics;
+    Status _collect_query_statistics();
+    bool _collect_query_statistics_with_every_batch = false;
 
 private:
     Operators _operators; // left is _source, right is _root
     OperatorPtr _source;
     OperatorPtr _root;
     OperatorPtr _sink;
+
+    std::atomic<bool> _running {false};
 };
 } // namespace doris::pipeline

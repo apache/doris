@@ -50,8 +50,9 @@ class Pipeline : public std::enable_shared_from_this<Pipeline> {
 
 public:
     Pipeline() = delete;
-    explicit Pipeline(PipelineId pipeline_id, std::weak_ptr<PipelineFragmentContext> context)
-            : _pipeline_id(pipeline_id), _context(context) {
+    explicit Pipeline(PipelineId pipeline_id, int num_tasks,
+                      std::weak_ptr<PipelineFragmentContext> context)
+            : _pipeline_id(pipeline_id), _context(context), _num_tasks(num_tasks) {
         _init_profile();
     }
 
@@ -117,6 +118,31 @@ public:
     }
 
     [[nodiscard]] PipelineId id() const { return _pipeline_id; }
+    void set_is_root_pipeline() { _is_root_pipeline = true; }
+    bool is_root_pipeline() const { return _is_root_pipeline; }
+    void set_collect_query_statistics_with_every_batch() {
+        _collect_query_statistics_with_every_batch = true;
+    }
+    [[nodiscard]] bool collect_query_statistics_with_every_batch() const {
+        return _collect_query_statistics_with_every_batch;
+    }
+
+    bool need_to_local_shuffle() const { return _need_to_local_shuffle; }
+    void set_need_to_local_shuffle(bool need_to_local_shuffle) {
+        _need_to_local_shuffle = need_to_local_shuffle;
+    }
+    void init_need_to_local_shuffle_by_source() {
+        set_need_to_local_shuffle(operatorXs.front()->need_to_local_shuffle());
+    }
+
+    std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
+    void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
+    void set_children(std::vector<std::shared_ptr<Pipeline>> children) { _children = children; }
+
+    void incr_created_tasks() { _num_tasks_created++; }
+    bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
+    void set_num_tasks(int num_tasks) { _num_tasks = num_tasks; }
+    int num_tasks() const { return _num_tasks; }
 
 private:
     void _init_profile();
@@ -128,6 +154,8 @@ private:
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;
     std::vector<std::pair<int, std::shared_ptr<Pipeline>>> _dependencies;
 
+    std::vector<std::shared_ptr<Pipeline>> _children;
+
     PipelineId _pipeline_id;
     std::weak_ptr<PipelineFragmentContext> _context;
     int _previous_schedule_id = -1;
@@ -137,7 +165,7 @@ private:
     // Operators for pipelineX. All pipeline tasks share operators from this.
     // [SourceOperator -> ... -> SinkOperator]
     OperatorXs operatorXs;
-    DataSinkOperatorXPtr _sink_x;
+    DataSinkOperatorXPtr _sink_x = nullptr;
 
     std::shared_ptr<ObjectPool> _obj_pool;
 
@@ -168,6 +196,20 @@ private:
      */
     bool _always_can_read = false;
     bool _always_can_write = false;
+    bool _is_root_pipeline = false;
+    bool _collect_query_statistics_with_every_batch = false;
+
+    // If source operator meets one of all conditions below:
+    // 1. is scan operator with Hash Bucket
+    // 2. is exchange operator with Hash/BucketHash partition
+    // then set `_need_to_local_shuffle` to false which means we should use local shuffle in this fragment
+    // because data already be partitioned by storage/shuffling.
+    bool _need_to_local_shuffle = true;
+
+    // How many tasks should be created ?
+    int _num_tasks = 1;
+    // How many tasks are already created?
+    int _num_tasks_created = 0;
 };
 
 } // namespace doris::pipeline

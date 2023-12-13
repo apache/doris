@@ -570,4 +570,172 @@ TEST(VDateTimeValueTest, date_v2_to_string_test) {
     }
 }
 
+TEST(VDateTimeValueTest, date_v2_daynr_test) {
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // 1970/01/01
+        EXPECT_TRUE(date_v2.get_date_from_daynr(719528));
+        EXPECT_TRUE(date_v2.year() == 1970);
+        EXPECT_TRUE(date_v2.month() == 1);
+        EXPECT_TRUE(date_v2.day() == 1);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(1970, 1, 1) == 719528);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_TRUE(date_day_offset_dict::get().can_speed_up_calc_daynr(1970));
+        EXPECT_TRUE(date_day_offset_dict::get().can_speed_up_daynr_to_date(719528));
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // 1969/12/31
+        EXPECT_TRUE(date_v2.get_date_from_daynr(719527));
+        EXPECT_TRUE(date_v2.year() == 1969);
+        EXPECT_TRUE(date_v2.month() == 12);
+        EXPECT_TRUE(date_v2.day() == 31);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(1969, 12, 31) == 719527);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_TRUE(date_day_offset_dict::get().can_speed_up_calc_daynr(1969));
+        EXPECT_TRUE(date_day_offset_dict::get().can_speed_up_daynr_to_date(719527));
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // 1900/01/01
+        EXPECT_TRUE(date_v2.get_date_from_daynr(693961));
+        EXPECT_TRUE(date_v2.year() == 1900);
+        EXPECT_TRUE(date_v2.month() == 1);
+        EXPECT_TRUE(date_v2.day() == 1);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(1900, 1, 1) == 693961);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_TRUE(date_day_offset_dict::get().can_speed_up_calc_daynr(1900));
+        EXPECT_TRUE(date_day_offset_dict::get().can_speed_up_daynr_to_date(693961));
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // 1899/12/31
+        EXPECT_TRUE(date_v2.get_date_from_daynr(693960));
+        EXPECT_TRUE(date_v2.year() == 1899);
+        EXPECT_TRUE(date_v2.month() == 12);
+        EXPECT_TRUE(date_v2.day() == 31);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(1899, 12, 31) == 693960);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_calc_daynr(1899));
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_daynr_to_date(693960));
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // 2039/12/31
+        EXPECT_TRUE(date_v2.get_date_from_daynr(745094));
+        EXPECT_TRUE(date_v2.year() == 2039);
+        EXPECT_TRUE(date_v2.month() == 12);
+        EXPECT_TRUE(date_v2.day() == 31);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(2039, 12, 31) == 745094);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_TRUE(date_day_offset_dict::get().can_speed_up_calc_daynr(2039));
+        EXPECT_TRUE(date_day_offset_dict::get().can_speed_up_daynr_to_date(745094));
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // 2040/01/01
+        EXPECT_TRUE(date_v2.get_date_from_daynr(745095));
+        EXPECT_TRUE(date_v2.year() == 2040);
+        EXPECT_TRUE(date_v2.month() == 1);
+        EXPECT_TRUE(date_v2.day() == 1);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(2040, 01, 01) == 745095);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_calc_daynr(2040));
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_daynr_to_date(745095));
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // 0000/01/01
+        EXPECT_TRUE(date_v2.get_date_from_daynr(1));
+        EXPECT_TRUE(date_v2.year() == 0);
+        EXPECT_TRUE(date_v2.month() == 1);
+        EXPECT_TRUE(date_v2.day() == 1);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(0, 01, 01) == 1);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_calc_daynr(0));
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_daynr_to_date(1));
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // Invalid date 0000/00/01
+        EXPECT_TRUE(date_v2.year() == 0);
+        EXPECT_TRUE(date_v2.month() == 0);
+        EXPECT_TRUE(date_v2.day() == 0);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(0, 0, 1) == 0);
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // 9999/12/31
+        EXPECT_TRUE(date_v2.get_date_from_daynr(3652424));
+        EXPECT_TRUE(date_v2.year() == 9999);
+        EXPECT_TRUE(date_v2.month() == 12);
+        EXPECT_TRUE(date_v2.day() == 31);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(9999, 12, 31) == 3652424);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_calc_daynr(9999));
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_daynr_to_date(3652424));
+    }
+
+    {
+        DateV2Value<DateV2ValueType> date_v2;
+        // Invalid date 10000/01/01
+        EXPECT_FALSE(date_v2.get_date_from_daynr(3652425));
+        EXPECT_TRUE(date_v2.year() == 0);
+        EXPECT_TRUE(date_v2.month() == 0);
+        EXPECT_TRUE(date_v2.day() == 0);
+        EXPECT_TRUE(date_v2.hour() == 0);
+        EXPECT_TRUE(date_v2.minute() == 0);
+        EXPECT_TRUE(date_v2.second() == 0);
+        EXPECT_TRUE(date_v2.microsecond() == 0);
+        EXPECT_TRUE(doris::calc_daynr(10000, 01, 01) == 3652425);
+        EXPECT_TRUE(date_day_offset_dict::get().get_dict_init());
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_calc_daynr(10000));
+        EXPECT_FALSE(date_day_offset_dict::get().can_speed_up_daynr_to_date(3652425));
+    }
+}
+
 } // namespace doris::vectorized

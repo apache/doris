@@ -238,13 +238,6 @@ public:
 
     virtual bool is_deterministic_in_scope_of_query() const = 0;
 
-    /** Lets you know if the function is monotonic in a range of values.
-      * This is used to work with the index in a sorted chunk of data.
-      * And allows to use the index not only when it is written, for example `date >= const`, but also, for example, `toMonth(date) >= 11`.
-      * All this is considered only for functions of one argument.
-      */
-    virtual bool has_information_about_monotonicity() const { return false; }
-
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
     /// The property of monotonicity for a certain range.
@@ -583,10 +576,6 @@ public:
         return function->is_deterministic_in_scope_of_query();
     }
 
-    bool has_information_about_monotonicity() const override {
-        return function->has_information_about_monotonicity();
-    }
-
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                                            const Field& right) const override {
         return function->get_monotonicity_for_range(type, left, right);
@@ -682,11 +671,12 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Float32, ColumnFloat32)          \
     M(Float64, ColumnFloat64)
 
-#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)       \
-    M(Decimal32, ColumnDecimal<Decimal32>)   \
-    M(Decimal64, ColumnDecimal<Decimal64>)   \
-    M(Decimal128, ColumnDecimal<Decimal128>) \
-    M(Decimal128I, ColumnDecimal<Decimal128I>)
+#define DECIMAL_TYPE_TO_COLUMN_TYPE(M)         \
+    M(Decimal32, ColumnDecimal<Decimal32>)     \
+    M(Decimal64, ColumnDecimal<Decimal64>)     \
+    M(Decimal128, ColumnDecimal<Decimal128>)   \
+    M(Decimal128I, ColumnDecimal<Decimal128I>) \
+    M(Decimal256, ColumnDecimal<Decimal256>)
 
 #define STRING_TYPE_TO_COLUMN_TYPE(M) \
     M(String, ColumnString)           \
@@ -698,10 +688,15 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(DateV2, ColumnUInt32)         \
     M(DateTimeV2, ColumnUInt64)
 
+#define IP_TYPE_TO_COLUMN_TYPE(M) \
+    M(IPv4, ColumnIPv4)           \
+    M(IPv6, ColumnIPv6)
+
 #define COMPLEX_TYPE_TO_COLUMN_TYPE(M) \
     M(Array, ColumnArray)              \
     M(Map, ColumnMap)                  \
     M(Struct, ColumnStruct)            \
+    M(VARIANT, ColumnObject)           \
     M(BitMap, ColumnBitmap)            \
     M(HLL, ColumnHLL)
 
@@ -709,7 +704,8 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \
     DECIMAL_TYPE_TO_COLUMN_TYPE(M)   \
     STRING_TYPE_TO_COLUMN_TYPE(M)    \
-    TIME_TYPE_TO_COLUMN_TYPE(M)
+    TIME_TYPE_TO_COLUMN_TYPE(M)      \
+    IP_TYPE_TO_COLUMN_TYPE(M)
 
 #define TYPE_TO_COLUMN_TYPE(M)   \
     TYPE_TO_BASIC_COLUMN_TYPE(M) \

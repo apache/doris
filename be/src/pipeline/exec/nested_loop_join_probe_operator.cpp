@@ -34,25 +34,24 @@ OPERATOR_CODE_GENERATOR(NestLoopJoinProbeOperator, StatefulOperator)
 
 Status NestLoopJoinProbeOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_left_block());
+    _child_block = _node->get_left_block();
     return StatefulOperator::prepare(state);
 }
 
 Status NestLoopJoinProbeOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 
 NestedLoopJoinProbeLocalState::NestedLoopJoinProbeLocalState(RuntimeState* state,
                                                              OperatorXBase* parent)
-        : JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState>(state,
-                                                                                       parent),
+        : JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>(state,
+                                                                                            parent),
           _matched_rows_done(false),
           _left_block_pos(0) {}
 
 Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(JoinProbeLocalState::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<NestedLoopJoinProbeOperatorX>();
     _join_conjuncts.resize(p._join_conjuncts.size());
@@ -66,7 +65,7 @@ Status NestedLoopJoinProbeLocalState::init(RuntimeState* state, LocalStateInfo& 
 }
 
 Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
@@ -75,7 +74,7 @@ Status NestedLoopJoinProbeLocalState::close(RuntimeState* state) {
 
     _tuple_is_null_left_flag_column = nullptr;
     _tuple_is_null_right_flag_column = nullptr;
-    return JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState>::close(
+    return JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>::close(
             state);
 }
 
@@ -255,7 +254,7 @@ void NestedLoopJoinProbeLocalState::_finalize_current_phase(vectorized::MutableB
                             .data();
             const auto num_rows = cur_block.rows();
 
-            std::vector<int> selector(num_rows);
+            std::vector<uint32_t> selector(num_rows);
             size_t selector_idx = 0;
             for (size_t j = 0; j < num_rows; j++) {
                 if constexpr (IsSemi) {
@@ -438,8 +437,9 @@ void NestedLoopJoinProbeLocalState::_process_left_child_block(
 }
 
 NestedLoopJoinProbeOperatorX::NestedLoopJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+                                                           int operator_id,
                                                            const DescriptorTbl& descs)
-        : JoinProbeOperatorX<NestedLoopJoinProbeLocalState>(pool, tnode, descs),
+        : JoinProbeOperatorX<NestedLoopJoinProbeLocalState>(pool, tnode, operator_id, descs),
           _is_output_left_side_only(tnode.nested_loop_join_node.__isset.is_output_left_side_only &&
                                     tnode.nested_loop_join_node.is_output_left_side_only),
           _old_version_flag(!tnode.__isset.nested_loop_join_node) {}
@@ -478,14 +478,15 @@ Status NestedLoopJoinProbeOperatorX::open(RuntimeState* state) {
 }
 
 bool NestedLoopJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
-    auto& local_state = state->get_local_state(id())->cast<NestedLoopJoinProbeLocalState>();
+    auto& local_state =
+            state->get_local_state(operator_id())->cast<NestedLoopJoinProbeLocalState>();
     return local_state._need_more_input_data and !local_state._shared_state->left_side_eos and
            local_state._join_block.rows() == 0;
 }
 
 Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized::Block* block,
                                           SourceState source_state) const {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     COUNTER_UPDATE(local_state._probe_rows_counter, block->rows());
     local_state._cur_probe_row_visited_flags.resize(block->rows());
     std::fill(local_state._cur_probe_row_visited_flags.begin(),
@@ -511,7 +512,7 @@ Status NestedLoopJoinProbeOperatorX::push(doris::RuntimeState* state, vectorized
 
 Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) const {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
+    auto& local_state = get_local_state(state);
     if (_is_output_left_side_only) {
         RETURN_IF_ERROR(local_state._build_output_block(local_state._child_block.get(), block));
         source_state =
@@ -561,11 +562,6 @@ Status NestedLoopJoinProbeOperatorX::pull(RuntimeState* state, vectorized::Block
 
     local_state.reached_limit(block, source_state);
     return Status::OK();
-}
-
-Dependency* NestedLoopJoinProbeOperatorX::wait_for_dependency(RuntimeState* state) {
-    CREATE_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-    return local_state._dependency->read_blocked_by();
 }
 
 } // namespace doris::pipeline

@@ -67,4 +67,62 @@ suite("test_set_operation") {
                     WHERE a = 3 ) ) ) ) c
                 ORDER BY  one_uid;
     """
+
+    sql """
+        drop table if exists test_A;
+    """
+
+    sql """
+        drop table if exists test_B;
+    """
+
+    sql """
+        CREATE TABLE `test_A` ( 
+        `stat_day` varchar(200) NOT NULL ,
+        `sku_code` varchar(200) NOT NULL ,
+        `site_code` varchar(200) NOT NULL )
+        ENGINE = OLAP DUPLICATE KEY(`stat_day`) COMMENT '' 
+        DISTRIBUTED BY HASH(`stat_day`,`sku_code`,`site_code`) BUCKETS 16 
+        PROPERTIES ( 
+        "replication_allocation" = "tag.location.default: 1",
+        "is_being_synced" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false" );
+    """
+
+
+    sql """
+        CREATE TABLE `test_B` ( 
+        `stat_day` varchar(200) NULL,
+        `sku_code` varchar(200) NULL ) 
+        ENGINE = OLAP DUPLICATE KEY(`stat_day`) COMMENT '-' 
+        DISTRIBUTED BY HASH(`stat_day`,`sku_code`) BUCKETS 16 
+        PROPERTIES ( 
+        "replication_allocation" = "tag.location.default: 1",
+        "is_being_synced" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false" );
+    """
+
+    sql """
+        insert into test_A values("aa","aaaa","aaaaaa");
+    """
+
+    sql """
+        insert into test_B values("bb","bbbb");
+    """
+
+    sql """
+        set experimental_enable_nereids_planner = false;
+    """
+
+    qt_select1  """  SELECT DISTINCT * FROM((SELECT sku_code FROM test_B) INTERSECT (SELECT sku_code FROM test_B) UNION (SELECT sku_code FROM test_A)) as t order by 1; """
+
+    sql """
+        set experimental_enable_nereids_planner = true;
+    """
+    qt_select1  """  SELECT DISTINCT * FROM((SELECT sku_code FROM test_B) INTERSECT (SELECT sku_code FROM test_B) UNION (SELECT sku_code FROM test_A)) as t order by 1; """
+
 }

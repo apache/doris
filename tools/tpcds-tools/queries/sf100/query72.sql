@@ -1,3 +1,5 @@
+set max_join_number_bushy_tree=10;
+set memo_max_group_expression_size=15000;
 select  i_item_desc
       ,w_warehouse_name
       ,d1.d_week_seq

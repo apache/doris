@@ -450,7 +450,7 @@ public class SimplifyRange extends AbstractExpressionRewriteRule {
         @Override
         public ValueDesc intersect(ValueDesc other) {
             Expression originExpr = ExpressionUtils.and(expr, other.expr);
-            return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::or);
+            return new UnknownValue(ImmutableList.of(this, other), originExpr, ExpressionUtils::and);
         }
 
         @Override

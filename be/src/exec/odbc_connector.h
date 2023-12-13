@@ -43,7 +43,7 @@ struct ODBCConnectorParam {
     // only use in insert
     std::string table_name;
     bool use_transaction = false;
-    const TupleDescriptor* tuple_desc;
+    const TupleDescriptor* tuple_desc = nullptr;
 };
 
 // Because the DataBinding have the mem alloc, so

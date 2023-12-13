@@ -104,14 +104,14 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     // catalog
     {
         if (!_db_result.__isset.catalogs) {
-            static_cast<void>(fill_dest_column_for_range(block, 0, null_datas));
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas));
         } else {
             StringRef strs[dbs_num];
             for (int i = 0; i < dbs_num; ++i) {
                 strs[i] = StringRef(_db_result.catalogs[i].c_str(), _db_result.catalogs[i].size());
                 datas[i] = strs + i;
             }
-            static_cast<void>(fill_dest_column_for_range(block, 0, datas));
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
         }
     }
     // schema
@@ -123,7 +123,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(db_names[i].c_str(), db_names[i].size());
             datas[i] = strs + i;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 1, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // DEFAULT_CHARACTER_SET_NAME
     {
@@ -132,7 +132,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < dbs_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 2, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // DEFAULT_COLLATION_NAME
     {
@@ -141,10 +141,10 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < dbs_num; ++i) {
             datas[i] = &str;
         }
-        static_cast<void>(fill_dest_column_for_range(block, 3, datas));
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // SQL_PATH
-    { static_cast<void>(fill_dest_column_for_range(block, 4, null_datas)); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, null_datas)); }
     return Status::OK();
 }
 

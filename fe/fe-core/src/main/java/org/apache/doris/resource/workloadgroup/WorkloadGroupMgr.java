@@ -40,6 +40,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TPipelineWorkloadGroup;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -52,6 +53,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -62,20 +65,70 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public static final String DEFAULT_GROUP_NAME = "normal";
     public static final ImmutableList<String> WORKLOAD_GROUP_PROC_NODE_TITLE_NAMES = new ImmutableList.Builder<String>()
-            .add("Id").add("Name").add("Item").add("Value")
+            .add("Id").add("Name").add(WorkloadGroup.CPU_SHARE).add(WorkloadGroup.MEMORY_LIMIT)
+            .add(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT)
+            .add(WorkloadGroup.MAX_CONCURRENCY).add(WorkloadGroup.MAX_QUEUE_SIZE)
+            .add(WorkloadGroup.QUEUE_TIMEOUT).add(WorkloadGroup.CPU_HARD_LIMIT)
+            .add(QueryQueue.RUNNING_QUERY_NUM).add(QueryQueue.WAITING_QUERY_NUM)
             .build();
 
     private static final Logger LOG = LogManager.getLogger(WorkloadGroupMgr.class);
     @SerializedName(value = "idToWorkloadGroup")
     private final Map<Long, WorkloadGroup> idToWorkloadGroup = Maps.newHashMap();
     private final Map<String, WorkloadGroup> nameToWorkloadGroup = Maps.newHashMap();
+    private final Map<Long, QueryQueue> idToQueryQueue = Maps.newHashMap();
     private final ResourceProcNode procNode = new ResourceProcNode();
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
-    public static final String QUERY_CPU_HARD_LIMIT = "query_cpu_hard_limit";
-    private int queryCPUHardLimit = 0;
-    // works when user not set cpu hard limit, we fill a default value
-    private int cpuHardLimitDefaultVal = 0;
+    private Thread updatePropThread;
+
+    public void startUpdateThread() {
+        WorkloadGroupMgr wgMgr = this;
+        updatePropThread = new Thread(new Runnable() {
+            public void run() {
+                while (true) {
+                    try {
+                        wgMgr.resetQueryQueueProp();
+                        Thread.sleep(Config.query_queue_update_interval_ms);
+                    } catch (Throwable e) {
+                        LOG.warn("reset query queue failed ", e);
+                    }
+                }
+            }
+        });
+        updatePropThread.start();
+    }
+
+    public void resetQueryQueueProp() {
+        List<QueryQueue> newPropList = new ArrayList<>();
+        Map<Long, QueryQueue> currentQueueCopyMap = new HashMap<>();
+        readLock();
+        try {
+            for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
+                WorkloadGroup wg = entry.getValue();
+                QueryQueue tmpQ = new QueryQueue(wg.getId(), wg.getMaxConcurrency(),
+                        wg.getMaxQueueSize(), wg.getQueueTimeout(), wg.getVersion());
+                newPropList.add(tmpQ);
+            }
+            for (Map.Entry<Long, QueryQueue> entry : idToQueryQueue.entrySet()) {
+                currentQueueCopyMap.put(entry.getKey(), entry.getValue());
+            }
+        } finally {
+            readUnlock();
+        }
+
+        for (QueryQueue newPropQq : newPropList) {
+            QueryQueue currentQueryQueue = currentQueueCopyMap.get(newPropQq.getWgId());
+            if (currentQueryQueue == null) {
+                continue;
+            }
+            if (newPropQq.getPropVersion() > currentQueryQueue.getPropVersion()) {
+                currentQueryQueue.resetQueueProperty(newPropQq.getMaxConcurrency(), newPropQq.getMaxQueueSize(),
+                        newPropQq.getQueueTimeout(), newPropQq.getPropVersion());
+            }
+            LOG.debug(currentQueryQueue.debugString()); // for test debug
+        }
+    }
 
     public WorkloadGroupMgr() {
     }
@@ -124,20 +177,29 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 throw new UserException("Workload group " + groupName + " does not exist");
             }
             workloadGroups.add(workloadGroup.toThrift());
-            // note(wb) -1 to tell be no need to update cgroup
-            int thriftVal = -1;
-            if (Config.enable_cpu_hard_limit) {
-                // reset cpu_share according to cpu hard limit
-                int cpuHardLimitShare = workloadGroup.getCpuHardLimit() == 0
-                        ? this.cpuHardLimitDefaultVal : workloadGroup.getCpuHardLimit();
-                workloadGroups.get(0).getProperties()
-                        .put(WorkloadGroup.CPU_SHARE, String.valueOf(cpuHardLimitShare));
-
-                // reset sum of all groups cpu hard limit
-                thriftVal = this.queryCPUHardLimit;
-            }
-            workloadGroups.get(0).getProperties().put(QUERY_CPU_HARD_LIMIT, String.valueOf(thriftVal));
             context.setWorkloadGroupName(groupName);
+        } finally {
+            readUnlock();
+        }
+        return workloadGroups;
+    }
+
+    public WorkloadGroup getWorkloadGroupById(long wgId) {
+        readLock();
+        try {
+            return idToWorkloadGroup.get(wgId);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public List<TopicInfo> getPublishTopicInfo() {
+        List<TopicInfo> workloadGroups = new ArrayList();
+        readLock();
+        try {
+            for (WorkloadGroup wg : idToWorkloadGroup.values()) {
+                workloadGroups.add(wg.toTopicInfo());
+            }
         } finally {
             readUnlock();
         }
@@ -146,15 +208,21 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
 
     public QueryQueue getWorkloadGroupQueryQueue(ConnectContext context) throws UserException {
         String groupName = getWorkloadGroupNameAndCheckPriv(context);
-        readLock();
+        writeLock();
         try {
-            WorkloadGroup workloadGroup = nameToWorkloadGroup.get(groupName);
-            if (workloadGroup == null) {
+            WorkloadGroup wg = nameToWorkloadGroup.get(groupName);
+            if (wg == null) {
                 throw new UserException("Workload group " + groupName + " does not exist");
             }
-            return workloadGroup.getQueryQueue();
+            QueryQueue queryQueue = idToQueryQueue.get(wg.getId());
+            if (queryQueue == null) {
+                queryQueue = new QueryQueue(wg.getId(), wg.getMaxConcurrency(), wg.getMaxQueueSize(),
+                        wg.getQueueTimeout(), wg.getVersion());
+                idToQueryQueue.put(wg.getId(), queryQueue);
+            }
+            return queryQueue;
         } finally {
-            readUnlock();
+            writeUnlock();
         }
     }
 
@@ -182,7 +250,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                 return;
             }
             Map<String, String> properties = Maps.newHashMap();
-            properties.put(WorkloadGroup.CPU_SHARE, "10");
+            properties.put(WorkloadGroup.CPU_SHARE, "1024");
             properties.put(WorkloadGroup.MEMORY_LIMIT, "30%");
             properties.put(WorkloadGroup.ENABLE_MEMORY_OVERCOMMIT, "true");
             defaultWorkloadGroup = WorkloadGroup.create(DEFAULT_GROUP_NAME, properties);
@@ -213,7 +281,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             checkGlobalUnlock(workloadGroup, null);
             nameToWorkloadGroup.put(workloadGroupName, workloadGroup);
             idToWorkloadGroup.put(workloadGroup.getId(), workloadGroup);
-            calQueryCPUHardLimit();
             Env.getCurrentEnv().getEditLog().logCreateWorkloadGroup(workloadGroup);
         } finally {
             writeUnlock();
@@ -240,43 +307,19 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                             + " value can not be greater than 100% or less than or equal 0%");
         }
 
-        // 2, calculate new query hard cpu limit
-        int tmpCpuHardLimit = 0;
-        int zeroCpuHardLimitCount = 0;
+        // 2, check sum of all cpu hard limit
+        int sumOfAllCpuHardLimit = 0;
         for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
             if (old != null && entry.getKey() == old.getId()) {
                 continue;
             }
-            int cpuHardLimit = entry.getValue().getCpuHardLimit();
-            if (cpuHardLimit == 0) {
-                zeroCpuHardLimitCount++;
-            }
-            tmpCpuHardLimit += cpuHardLimit;
+            sumOfAllCpuHardLimit += entry.getValue().getCpuHardLimit();
         }
-        if (newGroupCpuHardLimit == 0) {
-            zeroCpuHardLimitCount++;
-        }
-        tmpCpuHardLimit += newGroupCpuHardLimit;
+        sumOfAllCpuHardLimit += newGroupCpuHardLimit;
 
-        if (tmpCpuHardLimit > 100) {
+        if (sumOfAllCpuHardLimit > 100) {
             throw new DdlException("sum of all workload group " + WorkloadGroup.CPU_HARD_LIMIT
                     + " can not be greater than 100% ");
-        }
-
-        if (tmpCpuHardLimit == 100 && zeroCpuHardLimitCount > 0) {
-            throw new DdlException("some workload group may not be assigned "
-                    + "cpu hard limit but all query cpu hard limit exceeds 100%");
-        }
-
-        int leftCpuHardLimitVal = 100 - tmpCpuHardLimit;
-        if (zeroCpuHardLimitCount != 0) {
-            int tmpCpuHardLimitDefaultVal = leftCpuHardLimitVal / zeroCpuHardLimitCount;
-            if (tmpCpuHardLimitDefaultVal == 0) {
-                throw new DdlException("remaining cpu can not be assigned to the "
-                        + "workload group without cpu hard limit value; "
-                        + leftCpuHardLimitVal + "%," + newGroupCpuHardLimit
-                        + "%," + zeroCpuHardLimitCount);
-            }
         }
     }
 
@@ -291,12 +334,11 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             if (!nameToWorkloadGroup.containsKey(workloadGroupName)) {
                 throw new DdlException("workload group(" + workloadGroupName + ") does not exist.");
             }
-            WorkloadGroup workloadGroup = nameToWorkloadGroup.get(workloadGroupName);
-            newWorkloadGroup = WorkloadGroup.copyAndUpdate(workloadGroup, properties);
-            checkGlobalUnlock(newWorkloadGroup, workloadGroup);
+            WorkloadGroup currentWorkloadGroup = nameToWorkloadGroup.get(workloadGroupName);
+            newWorkloadGroup = WorkloadGroup.copyAndUpdate(currentWorkloadGroup, properties);
+            checkGlobalUnlock(newWorkloadGroup, currentWorkloadGroup);
             nameToWorkloadGroup.put(workloadGroupName, newWorkloadGroup);
             idToWorkloadGroup.put(newWorkloadGroup.getId(), newWorkloadGroup);
-            calQueryCPUHardLimit();
             Env.getCurrentEnv().getEditLog().logAlterWorkloadGroup(newWorkloadGroup);
         } finally {
             writeUnlock();
@@ -331,7 +373,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             long groupId = workloadGroup.getId();
             idToWorkloadGroup.remove(groupId);
             nameToWorkloadGroup.remove(workloadGroupName);
-            calQueryCPUHardLimit();
+            idToQueryQueue.remove(groupId);
             Env.getCurrentEnv().getEditLog().logDropWorkloadGroup(new DropWorkloadGroupOperationLog(groupId));
         } finally {
             writeUnlock();
@@ -344,7 +386,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         try {
             nameToWorkloadGroup.put(workloadGroup.getName(), workloadGroup);
             idToWorkloadGroup.put(workloadGroup.getId(), workloadGroup);
-            calQueryCPUHardLimit();
         } finally {
             writeUnlock();
         }
@@ -377,7 +418,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
             WorkloadGroup workloadGroup = idToWorkloadGroup.get(id);
             nameToWorkloadGroup.remove(workloadGroup.getName());
             idToWorkloadGroup.remove(id);
-            calQueryCPUHardLimit();
         } finally {
             writeUnlock();
         }
@@ -403,21 +443,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return idToWorkloadGroup;
     }
 
-    private void calQueryCPUHardLimit() {
-        int zeroCpuHardLimitCount = 0;
-        int ret = 0;
-        for (Map.Entry<Long, WorkloadGroup> entry : idToWorkloadGroup.entrySet()) {
-            if (entry.getValue().getCpuHardLimit() == 0) {
-                zeroCpuHardLimitCount++;
-            }
-            ret += entry.getValue().getCpuHardLimit();
-        }
-        this.queryCPUHardLimit = ret;
-        if (zeroCpuHardLimitCount != 0) {
-            this.cpuHardLimitDefaultVal = (100 - this.queryCPUHardLimit) / zeroCpuHardLimitCount;
-        }
-    }
-
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
@@ -428,7 +453,6 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     public void gsonPostProcess() throws IOException {
         idToWorkloadGroup.forEach(
                 (id, workloadGroup) -> nameToWorkloadGroup.put(workloadGroup.getName(), workloadGroup));
-        calQueryCPUHardLimit();
     }
 
     public class ResourceProcNode {
@@ -442,7 +466,7 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
                             workloadGroup.getName(), PrivPredicate.SHOW_WORKLOAD_GROUP)) {
                         continue;
                     }
-                    workloadGroup.getProcNodeData(result);
+                    workloadGroup.getProcNodeData(result, idToQueryQueue.get(workloadGroup.getId()));
                 }
             } finally {
                 readUnlock();

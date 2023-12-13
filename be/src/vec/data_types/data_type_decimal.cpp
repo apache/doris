@@ -35,6 +35,7 @@
 #include "vec/common/int_exp.h"
 #include "vec/common/string_buffer.hpp"
 #include "vec/common/typeid_cast.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 #include "vec/io/reader_buffer.h"
 
@@ -50,7 +51,7 @@ std::string DataTypeDecimal<T>::do_get_name() const {
 template <typename T>
 bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
     if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs)) {
-        return scale == ptype->get_scale();
+        return precision == ptype->get_precision() && scale == ptype->get_scale();
     }
     return false;
 }
@@ -166,10 +167,10 @@ bool DataTypeDecimal<T>::parse_from_string(const std::string& str, T* res) const
 
 DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_v2) {
     if (precision_value < min_decimal_precision() ||
-        precision_value > max_decimal_precision<Decimal128>()) {
+        precision_value > max_decimal_precision<Decimal256>()) {
         throw doris::Exception(doris::ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Wrong precision {}, min: {}, max: {}", precision_value,
-                               min_decimal_precision(), max_decimal_precision<Decimal128>());
+                               min_decimal_precision(), max_decimal_precision<Decimal256>());
     }
 
     if (static_cast<UInt64>(scale_value) > precision_value) {
@@ -187,8 +188,10 @@ DataTypePtr create_decimal(UInt64 precision_value, UInt64 scale_value, bool use_
         return std::make_shared<DataTypeDecimal<Decimal32>>(precision_value, scale_value);
     } else if (precision_value <= max_decimal_precision<Decimal64>()) {
         return std::make_shared<DataTypeDecimal<Decimal64>>(precision_value, scale_value);
+    } else if (precision_value <= max_decimal_precision<Decimal128I>()) {
+        return std::make_shared<DataTypeDecimal<Decimal128I>>(precision_value, scale_value);
     }
-    return std::make_shared<DataTypeDecimal<Decimal128I>>(precision_value, scale_value);
+    return std::make_shared<DataTypeDecimal<Decimal256>>(precision_value, scale_value);
 }
 
 template <>
@@ -211,10 +214,37 @@ Decimal128I DataTypeDecimal<Decimal128I>::get_scale_multiplier(UInt32 scale) {
     return common::exp10_i128(scale);
 }
 
+template <>
+Decimal256 DataTypeDecimal<Decimal256>::get_scale_multiplier(UInt32 scale) {
+    return Decimal256(common::exp10_i256(scale));
+}
+
+template <>
+Decimal32 DataTypeDecimal<Decimal32>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i32(digit_count);
+}
+template <>
+Decimal64 DataTypeDecimal<Decimal64>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i64(digit_count);
+}
+template <>
+Decimal128 DataTypeDecimal<Decimal128>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i128(digit_count);
+}
+template <>
+Decimal128I DataTypeDecimal<Decimal128I>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i128(digit_count);
+}
+template <>
+Decimal256 DataTypeDecimal<Decimal256>::get_max_digits_number(UInt32 digit_count) {
+    return Decimal256(common::max_i256(digit_count));
+}
+
 /// Explicit template instantiations.
 template class DataTypeDecimal<Decimal32>;
 template class DataTypeDecimal<Decimal64>;
 template class DataTypeDecimal<Decimal128>;
 template class DataTypeDecimal<Decimal128I>;
+template class DataTypeDecimal<Decimal256>;
 
 } // namespace doris::vectorized

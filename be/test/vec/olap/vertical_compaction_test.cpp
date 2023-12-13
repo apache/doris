@@ -41,6 +41,7 @@
 #include "gutil/stringprintf.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
+#include "json2pb/json_to_pb.h"
 #include "olap/delete_handler.h"
 #include "olap/field.h"
 #include "olap/merger.h"

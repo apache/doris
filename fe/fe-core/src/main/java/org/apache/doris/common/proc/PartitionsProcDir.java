@@ -81,7 +81,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         this.isTempPartition = isTempPartition;
     }
 
-    public boolean filter(String columnName, Comparable element, Map<String, Expr> filterMap) throws AnalysisException {
+    public static boolean filter(String columnName, Comparable element, Map<String, Expr> filterMap)
+            throws AnalysisException {
         if (filterMap == null) {
             return true;
         }
@@ -142,7 +143,7 @@ public class PartitionsProcDir implements ProcDirInterface {
         return true;
     }
 
-    public boolean like(String str, String expr) {
+    public static boolean like(String str, String expr) {
         expr = expr.toLowerCase();
         expr = expr.replace(".", "\\.");
         expr = expr.replace("?", ".");

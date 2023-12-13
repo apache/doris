@@ -131,6 +131,7 @@ public class TableProperty implements Writable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildDisableAutoCompaction();
                 break;
             default:
                 break;
@@ -474,6 +475,16 @@ public class TableProperty implements Writable {
     public String getSequenceMapCol() {
         return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
+    }
+
+    public void setGroupCommitIntervalMs(int groupCommitIntervalMs) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS, Integer.toString(groupCommitIntervalMs));
+    }
+
+    public int getGroupCommitIntervalMs() {
+        return Integer.parseInt(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS,
+                Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE)));
     }
 
     public void buildReplicaAllocation() {

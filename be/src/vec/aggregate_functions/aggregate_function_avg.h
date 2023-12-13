@@ -58,6 +58,7 @@ namespace doris::vectorized {
 
 template <typename T>
 struct AggregateFunctionAvgData {
+    using ResultType = T;
     T sum {};
     UInt64 count = 0;
 
@@ -87,7 +88,11 @@ struct AggregateFunctionAvgData {
             Decimal128 ret(cal_ret.value());
             return ret;
         } else {
-            return static_cast<ResultT>(sum) / count;
+            if constexpr (IsDecimal256<T>) {
+                return static_cast<ResultT>(sum / T(count));
+            } else {
+                return static_cast<ResultT>(sum) / count;
+            }
         }
     }
 
@@ -107,16 +112,18 @@ template <typename T, typename Data>
 class AggregateFunctionAvg final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>> {
 public:
-    using ResultType = DisposeDecimal<T, Float64>;
-    using ResultDataType =
-            std::conditional_t<IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
-                               std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<Decimal128I>,
-                                                  DataTypeNumber<Float64>>>;
+    using ResultType = std::conditional_t<
+            IsDecimalV2<T>, Decimal128,
+            std::conditional_t<IsDecimalNumber<T>, typename Data::ResultType, Float64>>;
+    using ResultDataType = std::conditional_t<
+            IsDecimalV2<T>, DataTypeDecimal<Decimal128>,
+            std::conditional_t<IsDecimalNumber<T>, DataTypeDecimal<typename Data::ResultType>,
+                               DataTypeNumber<Float64>>>;
     using ColVecType = std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<T>, ColumnVector<T>>;
-    using ColVecResult =
-            std::conditional_t<IsDecimalV2<T>, ColumnDecimal<Decimal128>,
-                               std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<Decimal128I>,
-                                                  ColumnVector<Float64>>>;
+    using ColVecResult = std::conditional_t<
+            IsDecimalV2<T>, ColumnDecimal<Decimal128>,
+            std::conditional_t<IsDecimalNumber<T>, ColumnDecimal<typename Data::ResultType>,
+                               ColumnVector<Float64>>>;
 
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
@@ -205,7 +212,7 @@ public:
         auto* data = dst_col.get_data().data();
         for (size_t i = 0; i != num_rows; ++i) {
             auto& state = *reinterpret_cast<Data*>(&data[sizeof(Data) * i]);
-            state.sum = src_data[i];
+            state.sum = typename Data::ResultType(src_data[i]);
             state.count = 1;
         }
     }

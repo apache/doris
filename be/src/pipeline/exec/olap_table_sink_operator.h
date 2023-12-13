@@ -39,7 +39,7 @@ public:
     OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
             : DataSinkOperator(operator_builder, sink) {}
 
-    bool can_write() override { return true; } // TODO: need use mem_limit
+    bool can_write() override { return _sink->can_write(); }
 };
 
 class OlapTableSinkOperatorX;
@@ -54,7 +54,7 @@ public:
             : Base(parent, state) {};
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override {
-        SCOPED_TIMER(profile()->total_time_counter());
+        SCOPED_TIMER(exec_time_counter());
         SCOPED_TIMER(_open_timer);
         return Base::open(state);
     }
@@ -68,19 +68,20 @@ private:
 class OlapTableSinkOperatorX final : public DataSinkOperatorX<OlapTableSinkLocalState> {
 public:
     using Base = DataSinkOperatorX<OlapTableSinkLocalState>;
-    OlapTableSinkOperatorX(ObjectPool* pool, const RowDescriptor& row_desc,
-                           const std::vector<TExpr>& t_output_expr, bool group_commit)
-            : Base(0),
+    OlapTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
+                           const std::vector<TExpr>& t_output_expr)
+            : Base(operator_id, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
-              _group_commit(group_commit),
               _pool(pool) {};
 
     Status init(const TDataSink& thrift_sink) override {
+        RETURN_IF_ERROR(Base::init(thrift_sink));
         // From the thrift expressions create the real exprs.
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
         return Status::OK();
     }
+
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
         return vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc);
@@ -92,20 +93,10 @@ public:
     }
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-        SCOPED_TIMER(local_state.profile()->total_time_counter());
+        auto& local_state = get_local_state(state);
+        SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         return local_state.sink(state, in_block, source_state);
-    }
-
-    FinishDependency* finish_blocked_by(RuntimeState* state) const override {
-        auto& local_state = state->get_sink_local_state(id())->cast<OlapTableSinkLocalState>();
-        return local_state._finish_dependency->finish_blocked_by();
-    };
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state.write_blocked_by();
     }
 
 private:
@@ -115,8 +106,7 @@ private:
     const RowDescriptor& _row_desc;
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     const std::vector<TExpr>& _t_output_expr;
-    const bool _group_commit;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 };
 
 } // namespace pipeline

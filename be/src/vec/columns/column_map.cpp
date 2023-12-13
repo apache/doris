@@ -185,14 +185,10 @@ void ColumnMap::insert_from(const IColumn& src_, size_t n) {
     get_offsets().push_back(get_offsets().back() + size);
 }
 
-void ColumnMap::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                    const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnMap::insert_default();
-        } else {
-            ColumnMap::insert_from(src, *x);
-        }
+void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                    const uint32_t* indices_end) {
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        ColumnMap::insert_from(src, *x);
     }
 }
 
@@ -282,7 +278,7 @@ void ColumnMap::update_xxHash_with_value(size_t start, size_t end, uint64_t& has
     }
 }
 
-void ColumnMap::update_crc_with_value(size_t start, size_t end, uint64_t& hash,
+void ColumnMap::update_crc_with_value(size_t start, size_t end, uint32_t& hash,
                                       const uint8_t* __restrict null_data) const {
     auto& offsets = get_offsets();
     if (null_data) {
@@ -328,9 +324,9 @@ void ColumnMap::update_hashes_with_value(uint64_t* hashes, const uint8_t* null_d
     }
 }
 
-void ColumnMap::update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
-                                       const uint8_t* __restrict null_data) const {
-    auto s = hash.size();
+void ColumnMap::update_crcs_with_value(uint32_t* __restrict hash, PrimitiveType type, uint32_t rows,
+                                       uint32_t offset, const uint8_t* __restrict null_data) const {
+    auto s = rows;
     DCHECK(s == size());
 
     if (null_data) {
@@ -433,14 +429,45 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
-void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+void ColumnMap::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
     auto& res = reinterpret_cast<ColumnMap&>(column);
 
-    // Make a temp column array for reusing its replicate function
-    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-            ->replicate(indexs, target_size, res.keys_column->assume_mutable_ref());
-    ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
-            ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
+    auto keys_array =
+            ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable());
+
+    auto result_array = ColumnArray::create(res.keys_column->assume_mutable(),
+                                            res.offsets_column->assume_mutable());
+    keys_array->replicate(indices, target_size, result_array->assume_mutable_ref());
+
+    result_array = ColumnArray::create(res.values_column->assume_mutable(),
+                                       res.offsets_column->clone_empty());
+
+    auto values_array =
+            ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable());
+
+    /// FIXME: To reuse the replicate of ColumnArray, the offsets column was replicated twice
+    values_array->replicate(indices, target_size, result_array->assume_mutable_ref());
+}
+
+MutableColumnPtr ColumnMap::get_shrinked_column() {
+    MutableColumns new_columns(2);
+
+    if (keys_column->is_column_string() || keys_column->is_column_array() ||
+        keys_column->is_column_map() || keys_column->is_column_struct()) {
+        new_columns[0] = keys_column->get_shrinked_column();
+    } else {
+        new_columns[0] = keys_column->get_ptr();
+    }
+
+    if (values_column->is_column_string() || values_column->is_column_array() ||
+        values_column->is_column_map() || values_column->is_column_struct()) {
+        new_columns[1] = values_column->get_shrinked_column();
+    } else {
+        new_columns[1] = values_column->get_ptr();
+    }
+
+    return ColumnMap::create(new_columns[0]->assume_mutable(), new_columns[1]->assume_mutable(),
+                             offsets_column->assume_mutable());
 }
 
 void ColumnMap::reserve(size_t n) {
@@ -450,9 +477,8 @@ void ColumnMap::reserve(size_t n) {
 }
 
 void ColumnMap::resize(size_t n) {
-    get_offsets().resize(n);
-    keys_column->resize(n);
-    values_column->resize(n);
+    auto last_off = get_offsets().back();
+    get_offsets().resize_fill(n, last_off);
 }
 
 size_t ColumnMap::byte_size() const {

@@ -68,7 +68,7 @@ import java.util.stream.Collectors;
  *      EXPORT TABLE table_name [PARTITION (name1[, ...])]
  *          TO 'export_target_path'
  *          [PROPERTIES("key"="value")]
- *          BY BROKER 'broker_name' [( $broker_attrs)]
+ *          WITH BROKER 'broker_name' [( $broker_attrs)]
  */
 public class ExportCommand extends Command implements ForwardWithSync {
     public static final String PARALLELISM = "parallelism";
@@ -76,6 +76,8 @@ public class ExportCommand extends Command implements ForwardWithSync {
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
     private static final String DEFAULT_PARALLELISM = "1";
+    private static final Integer DEFAULT_TIMEOUT = 7200;
+
     private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
             .add(LABEL)
             .add(PARALLELISM)
@@ -84,6 +86,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
             .add(OutFileClause.PROP_DELETE_EXISTING_FILES)
             .add(PropertyAnalyzer.PROPERTIES_COLUMN_SEPARATOR)
             .add(PropertyAnalyzer.PROPERTIES_LINE_DELIMITER)
+            .add(PropertyAnalyzer.PROPERTIES_TIMEOUT)
             .add("format")
             .build();
 
@@ -200,7 +203,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
                             + tblType + " type, do not support EXPORT.");
             }
             // check table
-            if (!table.isPartitioned()) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
             }
             for (String partitionName : this.partitionsNames) {
@@ -217,7 +220,7 @@ public class ExportCommand extends Command implements ForwardWithSync {
 
     private void checkBrokerDesc(ConnectContext ctx) throws UserException {
         // check path is valid
-        StorageBackend.checkPath(this.path, this.brokerDesc.get().getStorageType());
+        StorageBackend.checkPath(this.path, this.brokerDesc.get().getStorageType(), null);
 
         if (brokerDesc.get().getStorageType() == StorageBackend.StorageType.BROKER) {
             BrokerMgr brokerMgr = ctx.getEnv().getBrokerMgr();
@@ -305,7 +308,18 @@ public class ExportCommand extends Command implements ForwardWithSync {
         SessionVariable clonedSessionVariable = VariableMgr.cloneSessionVariable(Optional.ofNullable(
                 ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
         exportJob.setSessionVariables(clonedSessionVariable);
-        exportJob.setTimeoutSecond(clonedSessionVariable.getQueryTimeoutS());
+
+        // set timeoutSecond
+        int timeoutSecond;
+        String timeoutString = fileProperties.getOrDefault(PropertyAnalyzer.PROPERTIES_TIMEOUT,
+                String.valueOf(DEFAULT_TIMEOUT));
+        try {
+            timeoutSecond = Integer.parseInt(timeoutString);
+        } catch (NumberFormatException e) {
+            throw new UserException("The value of timeout is invalid!");
+        }
+
+        exportJob.setTimeoutSecond(timeoutSecond);
 
         // exportJob generate outfile sql
         exportJob.generateOutfileLogicalPlans(RelationUtil.getQualifierName(ctx, this.nameParts));
