@@ -150,7 +150,7 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                 Field new_top = _sorter->get_top_value();
                 if (!new_top.is_null() && (old_top.is_null() || new_top != old_top)) {
                     bool is_reverse = sort_description[0].direction < 0;
-                    auto query_ctx = state->get_query_ctx();
+                    auto *query_ctx = state->get_query_ctx();
                     RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top, col.name,
                                                                               is_reverse));
                     old_top = std::move(new_top);
