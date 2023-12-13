@@ -156,6 +156,7 @@ add_thirdparty(gssapi_krb5)
 add_thirdparty(dragonbox_to_chars LIB64)
 add_thirdparty(streamvbyte LIB64)
 target_include_directories(dragonbox_to_chars INTERFACE "${THIRDPARTY_DIR}/include/dragonbox-1.1.3")
+add_thirdparty(wasmtime)
 
 if (OS_MACOSX)
     add_thirdparty(bfd)
