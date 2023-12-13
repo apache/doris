@@ -353,10 +353,12 @@ template <IPStringToNumExceptionMode exception_mode, typename ToColumn = ColumnI
           typename StringColumnType>
 ColumnPtr convertToIPv6(const StringColumnType& string_column,
                         const PaddedPODArray<UInt8>* null_map = nullptr) {
-    if constexpr (!std::is_same_v<ToColumn, ColumnString> && !std::is_same_v<ToColumn, ColumnIPv6>)
+    if constexpr (!std::is_same_v<ToColumn, ColumnString> &&
+                  !std::is_same_v<ToColumn, ColumnIPv6>) {
         throw Exception(ErrorCode::INVALID_ARGUMENT,
                         "Illegal return column type {}. Expected IPv6 or String",
                         TypeName<typename ToColumn::ValueType>::get());
+    }
 
     const size_t column_size = string_column.size();
 
@@ -377,8 +379,9 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
 
                 if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
                     col_null_map_to = ColumnUInt8::create(column_size, false);
-                    if (null_map)
+                    if (null_map) {
                         memcpy(col_null_map_to->get_data().data(), null_map->data(), column_size);
+                    }
 
                     return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
                 }
@@ -393,10 +396,10 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
                        column_size * IPV6_BINARY_LENGTH);
 
                 if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
-
                     col_null_map_to = ColumnUInt8::create(column_size, false);
-                    if (null_map)
+                    if (null_map) {
                         memcpy(col_null_map_to->get_data().data(), null_map->data(), column_size);
+                    }
                     return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
                 }
 
@@ -442,14 +445,15 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
     std::string string_buffer;
 
     int offset_inc = 1;
-    if constexpr (std::is_same_v<ToColumn, ColumnString>) offset_inc = IPV6_BINARY_LENGTH;
+    if constexpr (std::is_same_v<ToColumn, ColumnString>) {
+        offset_inc = IPV6_BINARY_LENGTH;
+    }
 
     for (size_t out_offset = 0, i = 0; i < column_size; out_offset += offset_inc, ++i) {
-
         size_t src_next_offset = src_offset;
 
         const char* src_value = nullptr;
-        unsigned char* res_value = reinterpret_cast<unsigned char*>(&vec_res[out_offset]);
+        auto* res_value = reinterpret_cast<unsigned char*>(&vec_res[out_offset]);
 
         if constexpr (std::is_same_v<StringColumnType, ColumnString>) {
             src_value = reinterpret_cast<const char*>(&vec_src[src_offset]);
@@ -507,8 +511,9 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
                 auto* column_string = assert_cast<ColumnString*>(col_res.get());
                 column_string->get_offsets().push_back((i + 1) * IPV6_BINARY_LENGTH);
             }
-            if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
                 (*vec_null_map_to)[i] = true;
+            }
         }
         src_offset = src_next_offset;
     }
@@ -522,7 +527,6 @@ ColumnPtr convertToIPv6(const StringColumnType& string_column,
 
 template <IPStringToNumExceptionMode exception_mode, typename ToColumn = ColumnIPv6>
 ColumnPtr convertToIPv6(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
-
     if (const auto* column_input_string = check_and_get_column<ColumnString>(column.get())) {
         auto result =
                 detail::convertToIPv6<exception_mode, ToColumn>(*column_input_string, null_map);
@@ -570,7 +574,6 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-
         ColumnPtr column = block.get_by_position(arguments[0]).column;
         ColumnPtr null_map_column;
         const NullMap* null_map = nullptr;
