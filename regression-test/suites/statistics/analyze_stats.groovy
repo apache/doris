@@ -1462,4 +1462,43 @@ PARTITION `p599` VALUES IN (599)
    assertEquals("\'name1\'", result[0][6])
    assertEquals("\'name3\'", result[0][7])
 
+   // Test trigger type.
+   sql """DROP DATABASE IF EXISTS trigger"""
+   sql """CREATE DATABASE IF NOT EXISTS trigger"""
+   sql """USE trigger"""
+   sql """
+     CREATE TABLE if not exists trigger_test(
+      `id`      int NOT NULL,
+      `name`    VARCHAR(152)
+     )ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT "OLAP"
+     DISTRIBUTED BY HASH(`id`) BUCKETS 1
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+   sql """insert into trigger_test values(1,'name1') """
+   sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+
+   int i = 0;
+   for (0; i < 10; i++) {
+       def result = sql """show column stats trigger_test"""
+       if (result.size() != 2) {
+	   Thread.sleep(1000)
+           continue;
+       }
+       assertEquals(result[0][10], "SYSTEM")
+       assertEquals(result[1][10], "SYSTEM")
+       break
+   }
+   if (i < 10) {
+       sql """analyze table trigger_test with sync"""
+       def result = sql """show column stats trigger_test"""
+       assertEquals(result.size(), 2)
+       assertEquals(result[0][10], "MANUAL")
+       assertEquals(result[1][10], "MANUAL")
+   }
+   sql """DROP DATABASE IF EXISTS trigger"""
+
 }
