@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -78,7 +79,7 @@ public class BindSink implements AnalysisRuleFactory {
                     Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
                     Database database = pair.first;
                     OlapTable table = pair.second;
-                    boolean isPartialUpdate = sink.isPartialUpdate();
+                    boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
 
                     LogicalPlan child = ((LogicalPlan) sink.child());
                     boolean childHasSeqCol = child.getOutput().stream()
@@ -106,7 +107,7 @@ public class BindSink implements AnalysisRuleFactory {
                     if (isPartialUpdate) {
                         // check the necessary conditions for partial updates
                         if (!table.getEnableUniqueKeyMergeOnWrite()) {
-                            throw new AnalysisException("Partial update is only allowed in"
+                            throw new AnalysisException("Partial update is only allowed on "
                                     + "unique table with merge-on-write enabled.");
                         }
                         if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()) {
