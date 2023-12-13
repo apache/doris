@@ -941,7 +941,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                             this]() {
             if (is_low_priority_task && !_increase_low_priority_task_nums(tablet->data_dir())) {
                 VLOG_DEBUG << "skip low priority compaction task for tablet: "
-                          << tablet->tablet_id();
+                           << tablet->tablet_id();
                 // Todo: push task back
             } else {
                 tablet->execute_compaction(compaction_type);
