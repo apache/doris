@@ -26,9 +26,17 @@ under the License.
 
 # Debug Point
 
-Debug point is used in code test, when enabled, it can run related code.
+Debug point is a piece of code, inserted into FE or BE code, when program running into this code, 
 
-Both FE and BE support debug points.
+it can change variables or behaviors of the program. 
+
+It is mainly used for unit test or regression test when it is impossible to trigger some exceptions through normal means.
+
+Each debug point has a name, we can name it whatever we want, there are swithes to enable and disable debug points, 
+
+and we can also pass data to debug points.
+
+Both FE and BE support debug point, and after inserting the debug point code, we need to recompile FE or BE.
 
 ## Code Example
 
@@ -61,6 +69,7 @@ void Status foo() {
      return Status.Ok;
 }
 ```
+
 
 ## Global Config
 
