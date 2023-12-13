@@ -31,7 +31,13 @@ public:
     Exchanger(int running_sink_operators, int num_partitions)
             : _running_sink_operators(running_sink_operators),
               _num_partitions(num_partitions),
-              _num_senders(running_sink_operators) {}
+              _num_senders(running_sink_operators),
+              _num_sources(num_partitions) {}
+    Exchanger(int running_sink_operators, int num_sources, int num_partitions)
+            : _running_sink_operators(running_sink_operators),
+              _num_partitions(num_partitions),
+              _num_senders(running_sink_operators),
+              _num_sources(num_sources) {}
     virtual ~Exchanger() = default;
     virtual Status get_block(RuntimeState* state, vectorized::Block* block,
                              SourceState& source_state,
@@ -47,6 +53,7 @@ protected:
     std::atomic<int> _running_sink_operators = 0;
     const int _num_partitions;
     const int _num_senders;
+    const int _num_sources;
     moodycamel::ConcurrentQueue<vectorized::Block> _free_blocks;
 };
 
@@ -79,6 +86,10 @@ public:
             : Exchanger(running_sink_operators, num_partitions) {
         _data_queue.resize(num_partitions);
     }
+    ShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions)
+            : Exchanger(running_sink_operators, num_sources, num_partitions) {
+        _data_queue.resize(num_partitions);
+    }
     ~ShuffleExchanger() override = default;
     Status sink(RuntimeState* state, vectorized::Block* in_block, SourceState source_state,
                 LocalExchangeSinkLocalState& local_state) override;
@@ -97,8 +108,8 @@ protected:
 
 class BucketShuffleExchanger : public ShuffleExchanger {
     ENABLE_FACTORY_CREATOR(BucketShuffleExchanger);
-    BucketShuffleExchanger(int running_sink_operators, int num_buckets)
-            : ShuffleExchanger(running_sink_operators, num_buckets) {}
+    BucketShuffleExchanger(int running_sink_operators, int num_sources, int num_partitions)
+            : ShuffleExchanger(running_sink_operators, num_sources, num_partitions) {}
     ~BucketShuffleExchanger() override = default;
     ExchangeType get_type() const override { return ExchangeType::BUCKET_HASH_SHUFFLE; }
 };

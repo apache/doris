@@ -116,7 +116,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
         return Status::OK();
     }
     local_state._shared_state->add_total_mem_usage(new_block_wrapper->data_block.allocated_bytes());
-    if (get_type() == ExchangeType::HASH_SHUFFLE || _num_partitions != _num_senders) {
+    if (get_type() == ExchangeType::HASH_SHUFFLE) {
         for (size_t i = 0; i < _num_partitions; i++) {
             size_t start = local_state._partition_rows_histogram[i];
             size_t size = local_state._partition_rows_histogram[i + 1] - start;
@@ -125,6 +125,18 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
                 local_state._shared_state->add_mem_usage(
                         i, new_block_wrapper->data_block.allocated_bytes(), false);
                 data_queue[i].enqueue({new_block_wrapper, {row_idx, start, size}});
+                local_state._shared_state->set_ready_to_read(i);
+            }
+        }
+    } else if (_num_senders != _num_sources) {
+        for (size_t i = 0; i < _num_partitions; i++) {
+            size_t start = local_state._partition_rows_histogram[i];
+            size_t size = local_state._partition_rows_histogram[i + 1] - start;
+            if (size > 0) {
+                new_block_wrapper->ref();
+                local_state._shared_state->add_mem_usage(
+                        i % _num_sources, new_block_wrapper->data_block.allocated_bytes(), false);
+                data_queue[i % _num_sources].enqueue({new_block_wrapper, {row_idx, start, size}});
                 local_state._shared_state->set_ready_to_read(i);
             }
         }
@@ -137,7 +149,7 @@ Status ShuffleExchanger::_split_rows(RuntimeState* state, const uint32_t* __rest
             if (size > 0) {
                 new_block_wrapper->ref();
                 local_state._shared_state->add_mem_usage(
-                        i, new_block_wrapper->data_block.allocated_bytes(), false);
+                        map[i], new_block_wrapper->data_block.allocated_bytes(), false);
                 data_queue[map[i]].enqueue({new_block_wrapper, {row_idx, start, size}});
                 local_state._shared_state->set_ready_to_read(map[i]);
             }

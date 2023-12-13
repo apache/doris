@@ -774,16 +774,14 @@ Status PipelineXFragmentContext::_add_local_exchange(
 
     // 3. Create and initialize LocalExchangeSharedState.
     auto shared_state = LocalExchangeSharedState::create_shared();
-    auto num_sources = _num_instances;
     switch (exchange_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger =
                 ShuffleExchanger::create_unique(new_pip->num_tasks(), _num_instances);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
-        shared_state->exchanger =
-                BucketShuffleExchanger::create_unique(new_pip->num_tasks(), num_buckets);
-        num_sources = num_buckets;
+        shared_state->exchanger = BucketShuffleExchanger::create_unique(
+                new_pip->num_tasks(), _num_instances, num_buckets);
         break;
     case ExchangeType::PASSTHROUGH:
         shared_state->exchanger =
@@ -797,8 +795,8 @@ Status PipelineXFragmentContext::_add_local_exchange(
         return Status::InternalError("Unsupported local exchange type : " +
                                      std::to_string((int)exchange_type));
     }
-    shared_state->source_dependencies.resize(num_sources, nullptr);
-    shared_state->mem_trackers.resize(num_sources);
+    shared_state->source_dependencies.resize(_num_instances, nullptr);
+    shared_state->mem_trackers.resize(_num_instances, nullptr);
     auto sink_dep = std::make_shared<LocalExchangeSinkDependency>(sink_id, local_exchange_id,
                                                                   _runtime_state->get_query_ctx());
     sink_dep->set_shared_state(shared_state);
