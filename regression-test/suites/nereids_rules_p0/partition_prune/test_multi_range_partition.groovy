@@ -169,12 +169,12 @@ suite("test_multi_range_partition") {
 
     explain {
         sql "select * from pt where k1=7 and k2 in (null);"
-        contains "partitions=2/3 (p2,p3)"
+        contains "VEMPTYSET"
     }
 
     explain {
         sql "select * from pt where k1=7 and k2 not in (null);"
-        contains "partitions=2/3 (p2,p3)"
+        contains "VEMPTYSET"
     }
     
     explain {
@@ -189,13 +189,13 @@ suite("test_multi_range_partition") {
 
     explain {
         sql "select * from pt where k2 in (null);"
-        contains "partitions=3/3 (p1,p2,p3)"
+        contains "VEMPTYSET"
     }
 
     // p1/p2/p3 NOT pruned
     explain {
         sql "select * from pt where k2 not in (null)"
-        contains "partitions=3/3 (p1,p2,p3)"
+        contains "VEMPTYSET"
     }
 
     explain {
