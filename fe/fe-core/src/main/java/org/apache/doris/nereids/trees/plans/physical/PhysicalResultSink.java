@@ -41,16 +41,23 @@ import java.util.Optional;
  */
 public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CHILD_TYPE> implements Sink {
 
-    public PhysicalResultSink(List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
+    private final long limit;
+    private final long offset;
+
+    public PhysicalResultSink(List<NamedExpression> outputExprs, long limit, long offset,
+            Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, CHILD_TYPE child) {
-        this(outputExprs, groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
+        this(outputExprs, limit, offset, groupExpression, logicalProperties, PhysicalProperties.GATHER, null, child);
     }
 
-    public PhysicalResultSink(List<NamedExpression> outputExprs, Optional<GroupExpression> groupExpression,
+    public PhysicalResultSink(List<NamedExpression> outputExprs, long limit, long offset,
+            Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties, @Nullable PhysicalProperties physicalProperties,
             Statistics statistics, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_RESULT_SINK, outputExprs, groupExpression,
                 logicalProperties, physicalProperties, statistics, child);
+        this.limit = limit;
+        this.offset = offset;
     }
 
     public List<NamedExpression> getOutputExprs() {
@@ -61,7 +68,7 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     public PhysicalResultSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalResultSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalResultSink<>(outputExprs, groupExpression, getLogicalProperties(),
+        return new PhysicalResultSink<>(outputExprs, limit, offset, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics, children.get(0));
     }
 
@@ -75,9 +82,17 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
         return outputExprs;
     }
 
+    public long getLimit() {
+        return limit;
+    }
+
+    public long getOffset() {
+        return offset;
+    }
+
     @Override
     public PhysicalResultSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalResultSink<>(outputExprs, groupExpression, getLogicalProperties(),
+        return new PhysicalResultSink<>(outputExprs, limit, offset, groupExpression, getLogicalProperties(),
                 physicalProperties, statistics, child());
     }
 
@@ -86,14 +101,14 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalResultSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalResultSink<>(outputExprs, groupExpression, logicalProperties.get(),
+        return new PhysicalResultSink<>(outputExprs, limit, offset, groupExpression, logicalProperties.get(),
                 physicalProperties, statistics, children.get(0));
     }
 
     @Override
     public PhysicalResultSink<Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalResultSink<>(outputExprs, groupExpression,
+        return new PhysicalResultSink<>(outputExprs, limit, offset, groupExpression,
                 getLogicalProperties(), physicalProperties, statistics, child());
     }
 
@@ -122,7 +137,7 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
 
     @Override
     public PhysicalResultSink<CHILD_TYPE> resetLogicalProperties() {
-        return new PhysicalResultSink<>(outputExprs, groupExpression,
+        return new PhysicalResultSink<>(outputExprs, limit, offset, groupExpression,
                 null, physicalProperties, statistics, child());
     }
 }

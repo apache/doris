@@ -87,6 +87,10 @@ public enum RuleType {
     CHECK_OBJECT_TYPE_ANALYSIS(RuleTypeClass.CHECK),
     CHECK_DATA_TYPES(RuleTypeClass.CHECK),
 
+    CALC_FOUND_ROWS(RuleTypeClass.CHECK),
+
+    FOUND_ROWS(RuleTypeClass.CHECK),
+
     // rewrite rules
     NORMALIZE_AGGREGATE(RuleTypeClass.REWRITE),
     NORMALIZE_SORT(RuleTypeClass.REWRITE),
