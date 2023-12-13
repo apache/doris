@@ -1069,6 +1069,13 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     @Override
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        queryStmt.rewriteElementAtToSlot(rewriter, tQueryOptions);
+    }
+
+
+    @Override
     public List<Expr> getResultExprs() {
         return resultExprs;
     }

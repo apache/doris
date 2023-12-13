@@ -527,6 +527,17 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     }
 
+    @Override
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        Map<String, Expr> exprMap = new HashMap<>();
+        collectExprs(exprMap);
+        rewriter.rewriteElementAtToSlot(exprMap, analyzer);
+        if (rewriter.changed()) {
+            putBackExprs(exprMap);
+        }
+    }
+
 
     /**
      * register expr_id of expr and its children, if not set
