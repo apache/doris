@@ -473,7 +473,8 @@ void convert_from_decimals(RealTo* dst, const RealFrom* src, UInt32 scale_from, 
     }
 }
 
-template <typename FromDataType, typename ToDataType>
+template <typename FromDataType, typename ToDataType, bool multiply_may_overflow,
+          bool narrow_integral>
 void convert_decimal_cols(
         const typename ColumnDecimal<
                 typename FromDataType::FieldType>::Container::value_type* __restrict vec_from,
@@ -492,104 +493,84 @@ void convert_decimal_cols(
     using MaxNativeType = typename MaxFieldType::NativeType;
 
     auto max_result = DataTypeDecimal<ToFieldType>::get_max_digits_number(precision_to);
-    bool narrow_integral = (precision_to - scale_to) < (precision_from - scale_from);
     if (scale_to > scale_from) {
         const MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_to - scale_from);
         MaxNativeType res;
-        auto from_max_digits = NumberTraits::max_ascii_len<typename FromFieldType::NativeType>();
-        auto to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
-        bool multiply_may_overflow = (from_max_digits + scale_to - scale_from) > to_max_digits;
-        std::visit(
-                [&](auto multiply_may_overflow, auto narrow_integral) {
-                    for (size_t i = 0; i < sz; i++) {
-                        if constexpr (multiply_may_overflow) {
-                            if (common::mul_overflow(static_cast<MaxNativeType>(vec_from[i].value),
-                                                     multiplier, res)) {
-                                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                "Arithmetic overflow");
-                            } else {
-                                if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
-                                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                    "Arithmetic overflow, convert failed from {}, "
-                                                    "expected data is [{}, {}]",
-                                                    res, -max_result.value, max_result.value);
-                                } else {
-                                    vec_to[i] = ToFieldType(res);
-                                }
-                            }
-                        } else {
-                            res = vec_from[i].value * multiplier;
-                            if constexpr (narrow_integral) {
-                                if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
-                                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                    "Arithmetic overflow, convert failed from {}, "
-                                                    "expected data is [{}, {}]",
-                                                    res, -max_result.value, max_result.value);
-                                }
-                            }
-                            vec_to[i] = ToFieldType(res);
-                        }
+        for (size_t i = 0; i < sz; i++) {
+            if constexpr (multiply_may_overflow) {
+                if (common::mul_overflow(static_cast<MaxNativeType>(vec_from[i].value), multiplier,
+                                         res)) {
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR, "Arithmetic overflow");
+                } else {
+                    if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow, convert failed from {}, "
+                                        "expected data is [{}, {}]",
+                                        res, -max_result.value, max_result.value);
+                    } else {
+                        vec_to[i] = ToFieldType(res);
                     }
-                },
-                make_bool_variant(multiply_may_overflow), make_bool_variant(narrow_integral));
+                }
+            } else {
+                res = vec_from[i].value * multiplier;
+                if constexpr (narrow_integral) {
+                    if (UNLIKELY(res > max_result.value || res < -max_result.value)) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow, convert failed from {}, "
+                                        "expected data is [{}, {}]",
+                                        res, -max_result.value, max_result.value);
+                    }
+                }
+                vec_to[i] = ToFieldType(res);
+            }
+        }
     } else if (scale_to == scale_from) {
-        std::visit(
-                [&](auto narrow_integral) {
-                    for (size_t i = 0; i < sz; i++) {
-                        if constexpr (narrow_integral) {
-                            if (UNLIKELY(vec_from[i].value > max_result.value ||
-                                         vec_from[i].value < -max_result.value)) {
-                                throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                "Arithmetic overflow, convert failed from {}, "
-                                                "expected data is [{}, {}]",
-                                                vec_from[i].value, -max_result.value,
-                                                max_result.value);
-                            }
-                        }
-                        vec_to[i] = ToFieldType(vec_from[i].value);
-                    }
-                },
-                make_bool_variant(narrow_integral));
+        for (size_t i = 0; i < sz; i++) {
+            if constexpr (narrow_integral) {
+                if (UNLIKELY(vec_from[i].value > max_result.value ||
+                             vec_from[i].value < -max_result.value)) {
+                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                    "Arithmetic overflow, convert failed from {}, "
+                                    "expected data is [{}, {}]",
+                                    vec_from[i].value, -max_result.value, max_result.value);
+                }
+            }
+            vec_to[i] = ToFieldType(vec_from[i].value);
+        }
     } else {
         MaxNativeType multiplier =
                 DataTypeDecimal<MaxFieldType>::get_scale_multiplier(scale_from - scale_to);
         MaxNativeType res;
-        std::visit(
-                [&](auto narrow_integral) {
-                    for (size_t i = 0; i < sz; i++) {
-                        if (vec_from[i] >= FromFieldType(0)) {
-                            if constexpr (narrow_integral) {
-                                res = (vec_from[i].value + multiplier / 2) / multiplier;
-                                if (UNLIKELY(res > max_result.value)) {
-                                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                    "Arithmetic overflow, convert failed from {}, "
-                                                    "expected data is [{}, {}]",
-                                                    res, -max_result.value, max_result.value);
-                                }
-                                vec_to[i] = ToFieldType(res);
-                            } else {
-                                vec_to[i] = ToFieldType((vec_from[i].value + multiplier / 2) /
-                                                        multiplier);
-                            }
-                        } else {
-                            if constexpr (narrow_integral) {
-                                res = (vec_from[i].value - multiplier / 2) / multiplier;
-                                if (UNLIKELY(res < -max_result.value)) {
-                                    throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
-                                                    "Arithmetic overflow, convert failed from {}, "
-                                                    "expected data is [{}, {}]",
-                                                    res, -max_result.value, max_result.value);
-                                }
-                                vec_to[i] = ToFieldType(res);
-                            } else {
-                                vec_to[i] = ToFieldType((vec_from[i].value - multiplier / 2) /
-                                                        multiplier);
-                            }
-                        }
+        for (size_t i = 0; i < sz; i++) {
+            if (vec_from[i] >= FromFieldType(0)) {
+                if constexpr (narrow_integral) {
+                    res = (vec_from[i].value + multiplier / 2) / multiplier;
+                    if (UNLIKELY(res > max_result.value)) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow, convert failed from {}, "
+                                        "expected data is [{}, {}]",
+                                        res, -max_result.value, max_result.value);
                     }
-                },
-                make_bool_variant(narrow_integral));
+                    vec_to[i] = ToFieldType(res);
+                } else {
+                    vec_to[i] = ToFieldType((vec_from[i].value + multiplier / 2) / multiplier);
+                }
+            } else {
+                if constexpr (narrow_integral) {
+                    res = (vec_from[i].value - multiplier / 2) / multiplier;
+                    if (UNLIKELY(res < -max_result.value)) {
+                        throw Exception(ErrorCode::ARITHMETIC_OVERFLOW_ERRROR,
+                                        "Arithmetic overflow, convert failed from {}, "
+                                        "expected data is [{}, {}]",
+                                        res, -max_result.value, max_result.value);
+                    }
+                    vec_to[i] = ToFieldType(res);
+                } else {
+                    vec_to[i] = ToFieldType((vec_from[i].value - multiplier / 2) / multiplier);
+                }
+            }
+        }
     }
 }
 
@@ -646,7 +627,7 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
             }
         }
         for (size_t i = 0; i < size; ++i) {
-            dst[i].value = FromFieldType(src[i] * multiplier.value + 0.5);
+            dst[i].value = FromFieldType(src[i] * multiplier.value + ((src[i] >= 0) ? 0.5 : -0.5));
         }
     } else {
         using DecimalFrom =

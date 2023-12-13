@@ -331,27 +331,27 @@ struct ConvertImpl {
                             (from_precision + to_scale - from_scale) > to_max_digits;
                 }
 
-                if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>) {
-                    convert_decimal_cols<FromDataType, ToDataType>(
-                            vec_from.data(), vec_to.data(), from_precision, vec_from.get_scale(),
-                            to_precision, vec_to.get_scale(), vec_from.size());
-                } else {
-                    std::visit(
-                            [&](auto multiply_may_overflow, auto narrow_integral) {
-                                if constexpr (IsDataTypeDecimal<FromDataType>) {
-                                    convert_from_decimal<FromDataType, ToDataType, narrow_integral>(
-                                            vec_to.data(), vec_from.data(), vec_from.get_scale(),
-                                            size);
-                                } else {
-                                    convert_to_decimal<FromDataType, ToDataType,
-                                                       multiply_may_overflow, narrow_integral>(
-                                            vec_to.data(), vec_from.data(), from_scale, to_scale,
-                                            min_result, max_result, size);
-                                }
-                            },
-                            make_bool_variant(multiply_may_overflow),
-                            make_bool_variant(narrow_integral));
-                }
+                std::visit(
+                        [&](auto multiply_may_overflow, auto narrow_integral) {
+                            if constexpr (IsDataTypeDecimal<FromDataType> &&
+                                          IsDataTypeDecimal<ToDataType>) {
+                                convert_decimal_cols<FromDataType, ToDataType,
+                                                     multiply_may_overflow, narrow_integral>(
+                                        vec_from.data(), vec_to.data(), from_precision,
+                                        vec_from.get_scale(), to_precision, vec_to.get_scale(),
+                                        vec_from.size());
+                            } else if constexpr (IsDataTypeDecimal<FromDataType>) {
+                                convert_from_decimal<FromDataType, ToDataType, narrow_integral>(
+                                        vec_to.data(), vec_from.data(), vec_from.get_scale(), size);
+                            } else {
+                                convert_to_decimal<FromDataType, ToDataType, multiply_may_overflow,
+                                                   narrow_integral>(vec_to.data(), vec_from.data(),
+                                                                    from_scale, to_scale,
+                                                                    min_result, max_result, size);
+                            }
+                        },
+                        make_bool_variant(multiply_may_overflow),
+                        make_bool_variant(narrow_integral));
 
                 block.replace_by_position(result, std::move(col_to));
 

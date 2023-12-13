@@ -239,6 +239,11 @@ struct DecimalBinaryOperation {
     using ArrayC = typename ColumnDecimal<ResultType>::Container;
 
 private:
+    template <typename T>
+    static int8_t sgn(const T& x) {
+        return (x > 0) ? 1 : ((x < 0) ? -1 : 0);
+    }
+
     static void vector_vector(const typename Traits::ArrayA::value_type* __restrict a,
                               const typename Traits::ArrayB::value_type* __restrict b,
                               typename ArrayC::value_type* c, size_t size,
@@ -257,7 +262,14 @@ private:
                                     a[i], b[i], max_result_number, scale_diff_multiplier));
                         }
                     },
-                    make_bool_variant(need_adjust_scale));
+                    make_bool_variant(need_adjust_scale && check_overflow));
+
+            if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
+                for (size_t i = 0; i < size; i++) {
+                    c[i].value = (c[i].value + sgn(c[i].value) * scale_diff_multiplier.value / 2) /
+                                 scale_diff_multiplier.value;
+                }
+            }
         }
     }
 
