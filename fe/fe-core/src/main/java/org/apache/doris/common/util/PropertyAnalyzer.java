@@ -171,7 +171,8 @@ public class PropertyAnalyzer {
     private static final double MIN_FPP = 0.0001;
 
     public static final String PROPERTIES_GROUP_COMMIT_INTERVAL_MS = "group_commit_interval_ms";
-    public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE = 10000;
+    public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE
+            = Config.group_commit_interval_ms_default_value;
 
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
