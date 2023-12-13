@@ -840,6 +840,7 @@ void HashJoinNode::_prepare_probe_block() {
         column_type.column = remove_nullable(column_type.column);
         column_type.type = remove_nullable(column_type.type);
     }
+    _temp_probe_nullable_columns.clear();
     release_block_memory(_probe_block);
 }
 
@@ -1057,6 +1058,7 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
                                           ColumnRawPtrs& raw_ptrs,
                                           const std::vector<int>& res_col_ids) {
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
+    _temp_probe_nullable_columns.clear();
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
         if (_is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
@@ -1080,6 +1082,15 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
                     raw_ptrs[i] = &col_nested;
                 }
             } else {
+                if constexpr (!BuildSide) {
+                    if (_join_op == TJoinOp::RIGHT_ANTI_JOIN &&
+                        _build_expr_ctxs[i]->root()->is_nullable()) {
+                        _temp_probe_nullable_columns.emplace_back(make_nullable(
+                                block.get_by_position(res_col_ids[i]).column->assume_mutable()));
+                        raw_ptrs[i] = _temp_probe_nullable_columns.back().get();
+                        continue;
+                    }
+                }
                 raw_ptrs[i] = column;
             }
         }
