@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.jdbc;
 
-import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.common.DdlException;
