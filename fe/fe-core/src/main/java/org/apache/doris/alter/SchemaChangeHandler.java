@@ -63,7 +63,6 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -104,6 +103,8 @@ import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.lang3.tuple.ImmutableTriple;
+import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1202,284 +1203,51 @@ public class SchemaChangeHandler extends AlterHandler {
                            Map<String, String> propertyMap, List<Index> indexes) throws UserException {
         checkReplicaCount(olapTable);
 
-        // process properties first
-        // for now. properties has 3 options
-        // property 1. to specify short key column count.
-        // eg.
-        //     "indexname1#short_key" = "3"
-        //     "indexname2#short_key" = "4"
-        Map<Long, Map<String, String>> indexIdToProperties = new HashMap<Long, Map<String, String>>();
-        if (propertyMap.size() > 0) {
-            for (String key : propertyMap.keySet()) {
-                if (key.endsWith(PropertyAnalyzer.PROPERTIES_SHORT_KEY)) {
-                    // short key
-                    String[] keyArray = key.split("#");
-                    if (keyArray.length != 2 || keyArray[0].isEmpty() || !keyArray[1].equals(
-                            PropertyAnalyzer.PROPERTIES_SHORT_KEY)) {
-                        throw new DdlException("Invalid alter table property: " + key);
-                    }
-
-                    HashMap<String, String> prop = new HashMap<String, String>();
-
-                    if (!olapTable.hasMaterializedIndex(keyArray[0])) {
-                        throw new DdlException("Index[" + keyArray[0] + "] does not exist");
-                    }
-
-                    prop.put(PropertyAnalyzer.PROPERTIES_SHORT_KEY, propertyMap.get(key));
-                    indexIdToProperties.put(olapTable.getIndexIdByName(keyArray[0]), prop);
-                }
-            } // end for property keys
-        }
-
-        // for bitmapIndex
-        boolean hasIndexChange = false;
-        Set<Index> newSet = new HashSet<>(indexes);
-        Set<Index> oriSet = new HashSet<>(olapTable.getIndexes());
-        if (!newSet.equals(oriSet)) {
-            hasIndexChange = true;
-        }
-
-        // property 2. bloom filter
-        // eg. "bloom_filter_columns" = "k1,k2", "bloom_filter_fpp" = "0.05"
-        Set<String> bfColumns = null;
-        double bfFpp = 0;
-        try {
-            bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(propertyMap,
-                    indexSchemaMap.get(olapTable.getBaseIndexId()), olapTable.getKeysType());
-            bfFpp = PropertyAnalyzer.analyzeBloomFilterFpp(propertyMap);
-        } catch (AnalysisException e) {
-            throw new DdlException(e.getMessage());
-        }
-
-        // check bloom filter has change
-        boolean hasBfChange = false;
-        Set<String> oriBfColumns = olapTable.getCopiedBfColumns();
-        double oriBfFpp = olapTable.getBfFpp();
-        if (bfColumns != null) {
-            if (bfFpp == 0) {
-                // columns: yes, fpp: no
-                if (bfColumns.equals(oriBfColumns)) {
-                    throw new DdlException("Bloom filter index has no change");
-                }
-
-                if (oriBfColumns == null) {
-                    bfFpp = FeConstants.default_bloom_filter_fpp;
-                } else {
-                    bfFpp = oriBfFpp;
-                }
-            } else {
-                // columns: yes, fpp: yes
-                if (bfColumns.equals(oriBfColumns) && bfFpp == oriBfFpp) {
-                    throw new DdlException("Bloom filter index has no change");
-                }
-            }
-
-            hasBfChange = true;
-        } else {
-            if (bfFpp == 0) {
-                // columns: no, fpp: no
-                bfFpp = oriBfFpp;
-            } else {
-                // columns: no, fpp: yes
-                if (bfFpp == oriBfFpp) {
-                    throw new DdlException("Bloom filter index has no change");
-                }
-                if (oriBfColumns == null) {
-                    throw new DdlException("Bloom filter index has no change");
-                }
-
-                hasBfChange = true;
-            }
-
-            bfColumns = oriBfColumns;
-        }
-
-        if (bfColumns != null && bfColumns.isEmpty()) {
-            bfColumns = null;
-        }
-        if (bfColumns == null) {
-            bfFpp = 0;
-        }
-
-        Index.checkConflict(newSet, bfColumns);
-
-        // property 3: timeout
+        TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
         long timeoutSecond = PropertyAnalyzer.analyzeTimeout(propertyMap, Config.alter_table_timeout_second);
 
-        TStorageFormat storageFormat = PropertyAnalyzer.analyzeStorageFormat(propertyMap);
+        Map<Long, Map<String, String>> indexIdToProperties = calcMaterializedIndexProperties(olapTable, propertyMap);
 
-        // begin checking each table
-        // ATTN: DO NOT change any meta in this loop
-        long tableId = olapTable.getId();
+        Triple<Set<String>, Double, Boolean> bloomFilterInfo =
+                calcBloomFilterInfo(olapTable, indexSchemaMap, propertyMap);
+
+        Set<String> bfColumns = bloomFilterInfo.getLeft();
+        double bfFpp = bloomFilterInfo.getMiddle();
+        boolean hasBfChange = bloomFilterInfo.getRight();
+
+        Index.checkConflict(new HashSet<>(indexes), bfColumns);
+
+        boolean hasIndexChange = checkIndexChanged(olapTable, indexes);
+
+        // begin to check each table MaterializedIndex
+        // ATTN: do not change any meta in this loop
         Map<Long, Short> indexIdToShortKeyColumnCount = Maps.newHashMap();
         Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
         for (Long alterIndexId : indexSchemaMap.keySet()) {
             // Must get all columns including invisible columns.
             // Because in alter process, all columns must be considered.
-            List<Column> originSchema = olapTable.getSchemaByIndexId(alterIndexId, true);
-            List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
             Set<Column> needAlterColumns = Sets.newHashSet();
+            boolean hasColumnChange = checkColumnsChanged(olapTable, alterIndexId, indexSchemaMap, needAlterColumns);
 
-            // 0. check if unchanged
-            boolean hasColumnChange = false;
-            if (alterSchema.size() != originSchema.size()) {
-                hasColumnChange = true;
-            } else {
-                for (int i = 0; i < alterSchema.size(); i++) {
-                    Column alterColumn = alterSchema.get(i);
-                    if (!alterColumn.equals(originSchema.get(i))) {
-                        needAlterColumns.add(alterColumn);
-                        hasColumnChange = true;
-                    }
-                }
-            }
-
-            // if has column changed, alter it.
-            // else:
-            //     if no bf change, no alter
-            //     if has bf change, should check
-            boolean needAlter = false;
-            if (hasColumnChange) {
-                needAlter = true;
-            } else if (hasBfChange) {
-                for (Column alterColumn : alterSchema) {
-                    String columnName = alterColumn.getName();
-
-                    boolean isOldBfColumn = false;
-                    if (oriBfColumns != null && oriBfColumns.contains(columnName)) {
-                        isOldBfColumn = true;
-                    }
-
-                    boolean isNewBfColumn = false;
-                    if (bfColumns != null && bfColumns.contains(columnName)) {
-                        isNewBfColumn = true;
-                    }
-
-                    if (isOldBfColumn != isNewBfColumn) {
-                        // bf column change
-                        needAlter = true;
-                    } else if (isOldBfColumn && isNewBfColumn && oriBfFpp != bfFpp) {
-                        // bf fpp change
-                        needAlter = true;
-                    }
-
-                    if (needAlter) {
-                        break;
-                    }
-                }
-            } else if (hasIndexChange) {
-                needAlter = true;
-            } else if (storageFormat == TStorageFormat.V2) {
-                if (olapTable.getStorageFormat() != TStorageFormat.V2) {
-                    needAlter = true;
-                }
-            }
-
-            if (!needAlter) {
+            if (!needAlterMaterializedIndex(hasColumnChange, hasIndexChange, hasBfChange, bfColumns,
+                    bfFpp, indexSchemaMap.get(alterIndexId), storageFormat, olapTable)) {
                 LOG.debug("index[{}] is not changed. ignore", alterIndexId);
                 continue;
             }
 
             LOG.debug("index[{}] is changed. start checking...", alterIndexId);
-            // 1. check order: a) has key; b) value after key
-            boolean meetValue = false;
-            boolean hasKey = false;
-            for (Column column : alterSchema) {
-                if (column.isKey() && meetValue) {
-                    throw new DdlException(
-                            "Invalid column order. value should be after key. index[" + olapTable.getIndexNameById(
-                                    alterIndexId) + "]");
-                }
-                if (!column.isKey()) {
-                    meetValue = true;
-                } else {
-                    hasKey = true;
-                }
-            }
-            if (!hasKey && !olapTable.isDuplicateWithoutKey()) {
-                throw new DdlException("No key column left. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
-            }
+            checkMaterializedIndex(olapTable, indexSchemaMap, alterIndexId, needAlterColumns);
 
-            // 2. check compatible
-            for (Column alterColumn : alterSchema) {
-                for (Column oriColumn : originSchema) {
-                    if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)) {
-                        if (!alterColumn.equals(oriColumn)) {
-                            // 3.1 check type
-                            oriColumn.checkSchemaChangeAllowed(alterColumn);
-                        }
-                    }
-                } // end for ori
-            } // end for alter
-
-            // 3. check partition key
-            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-            if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-                List<Column> partitionColumns = partitionInfo.getPartitionColumns();
-                for (Column partitionCol : partitionColumns) {
-                    boolean found = false;
-                    for (Column alterColumn : alterSchema) {
-                        if (alterColumn.nameEquals(partitionCol.getName(), true)) {
-                            // 2.1 partition column cannot be modified
-                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(partitionCol)) {
-                                throw new DdlException(
-                                        "Can not modify partition column[" + partitionCol.getName() + "]. index["
-                                                + olapTable.getIndexNameById(alterIndexId) + "]");
-                            }
-                            found = true;
-                            break;
-                        }
-                    } // end for alterColumns
-
-                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
-                        // 2.1 partition column cannot be deleted.
-                        throw new DdlException(
-                                "Partition column[" + partitionCol.getName() + "] cannot be dropped. index["
-                                        + olapTable.getIndexNameById(alterIndexId) + "]");
-                        // ATTN. partition columns' order also need remaining unchanged.
-                        // for now, we only allow one partition column, so no need to check order.
-                    }
-                } // end for partitionColumns
-            }
-
-            // 4. check distribution key:
-            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-            if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
-                for (Column distributionCol : distributionColumns) {
-                    boolean found = false;
-                    for (Column alterColumn : alterSchema) {
-                        if (alterColumn.nameEquals(distributionCol.getName(), true)) {
-                            // 3.1 distribution column cannot be modified
-                            if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(distributionCol)) {
-                                throw new DdlException(
-                                        "Can not modify distribution column[" + distributionCol.getName() + "]. index["
-                                                + olapTable.getIndexNameById(alterIndexId) + "]");
-                            }
-                            found = true;
-                            break;
-                        }
-                    } // end for alterColumns
-
-                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
-                        // 2.2 distribution column cannot be deleted.
-                        throw new DdlException(
-                                "Distribution column[" + distributionCol.getName() + "] cannot be dropped. index["
-                                        + olapTable.getIndexNameById(alterIndexId) + "]");
-                    }
-                } // end for distributionCols
-            }
-
-            // 5. calc short key
-            short newShortKeyColumnCount = Env.calcShortKeyColumnCount(alterSchema,
+            // calc short key
+            short newShortKeyColumnCount = Env.calcShortKeyColumnCount(indexSchemaMap.get(alterIndexId),
                     indexIdToProperties.get(alterIndexId), !olapTable.isDuplicateWithoutKey());
             LOG.debug("alter index[{}] short key column count: {}", alterIndexId, newShortKeyColumnCount);
             indexIdToShortKeyColumnCount.put(alterIndexId, newShortKeyColumnCount);
 
-            // 6. store the changed columns for edit log
-            changedIndexIdToSchema.put(alterIndexId, alterSchema);
+            // store the changed columns for edit log
+            changedIndexIdToSchema.put(alterIndexId, indexSchemaMap.get(alterIndexId));
 
-            LOG.debug("schema change[{}-{}-{}] check pass.", dbId, tableId, alterIndexId);
+            LOG.debug("schema change[{}-{}-{}] check pass.", dbId, olapTable.getId(), alterIndexId);
         } // end for indices
 
         if (changedIndexIdToSchema.isEmpty() && !hasIndexChange) {
@@ -1542,7 +1310,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 ReplicaAllocation replicaAlloc = olapTable.getPartitionInfo().getReplicaAllocation(partitionId);
                 Short totalReplicaNum = replicaAlloc.getTotalReplicaNum();
                 for (Tablet originTablet : originIndex.getTablets()) {
-                    TabletMeta shadowTabletMeta = new TabletMeta(dbId, tableId, partitionId, shadowIndexId,
+                    TabletMeta shadowTabletMeta = new TabletMeta(dbId, olapTable.getId(), partitionId, shadowIndexId,
                             newSchemaHash, medium);
                     long originTabletId = originTablet.getId();
                     long shadowTabletId = idGeneratorBuffer.getNextId();
@@ -1674,25 +1442,6 @@ public class SchemaChangeHandler extends AlterHandler {
                 runnableIndexChangeJob.remove(indexChangeJob.getJobId());
             }
         });
-    }
-
-    private void changeTableState(long dbId, long tableId, OlapTableState olapTableState) {
-        try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbId);
-            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableId, Table.TableType.OLAP);
-            olapTable.writeLockOrMetaException();
-            try {
-                if (olapTable.getState() == olapTableState) {
-                    return;
-                } else if (olapTable.getState() == OlapTableState.SCHEMA_CHANGE) {
-                    olapTable.setState(olapTableState);
-                }
-            } finally {
-                olapTable.writeUnlock();
-            }
-        } catch (MetaNotFoundException e) {
-            LOG.warn("[INCONSISTENT META] changing table status failed after schema change job done", e);
-        }
     }
 
     public List<List<Comparable>> getAllIndexChangeJobInfos() {
@@ -2638,20 +2387,25 @@ public class SchemaChangeHandler extends AlterHandler {
             hasIndexChange = true;
         }
 
-        // begin checking each table
         Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
-        try {
-            changedIndexIdToSchema = checkTable(db, olapTable, indexSchemaMap);
-        } catch (DdlException e) {
-            throw new DdlException("Table " + db.getFullName() + "." + olapTable.getName() + " check failed");
-        }
+        for (Long alterIndexId : indexSchemaMap.keySet()) {
+            LOG.debug("index[{}] is changed. start checking...", alterIndexId);
+            Set<Column> needAlterColumns = Sets.newHashSet();
+            checkColumnsChanged(olapTable, alterIndexId, indexSchemaMap, needAlterColumns);
+            checkMaterializedIndex(olapTable, indexSchemaMap, alterIndexId, needAlterColumns);
+
+            // 5. store the changed columns for edit log
+            changedIndexIdToSchema.put(alterIndexId, indexSchemaMap.get(alterIndexId));
+
+            LOG.debug("schema change[{}-{}-{}] check pass.", db.getId(), olapTable.getId(), alterIndexId);
+        } // end for indices
+
 
         if (changedIndexIdToSchema.isEmpty() && !hasIndexChange) {
             throw new DdlException("Nothing is changed. please check your alter stmt.");
         }
 
         //for compatibility, we need create a finished state schema change job v2
-
         SchemaChangeJobV2 schemaChangeJob = new SchemaChangeJobV2(rawSql, jobId, db.getId(), olapTable.getId(),
                 olapTable.getName(), 1000);
 
@@ -2741,74 +2495,13 @@ public class SchemaChangeHandler extends AlterHandler {
         Map<Long, List<Column>> changedIndexIdToSchema = Maps.newHashMap();
         // ATTN: DO NOT change any meta in this loop
         for (Long alterIndexId : indexSchemaMap.keySet()) {
-            // Must get all columns including invisible columns.
-            // Because in alter process, all columns must be considered.
-            List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
             LOG.debug("index[{}] is changed. start checking...", alterIndexId);
-            // 1. check order: a) has key; b) value after key
-            boolean meetValue = false;
-            boolean hasKey = false;
-            for (Column column : alterSchema) {
-                if (column.isKey() && meetValue) {
-                    throw new DdlException(
-                            "Invalid column order. value should be after key. index[" + olapTable.getIndexNameById(
-                                    alterIndexId) + "]");
-                }
-                if (!column.isKey()) {
-                    meetValue = true;
-                } else {
-                    hasKey = true;
-                }
-            }
-            if (!hasKey && !olapTable.isDuplicateWithoutKey()) {
-                throw new DdlException("No key column left. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
-            }
-
-            // 2. check partition key
-            PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-            if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
-                List<Column> partitionColumns = partitionInfo.getPartitionColumns();
-                for (Column partitionCol : partitionColumns) {
-                    boolean found = false;
-                    for (Column alterColumn : alterSchema) {
-                        if (alterColumn.nameEquals(partitionCol.getName(), true)) {
-                            found = true;
-                            break;
-                        }
-                    } // end for alterColum
-
-                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
-                        // 2.1 partition column cannot be deleted.
-                        throw new DdlException(
-                                "Partition column[" + partitionCol.getName() + "] cannot be dropped. index["
-                                        + olapTable.getIndexNameById(alterIndexId) + "]");
-                    }
-                } // end for partitionColumns
-            }
-
-            // 3. check distribution key:
-            DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
-            if (distributionInfo.getType() == DistributionInfoType.HASH) {
-                List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
-                for (Column distributionCol : distributionColumns) {
-                    boolean found = false;
-                    for (Column alterColumn : alterSchema) {
-                        if (alterColumn.nameEquals(distributionCol.getName(), true)) {
-                            found = true;
-                            break;
-                        }
-                    } // end for alterColumns
-                    if (!found && alterIndexId == olapTable.getBaseIndexId()) {
-                        // 2.2 distribution column cannot be deleted.
-                        throw new DdlException(
-                                "Distribution column[" + distributionCol.getName() + "] cannot be dropped. index["
-                                        + olapTable.getIndexNameById(alterIndexId) + "]");
-                    }
-                } // end for distributionCols
-            }
+            Set<Column> needAlterColumns = Sets.newHashSet();
+            checkColumnsChanged(olapTable, alterIndexId, indexSchemaMap, needAlterColumns);
+            checkMaterializedIndex(olapTable, indexSchemaMap, alterIndexId, needAlterColumns);
 
             // 5. store the changed columns for edit log
-            changedIndexIdToSchema.put(alterIndexId, alterSchema);
+            changedIndexIdToSchema.put(alterIndexId, indexSchemaMap.get(alterIndexId));
 
             LOG.debug("schema change[{}-{}-{}] check pass.", db.getId(), olapTable.getId(), alterIndexId);
         } // end for indices
@@ -3049,5 +2742,293 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         return false;
+    }
+
+    private Map<Long, Map<String, String>> calcMaterializedIndexProperties(final OlapTable olapTable,
+            final Map<String, String> propertyMap) throws DdlException {
+        // now properties has 3 options to specify short key column count
+        // eg.
+        //     "indexname1#short_key" = "3"
+        //     "indexname2#short_key" = "4"
+        Map<Long, Map<String, String>> indexIdToProperties = new HashMap<Long, Map<String, String>>();
+        if (propertyMap.size() > 0) {
+            for (String key : propertyMap.keySet()) {
+                if (key.endsWith(PropertyAnalyzer.PROPERTIES_SHORT_KEY)) {
+                    // short key
+                    String[] keyArray = key.split("#");
+                    if (keyArray.length != 2 || keyArray[0].isEmpty() || !keyArray[1].equals(
+                            PropertyAnalyzer.PROPERTIES_SHORT_KEY)) {
+                        throw new DdlException("Invalid alter table property: " + key);
+                    }
+
+                    HashMap<String, String> prop = new HashMap<String, String>();
+
+                    if (!olapTable.hasMaterializedIndex(keyArray[0])) {
+                        throw new DdlException("Index[" + keyArray[0] + "] does not exist");
+                    }
+
+                    prop.put(PropertyAnalyzer.PROPERTIES_SHORT_KEY, propertyMap.get(key));
+                    indexIdToProperties.put(olapTable.getIndexIdByName(keyArray[0]), prop);
+                }
+            } // end for property keys
+        }
+        return indexIdToProperties;
+    }
+
+    // <bfColumns, bfFpp, hasBfChange>
+    private Triple<Set<String>, Double, Boolean> calcBloomFilterInfo(final OlapTable olapTable,
+            final Map<Long, LinkedList<Column>> indexSchemaMap,
+            final Map<String, String> propertyMap) throws UserException {
+        // property bloom filter
+        // eg. "bloom_filter_columns" = "k1,k2", "bloom_filter_fpp" = "0.05"
+        Set<String> bfColumns = null;
+        double bfFpp = 0;
+
+        bfColumns = PropertyAnalyzer.analyzeBloomFilterColumns(propertyMap,
+                indexSchemaMap.get(olapTable.getBaseIndexId()), olapTable.getKeysType());
+        bfFpp = PropertyAnalyzer.analyzeBloomFilterFpp(propertyMap);
+
+        // check bloom filter has change
+        boolean hasBfChange = false;
+        Set<String> oriBfColumns = olapTable.getCopiedBfColumns();
+        double oriBfFpp = olapTable.getBfFpp();
+        if (bfColumns != null) {
+            if (bfFpp == 0) {
+                // columns: yes, fpp: no
+                if (bfColumns.equals(oriBfColumns)) {
+                    throw new DdlException("Bloom filter index has no change");
+                }
+
+                if (oriBfColumns == null) {
+                    bfFpp = FeConstants.default_bloom_filter_fpp;
+                } else {
+                    bfFpp = oriBfFpp;
+                }
+            } else {
+                // columns: yes, fpp: yes
+                if (bfColumns.equals(oriBfColumns) && bfFpp == oriBfFpp) {
+                    throw new DdlException("Bloom filter index has no change");
+                }
+            }
+            hasBfChange = true;
+        } else {
+            if (bfFpp == 0) {
+                // columns: no, fpp: no
+                bfFpp = oriBfFpp;
+            } else {
+                // columns: no, fpp: yes
+                if (bfFpp == oriBfFpp) {
+                    throw new DdlException("Bloom filter index has no change");
+                }
+                if (oriBfColumns == null) {
+                    throw new DdlException("Bloom filter index has no change");
+                }
+                hasBfChange = true;
+            }
+
+            bfColumns = oriBfColumns;
+        }
+
+        if (bfColumns != null && bfColumns.isEmpty()) {
+            bfColumns = null;
+        }
+        if (bfColumns == null) {
+            bfFpp = 0;
+        }
+        return new ImmutableTriple<>(bfColumns, bfFpp, hasBfChange);
+    }
+
+    private boolean checkIndexChanged(final OlapTable olapTable, final List<Index> indexes) {
+        // check for bitmapIndex
+        Set<Index> newSet = new HashSet<>(indexes);
+        Set<Index> oriSet = new HashSet<>(olapTable.getIndexes());
+        if (!newSet.equals(oriSet)) {
+            return true;
+        }
+        return false;
+    }
+
+    private boolean checkColumnsChanged(final OlapTable olapTable, Long alterIndexId,
+            final Map<Long, LinkedList<Column>> indexSchemaMap, Set<Column> changedColumns) {
+        // calclulate columns if changed
+        Preconditions.checkState(changedColumns.isEmpty());
+        final List<Column> originSchema = olapTable.getSchemaByIndexId(alterIndexId, true);
+        final List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
+
+        if (alterSchema.size() != originSchema.size()) {
+            return true;
+        }
+
+        for (int i = 0; i < alterSchema.size(); i++) {
+            Column alterColumn = alterSchema.get(i);
+            if (!alterColumn.equals(originSchema.get(i))) {
+                changedColumns.add(alterColumn);
+            }
+        }
+        return !changedColumns.isEmpty();
+    }
+
+    private boolean needAlterMaterializedIndex(boolean columnsChanged, boolean indexChanged,
+            boolean hasBfChange, final Set<String> bfColumns, double bfFpp,
+            final List<Column> alterSchema, TStorageFormat storageFormat,
+            final OlapTable olapTable) {
+        // if has column changed, alter it.
+        // else:
+        //     if no bf change, no alter
+        //     if has bf change, should check
+
+        if (columnsChanged || indexChanged) {
+            return true;
+        }
+
+        if ((storageFormat == TStorageFormat.V2) && (olapTable.getStorageFormat() != TStorageFormat.V2)) {
+            return true;
+        }
+
+        double oriBfFpp = olapTable.getBfFpp();
+        Set<String> oriBfColumns = olapTable.getCopiedBfColumns();
+        if (hasBfChange) {
+            for (Column alterColumn : alterSchema) {
+                String columnName = alterColumn.getName();
+
+                boolean isOldBfColumn = false;
+                if (oriBfColumns != null && oriBfColumns.contains(columnName)) {
+                    isOldBfColumn = true;
+                }
+
+                boolean isNewBfColumn = false;
+                if (bfColumns != null && bfColumns.contains(columnName)) {
+                    isNewBfColumn = true;
+                }
+
+                if (isOldBfColumn != isNewBfColumn) {
+                    // bf column change
+                    return true;
+                } else if (isOldBfColumn && isNewBfColumn && oriBfFpp != bfFpp) {
+                    // bf fpp change
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private void checkColumnsOrder(final OlapTable olapTable, final Long alterIndexId,
+            final Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
+        // 1. check order: a) has key; b) value after key
+        final List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
+        boolean meetValue = false;
+        boolean hasKey = false;
+        for (Column column : alterSchema) {
+            if (column.isKey() && meetValue) {
+                throw new DdlException(
+                        "Invalid column order. value should be after key. index[" + olapTable.getIndexNameById(
+                                alterIndexId) + "]");
+            }
+            if (!column.isKey()) {
+                meetValue = true;
+            } else {
+                hasKey = true;
+            }
+        }
+        if (!hasKey && !olapTable.isDuplicateWithoutKey()) {
+            throw new DdlException("No key column left. index[" + olapTable.getIndexNameById(alterIndexId) + "]");
+        }
+    }
+
+    private void checkColumnsCompatibility(final OlapTable olapTable, final Long alterIndexId,
+            final Map<Long, LinkedList<Column>> indexSchemaMap)
+            throws DdlException {
+
+        final List<Column> originSchema = olapTable.getSchemaByIndexId(alterIndexId, true);
+        final List<Column> alterSchema = indexSchemaMap.get(alterIndexId);
+        for (Column alterColumn : alterSchema) {
+            for (Column oriColumn : originSchema) {
+                if (alterColumn.nameEquals(oriColumn.getName(), true /* ignore prefix */)) {
+                    if (!alterColumn.equals(oriColumn)) {
+                        // check type
+                        oriColumn.checkSchemaChangeAllowed(alterColumn);
+                    }
+                }
+            } // end for ori
+        } // end for alter
+    }
+
+    private void checkPartitionKey(final OlapTable olapTable, final Map<Long, LinkedList<Column>> indexSchemaMap,
+            final Long alterIndexId, final Set<Column> needAlterColumns) throws DdlException {
+        PartitionInfo partitionInfo = olapTable.getPartitionInfo();
+        if (partitionInfo.getType() == PartitionType.RANGE || partitionInfo.getType() == PartitionType.LIST) {
+            List<Column> partitionColumns = partitionInfo.getPartitionColumns();
+            for (Column partitionCol : partitionColumns) {
+                boolean found = false;
+                for (Column alterColumn : indexSchemaMap.get(alterIndexId)) {
+                    if (alterColumn.nameEquals(partitionCol.getName(), true)) {
+                        // partition column cannot be modified
+                        if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(partitionCol)) {
+                            throw new DdlException(
+                                    "Can not modify partition column[" + partitionCol.getName() + "]. index["
+                                            + olapTable.getIndexNameById(alterIndexId) + "]");
+                        }
+                        found = true;
+                        break;
+                    }
+                } // end for alterColumns
+
+                if (!found && alterIndexId == olapTable.getBaseIndexId()) {
+                    // partition column cannot be deleted.
+                    throw new DdlException(
+                            "Partition column[" + partitionCol.getName() + "] cannot be dropped. index["
+                                    + olapTable.getIndexNameById(alterIndexId) + "]");
+                    // ATTN. partition columns' order also need remaining unchanged.
+                    // for now, we only allow one partition column, so no need to check order.
+                }
+            } // end for partitionColumns
+        }
+    }
+
+    private void checkDistributionKey(final OlapTable olapTable, final Map<Long, LinkedList<Column>> indexSchemaMap,
+            final Long alterIndexId, final Set<Column> needAlterColumns) throws DdlException {
+        DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+        if (distributionInfo.getType() == DistributionInfoType.HASH) {
+            List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+            for (Column distributionCol : distributionColumns) {
+                boolean found = false;
+                for (Column alterColumn : indexSchemaMap.get(alterIndexId)) {
+                    if (alterColumn.nameEquals(distributionCol.getName(), true)) {
+                        // distribution column cannot be modified
+                        if (needAlterColumns.contains(alterColumn) && !alterColumn.equals(distributionCol)) {
+                            throw new DdlException(
+                                    "Can not modify distribution column[" + distributionCol.getName() + "]. index["
+                                            + olapTable.getIndexNameById(alterIndexId) + "]");
+                        }
+                        found = true;
+                        break;
+                    }
+                } // end for alterColumns
+
+                if (!found && alterIndexId == olapTable.getBaseIndexId()) {
+                    // distribution column cannot be deleted.
+                    throw new DdlException(
+                            "Distribution column[" + distributionCol.getName() + "] cannot be dropped. index["
+                                    + olapTable.getIndexNameById(alterIndexId) + "]");
+                }
+            } // end for distributionCols
+        }
+    }
+
+    private void checkMaterializedIndex(final OlapTable olapTable,
+            final Map<Long, LinkedList<Column>> indexSchemaMap,
+            final Long alterIndexId, final Set<Column> needAlterColumns) throws DdlException {
+        // 1. check order: a) has key; b) value after key
+        checkColumnsOrder(olapTable, alterIndexId, indexSchemaMap);
+
+        // 2. check compatible
+        checkColumnsCompatibility(olapTable, alterIndexId, indexSchemaMap);
+
+        // 3. check partition key
+        checkPartitionKey(olapTable, indexSchemaMap, alterIndexId, needAlterColumns);
+
+        // 4. check distribution key
+        checkDistributionKey(olapTable, indexSchemaMap, alterIndexId, needAlterColumns);
     }
 }
