@@ -268,19 +268,19 @@ EncodingInfoResolver::EncodingInfoResolver() {
     _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, BIT_SHUFFLE>();
     _add_map<FieldType::OLAP_FIELD_TYPE_DOUBLE, PLAIN_ENCODING>();
 
-    _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_CHAR, PREFIX_ENCODING, true>();
 
-    _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_VARCHAR, PREFIX_ENCODING, true>();
 
-    _add_map<FieldType::OLAP_FIELD_TYPE_STRING, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_STRING, PREFIX_ENCODING, true>();
 
-    _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, DICT_ENCODING>();
+    _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PLAIN_ENCODING>();
     _add_map<FieldType::OLAP_FIELD_TYPE_JSONB, PREFIX_ENCODING, true>();
 
