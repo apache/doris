@@ -60,10 +60,9 @@ private:
 class LocalExchangeSourceOperatorX final : public OperatorX<LocalExchangeSourceLocalState> {
 public:
     using Base = OperatorX<LocalExchangeSourceLocalState>;
-    LocalExchangeSourceOperatorX(ObjectPool* pool, int id, OperatorXBase* parent)
-            : Base(pool, -1, id), _parent(parent) {}
-    Status init(const TPlanNode& tnode, RuntimeState* state) override {
-        _op_name = "LOCAL_EXCHANGE_OPERATOR";
+    LocalExchangeSourceOperatorX(ObjectPool* pool, int id) : Base(pool, id, id) {}
+    Status init(ExchangeType type) override {
+        _op_name = "LOCAL_EXCHANGE_OPERATOR (" + get_exchange_type_name(type) + ")";
         return Status::OK();
     }
     Status prepare(RuntimeState* state) override { return Status::OK(); }
@@ -79,21 +78,8 @@ public:
 
     bool is_source() const override { return true; }
 
-    Status set_child(OperatorXPtr child) override {
-        if (_child_x) {
-            // Set build side child for join probe operator
-            DCHECK(_parent != nullptr);
-            RETURN_IF_ERROR(_parent->set_child(child));
-        } else {
-            _child_x = std::move(child);
-        }
-        return Status::OK();
-    }
-
 private:
     friend class LocalExchangeSourceLocalState;
-
-    OperatorXBase* _parent = nullptr;
 };
 
 } // namespace doris::pipeline

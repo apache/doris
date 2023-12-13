@@ -60,15 +60,7 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(push_request_write_rows, MetricUnit::ROWS);
 DEFINE_ENGINE_COUNTER_METRIC(create_tablet_requests_total, create_tablet, total);
 DEFINE_ENGINE_COUNTER_METRIC(create_tablet_requests_failed, create_tablet, failed);
 DEFINE_ENGINE_COUNTER_METRIC(drop_tablet_requests_total, drop_tablet, total);
-DEFINE_ENGINE_COUNTER_METRIC(report_all_tablets_requests_total, report_all_tablets, total);
-DEFINE_ENGINE_COUNTER_METRIC(report_all_tablets_requests_failed, report_all_tablets, failed);
 DEFINE_ENGINE_COUNTER_METRIC(report_all_tablets_requests_skip, report_all_tablets, skip)
-DEFINE_ENGINE_COUNTER_METRIC(report_tablet_requests_total, report_tablet, total);
-DEFINE_ENGINE_COUNTER_METRIC(report_tablet_requests_failed, report_tablet, failed);
-DEFINE_ENGINE_COUNTER_METRIC(report_disk_requests_total, report_disk, total);
-DEFINE_ENGINE_COUNTER_METRIC(report_disk_requests_failed, report_disk, failed);
-DEFINE_ENGINE_COUNTER_METRIC(report_task_requests_total, report_task, total);
-DEFINE_ENGINE_COUNTER_METRIC(report_task_requests_failed, report_task, failed);
 DEFINE_ENGINE_COUNTER_METRIC(schema_change_requests_total, schema_change, total);
 DEFINE_ENGINE_COUNTER_METRIC(schema_change_requests_failed, schema_change, failed);
 DEFINE_ENGINE_COUNTER_METRIC(create_rollup_requests_total, create_rollup, total);
@@ -170,8 +162,6 @@ DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_memory_total_byte, MetricUni
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_sql_total_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_partition_total_count, MetricUnit::NOUNIT);
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(tablet_schema_cache_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(tablet_schema_cache_memory_bytes, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(lru_cache_memory_bytes, MetricUnit::BYTES);
 
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(upload_total_byte, MetricUnit::BYTES);
@@ -219,15 +209,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_tablet_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_tablet_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, drop_tablet_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_all_tablets_requests_skip);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_tablet_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_tablet_requests_failed);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_disk_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_disk_requests_failed);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_task_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, report_task_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, schema_change_requests_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, schema_change_requests_failed);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, create_rollup_requests_total);
@@ -304,8 +286,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_sql_total_count);
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_partition_total_count);
 
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, tablet_schema_cache_count);
-    INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, tablet_schema_cache_memory_bytes);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, lru_cache_memory_bytes);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_file_reader_total);

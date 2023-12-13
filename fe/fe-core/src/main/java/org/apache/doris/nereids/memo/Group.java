@@ -76,7 +76,7 @@ public class Group {
 
     private int chosenGroupExpressionId = -1;
 
-    private Optional<StructInfo> structInfo = Optional.empty();
+    private List<StructInfo> structInfos = new ArrayList<>();
 
     /**
      * Constructor for Group.
@@ -541,11 +541,15 @@ public class Group {
         return TreeStringUtils.treeString(this, toString, getChildren, getExtraPlans, displayExtraPlan);
     }
 
-    public Optional<StructInfo> getStructInfo() {
-        return structInfo;
+    public List<StructInfo> getStructInfos() {
+        return structInfos;
     }
 
-    public void setStructInfo(StructInfo structInfo) {
-        this.structInfo = Optional.ofNullable(structInfo);
+    public void addStructInfo(StructInfo structInfo) {
+        this.structInfos.add(structInfo);
+    }
+
+    public void addStructInfo(List<StructInfo> structInfos) {
+        this.structInfos.addAll(structInfos);
     }
 }

@@ -55,8 +55,30 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
     sql "insert into var_delete_update_mow select k, cast(v as string), cast(v as string) from var_delete_update"
     sql "delete from ${table_name} where k = 1"
     sql "delete from ${table_name} where k in (select k from var_delete_update_mow where k in (3, 4, 5))"
-    // FIXME
-    // sql """update ${table_name} set vs = '{"updated_value" : 123}' where k = 2"""
-    // sql """update ${table_name} set v = '{"updated_value" : 123}' where k = 2"""
+
+    sql """insert into ${table_name} values (6, '{"a" : 4, "b" : [4], "c": 4.0}', 'xxx')"""
+    sql """insert into ${table_name} values (7, '{"a" : 4, "b" : [4], "c": 4.0}', 'yyy')"""
+    sql """update ${table_name} set vs = '{"updated_value" : 123}' where k = 6"""
+    sql """update ${table_name} set v = '{"updated_value" : 1111}' where k = 7"""
     qt_sql "select * from ${table_name} order by k"
+
+    sql """delete from ${table_name} where vs = 'xxx' or vs = 'yyy'"""
+    qt_sql "select * from ${table_name} order by k"
+
+    // delete & insert concurrently
+
+    t1 = Thread.startDaemon {
+        for (int k = 1; k <= 60; k++) {
+            int x = k % 10;
+            sql """insert into ${table_name} values(${x}, '${x}', '{"k${x}" : ${x}}')"""
+        } 
+    }
+    t2 = Thread.startDaemon {
+        for (int k = 1; k <= 60; k++) {
+            int x = k % 10;
+            sql """delete from ${table_name} where k = ${x} """
+        }
+    }
+    t1.join()
+    t2.join()
 }

@@ -35,7 +35,6 @@
 
 #include "util/core_local.h"
 #include "util/histogram.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
@@ -111,17 +110,17 @@ public:
     std::string to_string() const override { return std::to_string(value()); }
 
     T value() const {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         return _value;
     }
 
     void increment(const T& delta) {
-        std::lock_guard<SpinLock> l(this->_lock);
+        std::lock_guard<std::mutex> l(this->_lock);
         _value += delta;
     }
 
     void set_value(const T& value) {
-        std::lock_guard<SpinLock> l(this->_lock);
+        std::lock_guard<std::mutex> l(this->_lock);
         _value = value;
     }
 
@@ -130,14 +129,14 @@ public:
     }
 
 protected:
-    // We use spinlock instead of std::atomic is because atomic don't support
+    // We use std::mutex instead of std::atomic is because atomic don't support
     // double's fetch_add
     // TODO(zc): If this is atomic is bottleneck, we change to thread local.
     // performance: on Intel(R) Xeon(R) CPU E5-2450 int64_t
     //  original type: 2ns/op
-    //  single thread spinlock: 26ns/op
-    //  multiple thread(8) spinlock: 2500ns/op
-    mutable SpinLock _lock;
+    //  single thread std::mutex: 26ns/op
+    //  multiple thread(8) std::mutex: 2500ns/op
+    mutable std::mutex _lock;
     T _value;
 };
 
@@ -202,7 +201,7 @@ public:
 
 protected:
     static std::map<std::string, double> _s_output_percentiles;
-    mutable SpinLock _lock;
+    mutable std::mutex _lock;
     HistogramStat _stats;
 };
 
@@ -351,7 +350,7 @@ public:
 
     template <typename T>
     Metric* register_metric(const MetricPrototype* metric_type) {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         auto inserted_metric = _metrics.insert(std::make_pair(metric_type, nullptr));
         if (inserted_metric.second) {
             // If not exist, make a new metric pointer
@@ -377,7 +376,7 @@ private:
     std::string _name;
     Labels _labels;
 
-    mutable SpinLock _lock;
+    mutable std::mutex _lock;
     MetricMap _metrics;
     std::map<std::string, std::function<void()>> _hooks;
 };
@@ -421,7 +420,7 @@ public:
 private:
     const std::string _name;
 
-    mutable SpinLock _lock;
+    mutable std::mutex _lock;
     // MetricEntity -> register count
     std::unordered_map<std::shared_ptr<MetricEntity>, int32_t, MetricEntityHash,
                        MetricEntityEqualTo>

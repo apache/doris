@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join2", "query,p0") {
+suite("test_join2", "query,p0,arrow_flight_sql") {
     def DBname = "regression_test_join2"
     def TBname1 = "J1_TBL"
     def TBname2 = "J2_TBL"

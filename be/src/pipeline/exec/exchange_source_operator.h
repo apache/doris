@@ -55,7 +55,19 @@ public:
     ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
     ExchangeDataDependency(int id, int node_id, QueryContext* query_ctx,
                            vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, node_id, "DataDependency", query_ctx) {}
+            : Dependency(id, node_id, "DataDependency", query_ctx), _queue(sender_queue) {}
+
+    std::string debug_string(int indentation_level) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "{}, _is_cancelled = {}, _block_queue size = {},_num_remaining_senders = {}",
+                       Dependency::debug_string(indentation_level), _queue->_is_cancelled,
+                       _queue->_block_queue.size(), _queue->_num_remaining_senders);
+        return fmt::to_string(debug_string_buffer);
+    }
+
+private:
+    vectorized::VDataStreamRecvr::SenderQueue* _queue;
 };
 
 class ExchangeSourceOperatorX;
@@ -104,15 +116,13 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
-    bool need_to_local_shuffle() const override {
-        // TODO(gabriel):
-        return false;
-    }
+    bool need_to_local_shuffle() const override { return !_is_hash_partition; }
 
 private:
     friend class ExchangeLocalState;
     const int _num_senders;
     const bool _is_merging;
+    const bool _is_hash_partition;
     RowDescriptor _input_row_desc;
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 

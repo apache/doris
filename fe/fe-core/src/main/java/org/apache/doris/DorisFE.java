@@ -152,7 +152,7 @@ public class DorisFE {
 
             if (Config.enable_bdbje_debug_mode) {
                 // Start in BDB Debug mode
-                BDBDebugger.get().startDebugMode(dorisHomeDir);
+                BDBDebugger.get().startDebugMode(Config.meta_dir + "/bdb");
                 return;
             }
 

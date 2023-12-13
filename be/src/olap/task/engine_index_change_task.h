@@ -25,7 +25,7 @@ namespace doris {
 
 // base class for storage engine
 // add "Engine" as task prefix to prevent duplicate name with agent task
-class EngineIndexChangeTask : public EngineTask {
+class EngineIndexChangeTask final : public EngineTask {
 public:
     Status execute() override;
 

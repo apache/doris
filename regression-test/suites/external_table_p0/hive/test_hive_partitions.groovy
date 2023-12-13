@@ -35,6 +35,39 @@ suite("test_hive_partitions", "p0,external,hive,external_docker,external_docker_
         select id, data from table_with_pars where dt_par = '2023-02-01' and time_par = '2023-02-01 01:30:00'
         and decimal_par1 = '1' and decimal_par2 = '1.2' and decimal_par3 = '1.22' order by id;
         """
+        qt_q11 """
+            show partitions from partition_table;
+        """
+        qt_q12 """
+            show partitions from partition_table WHERE partitionName='nation=cn/city=beijing';
+        """
+        qt_q13 """
+            show partitions from partition_table WHERE partitionName like 'nation=us/%';
+        """
+        qt_q14 """
+            show partitions from partition_table WHERE partitionName like 'nation=%us%';
+        """
+        qt_q16 """
+            show partitions from partition_table LIMIT 3;
+        """
+        qt_q17 """
+            show partitions from partition_table LIMIT 3 OFFSET 2;
+        """
+        qt_q18 """
+            show partitions from partition_table LIMIT 3 OFFSET 4;
+        """
+        qt_q19 """
+            show partitions from partition_table ORDER BY partitionName desc LIMIT 3 OFFSET 2;
+        """
+        qt_q20 """
+            show partitions from partition_table ORDER BY partitionName asc;
+        """
+        qt_q21 """
+            show partitions from partition_table
+                WHERE partitionName like '%X%'
+                ORDER BY partitionName DESC
+                LIMIT 1;
+        """
     }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")

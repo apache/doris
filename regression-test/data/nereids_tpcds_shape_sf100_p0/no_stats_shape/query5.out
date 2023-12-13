@@ -23,7 +23,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_returns]
+----------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0 RF1
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[store]
@@ -44,7 +44,7 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2 RF3
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[catalog_returns]
+----------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF2 RF3
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[catalog_page]
@@ -67,9 +67,9 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_item_sk = web_sales.ws_item_sk) and (web_returns.wr_order_number = web_sales.ws_order_number)) otherCondition=() build RFs:RF4 wr_item_sk->[ws_item_sk];RF5 wr_order_number->[ws_order_number]
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5
+--------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF4 RF5 RF6
 ------------------------------------------PhysicalProject
---------------------------------------------PhysicalOlapScan[web_returns]
+--------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF7
 ----------------------------------PhysicalDistribute
 ------------------------------------PhysicalProject
 --------------------------------------PhysicalOlapScan[web_site]

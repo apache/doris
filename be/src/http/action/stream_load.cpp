@@ -50,6 +50,7 @@
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
+#include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
@@ -187,19 +188,36 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
     ctx->label = req->header(HTTP_LABEL_KEY);
     Status st = Status::OK();
-    if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
-        config::wait_internal_group_commit_finish) {
-        if (iequal(req->header(HTTP_GROUP_COMMIT), "true") && !ctx->label.empty()) {
-            st = Status::InternalError("label and group_commit can't be set at the same time");
-        }
-        ctx->group_commit = true;
-    } else {
-        if (ctx->label.empty()) {
-            ctx->label = generate_uuid_string();
+    std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
+    if (iequal(group_commit_mode, "off_mode")) {
+        group_commit_mode = "";
+    }
+    if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
+        !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
+        st = Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
+        if (iequal(group_commit_mode, "off_mode")) {
+            group_commit_mode = "";
         }
     }
+    if (!group_commit_mode.empty() || config::wait_internal_group_commit_finish) {
+        if (!group_commit_mode.empty() && !ctx->label.empty()) {
+            st = Status::InternalError("label and group_commit can't be set at the same time");
+        }
+        ctx->group_commit = load_size_smaller_than_wal_limit(req);
+        if (!ctx->group_commit) {
+            LOG(WARNING) << "The data size for this stream load("
+                         << std::stol(req->header(HttpHeaders::CONTENT_LENGTH))
+                         << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                         << config::wal_max_disk_size * 0.8
+                         << " Bytes). Please set this load to \"group commit\"=false.";
+            st = Status::InternalError("Stream load size too large.");
+        }
+    }
+    if (!ctx->group_commit && ctx->label.empty()) {
+        ctx->label = generate_uuid_string();
+    }
 
-    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true" ? true : false;
+    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
 
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
               << ", tbl=" << ctx->table;
@@ -601,7 +619,13 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
     }
-    request.__set_group_commit(ctx->group_commit);
+    if (ctx->group_commit) {
+        if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
+            request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
+        } else {
+            request.__set_group_commit_mode("sync_mode");
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load

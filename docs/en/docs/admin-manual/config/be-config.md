@@ -528,7 +528,7 @@ There are two ways to configure BE configuration items:
 * Type: int64
 * Description: If the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
   - Generally, the configuration is within 512m. If the configuration is too large, the size of the early base version is too small, and base compaction has not been performed.
-* Default value: 64
+* Default value: 128
 
 #### `compaction_min_size_mbytes`
 

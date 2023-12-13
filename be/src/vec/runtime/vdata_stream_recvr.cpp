@@ -32,6 +32,7 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
+#include "util/defer_op.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
 #include "vec/core/materialize_block.h"
@@ -432,6 +433,7 @@ Status VDataStreamRecvr::add_block(const PBlock& pblock, int sender_id, int be_n
 }
 
 void VDataStreamRecvr::add_block(Block* block, int sender_id, bool use_move) {
+    _mem_tracker->consume(block->allocated_bytes());
     int use_sender_id = _is_merging ? sender_id : 0;
     _sender_queues[use_sender_id]->add_block(block, use_move);
 }
@@ -458,6 +460,7 @@ bool VDataStreamRecvr::ready_to_read() {
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    Defer release_mem([&]() { _mem_tracker->release(block->allocated_bytes()); });
     if (!_is_merging) {
         block->clear();
         return _sender_queues[0]->get_batch(block, eos);

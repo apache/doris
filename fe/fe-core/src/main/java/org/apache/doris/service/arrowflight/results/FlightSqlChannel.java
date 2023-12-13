@@ -140,7 +140,7 @@ public class FlightSqlChannel {
 
     public void addOKResult(String queryId, String query) {
         final FlightSqlResultCacheEntry flightSqlResultCacheEntry = new FlightSqlResultCacheEntry(
-                createOneOneSchemaRoot("StatusResult", "OK"), query);
+                createOneOneSchemaRoot("StatusResult", "0"), query);
         resultCache.put(queryId, flightSqlResultCacheEntry);
     }
 

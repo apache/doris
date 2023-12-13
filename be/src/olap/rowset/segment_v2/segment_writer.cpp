@@ -26,7 +26,7 @@
 #include <unordered_map>
 #include <utility>
 
-#include "cloud/config.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -44,12 +44,15 @@
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
@@ -336,11 +339,12 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    if (config::cloud_mode) {
-        // TODO(plat1ko)
+    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        // TODO(plat1ko): cloud mode
         return Status::NotSupported("append_block_with_partial_content");
     }
-    auto tablet = static_cast<Tablet*>(_tablet.get());
+
+    auto* tablet = static_cast<Tablet*>(_tablet.get());
     if (block->columns() <= _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
         return Status::InternalError(
@@ -408,6 +412,31 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     {
         std::shared_lock rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        DBUG_EXECUTE_IF("_append_block_with_partial_content.clear_specified_rowsets",
+                        { specified_rowsets.clear(); });
+        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
+            // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
+            // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_mow_context->rowset_ids`
+            // to the latest value and re-request the correspoding rowsets.
+            LOG(INFO) << fmt::format(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
+                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
+                    "transaction_id: {}",
+                    specified_rowsets.size(), _mow_context->rowset_ids.size(), tablet->tablet_id(),
+                    _mow_context->max_version, _mow_context->txn_id);
+            Status st {Status::OK()};
+            _mow_context->update_rowset_ids_with_lock([&]() {
+                _mow_context->rowset_ids.clear();
+                st = tablet->all_rs_id(_mow_context->max_version, &_mow_context->rowset_ids);
+            });
+            if (!st.ok()) {
+                return st;
+            }
+            specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+            DCHECK(specified_rowsets.size() == _mow_context->rowset_ids.size());
+        }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
@@ -559,7 +588,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                            const std::vector<bool>& use_default_or_null_flag,
                                            bool has_default_or_nullable,
                                            const size_t& segment_start_pos) {
-    if (config::cloud_mode) [[unlikely]] {
+    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        // TODO(plat1ko): cloud mode
         return Status::NotSupported("fill_missing_columns");
     }
     auto tablet = static_cast<Tablet*>(_tablet.get());

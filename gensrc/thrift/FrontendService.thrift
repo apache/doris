@@ -652,8 +652,9 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
-    54: optional bool group_commit
+    54: optional bool group_commit // deprecated
     55: optional i32 stream_per_node;
+    56: optional string group_commit_mode
 }
 
 struct TStreamLoadPutResult {
@@ -904,6 +905,8 @@ struct TMetadataTableRequestParams {
   6: optional Types.TUserIdentity current_user_ident
   7: optional PlanNodes.TQueriesMetadataParams queries_metadata_params
   8: optional PlanNodes.TMaterializedViewsMetadataParams materialized_views_metadata_params
+  9: optional PlanNodes.TJobsMetadataParams jobs_metadata_params
+  10: optional PlanNodes.TTasksMetadataParams tasks_metadata_params
 }
 
 struct TFetchSchemaTableDataRequest {
@@ -1155,6 +1158,10 @@ struct TUpdateFollowerStatsCacheRequest {
     2: list<string> statsRows;
 }
 
+struct TInvalidateFollowerStatsCacheRequest {
+    1: optional string key;
+}
+
 struct TAutoIncrementRangeRequest {
     1: optional i64 db_id;
     2: optional i64 table_id;
@@ -1378,4 +1385,6 @@ service FrontendService {
     TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
 
     TGetColumnInfoResult getColumnInfo(1: TGetColumnInfoRequest request)
+
+    Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
 }

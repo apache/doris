@@ -43,10 +43,11 @@
 #include "vec/core/extended_types.h"
 #include "vec/core/wide_integer.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/number_traits.h"
 
 namespace doris {
 namespace vectorized {
-template <typename T>
+template <DecimalNativeTypeConcept T>
 struct Decimal;
 } // namespace vectorized
 
@@ -71,14 +72,6 @@ struct Decimal;
 class StringParser {
 public:
     enum ParseResult { PARSE_SUCCESS = 0, PARSE_FAILURE, PARSE_OVERFLOW, PARSE_UNDERFLOW };
-
-    template <typename T>
-    class StringParseTraits {
-    public:
-        /// Returns the maximum ascii string length for this type.
-        /// e.g. the max/min int8_t has 3 characters.
-        static int max_ascii_len();
-    };
 
     template <typename T>
     static T numeric_limits(bool negative) {
@@ -282,7 +275,7 @@ T StringParser::string_to_int_internal(const char* s, int len, ParseResult* resu
     }
 
     // This is the fast path where the string cannot overflow.
-    if (LIKELY(len - i < StringParseTraits<T>::max_ascii_len())) {
+    if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<T>())) {
         val = string_to_int_no_overflow<UnsignedT>(s + i, len - i, result);
         return static_cast<T>(negative ? -val : val);
     }
@@ -329,7 +322,7 @@ T StringParser::string_to_unsigned_int_internal(const char* s, int len, ParseRes
 
     typedef typename std::make_signed<T>::type signedT;
     // This is the fast path where the string cannot overflow.
-    if (LIKELY(len - i < StringParseTraits<signedT>::max_ascii_len())) {
+    if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<signedT>())) {
         val = string_to_int_no_overflow<T>(s + i, len - i, result);
         return val;
     }
@@ -524,56 +517,6 @@ inline bool StringParser::string_to_bool_internal(const char* s, int len, ParseR
 
     *result = PARSE_FAILURE;
     return false;
-}
-
-template <>
-inline int StringParser::StringParseTraits<uint8_t>::max_ascii_len() {
-    return 3;
-}
-
-template <>
-inline int StringParser::StringParseTraits<uint16_t>::max_ascii_len() {
-    return 5;
-}
-
-template <>
-inline int StringParser::StringParseTraits<uint32_t>::max_ascii_len() {
-    return 10;
-}
-
-template <>
-inline int StringParser::StringParseTraits<uint64_t>::max_ascii_len() {
-    return 20;
-}
-
-template <>
-inline int StringParser::StringParseTraits<int8_t>::max_ascii_len() {
-    return 3;
-}
-
-template <>
-inline int StringParser::StringParseTraits<int16_t>::max_ascii_len() {
-    return 5;
-}
-
-template <>
-inline int StringParser::StringParseTraits<int32_t>::max_ascii_len() {
-    return 10;
-}
-
-template <>
-inline int StringParser::StringParseTraits<int64_t>::max_ascii_len() {
-    return 19;
-}
-
-template <>
-inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
-    return 39;
-}
-
-template <>
-inline int StringParser::StringParseTraits<wide::Int256>::max_ascii_len() {
-    return 78;
 }
 
 template <PrimitiveType P, typename T>

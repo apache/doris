@@ -88,7 +88,7 @@ public:
             ret = reinterpret_cast<uint8_t*>(Allocator::alloc(len_));
             memcpy(ret, data_, len_);
         }
-        OwnedSlice result(ret, len_);
+        OwnedSlice result(ret, len_, capacity_);
         len_ = 0;
         capacity_ = kInitialCapacity;
         data_ = initial_data_;

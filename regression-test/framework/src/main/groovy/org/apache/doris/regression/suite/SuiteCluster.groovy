@@ -169,33 +169,35 @@ class SuiteCluster {
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
 
-        def sb = new StringBuilder()
-        sb.append('up ' + name + ' ')
-        sb.append(config.image + ' ')
+        def cmd = [
+            'up', name, config.image
+        ]
+
         if (options.feNum > 0) {
-            sb.append('--add-fe-num ' + options.feNum + ' ')
+            cmd += ['--add-fe-num', String.valueOf(options.feNum)]
         }
         if (options.beNum > 0) {
-            sb.append('--add-be-num ' + options.beNum + ' ')
+            cmd += ['--add-be-num', String.valueOf(options.beNum)]
         }
         // TODO: need escape white space in config
         if (options.feConfigs != null && options.feConfigs.size() > 0) {
-            sb.append('--fe-config ')
-            options.feConfigs.forEach(item -> sb.append(' ' + item + ' '))
+            cmd += ['--fe-config']
+            cmd += options.feConfigs
         }
         if (options.beConfigs != null && options.beConfigs.size() > 0) {
-            sb.append('--be-config ')
-            options.beConfigs.forEach(item -> sb.append(' ' + item + ' '))
+            cmd += ['--be-config']
+            cmd += options.beConfigs
         }
         if (options.beDisks != null) {
-            sb.append('--be-disks ' + options.beDisks.join(' ') + ' ')
+            cmd += ['--be-disks']
+            cmd += options.beDisks
         }
         if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
-            sb.append('--coverage-dir ' + config.dockerCoverageOutputDir)
+            cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
         }
-        sb.append('--wait-timeout 180')
+        cmd += ['--wait-timeout', String.valueOf(180)]
 
-        runCmd(sb.toString(), -1)
+        runCmd(cmd.join(' '), -1)
 
         // wait be report disk
         Thread.sleep(5000)
