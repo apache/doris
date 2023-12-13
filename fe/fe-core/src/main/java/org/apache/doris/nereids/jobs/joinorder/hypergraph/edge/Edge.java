@@ -51,6 +51,8 @@ public abstract class Edge {
     // record all sub nodes behind in this operator. It's T function in paper
     private final long subTreeNodes;
 
+    private long rejectNodes = 0;
+
     /**
      * Create simple edge.
      */
@@ -77,6 +79,18 @@ public abstract class Edge {
 
     public void addRightExtendNode(long right) {
         this.rightExtendedNodes = LongBitmap.or(this.rightExtendedNodes, right);
+    }
+
+    public void addRejectEdge(Edge edge) {
+        rejectNodes = LongBitmap.or(rejectNodes, edge.getReferenceNodes());
+    }
+
+    public void addRejectNodes(long other) {
+        rejectNodes = LongBitmap.or(rejectNodes, other);
+    }
+
+    public boolean canReachTop() {
+        return  rejectNodes == 0;
     }
 
     public long getSubTreeNodes() {

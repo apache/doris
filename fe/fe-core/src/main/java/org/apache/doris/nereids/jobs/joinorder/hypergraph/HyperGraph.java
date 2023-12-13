@@ -46,6 +46,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import org.eclipse.collections.impl.factory.Sets;
 
 import java.util.ArrayList;
 import java.util.BitSet;
@@ -263,11 +264,11 @@ public class HyperGraph {
         filterEdges.forEach(e -> {
             if (LongBitmap.isSubset(e.getReferenceNodes(), leftSubNodes)
                     && !PushDownFilterThroughJoin.COULD_PUSH_THROUGH_LEFT.contains(joinEdge.getJoinType())) {
-                e.addRejectJoin(joinEdge);
+                e.addRejectEdge(joinEdge);
             }
             if (LongBitmap.isSubset(e.getReferenceNodes(), rightSubNodes)
                     && !PushDownFilterThroughJoin.COULD_PUSH_THROUGH_RIGHT.contains(joinEdge.getJoinType())) {
-                e.addRejectJoin(joinEdge);
+                e.addRejectEdge(joinEdge);
             }
         });
     }
@@ -284,9 +285,11 @@ public class HyperGraph {
             JoinEdge childA = joinEdges.get(i);
             if (!JoinType.isAssoc(childA.getJoinType(), edgeB.getJoinType())) {
                 leftRequired = LongBitmap.newBitmapUnion(leftRequired, childA.getLeftSubNodes(joinEdges));
+                childA.addRejectNodes(rightRequired);
             }
             if (!JoinType.isLAssoc(childA.getJoinType(), edgeB.getJoinType())) {
                 leftRequired = LongBitmap.newBitmapUnion(leftRequired, childA.getRightSubNodes(joinEdges));
+                childA.addRejectNodes(rightRequired);
             }
         }
 
@@ -294,9 +297,11 @@ public class HyperGraph {
             JoinEdge childA = joinEdges.get(i);
             if (!JoinType.isAssoc(edgeB.getJoinType(), childA.getJoinType())) {
                 rightRequired = LongBitmap.newBitmapUnion(rightRequired, childA.getRightSubNodes(joinEdges));
+                childA.addRejectNodes(leftRequired);
             }
             if (!JoinType.isRAssoc(edgeB.getJoinType(), childA.getJoinType())) {
                 rightRequired = LongBitmap.newBitmapUnion(rightRequired, childA.getLeftSubNodes(joinEdges));
+                childA.addRejectNodes(leftRequired);
             }
         }
         edgeB.setLeftExtendedNodes(leftRequired);
@@ -625,18 +630,18 @@ public class HyperGraph {
                 .collect(ImmutableList.toImmutableList());
     }
 
-    private Map<Edge, Edge> constructEdgeMap(HyperGraph viewHG, Map<Expression, Expression> exprMap) {
+    private Map<Edge, Edge> constructEdgeMap(HyperGraph viewHG, Map<Expression, Expression> exprMap, ResidualExpr residualExpr) {
         Map<Expression, Edge> exprToEdge = constructExprMap(viewHG);
         Map<Edge, Edge> queryToView = new HashMap<>();
         joinEdges.stream()
                 .filter(e -> !e.getExpressions().isEmpty()
                         && exprMap.containsKey(e.getExpression(0))
-                        && compareEdgeWithExpr(e, exprToEdge.get(exprMap.get(e.getExpression(0))), exprMap))
+                        && compareEdgeWithExpr(e, exprToEdge.get(exprMap.get(e.getExpression(0))), exprMap, residualExpr))
                 .forEach(e -> queryToView.put(e, exprToEdge.get(exprMap.get(e.getExpression(0)))));
         filterEdges.stream()
                 .filter(e -> !e.getExpressions().isEmpty()
                         && exprMap.containsKey(e.getExpression(0))
-                        && compareEdgeWithExpr(e, exprToEdge.get(exprMap.get(e.getExpression(0))), exprMap))
+                        && compareEdgeWithExpr(e, exprToEdge.get(exprMap.get(e.getExpression(0))), exprMap, residualExpr))
                 .forEach(e -> queryToView.put(e, exprToEdge.get(exprMap.get(e.getExpression(0)))));
         return queryToView;
     }
@@ -680,17 +685,24 @@ public class HyperGraph {
         return bitmap2 == newBitmap1;
     }
 
-    private boolean compareEdgeWithExpr(Edge t, Edge o, Map<Expression, Expression> expressionMap) {
-        if (t.getExpressions().size() != o.getExpressions().size()) {
-            return false;
+    private boolean compareEdgeWithExpr(Edge query, Edge view, Map<Expression, Expression> expressionMap, ResidualExpr residualExpr) {
+        int size = query.getExpressions().size();
+        Set<Expression> queryExpr = Sets.intersect(expressionMap.keySet(),
+                ImmutableSet.copyOf(query.getExpressions()));
+        Set<Expression> viewExpr = queryExpr.stream()
+                .map(expressionMap::get)
+                .collect(ImmutableSet.toImmutableSet());
+
+        if (queryExpr.size() == query.getExpressions().size() && viewExpr.size() == view.getExpressions().size()) {
+            return true;
         }
-        int size = t.getExpressions().size();
-        for (int i = 0; i < size; i++) {
-            if (!expressionMap.get(t.getExpression(i)).equals(o.getExpression(i))) {
-                return false;
-            }
+        if (query.canReachTop() && view.canReachTop()) {
+            Set<Expression> residualQuery = Sets.difference(ImmutableSet.copyOf(query.getExpressions()), queryExpr);
+            Set<Expression> residualView = Sets.difference(ImmutableSet.copyOf(query.getExpressions()), viewExpr);
+            residualQuery.add()
+            return true;
         }
-        return true;
+        return false;
     }
 
     private Map<Expression, Edge> constructExprMap(HyperGraph hyperGraph) {
