@@ -346,6 +346,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.info.DefaultValue;
 import org.apache.doris.nereids.trees.plans.commands.info.DistributionDescriptor;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
@@ -495,7 +496,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 temporaryPartition,
                 partitions,
                 ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
-                true,
+                DMLCommandType.INSERT,
                 plan);
         LogicalPlan command;
         if (isOverwrite) {
