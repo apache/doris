@@ -1938,7 +1938,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (!olapTable.isPartitioned()) {
+                    if (!olapTable.isPartitionedTable()) {
                         List<String> specifiedPartitions = indexDef.getPartitionNames();
                         if (!specifiedPartitions.isEmpty()) {
                             throw new DdlException("table " + olapTable.getName()
