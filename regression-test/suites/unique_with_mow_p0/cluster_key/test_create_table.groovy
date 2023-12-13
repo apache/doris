@@ -22,24 +22,6 @@ suite("test_create_table") {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 
-    // duplicate table with cluster keys
-    test {
-        sql """
-            CREATE TABLE `$tableName` (
-                    `c_custkey` int(11) NOT NULL COMMENT "",
-                    `c_name` varchar(26) NOT NULL COMMENT "",
-                    `c_address` varchar(41) NOT NULL COMMENT "",
-                    `c_city` varchar(11) NOT NULL COMMENT ""
-            )
-            DUPLICATE KEY (`c_custkey`)
-            CLUSTER BY (`c_name`, `c_address`)
-            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
-            PROPERTIES (
-                    "replication_num" = "1"
-             );
-        """
-        exception "Syntax error"
-    }
 
     // mor unique table with cluster keys
     test {
@@ -199,4 +181,44 @@ suite("test_create_table") {
             "enable_unique_key_merge_on_write" = "true"
         );
     """
+
+    sql """set enable_nereids_planner=false;"""
+    // duplicate table with cluster keys
+    test {
+        sql """
+            CREATE TABLE `$tableName` (
+                    `c_custkey` int(11) NOT NULL COMMENT "",
+                    `c_name` varchar(26) NOT NULL COMMENT "",
+                    `c_address` varchar(41) NOT NULL COMMENT "",
+                    `c_city` varchar(11) NOT NULL COMMENT ""
+            )
+            DUPLICATE KEY (`c_custkey`)
+            CLUSTER BY (`c_name`, `c_address`)
+            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1"
+             );
+        """
+        exception "Syntax error"
+    }
+
+    sql """set enable_nereids_planner=true;"""
+    // duplicate table with cluster keys
+    test {
+        sql """
+            CREATE TABLE `$tableName` (
+                    `c_custkey` int(11) NOT NULL COMMENT "",
+                    `c_name` varchar(26) NOT NULL COMMENT "",
+                    `c_address` varchar(41) NOT NULL COMMENT "",
+                    `c_city` varchar(11) NOT NULL COMMENT ""
+            )
+            DUPLICATE KEY (`c_custkey`)
+            CLUSTER BY (`c_name`, `c_address`)
+            DISTRIBUTED BY HASH(`c_custkey`) BUCKETS 1
+            PROPERTIES (
+                    "replication_num" = "1"
+             );
+        """
+        exception "Cluster keys only support unique keys table"
+    }
 }

@@ -21,10 +21,10 @@ import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -46,9 +46,18 @@ public class FixedRangePartition extends PartitionDefinition {
     @Override
     public void validate(Map<String, String> properties) {
         super.validate(properties);
-        final DataType type = partitionTypes.get(0);
-        lowerBounds = lowerBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
-        upperBounds = upperBounds.stream().map(e -> e.castTo(type)).collect(Collectors.toList());
+        List<Expression> newLowerBounds = new ArrayList<>();
+        List<Expression> newUpperBounds = new ArrayList<>();
+        for (int i = 0; i < partitionTypes.size(); ++i) {
+            if (i < lowerBounds.size()) {
+                newLowerBounds.add(lowerBounds.get(i).castTo(partitionTypes.get(i)));
+            }
+            if (i < upperBounds.size()) {
+                newUpperBounds.add(upperBounds.get(i).castTo(partitionTypes.get(i)));
+            }
+        }
+        lowerBounds = newLowerBounds;
+        upperBounds = newUpperBounds;
     }
 
     public String getPartitionName() {
