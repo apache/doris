@@ -86,11 +86,11 @@ k8	DATETIME	Yes	true	\N
 k9	LARGEINT	Yes	true	\N	
 k10	DECIMAL	Yes	true	\N	
 k11	BOOLEAN	Yes	true	\N	
-k12	DATE	Yes	false	\N	REPLACE
-k13	DATETIME	Yes	false	\N	REPLACE
-k14	DATETIME(3)	Yes	false	\N	REPLACE
-k15	DATETIME(6)	Yes	false	\N	REPLACE
-v1	INT	Yes	false	\N	REPLACE
+k12	DATE	Yes	false	\N	NONE
+k13	DATETIME	Yes	false	\N	NONE
+k14	DATETIME(3)	Yes	false	\N	NONE
+k15	DATETIME(6)	Yes	false	\N	NONE
+v1	INT	Yes	false	\N	NONE
 
 -- !sql --
 default_cluster:regression_test_index_p0.test_bitmap_index_unique		index1		k1						BITMAP		
