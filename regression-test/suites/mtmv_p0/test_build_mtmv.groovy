@@ -35,7 +35,7 @@ suite("test_build_mtmv") {
             id BIGINT,
             username VARCHAR(20)
         )
-        DISTRIBUTED BY HASH(id) BUCKETS 10
+        DISTRIBUTED BY HASH(id) BUCKETS 10 
         PROPERTIES (
             "replication_num" = "1"
         );
@@ -49,7 +49,7 @@ suite("test_build_mtmv") {
             id BIGINT,
             pv BIGINT
         )
-        DISTRIBUTED BY HASH(id) BUCKETS 10
+        DISTRIBUTED BY HASH(id) BUCKETS 10 
         PROPERTIES (
             "replication_num" = "1"
         );
@@ -86,8 +86,8 @@ suite("test_build_mtmv") {
         CREATE MATERIALIZED VIEW ${mvName}
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
         DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1')
-        AS
+        PROPERTIES ('replication_num' = '1') 
+        AS 
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
@@ -118,7 +118,7 @@ suite("test_build_mtmv") {
     // IMMEDIATE schedule interval and start
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "9999-12-13 21:07:09"
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
@@ -155,7 +155,7 @@ suite("test_build_mtmv") {
     // DEFERRED schedule interval
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND
+        BUILD DEFERRED REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
@@ -170,9 +170,13 @@ suite("test_build_mtmv") {
     """
 
     // DEFERRED schedule interval and start
+    def currentMs = System.currentTimeMillis() + 20000;
+    def dateTime = LocalDateTime.ofInstant(Instant.ofEpochMilli(currentMs), ZoneId.systemDefault());
+    def formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    def startTime= dateTime.format(formatter);
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+        BUILD DEFERRED REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS ${startTime}
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
@@ -190,7 +194,7 @@ suite("test_build_mtmv") {
     try {
         sql """
             CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
@@ -205,7 +209,7 @@ suite("test_build_mtmv") {
     try {
         sql """
             CREATE MATERIALIZED VIEW ${mvName}
-            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS "2023-12-13 21:07:09"
+            BUILD IMMEDIATE REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
