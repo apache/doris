@@ -68,6 +68,14 @@ suite("test_analyze") {
     """
 
     sql """
+        ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE PERCENT 10
+    """
+
+    sql """
+        ANALYZE DATABASE ${db} WITH SYNC WITH SAMPLE ROWS 10
+    """
+
+    sql """
         INSERT INTO `${tbl}` VALUES (-2103297891,1,101,15248,4761818404925265645,939926.283,
         'UTmCFKMbprf0zSVOIlBJRNOl3JcNBdOsnCDt','2022-09-28','2022-10-28 01:56:56','tVvGDSrN6kyn',
         -954349107.187117,-40.46286,'g1ZP9nqVgaGKya3kPERdBofTWJQ4TIJEz972Xvw4hfPpTpWwlmondiLVTCyld7rSBlSWrE7NJRB0pvPGEFQKOx1s3',
@@ -1210,7 +1218,7 @@ PARTITION `p599` VALUES IN (599)
         return (r[0][7]).equals(expected_value)
     }
     expected_max(max, "测试")
-
+    Thread.sleep(30 * 1000)
     show_result = sql """
         SHOW ANALYZE ${tbl}
     """

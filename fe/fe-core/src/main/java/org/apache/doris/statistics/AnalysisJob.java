@@ -33,12 +33,16 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.StringJoiner;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class AnalysisJob {
 
     public static final Logger LOG = LogManager.getLogger(AnalysisJob.class);
+
+    protected Map<Long, BaseAnalysisTask> idToTask = new ConcurrentHashMap<>();
 
     protected Set<BaseAnalysisTask> queryingTask;
 
@@ -59,6 +63,7 @@ public class AnalysisJob {
     public AnalysisJob(AnalysisInfo jobInfo, Collection<? extends BaseAnalysisTask> queryingTask) {
         for (BaseAnalysisTask task : queryingTask) {
             task.job = this;
+            idToTask.put(task.info.taskId, task);
         }
         this.queryingTask = Collections.synchronizedSet(new HashSet<>(queryingTask));
         this.queryFinished = Collections.synchronizedSet(new HashSet<>());
@@ -85,8 +90,6 @@ public class AnalysisJob {
         if (queryingTask.isEmpty()) {
             try {
                 writeBuf();
-                updateTaskState(AnalysisState.FINISHED, "Cost time in sec: "
-                        + (System.currentTimeMillis() - start) / 1000);
             } finally {
                 deregisterJob();
             }
@@ -98,17 +101,20 @@ public class AnalysisJob {
     // CHECKSTYLE OFF
     // fallthrough here is expected
     public void updateTaskState(AnalysisState state, String msg) {
-        long time = System.currentTimeMillis();
         switch (state) {
             case FAILED:
                 for (BaseAnalysisTask task : queryingTask) {
-                    analysisManager.updateTaskStatus(task.info, state, msg, time);
+                    task.info.state = state;
+                    task.info.message = msg;
+                    analysisManager.logCreateAnalysisTask(task.info);
                     task.cancel();
                 }
                 killed = true;
             case FINISHED:
                 for (BaseAnalysisTask task : queryFinished) {
-                    analysisManager.updateTaskStatus(task.info, state, msg, time);
+                    task.info.state = state;
+                    task.info.message = msg;
+                    analysisManager.logCreateAnalysisTask(task.info);
                 }
             default:
                 // DO NOTHING
@@ -190,6 +196,18 @@ public class AnalysisJob {
                 task.info.partitionNames.clear();
             }
         }
+        if (queryingTask.isEmpty()) {
+            jobInfo.state = AnalysisState.FINISHED;
+            analysisManager.updateTableStats(jobInfo);
+        } else {
+            jobInfo.state = AnalysisState.FAILED;
+        }
+        jobInfo.endTime = System.currentTimeMillis();
+        if (jobInfo.jobType.equals(AnalysisInfo.JobType.MANUAL)) {
+            analysisManager.logCreateAnalysisJob(jobInfo);
+        } else {
+            analysisManager.autoJobs.offer(jobInfo);
+        }
     }
 
     protected void syncLoadStats() {
@@ -200,9 +218,24 @@ public class AnalysisJob {
             }
             String colName = task.col.getName();
             if (!Env.getCurrentEnv().getStatisticsCache().syncLoadColStats(tblId, -1, colName)) {
+                LOG.warn("Failed to load col stats after analyze");
                 analysisManager.removeColStatsStatus(tblId, colName);
             }
         }
+    }
+
+    public void kill() {
+        for (BaseAnalysisTask task : queryingTask) {
+            try {
+                task.cancel();
+            } catch (Exception e) {
+                LOG.warn("Exception when cancel task: {}", task.info, e);
+            }
+        }
+    }
+
+    public Collection<BaseAnalysisTask> tasks() {
+        return idToTask.values();
     }
 
 }

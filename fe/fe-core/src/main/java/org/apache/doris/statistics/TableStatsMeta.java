@@ -17,14 +17,12 @@
 
 package org.apache.doris.statistics;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
-import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
@@ -135,13 +133,14 @@ public class TableStatsMeta implements Writable {
         for (String col : cols) {
             ColStatsMeta colStatsMeta = colNameToColStatsMeta.get(col);
             if (colStatsMeta == null) {
-                colNameToColStatsMeta.put(col, new ColStatsMeta(updatedTime,
-                        analyzedJob.analysisMethod, analyzedJob.analysisType, analyzedJob.jobType, 0));
+                colNameToColStatsMeta.put(col, new ColStatsMeta(updatedTime, analyzedJob.analysisMethod,
+                        analyzedJob.analysisType, analyzedJob.jobType, 0, analyzedJob.currentUpdatedRows));
             } else {
                 colStatsMeta.updatedTime = updatedTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
                 colStatsMeta.jobType = analyzedJob.jobType;
+                colStatsMeta.lastUpdatedRows = analyzedJob.currentUpdatedRows;
             }
         }
         jobType = analyzedJob.jobType;
@@ -149,12 +148,12 @@ public class TableStatsMeta implements Writable {
             if (tableIf instanceof OlapTable) {
                 rowCount = tableIf.getRowCount();
             }
-            if (analyzedJob.colToPartitions.keySet()
-                    .containsAll(tableIf.getBaseSchema().stream()
-                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                            .map(Column::getName).collect(Collectors.toSet()))) {
-                updatedRows.set(0);
-            }
+            //    if (analyzedJob.colToPartitions.keySet()
+            //            .containsAll(tableIf.getBaseSchema().stream()
+            //                    .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+            //                    .map(Column::getName).collect(Collectors.toSet()))) {
+            //        updatedRows.set(0);
+            //    }
         }
     }
 }

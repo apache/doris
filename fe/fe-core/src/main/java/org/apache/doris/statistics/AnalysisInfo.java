@@ -188,12 +188,17 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("endTime")
     public long endTime;
+
+    public long currentUpdatedRows = 0;
     /**
      *
      * Used to store the newest partition version of tbl when creating this job.
      * This variables would be saved by table stats meta.
      */
     public final long tblUpdateTime;
+
+    @SerializedName("priority")
+    public final AnalyzePriority analyzePriority;
 
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
@@ -202,7 +207,8 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime) {
+            boolean usingSqlForPartitionColumn, long tblUpdateTime, AnalyzePriority analyzePriority,
+            long currentUpdatedRows) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -238,6 +244,8 @@ public class AnalysisInfo implements Writable {
         this.forceFull = forceFull;
         this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
         this.tblUpdateTime = tblUpdateTime;
+        this.analyzePriority = analyzePriority;
+        this.currentUpdatedRows = currentUpdatedRows;
     }
 
     @Override
@@ -329,19 +337,5 @@ public class AnalysisInfo implements Writable {
             }
         }
         return analysisInfo;
-    }
-
-    public void markStartTime(long startTime) {
-        this.startTime = startTime;
-    }
-
-    public void markFinished() {
-        state = AnalysisState.FINISHED;
-        endTime = System.currentTimeMillis();
-    }
-
-    public void markFailed() {
-        state = AnalysisState.FAILED;
-        endTime = System.currentTimeMillis();
     }
 }

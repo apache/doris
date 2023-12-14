@@ -36,14 +36,11 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
 
     private long startTime;
 
-    private final AnalysisTaskExecutor executor;
-
-    public AnalysisTaskWrapper(AnalysisTaskExecutor executor, BaseAnalysisTask job) {
+    public AnalysisTaskWrapper(BaseAnalysisTask job) {
         super(() -> {
             job.execute();
             return null;
         });
-        this.executor = executor;
         this.task = job;
     }
 
@@ -58,11 +55,9 @@ public class AnalysisTaskWrapper extends FutureTask<Void> {
             if (task.info.scheduleType.equals(ScheduleType.AUTOMATIC) && !StatisticsUtil.inAnalyzeTime(
                     LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
                 // TODO: Do we need a separate AnalysisState here?
-                task.job.taskFailed(task, "Auto task"
-                                + "doesn't get executed within specified time range");
+                task.job.taskFailed(task, "Auto task doesn't get executed within specified time range");
                 return;
             }
-            executor.putJob(this);
             super.run();
             Object result = get();
             if (result instanceof Throwable) {

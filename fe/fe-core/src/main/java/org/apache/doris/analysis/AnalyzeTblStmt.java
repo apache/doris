@@ -85,8 +85,6 @@ public class AnalyzeTblStmt extends AnalyzeStmt {
     private List<String> columnNames;
     private PartitionNames partitionNames;
     private boolean isAllColumns;
-
-    // after analyzed
     private long catalogId;
     private long dbId;
     private TableIf table;

@@ -39,17 +39,21 @@ public class ColStatsMeta {
     @SerializedName("queriedTimes")
     public final AtomicLong queriedTimes = new AtomicLong();
 
+    @SerializedName("lastUpdatedRows")
+    public long lastUpdatedRows = 0;
+
     // TODO: For column that manually analyzed, we should use same analyze method as user specified.
     @SerializedName("trigger")
     public JobType jobType;
 
     public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod,
-            AnalysisType analysisType, JobType jobType, long queriedTimes) {
+            AnalysisType analysisType, JobType jobType, long queriedTimes, long lastUpdatedRows) {
         this.updatedTime = updatedTime;
         this.analysisMethod = analysisMethod;
         this.analysisType = analysisType;
         this.jobType = jobType;
         this.queriedTimes.addAndGet(queriedTimes);
+        this.lastUpdatedRows = lastUpdatedRows;
     }
 
     public void clear() {

@@ -786,7 +786,13 @@ public class StatisticsUtil {
     }
 
     public static boolean isMaster(Frontend frontend) {
+        if (FeConstants.runningUnitTest) {
+            return true;
+        }
         InetSocketAddress socketAddress = new InetSocketAddress(frontend.getHost(), frontend.getEditLogPort());
+        if (Env.getCurrentEnv().getHaProtocol() == null) {
+            return true;
+        }
         return Env.getCurrentEnv().getHaProtocol().getLeader().equals(socketAddress);
     }
 

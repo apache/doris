@@ -42,6 +42,9 @@ public abstract class StatisticsCollector extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
+        if (!StatisticsUtil.enableAutoAnalyze()) {
+            return;
+        }
         if (!Env.getCurrentEnv().isMaster()) {
             return;
         }
@@ -50,10 +53,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
             return;
         }
         if (Env.isCheckpointThread()) {
-            return;
-        }
-        if (Env.getCurrentEnv().getAnalysisManager().hasUnFinished()) {
-            LOG.info("Analyze tasks those submitted in last time is not finished, skip");
             return;
         }
         collect();
@@ -65,10 +64,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
     @VisibleForTesting
     protected void createSystemAnalysisJob(AnalysisInfo jobInfo)
             throws DdlException {
-        if (jobInfo.colToPartitions.isEmpty()) {
-            // No statistics need to be collected or updated
-            return;
-        }
         Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
         AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
         analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
@@ -76,7 +71,6 @@ public abstract class StatisticsCollector extends MasterDaemon {
             analysisManager.createTableLevelTaskForExternalTable(jobInfo, analysisTasks, false);
         }
         Env.getCurrentEnv().getAnalysisManager().constructJob(jobInfo, analysisTasks.values());
-        Env.getCurrentEnv().getAnalysisManager().registerSysJob(jobInfo, analysisTasks);
         analysisTasks.values().forEach(analysisTaskExecutor::submitTask);
     }
 

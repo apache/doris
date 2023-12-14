@@ -6181,7 +6181,6 @@ with_analysis_properties ::=
              put(AnalyzeProperties.PROPERTY_PARTITION_COLUMN_FROM_SQL, "true");
         }};
     :}
-
     ;
 
 opt_with_analysis_properties ::=

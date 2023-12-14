@@ -136,7 +136,10 @@ public abstract class BaseAnalysisTask {
 
     protected TableSample tableSample = null;
 
+
     protected AnalysisJob job;
+
+    public long startTime;
 
     @VisibleForTesting
     public BaseAnalysisTask() {
@@ -170,13 +173,25 @@ public abstract class BaseAnalysisTask {
     }
 
     public void execute() {
-        prepareExecution();
-        executeWithRetry();
-        afterExecution();
+        try {
+            prepareExecution();
+            executeWithRetry();
+            afterExecution();
+        } catch (Exception e) {
+            job.taskFailed(this, e.getMessage());
+        }
     }
 
     protected void prepareExecution() {
         setTaskStateToRunning();
+        startTime = System.currentTimeMillis();
+        info.startTime = startTime;
+        info.state = AnalysisState.RUNNING;
+        Env.getCurrentEnv().getAnalysisManager().replayCreateAnalysisTask(info);
+        if (job.jobInfo.startTime == 0) {
+            job.jobInfo.startTime = startTime;
+            Env.getCurrentEnv().getAnalysisManager().replayCreateAnalysisJob(job.jobInfo);
+        }
     }
 
     protected void executeWithRetry() {
@@ -193,8 +208,7 @@ public abstract class BaseAnalysisTask {
                     throw new RuntimeException(t);
                 }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
-                if (retriedTimes >= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
-                    job.taskFailed(this, t.getMessage());
+                if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     throw new RuntimeException(t);
                 }
                 StatisticsUtil.sleep(TimeUnit.SECONDS.toMillis(2 ^ retriedTimes) * 10);
@@ -216,8 +230,8 @@ public abstract class BaseAnalysisTask {
     }
 
     protected void setTaskStateToRunning() {
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTaskStatus(info, AnalysisState.RUNNING, "", System.currentTimeMillis());
+        info.state =  AnalysisState.RUNNING;
+        info.startTime = System.currentTimeMillis();
     }
 
     public void cancel() {
@@ -225,9 +239,10 @@ public abstract class BaseAnalysisTask {
         if (stmtExecutor != null) {
             stmtExecutor.cancel();
         }
-        Env.getCurrentEnv().getAnalysisManager()
-                .updateTaskStatus(info, AnalysisState.FAILED,
-                        String.format("Job has been cancelled: %s", info.message), System.currentTimeMillis());
+        info.state = AnalysisState.FAILED;
+        info.message = String.format("Job has been cancelled: %s", info.message);
+        info.endTime = System.currentTimeMillis();
+        Env.getCurrentEnv().getAnalysisManager().replayCreateAnalysisTask(info);
     }
 
     public long getJobId() {

@@ -203,6 +203,7 @@ import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TStringLiteral;
+import org.apache.doris.thrift.TSyncCriticalColumns;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableMetadataNameIds;
 import org.apache.doris.thrift.TTableQueryStats;
@@ -3386,5 +3387,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } catch (Throwable e) {
             throw e;
         }
+    }
+
+    @Override
+    public TStatus syncTCriticalColumn(TSyncCriticalColumns request) throws TException {
+        Env.getCurrentEnv().getAnalysisManager().mergeFollowerCriticalColumn(request.usedInPredicate,
+                request.usedInQuery);
+        return new TStatus(TStatusCode.OK);
     }
 }

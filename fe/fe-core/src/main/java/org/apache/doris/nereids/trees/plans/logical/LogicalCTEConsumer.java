@@ -100,7 +100,7 @@ public class LogicalCTEConsumer extends LogicalRelation implements BlockFuncDeps
                     producerOutputSlot.getName(), producerOutputSlot.getDataType(),
                     producerOutputSlot.nullable(), ImmutableList.of(name),
                     slotRef != null ? (slotRef.getColumn().isPresent() ? slotRef.getColumn().get() : null) : null,
-                    slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty());
+                    slotRef != null ? Optional.of(slotRef.getInternalName()) : Optional.empty(), null);
             producerToConsumerOutputMap.put(producerOutputSlot, consumerSlot);
             consumerToProducerOutputMap.put(consumerSlot, producerOutputSlot);
         }

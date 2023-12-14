@@ -18,15 +18,13 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
@@ -38,9 +36,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -59,69 +56,41 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     @Override
     protected void collect() {
         if (!StatisticsUtil.inAnalyzeTime(LocalTime.now(TimeUtils.getTimeZone().toZoneId()))) {
-            analysisTaskExecutor.clear();
             return;
         }
-        if (StatisticsUtil.enableAutoAnalyze()) {
-            analyzeAll();
-        }
-    }
-
-    @SuppressWarnings({"rawtypes", "unchecked"})
-    private void analyzeAll() {
-        Set<CatalogIf> catalogs = Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog();
-        for (CatalogIf ctl : catalogs) {
-            if (!ctl.enableAutoAnalyze()) {
-                continue;
-            }
-            Collection<DatabaseIf> dbs = ctl.getAllDbs();
-            for (DatabaseIf<TableIf> databaseIf : dbs) {
-                if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
-                    continue;
-                }
-                try {
-                    analyzeDb(databaseIf);
-                } catch (Throwable t) {
-                    LOG.warn("Failed to analyze database {}.{}", ctl.getName(), databaseIf.getFullName(), t);
-                    continue;
-                }
-            }
-        }
-    }
-
-    public void analyzeDb(DatabaseIf<TableIf> databaseIf) throws DdlException {
-        List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
-        for (AnalysisInfo analysisInfo : analysisInfos) {
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        while (true) {
             try {
-                analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
-                if (analysisInfo == null) {
-                    continue;
+                TableIf table;
+                Set<String> columns;
+                Entry<TableIf, Set<String>> job
+                        = analysisManager.getFirstJobInQueue(analysisManager.highPriorityJobs);
+                AnalyzePriority priority = AnalyzePriority.HIGH;
+                if (job == null) {
+                    job = analysisManager.getFirstJobInQueue(analysisManager.normalPriorityJobs);
+                    priority = AnalyzePriority.NORMAL;
                 }
-                createSystemAnalysisJob(analysisInfo);
-            } catch (Throwable t) {
-                analysisInfo.message = t.getMessage();
-                LOG.warn("Failed to auto analyze table {}.{}, reason {}",
-                        databaseIf.getFullName(), analysisInfo.tblId, analysisInfo.message, t);
-                continue;
-            }
-        }
-    }
-
-    protected List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
-        List<AnalysisInfo> analysisInfos = new ArrayList<>();
-        for (TableIf table : db.getTables()) {
-            try {
+                if (job == null) {
+                    job = analysisManager.getFirstJobInQueue(analysisManager.lowPriorityJobs);
+                    priority = AnalyzePriority.LOW;
+                }
+                // No job in any job queues. Go sleep.
+                if (job == null) {
+                    break;
+                }
+                table = job.getKey();
+                columns = job.getValue();
                 if (skip(table)) {
                     continue;
                 }
-                createAnalyzeJobForTbl(db, analysisInfos, table);
+                AnalysisInfo analysisJob = createAnalyzeJobForTbl(analysisManager, table, columns, priority);
+                if (analysisJob != null) {
+                    createSystemAnalysisJob(analysisJob);
+                }
             } catch (Throwable t) {
-                LOG.warn("Failed to analyze table {}.{}.{}",
-                        db.getCatalog().getName(), db.getFullName(), table.getName(), t);
-                continue;
+                LOG.warn(t.getMessage(), t);
             }
         }
-        return analysisInfos;
     }
 
     // return true if skip auto analyze this time.
@@ -134,67 +103,100 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 && !((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
             return true;
         }
-        if (table.getDataSize(true) < StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5) {
-            return false;
-        }
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
-        // means it's never got analyzed
-        if (tableStats == null) {
-            return false;
-        }
-        return System.currentTimeMillis()
-                - tableStats.updatedTime < StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis();
+        return false;
+        //    if (table.getDataSize(true) < StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5) {
+        //        return false;
+        //    }
+        //    TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
+        //    // means it's never got analyzed
+        //    if (tableStats == null) {
+        //        return false;
+        //    }
+        //    return System.currentTimeMillis()
+        //            - tableStats.updatedTime < StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis();
     }
 
-    protected void createAnalyzeJobForTbl(DatabaseIf<? extends TableIf> db,
-            List<AnalysisInfo> analysisInfos, TableIf table) {
-        AnalysisMethod analysisMethod = table.getDataSize(true) > StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
+    protected AnalysisInfo createAnalyzeJobForTbl(AnalysisManager analysisManager, TableIf table,
+                                                  Set<String> columns, AnalyzePriority priority) {
+        if (priority.equals(AnalyzePriority.LOW)
+                && table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
+            // Skip low priority wide table.
+            return null;
+        }
+        if (columns == null) {
+            columns = table.getColumns()
+                .stream()
+                .map(Column::getName)
+                .filter(c -> !StatisticsUtil.isUnsupportedType(table.getColumn(c).getType()))
+                .collect(Collectors.toSet());
+        }
+        TableStatsMeta tableStats = analysisManager.findTableStatsStatus(table.getId());
+        long updatedRows = tableStats.updatedRows.get();
+        long rowCount = table.getRowCount();
+        String columnNames = columns
+                .stream()
+                .filter(c -> !StatisticsUtil.isUnsupportedType(table.getColumn(c).getType()))
+                .filter(c -> needAnalyzeColumn(tableStats, rowCount, updatedRows, c, table))
+                .collect(Collectors.joining(","));
+        if (columnNames == null || columnNames.isEmpty()) {
+            return null;
+        }
+
+        AnalysisMethod analysisMethod = table.getDataSize(true)
+                > StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
-                .setCatalogId(db.getCatalog().getId())
-                .setDBId(db.getId())
+                .setCatalogId(table.getDatabase().getCatalog().getId())
+                .setDBId(table.getDatabase().getId())
                 .setTblId(table.getId())
-                .setColName(
-                        table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                .map(Column::getName).collect(Collectors.joining(","))
-                )
+                .setColName(columnNames)
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
                 .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
-                        ? StatisticsUtil.getHugeTableSampleRows() : -1)
+                    ? StatisticsUtil.getHugeTableSampleRows() : -1)
                 .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())
                 .setLastExecTimeInMs(System.currentTimeMillis())
                 .setJobType(JobType.SYSTEM)
                 .setTblUpdateTime(table.getUpdateTime())
+                .setAnalyzePriority(priority)
+                .setCurrentUpdatedRows(updatedRows)
                 .build();
-        analysisInfos.add(jobInfo);
+        return jobInfo;
+    }
+
+    protected boolean needAnalyzeColumn(TableStatsMeta tblStats, long rowCount,
+                                        long updatedRows, String column, TableIf table) {
+        if (tblStats == null) {
+            return true;
+        }
+        ColStatsMeta columnStatsMeta = tblStats.findColumnStatsMeta(column);
+        if (columnStatsMeta == null) {
+            return true;
+        }
+        if (table instanceof ExternalTable) {
+            return System.currentTimeMillis()
+                - columnStatsMeta.updatedTime > StatisticsUtil.getExternalTableAutoAnalyzeIntervalInMillis();
+        } else if (table instanceof OlapTable) {
+            int tblHealth = StatisticsUtil.getTableHealth(rowCount, updatedRows - columnStatsMeta.lastUpdatedRows);
+            return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
+        } else {
+            return true;
+        }
     }
 
     @VisibleForTesting
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
-        // Skip tables that are too width.
-        if (table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
-            return null;
-        }
-
-        AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
-        TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
-        if (!table.needReAnalyzeTable(tblStats)) {
-            return null;
-        }
 
         Map<String, Set<String>> needRunPartitions = table.findReAnalyzeNeededPartitions();
-
         if (needRunPartitions.isEmpty()) {
             return null;
         }
-
         return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
     }
 }

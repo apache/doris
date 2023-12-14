@@ -904,7 +904,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getEditLog().logDropTable(info);
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
-            Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
+            Env.getCurrentEnv().getAnalysisManager().clearStatsMeta(table);
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e);

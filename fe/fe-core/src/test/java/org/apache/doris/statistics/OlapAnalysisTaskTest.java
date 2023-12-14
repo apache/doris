@@ -43,9 +43,13 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class OlapAnalysisTaskTest {
 
@@ -405,4 +409,43 @@ public class OlapAnalysisTaskTest {
         Assertions.assertTrue(olapAnalysisTask.needLimit());
     }
 
+    @Test
+    public void testDataNoChange(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked OlapTable tableIf) {
+        AtomicBoolean invoked = new AtomicBoolean();
+        new MockUp<OlapAnalysisTask>() {
+
+            @Mock
+            protected void runQuery(String sql) {
+            }
+
+            @Mock
+            protected void init(AnalysisInfo info) {}
+
+            @Mock
+            protected void prepareExecution() {}
+        };
+        new MockUp<AnalysisJob>() {
+
+            @Mock
+            public synchronized void appendBuf(BaseAnalysisTask task, List<ColStatsData> statsData) {
+                invoked.set(true);
+            }
+        };
+        OlapAnalysisTask olapAnalysisTask = new OlapAnalysisTask();
+        olapAnalysisTask.col = new Column("test1", PrimitiveType.STRING);
+        olapAnalysisTask.tbl = tableIf;
+        AnalysisInfoBuilder analysisInfoBuilder = new AnalysisInfoBuilder();
+        analysisInfoBuilder.setJobType(AnalysisInfo.JobType.MANUAL);
+        olapAnalysisTask.info = analysisInfoBuilder.build();
+        olapAnalysisTask.catalog = catalogIf;
+        olapAnalysisTask.db = databaseIf;
+        Map<String, Set<String>> colToPartitions = new HashMap<>();
+        colToPartitions.put("test1", new HashSet<>());
+        OlapAnalysisTask task
+                = new OlapAnalysisTask(new AnalysisInfoBuilder()
+                .setColName("test1").setColToPartitions(colToPartitions).build());
+        new AnalysisJob(new AnalysisInfoBuilder().build(), Arrays.asList(task));
+        task.execute();
+        Assertions.assertTrue(invoked.get());
+    }
 }

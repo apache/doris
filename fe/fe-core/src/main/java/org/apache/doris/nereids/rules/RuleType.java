@@ -284,9 +284,16 @@ public enum RuleType {
 
     LEADING_JOIN(RuleTypeClass.REWRITE),
     REWRITE_SENTINEL(RuleTypeClass.REWRITE),
+    COLLECT_COLUMNS(RuleTypeClass.REWRITE),
 
     // topn opts
     DEFER_MATERIALIZE_TOP_N_RESULT(RuleTypeClass.REWRITE),
+
+    COLLECT_COLUMNS_ON_JOIN(RuleTypeClass.REWRITE),
+
+    COLLECT_COLUMNS_ON_HAVING(RuleTypeClass.REWRITE),
+
+    COLLECT_COLUMNS_ON_FILTER(RuleTypeClass.REWRITE),
 
     // exploration rules
     TEST_EXPLORATION(RuleTypeClass.EXPLORATION),

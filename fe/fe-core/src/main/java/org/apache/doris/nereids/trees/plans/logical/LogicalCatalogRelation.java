@@ -91,7 +91,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     public List<Slot> computeOutput() {
         return table.getBaseSchema()
                 .stream()
-                .map(col -> SlotReference.fromColumn(col, qualified()))
+                .map(col -> SlotReference.fromTableAndColumn(table, col, qualified()))
                 .collect(ImmutableList.toImmutableList());
     }
 

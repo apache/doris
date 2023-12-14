@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.expression.CheckLegalityAfterRewrite;
+import org.apache.doris.nereids.rules.expression.CriticalColumnCollector;
 import org.apache.doris.nereids.rules.expression.ExpressionNormalization;
 import org.apache.doris.nereids.rules.expression.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.ExpressionRewrite;
@@ -355,7 +356,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new CollectFilterAboveConsumer(),
                             new CollectProjectAboveConsumer()
                     )
-            )
+            ),
+            topic("Collect used column", custom(RuleType.COLLECT_COLUMNS, CriticalColumnCollector::new))
     );
 
     private static final List<RewriteJob> WHOLE_TREE_REWRITE_JOBS
