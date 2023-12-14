@@ -1234,7 +1234,6 @@ Status ScanLocalState<Derived>::_start_scanners(
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
                                                     p._col_distribute_ids, 1);
-    _scan_dependency->set_scanner_ctx(_scanner_ctx.get());
     _scanner_ctx->set_dependency(_scan_dependency, _finish_dependency);
     return Status::OK();
 }
