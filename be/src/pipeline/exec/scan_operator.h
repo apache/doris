@@ -61,7 +61,7 @@ class ScanDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ScanDependency);
     ScanDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "ScanDependency", query_ctx), _scanner_ctx(nullptr) {}
+            : Dependency(id, node_id, "ScanDependency", query_ctx) {}
 
     void block() override {
         if (_scanner_done) {
@@ -93,10 +93,7 @@ public:
         return fmt::to_string(debug_string_buffer);
     }
 
-    void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
-
 private:
-    vectorized::ScannerContext* _scanner_ctx = nullptr;
     bool _scanner_done {false};
     std::mutex _always_done_lock;
 };
