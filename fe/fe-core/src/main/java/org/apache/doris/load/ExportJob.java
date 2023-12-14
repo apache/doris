@@ -458,7 +458,7 @@ public class ExportJob implements Writable {
                 int end = i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT < tabletsList.size()
                         ? i + MAXIMUM_TABLETS_OF_OUTFILE_IN_EXPORT : tabletsList.size();
                 List<Long> tablets = new ArrayList<>(tabletsList.subList(i, end));
-                TableRef tblRef = new TableRef(this.tableRef.getName(), this.tableRef.getAlias(),
+                TableRef tblRef = new TableRef(this.tableRef.getName(), null,
                         this.tableRef.getPartitionNames(), (ArrayList) tablets,
                         this.tableRef.getTableSample(), this.tableRef.getCommonHints());
                 tableRefList.add(tblRef);
