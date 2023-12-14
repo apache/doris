@@ -363,6 +363,10 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                 .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                 .collect(Collectors.toList());
+        if (ctx.getSessionVariable().isIgnoreScanDistribution()) {
+            legalTypes.clear();
+            legalTypes.add(TRuntimeFilterType.BLOOM);
+        }
         List<EqualTo> hashJoinConjuncts = join.getEqualToConjuncts();
         for (int i = 0; i < hashJoinConjuncts.size(); i++) {
             EqualTo equalTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(

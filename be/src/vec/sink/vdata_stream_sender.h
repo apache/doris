@@ -546,13 +546,7 @@ public:
         return _send_callback;
     }
 
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency() {
-        if (!Channel<Parent>::_local_recvr) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
-        }
-        return Channel<Parent>::_local_recvr->get_local_channel_dependency(
-                Channel<Parent>::_parent->sender_id());
-    }
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency();
 
 private:
     friend class VDataStreamSender;

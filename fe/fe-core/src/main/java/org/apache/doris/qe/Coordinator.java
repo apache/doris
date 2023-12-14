@@ -1624,7 +1624,9 @@ public class Coordinator implements CoordInterface {
                     });
                 } else {
                     // add destination host to this fragment's destination
-                    for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                    int parallelTasksNum = destParams.ignoreDataDistribution
+                            ? destParams.parallelTasksNum : destParams.instanceExecParams.size();
+                    for (int j = 0; j < parallelTasksNum; ++j) {
                         TPlanFragmentDestination dest = new TPlanFragmentDestination();
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);

@@ -88,8 +88,8 @@ std::string PipelineXSinkLocalState<DependencyType>::debug_string(int indentatio
 
 std::string OperatorXBase::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}{}: id={}", std::string(indentation_level * 2, ' '),
-                   _op_name, node_id());
+    fmt::format_to(debug_string_buffer, "{}{}: id={}, parallel_tasks={}",
+                   std::string(indentation_level * 2, ' '), _op_name, node_id(), _parallel_tasks);
     return fmt::to_string(debug_string_buffer);
 }
 

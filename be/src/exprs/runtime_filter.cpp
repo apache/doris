@@ -889,13 +889,21 @@ public:
         return Status::OK();
     }
 
-    PrimitiveType column_type() { return _column_return_type; }
+    PrimitiveType column_type() {
+        return _column_return_type;
+    }
 
-    bool is_bloomfilter() const { return _is_bloomfilter; }
+    bool is_bloomfilter() const {
+        return _is_bloomfilter;
+    }
 
-    bool is_ignored_in_filter() const { return _is_ignored_in_filter; }
+    bool is_ignored_in_filter() const {
+        return _is_ignored_in_filter;
+    }
 
-    std::string* get_ignored_in_filter_msg() const { return _ignored_in_filter_msg; }
+    std::string* get_ignored_in_filter_msg() const {
+        return _ignored_in_filter_msg;
+    }
 
     void batch_assign(const PInFilter* filter,
                       void (*assign_func)(std::shared_ptr<HybridSetBase>& _hybrid_set,
@@ -906,7 +914,9 @@ public:
         }
     }
 
-    size_t get_in_filter_size() const { return _context.hybrid_set->size(); }
+    size_t get_in_filter_size() const {
+        return _context.hybrid_set->size();
+    }
 
     std::shared_ptr<BitmapFilterFuncBase> get_bitmap_filter() const {
         return _context.bitmap_filter_func;
@@ -946,10 +956,11 @@ private:
 Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                               const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
-                              bool build_bf_exactly) {
-    *res = pool->add(new IRuntimeFilter(state, pool, desc));
+                              bool build_bf_exactly, bool is_global, int parallel_tasks) {
+    *res = pool->add(new IRuntimeFilter(state, pool, desc, is_global, parallel_tasks));
     (*res)->set_role(role);
-    return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
+    return (*res)->init_with_desc(desc, query_options, node_id,
+                                  is_global ? false : build_bf_exactly);
 }
 
 void IRuntimeFilter::copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context) {
@@ -972,9 +983,35 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
     _wrapper->insert_batch(column, start);
 }
 
+Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num) {
+    SCOPED_TIMER(_merge_local_rf_timer);
+    std::unique_lock lock(_local_merge_mutex);
+    if (_merged_rf_num == 0) {
+        _wrapper = wrapper;
+    } else {
+        RETURN_IF_ERROR(merge_from(wrapper));
+    }
+    *merged_num = ++_merged_rf_num;
+    return Status::OK();
+}
+
 Status IRuntimeFilter::publish() {
     DCHECK(is_producer());
-    if (_has_local_target) {
+    if (_is_global) {
+        std::vector<IRuntimeFilter*> filters;
+        RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filters(
+                _filter_id, filters));
+        // push down
+        for (auto filter : filters) {
+            int merged_num = 0;
+            RETURN_IF_ERROR(filter->merge_local_filter(_wrapper, &merged_num));
+            if (merged_num == _parallel_build_tasks) {
+                filter->update_runtime_filter_type_to_profile();
+                filter->signal();
+            }
+        }
+        return Status::OK();
+    } else if (_has_local_target) {
         std::vector<IRuntimeFilter*> filters;
         RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
         // push down
@@ -1297,6 +1334,9 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     _profile_init = true;
     parent_profile->add_child(_profile.get(), true, nullptr);
     _profile->add_info_string("Info", _format_status());
+    if (_is_global) {
+        _merge_local_rf_timer = ADD_TIMER(_profile.get(), "MergeLocalRuntimeFilterTime");
+    }
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
     }

@@ -30,14 +30,9 @@
 #include "pipeline/pipeline_x/operator.h"
 #include "util/runtime_profile.h"
 
-namespace doris {
-namespace pipeline {
-class PipelineFragmentContext;
-} // namespace pipeline
-} // namespace doris
-
 namespace doris::pipeline {
 
+class PipelineFragmentContext;
 class Pipeline;
 
 using PipelinePtr = std::shared_ptr<Pipeline>;
@@ -127,13 +122,20 @@ public:
         return _collect_query_statistics_with_every_batch;
     }
 
-    bool need_to_local_shuffle() const { return _need_to_local_shuffle; }
-    void set_need_to_local_shuffle(bool need_to_local_shuffle) {
-        _need_to_local_shuffle = need_to_local_shuffle;
+    bool need_to_local_shuffle(const DataDistribution target_data_distribution) const {
+        if (target_data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE ||
+            target_data_distribution.distribution_type == ExchangeType::HASH_SHUFFLE) {
+            return target_data_distribution.operator!=(_data_distribution);
+        }
+        return true;
     }
-    void init_need_to_local_shuffle_by_source() {
-        set_need_to_local_shuffle(operatorXs.front()->need_to_local_shuffle());
+    void init_data_distribution() {
+        set_data_distribution(operatorXs.front()->get_local_exchange_type());
     }
+    void set_data_distribution(const DataDistribution& data_distribution) {
+        _data_distribution = data_distribution;
+    }
+    const DataDistribution& data_distribution() const { return _data_distribution; }
 
     std::vector<std::shared_ptr<Pipeline>>& children() { return _children; }
     void set_children(std::shared_ptr<Pipeline> child) { _children.push_back(child); }
@@ -141,15 +143,19 @@ public:
 
     void incr_created_tasks() { _num_tasks_created++; }
     bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
-    void set_num_tasks(int num_tasks) { _num_tasks = num_tasks; }
+    void set_num_tasks(int num_tasks) {
+        _num_tasks = num_tasks;
+        for (auto& op : operatorXs) {
+            op->set_parallel_tasks(_num_tasks);
+        }
+    }
     int num_tasks() const { return _num_tasks; }
 
     std::string debug_string() {
         fmt::memory_buffer debug_string_buffer;
         fmt::format_to(debug_string_buffer,
-                       "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}, "
-                       "_need_to_local_shuffle: {}]",
-                       _pipeline_id, _num_tasks, _num_tasks_created, _need_to_local_shuffle);
+                       "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}]", _pipeline_id,
+                       _num_tasks, _num_tasks_created);
         for (size_t i = 0; i < operatorXs.size(); i++) {
             fmt::format_to(debug_string_buffer, "\n{}", operatorXs[i]->debug_string(i));
         }
@@ -217,7 +223,7 @@ private:
     // 2. is exchange operator with Hash/BucketHash partition
     // then set `_need_to_local_shuffle` to false which means we should use local shuffle in this fragment
     // because data already be partitioned by storage/shuffling.
-    bool _need_to_local_shuffle = true;
+    DataDistribution _data_distribution {ExchangeType::NOOP};
 
     // How many tasks should be created ?
     int _num_tasks = 1;

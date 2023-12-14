@@ -566,6 +566,7 @@ enum class ExchangeType : uint8_t {
     BUCKET_HASH_SHUFFLE = 3,
     BROADCAST = 4,
     ADAPTIVE_PASSTHROUGH = 5,
+    PASS_TO_ONE = 6,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -582,10 +583,37 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "BROADCAST";
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
         return "ADAPTIVE_PASSTHROUGH";
+    case ExchangeType::PASS_TO_ONE:
+        return "PASS_TO_ONE";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
+
+struct DataDistribution {
+    DataDistribution(ExchangeType type) : distribution_type(type) {}
+    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
+            : distribution_type(type), partition_exprs(partition_exprs_) {}
+    DataDistribution(const DataDistribution& other)
+            : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
+    bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
+    bool operator==(const DataDistribution& other) const {
+        if (distribution_type == other.distribution_type &&
+            (distribution_type == ExchangeType::HASH_SHUFFLE ||
+             distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE) &&
+            (partition_exprs.empty() || other.partition_exprs.empty())) {
+            return true;
+        }
+        return distribution_type == other.distribution_type &&
+               partition_exprs == other.partition_exprs;
+    }
+    DataDistribution operator=(const DataDistribution& other) const {
+        return DataDistribution(other.distribution_type, other.partition_exprs);
+    }
+    bool operator!=(const DataDistribution& other) const { return !operator==(other); }
+    ExchangeType distribution_type;
+    const std::vector<TExpr> partition_exprs;
+};
 
 class Exchanger;
 
