@@ -1036,7 +1036,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableRuntimeFilterPrune = true;
 
     @VariableMgr.VarAttr(name = ENABLE_FOUND_ROWS, needForward = true)
-    public boolean enableFoundRows = false;
+    public boolean enableFoundRows = true;
 
     /**
      * The client can pass some special information by setting this session variable in the format: "k1:v1;k2:v2".
