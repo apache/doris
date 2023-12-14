@@ -227,6 +227,13 @@ public:
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }
 
+    ExchangeType get_local_exchange_type() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return ExchangeType::NOOP;
+        }
+        return ExchangeType::PASSTHROUGH;
+    }
+
     const RowDescriptor& row_desc() override {
         return _old_version_flag
                        ? (_output_row_descriptor ? *_output_row_descriptor : _row_descriptor)
