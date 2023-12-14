@@ -1435,7 +1435,13 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
         if (_seen_columns[i]) {
             continue;
         }
-        auto slot_desc = slot_descs[i];
+        auto* slot_desc = slot_descs[i];
+        // Quick path to insert default value, instead of using default values in the value map.
+        if (_col_default_value_map.empty() ||
+            _col_default_value_map.find(slot_desc->col_name()) == _col_default_value_map.end()) {
+            block.get_by_position(i).column->assume_mutable()->insert_default();
+            continue;
+        }
         if (!slot_desc->is_materialized()) {
             continue;
         }
