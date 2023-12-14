@@ -140,6 +140,9 @@ aaaa:aaaa:ffff:ffff:ffff:ffff:aaaa:aaaa
 -- !ip48 --
 \N
 
+-- !sql --
+\N
+
 -- !ip49 --
 AAAAAAAAFFFFFFFFFFFFFFFFAAAAAAAA
 
