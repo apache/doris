@@ -481,11 +481,11 @@ suite("test_json_load", "p0") {
 
         // invalid nest_json
         load_json_data.call("${testTable}", "${testTable}_case14_3", '', 'true', 'json', 'id= id * 10', '[\"$.id\",  \"$.city\", \"$.code\"]',
-                            '$.item', '', 'true', 'invalid_nest_json1.json', true) 
+                            '$.item', '', 'true', 'invalid_nest_json1.json', true)
         load_json_data.call("${testTable}", "${testTable}_case14_4", '', 'true', 'json', 'id= id * 10', '[\"$.id\",  \"$.city\", \"$.code\"]',
-                            '$.item', '', 'true', 'invalid_nest_json2.json', false, 7) 
+                            '$.item', '', 'true', 'invalid_nest_json2.json', false, 7)
         load_json_data.call("${testTable}", "${testTable}_case14_5", '', 'true', 'json', 'id= id * 10', '[\"$.id\",  \"$.city\", \"$.code\"]',
-                            '$.item', '', 'true', 'invalid_nest_json3.json', true) 
+                            '$.item', '', 'true', 'invalid_nest_json3.json', true)
 
         sql "sync"
         qt_select14 "select * from ${testTable} order by id, code, city"

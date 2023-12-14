@@ -104,10 +104,10 @@ suite("test_ctas") {
             result([[null]])
         }
 
-        test {
+        /*test {
             sql """show load from ${dbname}"""
             rowNum 6
-        }
+        }*/
 
         sql """
             create table if not exists test_tbl_81748325

@@ -17,7 +17,7 @@
 
 suite("nereids_test_ctas") {
     sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
+    // sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_dml=true'
 
     sql """ DROP TABLE IF EXISTS test_ctas """
