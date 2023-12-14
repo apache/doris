@@ -155,8 +155,10 @@ public class DateLiteral extends Literal {
         }
     }
 
-    // TODO: 处理连续 space
     static String normalize(String s) {
+        // merge consecutive space
+        s = s.replaceAll(" +", " ");
+
         StringBuilder sb = new StringBuilder();
 
         int i = 0;
