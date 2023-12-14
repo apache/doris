@@ -155,7 +155,6 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                                                                               is_reverse));
                     old_top = std::move(new_top);
                 }
-
             }
         }
         if (!_reuse_mem) {
