@@ -157,8 +157,11 @@ public:
 
     std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
     ExchangeType get_local_exchange_type() const override {
-        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN || _is_broadcast_join) {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
             return ExchangeType::NOOP;
+        } else if (_is_broadcast_join) {
+            return _child_x->ignore_data_distribution() ? ExchangeType::BROADCAST
+                                                        : ExchangeType::NOOP;
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE

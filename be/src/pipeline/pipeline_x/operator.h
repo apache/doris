@@ -34,13 +34,14 @@ struct LocalStateInfo {
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
                             std::shared_ptr<LocalExchangeSinkDependency>>>
             le_state_map;
-    int task_idx;
+    const int task_idx;
 
     DependencySPtr dependency;
 };
 
 // This struct is used only for initializing local sink state.
 struct LocalSinkStateInfo {
+    const int task_idx;
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
     std::vector<DependencySPtr>& dependencys;
@@ -180,9 +181,15 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
-    virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
-    virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
-    virtual ExchangeType get_local_exchange_type() const { return ExchangeType::NOOP; }
+    [[nodiscard]] virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
+    [[nodiscard]] virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
+    [[nodiscard]] virtual ExchangeType get_local_exchange_type() const {
+        return _child_x && _child_x->ignore_data_distribution() && !is_source()
+                       ? ExchangeType::PASSTHROUGH
+                       : ExchangeType::NOOP;
+    }
+    [[nodiscard]] bool ignore_data_distribution() const { return _ignore_data_distribution; }
+    void set_ignore_data_distribution() { _ignore_data_distribution = true; }
 
     Status prepare(RuntimeState* state) override;
 
@@ -296,6 +303,7 @@ protected:
     int64_t _limit; // -1: no limit
 
     std::string _op_name;
+    bool _ignore_data_distribution = false;
 };
 
 template <typename LocalStateType>
@@ -471,7 +479,10 @@ public:
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
     virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
-    virtual ExchangeType get_local_exchange_type() const { return ExchangeType::NOOP; }
+    virtual ExchangeType get_local_exchange_type() const {
+        return _child_x && _child_x->ignore_data_distribution() ? ExchangeType::PASSTHROUGH
+                                                                : ExchangeType::NOOP;
+    }
 
     Status close(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");

@@ -429,8 +429,9 @@ public:
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
     bool need_to_local_shuffle() const override {
-        // If _col_distribute_ids is not empty, we prefer to not do local shuffle.
-        return _col_distribute_ids.empty();
+        // 1. `_col_distribute_ids` is empty means storage distribution is not effective, so we prefer to do local shuffle.
+        // 2. `ignore_data_distribution()` returns true means we ignore the distribution.
+        return _col_distribute_ids.empty() || OperatorX<LocalStateType>::ignore_data_distribution();
     }
 
     bool is_bucket_shuffle_scan() const override { return !_col_distribute_ids.empty(); }
@@ -443,7 +444,7 @@ public:
 protected:
     using LocalState = LocalStateType;
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                  const DescriptorTbl& descs);
+                  const DescriptorTbl& descs, int parallel_tasks = 0);
     virtual ~ScanOperatorX() = default;
     template <typename Derived>
     friend class ScanLocalState;
@@ -479,6 +480,7 @@ protected:
 
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
+    const int _parallel_tasks = 0;
 };
 
 } // namespace doris::pipeline
