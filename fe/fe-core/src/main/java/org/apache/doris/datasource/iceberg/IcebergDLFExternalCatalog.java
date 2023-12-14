@@ -22,7 +22,7 @@ import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
+import shade.doris.com.aliyun.datalake.metastore.common.DataLakeConfig;
 
 import java.util.Map;
 

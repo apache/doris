@@ -19,8 +19,8 @@ package org.apache.doris.datasource.property.constants;
 
 import org.apache.doris.datasource.credentials.CloudCredential;
 
-import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.google.common.collect.ImmutableList;
+import shade.doris.com.aliyun.datalake.metastore.common.DataLakeConfig;
 
 import java.util.List;
 import java.util.Map;
