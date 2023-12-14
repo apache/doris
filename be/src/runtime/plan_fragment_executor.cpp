@@ -217,13 +217,13 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_num_local_sink(request.num_local_sink);
 
     // set up sink, if required
+    RuntimeProfile* sink_profile = nullptr;
     if (request.fragment.__isset.output_sink) {
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
                 obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
                 row_desc(), runtime_state(), &_sink, *_desc_tbl));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
-
-        RuntimeProfile* sink_profile = _sink->profile();
+        sink_profile = _sink->profile();
         if (sink_profile != nullptr) {
             profile()->add_child(sink_profile, true, nullptr);
         }
@@ -238,7 +238,11 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
 
     // set up profile counters
-    profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    if (sink_profile != nullptr) {
+        sink_profile->add_child(_plan->runtime_profile(), true, nullptr);
+    } else {
+        profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    }
     profile()->add_info_string("DorisBeVersion", version::doris_build_short_hash());
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
