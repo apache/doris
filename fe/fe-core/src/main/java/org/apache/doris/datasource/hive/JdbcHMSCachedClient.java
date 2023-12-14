@@ -15,17 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.hive;
 
-import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.jdbc.client.JdbcClient;
+import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 
-public class HMSClientException extends RuntimeException {
-    public HMSClientException(String format, Throwable cause, Object... msg) {
-        super(String.format(format, msg) + (cause == null ? "" : ". reason: " + Util.getRootCauseMessage(cause)),
-                cause);
-    }
+import com.google.common.base.Preconditions;
 
-    public HMSClientException(String format, Object... msg) {
-        super(String.format(format, msg));
+/**
+ * This class uses the JDBC protocol to directly access the relational databases under HMS
+ * to obtain Hive metadata information
+ */
+public abstract class JdbcHMSCachedClient extends JdbcClient implements HMSCachedClient {
+    protected JdbcClientConfig jdbcClientConfig;
+
+    protected JdbcHMSCachedClient(JdbcClientConfig jdbcClientConfig) {
+        super(jdbcClientConfig);
+        Preconditions.checkNotNull(jdbcClientConfig, "JdbcClientConfig can not be null");
+        this.jdbcClientConfig = jdbcClientConfig;
     }
 }
