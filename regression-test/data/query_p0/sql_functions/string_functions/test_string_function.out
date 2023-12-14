@@ -288,10 +288,54 @@ false
 \N
 
 -- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
+\N
+
+-- !sql --
 Hello
 
 -- !sql --
+Hello
+
+-- !sql --
+\N
+
+-- !sql --
+
+
+-- !sql --
+\N
+
+-- !sql --
+
+
+-- !sql --
 doris
+
+-- !sql --
+doris
+
+-- !select_null_str --
+1	Isaac	ewton	Isaac 	Newton
+2	Alber	stein	Albert	nstein
+3	Marie	Curie	Marie 	 Curie
+4	Charl	arwin	Charle	Darwin
+5	Steph	wking	Stephe	awking
+
+-- !select_not_null_str --
+1	Isaac	ewton	Isaac 	Newton
+2	Alber	stein	Albert	nstein
+3	Marie	Curie	Marie 	 Curie
+4	Charl	arwin	Charle	Darwin
+5	Steph	wking	Stephe	awking
 
 -- !sql --
 bc1

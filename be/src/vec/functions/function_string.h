@@ -570,8 +570,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        is_nullable = (arguments[0]->is_nullable() || arguments[1]->is_nullable());
-        if (is_nullable) {
+        if (arguments[0]->is_nullable() || arguments[1]->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeString>());
         }
         return std::make_shared<DataTypeString>();
@@ -589,13 +588,24 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = arguments[1];
+
+        bool is_nullable{};
+
+        // check nullable
+        auto str_col =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
+            is_nullable = true;
+        }
+        auto pos_col =
+                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
+        if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
+            is_nullable = true;
+        }
         SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count,
                                          is_nullable);
         return Status::OK();
     }
-
-    // is_nullable for judgement resule is or not nullable
-    mutable bool is_nullable;
 };
 
 class FunctionRight : public IFunction {
@@ -605,8 +615,7 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        is_nullable = (arguments[0]->is_nullable() || arguments[1]->is_nullable());
-        if (is_nullable) {
+        if (arguments[0]->is_nullable() || arguments[1]->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeString>());
         }
         return std::make_shared<DataTypeString>();
@@ -616,6 +625,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
+        bool is_nullable{};
         auto int_type = std::make_shared<DataTypeInt32>();
         auto params1 = ColumnInt32::create(input_rows_count);
         auto params2 = ColumnInt32::create(input_rows_count);
@@ -632,6 +642,7 @@ public:
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
             str_col = nullable->get_nested_column_ptr();
+            is_nullable = true;
         }
         auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
 
@@ -640,6 +651,7 @@ public:
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
             pos_col = nullable->get_nested_column_ptr();
+            is_nullable = true;
         }
         auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
 
@@ -662,8 +674,6 @@ public:
                                          is_nullable);
         return Status::OK();
     }
-    // is_nullable for judgement resule is or not nullable
-    mutable bool is_nullable;
 };
 
 struct NullOrEmptyImpl {

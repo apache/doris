@@ -140,8 +140,76 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select starts_with(\"hello world\",\"world\");"
     qt_sql "select starts_with(\"hello world\",null);"
 
-    qt_sql "select strleft(\"Hello doris\",5);"
-    qt_sql "select strright(\"Hello doris\",5);"
+    qt_sql "select strleft(NULL, 1);"
+    qt_sql "select strleft(\"good morning\", NULL);"
+    qt_sql "select left(NULL, 1);"
+    qt_sql "select left(\"good morning\", NULL);"
+    qt_sql "select strleft(\"Hello doris\", 5);"
+    qt_sql "select left(\"Hello doris\", 5)"
+    qt_sql "select strright(NULL, 1);"
+    qt_sql "select strright(\"good morning\", NULL);"
+    qt_sql "select right(NULL, 1);"
+    qt_sql "select right(\"good morning\", NULL);"
+    qt_sql "select strright(\"Hello doris\", 5);"
+    qt_sql "select right(\"Hello doris\", 5);"
+
+    sql """ drop table if exists left_right_test; """
+    sql """ create table left_right_test (
+        id INT NULL,
+        name VARCHAR(16) NULL
+    )
+    UNIQUE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num"="1");
+    """
+    sql """
+        insert into left_right_test values
+        (1, "Isaac Newton"),
+        (2, "Albert Einstein"),
+        (3, "Marie Curie"),
+        (4, "Charles Darwin"),
+        (5, "Stephen Hawking");
+    """
+
+    qt_select_null_str """
+    select
+    id,
+    strleft(name, 5),
+    strright(name, 5),
+    left(name, 6),
+    right(name, 6)
+    from left_right_test
+    order by id;
+    """
+
+    sql """ drop table if exists left_right_test; """
+    sql """ create table left_right_test (
+        id INT,
+        name VARCHAR(16)
+    )
+    UNIQUE KEY(id)
+    DISTRIBUTED BY HASH(id) BUCKETS 1
+    PROPERTIES ("replication_num"="1");
+    """
+    sql """
+        insert into left_right_test values
+        (1, "Isaac Newton"),
+        (2, "Albert Einstein"),
+        (3, "Marie Curie"),
+        (4, "Charles Darwin"),
+        (5, "Stephen Hawking");
+    """
+
+    qt_select_not_null_str """
+    select
+    id,
+    strleft(name, 5),
+    strright(name, 5),
+    left(name, 6),
+    right(name, 6)
+    from left_right_test
+    order by id;
+    """
 
     qt_sql "select substring('abc1', 2);"
     qt_sql "select substring('abc1', -2);"
