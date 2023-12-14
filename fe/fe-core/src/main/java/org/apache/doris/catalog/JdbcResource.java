@@ -95,7 +95,6 @@ public class JdbcResource extends Resource {
     public static final String DRIVER_URL = "driver_url";
     public static final String TYPE = "type";
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
-    public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String CONNECTION_POOL_MIN_SIZE = "connection_pool_min_size";
     public static final String CONNECTION_POOL_MAX_SIZE = "connection_pool_max_size";
     public static final String CONNECTION_POOL_MAX_WAIT_TIME = "connection_pool_max_wait_time";
@@ -112,7 +111,8 @@ public class JdbcResource extends Resource {
             TYPE,
             CREATE_TIME,
             ONLY_SPECIFIED_DATABASE,
-            LOWER_CASE_TABLE_NAMES,
+            LOWER_CASE_META_NAMES,
+            SUFFIX_NAMES_MATCHING,
             INCLUDE_DATABASE_LIST,
             EXCLUDE_DATABASE_LIST,
             CONNECTION_POOL_MIN_SIZE,
@@ -123,7 +123,8 @@ public class JdbcResource extends Resource {
     ).build();
     private static final ImmutableList<String> OPTIONAL_PROPERTIES = new ImmutableList.Builder<String>().add(
             ONLY_SPECIFIED_DATABASE,
-            LOWER_CASE_TABLE_NAMES,
+            LOWER_CASE_META_NAMES,
+            SUFFIX_NAMES_MATCHING,
             INCLUDE_DATABASE_LIST,
             EXCLUDE_DATABASE_LIST,
             CONNECTION_POOL_MIN_SIZE,
@@ -139,7 +140,8 @@ public class JdbcResource extends Resource {
 
     static {
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
-        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_META_NAMES, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(SUFFIX_NAMES_MATCHING, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(INCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(EXCLUDE_DATABASE_LIST, "");
         OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(CONNECTION_POOL_MIN_SIZE, "1");

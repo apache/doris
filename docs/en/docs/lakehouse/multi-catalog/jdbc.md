@@ -52,7 +52,8 @@ PROPERTIES ("key"="value", ...)
 | `driver_url `             | Yes             |               | JDBC Driver Jar                                                                                                          |
 | `driver_class `           | Yes             |               | JDBC Driver Class                                                                                                        |
 | `only_specified_database` | No              | "false"       | Whether only the database specified to be synchronized.                                                                  |
-| `lower_case_table_names`  | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
+| `lower_case_meta_names`   | No              | "false"       | Whether to synchronize the database name, table name and column name of jdbc external data source in lowercase.          |
+| `suffix_names_mapping`    | No              | ""            | When the database name, table name, and column name of the jdbc external data source are the same but different in case, you can use this parameter to resolve the conflict. |
 | `include_database_list`   | No              | ""            | When only_specified_database=true，only synchronize the specified databases. split with ','. db name is case sensitive.   |
 | `exclude_database_list`   | No              | ""            | When only_specified_database=true，do not synchronize the specified databases. split with ','. db name is case sensitive. |
 
@@ -66,23 +67,113 @@ PROPERTIES ("key"="value", ...)
 
 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 
-### Lowercase table name synchronization
+### Lowercase name synchronization
 
-When `lower_case_table_names` is set to `true`, Doris is able to query non-lowercase databases and tables and columns by maintaining a mapping of lowercase names to actual names on the remote system
+When `lower_case_meta_names` is set to `true`, Doris maintains the mapping of lowercase names to actual names in the remote system, enabling queries to use lowercase to query non-lowercase databases, tables and columns of external data sources.
+
+Since FE has the lower_case_table_names parameter, it will affect the table name case rules during query, so the rules are as follows
+
+* When FE lower_case_table_names config is 0
+
+  lower_case_meta_names = false, the case is consistent with the source library.
+  lower_case_meta_names = true, lowercase repository table column names.
+
+* When FE lower_case_table_names config is 1
+
+  lower_case_meta_names = false, the case of db and column is consistent with the source library, but the table is stored in lowercase
+  lower_case_meta_names = true, lowercase repository table column names.
+
+* When FE lower_case_table_names config is 2
+
+  lower_case_meta_names = false, the case is consistent with the source library.
+  lower_case_meta_names = true, lowercase repository table column names.
+
+If the parameter configuration when creating the Catalog matches the lowercase conversion rule in the above rules, Doris will convert the corresponding name to lowercase and store it in Doris. When querying, you need to use the lowercase name displayed by Doris.
+
+If the external data source has the same name but different case, such as DORIS and doris, Doris will report an error when querying the Catalog due to ambiguity. In this case, you need to configure the `suffix_names_mapping` parameter to resolve the conflict.
+
+The `suffix_names_mapping` parameter accepts a Json format string with the following format:
+
+```json
+{
+  "databases": [
+    {
+      "remoteDatabase": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "doris",
+      "mapping": "doris_2"
+    }],
+  "tables": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "doris",
+      "mapping": "doris_2"
+    }],
+  "columns": [
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "DORIS",
+      "mapping": "doris_1"
+    },
+    {
+      "remoteDatabase": "DORIS",
+      "remoteTable": "DORIS",
+      "remoteColumn": "doris",
+      "mapping": "doris_2"
+    }]
+}
+```
+
+When filling this configuration into the statement that creates the Catalog, you need to escape the double quotes, for example:
+
+```sql
+CREATE CATALOG jdbc_oracle PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+    "driver_url" = "ojdbc8.jar",
+    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+    "lower_case_meta_names" = "true",
+    "suffix_names_mapping" = "{\"databases\":[{\"remoteDatabase\":\"DORIS\",\"mapping\":\"doris_1\"},{\"remoteDatabase\":\"doris\ ",\"mapping\":\"doris_2\"}],\"tables\":[{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\" mapping\":\"doris_1\"},{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"doris\",\"mapping\":\"doris_2\"}], \"columns\":[{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\"remoteColumn\":\"DORIS\",\"mapping\": \"doris_1\"},{\"remoteDatabase\":\"DORIS\",\"remoteTable\":\"DORIS\",\"remoteColumn\":\"doris\",\"mapping\": \"doris_2\"}]}"
+);
+```
 
 **Notice:**
 
-1. In versions before Doris 2.0.3, it is only valid for Oracle database. When querying, all library names and table names will be converted to uppercase before querying Oracle, for example:
+JDBC Catalog has the following three stages for mapping rules for external table case:
 
-   Oracle has the TEST table in the TEST space. When Doris creates the Catalog, set `lower_case_table_names` to `true`, then Doris can query the TEST table through `select * from oracle_catalog.test.test`, and Doris will automatically format test.test into TEST.TEST is sent to Oracle. It should be noted that this is the default behavior, which also means that lowercase table names in Oracle cannot be queried.
+* Doris versions prior to 2.0.3
 
-   For other databases, you still need to specify the real library name and table name when querying.
+  This configuration name is `lower_case_table_names`, which is only valid for Oracle database. Setting this parameter to `true` in other data sources will affect the query, so please do not set it.
 
-2. In Doris 2.0.3 and later versions, it is valid for all databases. When querying, all database names and table names and columns will be converted into real names and then queried. If you upgrade from an old version to 2.0. 3, `Refresh <catalog_name>` is required to take effect.
+  When querying Oracle, all library names and table names will be converted to uppercase before querying Oracle, for example:
 
-   However, if the database or table or column names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
+  Oracle has the TEST table in the TEST space. When Doris creates the Catalog, set `lower_case_table_names` to `true`, then Doris can query the TEST table through `select * from oracle_catalog.test.test`, and Doris will automatically format test.test into TEST.TEST is sent to Oracle. It should be noted that this is the default behavior, which also means that lowercase table names in Oracle cannot be queried.
 
-3. When the FE parameter's `lower_case_table_names` is set to `1` or `2`, the JDBC Catalog's `lower_case_table_names` parameter must be set to `true`. If the FE parameter's `lower_case_table_names` is set to `0`, the JDBC Catalog parameter can be `true` or `false` and defaults to `false`. This ensures consistency and predictability in how Doris handles internal and external table configurations.
+* Doris 2.0.3 version:
+
+  This configuration is called `lower_case_table_names` and is valid for all databases. When querying, all library names and table names will be converted into real names and then queried. If you upgrade from an old version to 2.0.3, you need ` Refresh <catalog_name>` can take effect.
+
+  However, if the library, table, or column names differ only in case, such as `Doris` and `doris`, Doris cannot query them due to ambiguity.
+
+  And when the `lower_case_table_names` parameter of the FE parameter is set to `1` or `2`, the `lower_case_table_names` parameter of the JDBC Catalog must be set to `true`. If the `lower_case_table_names` of the FE parameter is set to `0`, the JDBC Catalog parameter can be `true` or `false`, defaulting to `false`.
+
+* Doris 2.1.0 and later versions:
+
+  In order to avoid confusion with the `lower_case_table_names` parameter of FE conf, this configuration name is changed to `lower_case_meta_names`, which is valid for all databases. During query, all library names, table names and column names will be converted into real names, and then Check it out. If you upgrade from an old version to 2.0.4, you need `Refresh <catalog_name>` to take effect.
+
+  For specific rules, please refer to the introduction of `lower_case_meta_names` at the beginning of this section.
+
+  Users who have previously set the JDBC Catalog `lower_case_table_names` parameter will automatically have `lower_case_table_names` converted to `lower_case_meta_names` when upgrading to 2.0.4.
 
 ### Specify synchronization database:
 

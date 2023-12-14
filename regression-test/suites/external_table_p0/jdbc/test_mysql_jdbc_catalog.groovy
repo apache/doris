@@ -549,6 +549,29 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         }
         order_qt_auto_default_t2 """insert into ${auto_default_t}(name,dt) select col1, coalesce(col12,'2022-01-01 00:00:00') from ex_tb15 limit 1;"""
         sql """drop catalog if exists ${catalog_name} """
+
+        // test lower_case_meta_names
+
+        sql """ drop catalog if exists mysql_lower_case_catalog """
+        sql """ CREATE CATALOG mysql_lower_case_catalog PROPERTIES (
+            "type"="jdbc",
+            "jdbc.user"="root",
+            "jdbc.password"="123456",
+            "jdbc.jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}/doris_test?useSSL=false",
+            "jdbc.driver_url" = "${driver_url}",
+            "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver",
+            "lower_case_meta_names" = "true",
+            "suffix_names_matching" = "{\\\"databases\\\": [{\\\"remoteDatabase\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}],\\\"tables\\\": [{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"DORIS\\\",\\\"mapping\\\": \\\"doris_1\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"Doris\\\",\\\"mapping\\\": \\\"doris_2\\\"},{\\\"remoteDatabase\\\": \\\"Doris\\\",\\\"remoteTable\\\": \\\"doris\\\",\\\"mapping\\\": \\\"doris_3\\\"}]}"
+            );
+        """
+
+        qt_sql "show databases from mysql_lower_case_catalog;"
+        qt_sql "show tables from mysql_lower_case_catalog.doris_2;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_1 order by id;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_2 order by id;"
+        qt_sql "select * from mysql_lower_case_catalog.doris_2.doris_3 order by id;"
+
+        sql """ drop catalog if exists mysql_lower_case_catalog; """
     }
 }
 

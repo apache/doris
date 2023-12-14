@@ -274,6 +274,9 @@ doris_test
 information_schema
 
 -- !specified_database_3 --
+DORIS
+Doris
+doris
 information_schema
 init_db
 mysql
@@ -413,3 +416,28 @@ year	SMALLINT	Yes	false	\N	NONE
 -- !auto_default_t2 --
 0
 
+-- !sql --
+doris_1
+doris_2
+doris_3
+doris_test
+information_schema
+init_db
+mysql
+performance_schema
+show_test_do_not_modify
+sys
+
+-- !sql --
+doris_1
+doris_2
+doris_3
+
+-- !sql --
+DORIS
+
+-- !sql --
+Doris
+
+-- !sql --
+doris

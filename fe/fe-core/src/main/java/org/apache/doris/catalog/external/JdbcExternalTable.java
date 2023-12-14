@@ -84,10 +84,11 @@ public class JdbcExternalTable extends ExternalTable {
         JdbcTable jdbcTable = new JdbcTable(this.id, fullDbName, schema, TableType.JDBC_EXTERNAL_TABLE);
         jdbcTable.setCatalogId(jdbcCatalog.getId());
         jdbcTable.setExternalTableName(fullDbName);
-        jdbcTable.setRealDatabaseName(((JdbcExternalCatalog) catalog).getJdbcClient().getRealDatabaseName(this.dbName));
-        jdbcTable.setRealTableName(
-                ((JdbcExternalCatalog) catalog).getJdbcClient().getRealTableName(this.dbName, this.name));
-        jdbcTable.setRealColumnNames(((JdbcExternalCatalog) catalog).getJdbcClient().getRealColumnNames(this.dbName,
+        jdbcTable.setRemoteDatabaseName(
+                ((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteDatabaseName(this.dbName));
+        jdbcTable.setRemoteTableName(
+                ((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteTableName(this.dbName, this.name));
+        jdbcTable.setRemoteColumnNames(((JdbcExternalCatalog) catalog).getJdbcClient().getRemoteColumnNames(this.dbName,
                 this.name));
         jdbcTable.setJdbcTypeName(jdbcCatalog.getDatabaseTypeName());
         jdbcTable.setJdbcUrl(jdbcCatalog.getJdbcUrl());

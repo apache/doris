@@ -33,7 +33,6 @@ import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 public class JdbcMySQLClient extends JdbcClient {
@@ -81,14 +80,14 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     @Override
-    protected void processTable(String dbName, String tableName, String[] tableTypes,
-                                Consumer<ResultSet> resultSetConsumer) {
+    protected void processTable(String remoteDbName, String remoteTableName, String[] tableTypes,
+            Consumer<ResultSet> resultSetConsumer) {
         Connection conn = null;
         ResultSet rs = null;
         try {
             conn = super.getConnection();
             DatabaseMetaData databaseMetaData = conn.getMetaData();
-            rs = databaseMetaData.getTables(dbName, null, tableName, tableTypes);
+            rs = databaseMetaData.getTables(remoteDbName, null, remoteTableName, tableTypes);
             resultSetConsumer.accept(rs);
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to process table", e);
@@ -103,39 +102,29 @@ public class JdbcMySQLClient extends JdbcClient {
     }
 
     @Override
-    protected ResultSet getColumns(DatabaseMetaData databaseMetaData, String catalogName, String schemaName,
-                                   String tableName) throws SQLException {
-        return databaseMetaData.getColumns(schemaName, null, tableName, null);
+    protected ResultSet getRemoteColumns(DatabaseMetaData databaseMetaData, String catalogName, String remoteDbName,
+            String remoteTableName) throws SQLException {
+        return databaseMetaData.getColumns(remoteDbName, null, remoteTableName, null);
     }
 
     /**
      * get all columns of one table
      */
     @Override
-    public List<JdbcFieldSchema> getJdbcColumnsInfo(String dbName, String tableName) {
+    public List<JdbcFieldSchema> getJdbcColumnsInfo(String localDbName, String localTableName) {
         Connection conn = getConnection();
         ResultSet rs = null;
-        List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        String finalDbName = getRealDatabaseName(dbName);
-        String finalTableName = getRealTableName(dbName, tableName);
+        List<JdbcFieldSchema> tableSchema = com.google.common.collect.Lists.newArrayList();
+        String remoteDbName = getRemoteDatabaseName(localDbName);
+        String remoteTableName = getRemoteTableName(localDbName, localTableName);
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
-            rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
+            rs = getRemoteColumns(databaseMetaData, catalogName, remoteDbName, remoteTableName);
             Map<String, String> mapFieldtoType = null;
             while (rs.next()) {
-                lowerColumnToRealColumn.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
-                lowerColumnToRealColumn.get(finalDbName).putIfAbsent(finalTableName, new ConcurrentHashMap<>());
                 JdbcFieldSchema field = new JdbcFieldSchema();
-                String columnName = rs.getString("COLUMN_NAME");
-                if (isLowerCaseTableNames) {
-                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName)
-                            .put(columnName.toLowerCase(), columnName);
-                    columnName = columnName.toLowerCase();
-                } else {
-                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName).put(columnName, columnName);
-                }
-                field.setColumnName(columnName);
+                field.setColumnName(rs.getString("COLUMN_NAME"));
                 field.setDataType(rs.getInt("DATA_TYPE"));
 
                 // in mysql-jdbc-connector-8.0.*, TYPE_NAME of the HLL column in doris will be "UNKNOWN"
@@ -144,7 +133,7 @@ public class JdbcMySQLClient extends JdbcClient {
                 // in mysql-jdbc-connector-5.1.*, TYPE_NAME of BITMAP column in doris will be "BITMAP"
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 if (isDoris) {
-                    mapFieldtoType = getColumnsDataTypeUseQuery(dbName, tableName);
+                    mapFieldtoType = getColumnsDataTypeUseQuery(localDbName, localTableName);
                     field.setDataTypeName(mapFieldtoType.get(rs.getString("COLUMN_NAME")));
                 }
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
@@ -163,7 +152,7 @@ public class JdbcMySQLClient extends JdbcClient {
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get jdbc columns info for table %.%s: %s",
-                    e, dbName, tableName, Util.getRootCauseMessage(e));
+                    e, localDbName, localTableName, Util.getRootCauseMessage(e));
         } finally {
             close(rs, conn);
         }

@@ -32,7 +32,8 @@ public class JdbcClientConfig implements Cloneable {
     private String driverUrl;
     private String driverClass;
     private String onlySpecifiedDatabase;
-    private String isLowerCaseTableNames;
+    private String isLowerCaseMetaNames;
+    private String suffixNamesMatching;
     private int connectionPoolMinSize;
     private int connectionPoolMaxSize;
     private int connectionPoolMaxWaitTime;
@@ -45,7 +46,8 @@ public class JdbcClientConfig implements Cloneable {
 
     public JdbcClientConfig() {
         this.onlySpecifiedDatabase = JdbcResource.getDefaultPropertyValue(JdbcResource.ONLY_SPECIFIED_DATABASE);
-        this.isLowerCaseTableNames = JdbcResource.getDefaultPropertyValue(JdbcResource.LOWER_CASE_TABLE_NAMES);
+        this.isLowerCaseMetaNames = JdbcResource.getDefaultPropertyValue(JdbcResource.LOWER_CASE_META_NAMES);
+        this.suffixNamesMatching = JdbcResource.getDefaultPropertyValue(JdbcResource.SUFFIX_NAMES_MATCHING);
         this.connectionPoolMinSize = Integer.parseInt(
                 JdbcResource.getDefaultPropertyValue(JdbcResource.CONNECTION_POOL_MIN_SIZE));
         this.connectionPoolMaxSize = Integer.parseInt(
@@ -143,12 +145,21 @@ public class JdbcClientConfig implements Cloneable {
         return this;
     }
 
-    public String getIsLowerCaseTableNames() {
-        return isLowerCaseTableNames;
+    public String getIsLowerCaseMetaNames() {
+        return isLowerCaseMetaNames;
     }
 
-    public JdbcClientConfig setIsLowerCaseTableNames(String isLowerCaseTableNames) {
-        this.isLowerCaseTableNames = isLowerCaseTableNames;
+    public JdbcClientConfig setIsLowerCaseMetaNames(String isLowerCaseTableNames) {
+        this.isLowerCaseMetaNames = isLowerCaseTableNames;
+        return this;
+    }
+
+    public String getSuffixNamesMatching() {
+        return suffixNamesMatching;
+    }
+
+    public JdbcClientConfig setSuffixNamesMatching(String suffixNamesMatching) {
+        this.suffixNamesMatching = suffixNamesMatching;
         return this;
     }
 
