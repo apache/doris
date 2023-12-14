@@ -850,7 +850,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Set runtimeFilterType to IN_OR_BLOOM filter
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_TYPE, fuzzy = true, needForward = true)
-    private int runtimeFilterType = 8;
+    private int runtimeFilterType = 2;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MAX_IN_NUM, needForward = true)
     private int runtimeFilterMaxInNum = 1024;
@@ -1528,7 +1528,6 @@ public class SessionVariable implements Serializable, Writable {
             this.enableFunctionPushdown = true;
             this.enableDeleteSubPredicateV2 = true;
         }
-        this.runtimeFilterType = 1 << randomInt;
         /*
         switch (randomInt) {
             case 0:
@@ -1556,23 +1555,6 @@ public class SessionVariable implements Serializable, Writable {
         if (Config.pull_request_id > 0) {
             this.enablePipelineEngine = true;
             this.enableNereidsPlanner = true;
-
-            switch (Config.pull_request_id % 4) {
-                case 0:
-                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                    break;
-                case 1:
-                    this.runtimeFilterType |= TRuntimeFilterType.BITMAP.getValue();
-                    break;
-                case 2:
-                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                    break;
-                case 3:
-                    this.runtimeFilterType &= ~TRuntimeFilterType.BITMAP.getValue();
-                    break;
-                default:
-                    break;
-            }
         }
 
         if (Config.fuzzy_test_type.equals("p0")) {

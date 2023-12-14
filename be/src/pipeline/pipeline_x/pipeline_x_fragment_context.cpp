@@ -813,12 +813,12 @@ Status PipelineXFragmentContext::_add_local_exchange(
     // 4. Initialize LocalExchangeSource and insert it into this pipeline.
     OperatorXPtr source_op;
     source_op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
+    RETURN_IF_ERROR(source_op->set_child(new_pip->operator_xs().back()));
     RETURN_IF_ERROR(source_op->init(exchange_type));
     if (operator_xs.size() > 0) {
         RETURN_IF_ERROR(operator_xs.front()->set_child(source_op));
     }
     operator_xs.insert(operator_xs.begin(), source_op);
-    RETURN_IF_ERROR(source_op->set_child(new_pip->operator_xs().back()));
 
     // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;
