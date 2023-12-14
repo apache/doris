@@ -176,8 +176,15 @@ Status RowGroupReader::init(
 
 bool RowGroupReader::_can_filter_by_dict(int slot_id,
                                          const tparquet::ColumnMetaData& column_metadata) {
-    if (column_metadata.encodings[0] != tparquet::Encoding::RLE_DICTIONARY ||
-        column_metadata.type != tparquet::Type::BYTE_ARRAY) {
+    SlotDescriptor* slot = nullptr;
+    const std::vector<SlotDescriptor*>& slots = _tuple_descriptor->slots();
+    for (auto each : slots) {
+        if (each->id() == slot_id) {
+            slot = each;
+            break;
+        }
+    }
+    if (!slot->type().is_string_type()) {
         return false;
     }
 
@@ -330,7 +337,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             bool can_filter_all = false;
             RETURN_IF_ERROR_OR_CATCH_EXCEPTION(VExprContext::execute_conjuncts(
                     _filter_conjuncts, &filters, block, &result_filter, &can_filter_all));
-
             if (can_filter_all) {
                 for (auto& col : columns_to_filter) {
                     std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -339,7 +345,6 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
                 _convert_dict_cols_to_string_cols(block);
                 return Status::OK();
             }
-
             RETURN_IF_CATCH_EXCEPTION(
                     Block::filter_block_internal(block, columns_to_filter, result_filter));
             if (!_not_single_slot_filter_conjuncts.empty()) {
@@ -356,6 +361,7 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             RETURN_IF_CATCH_EXCEPTION(
                     RETURN_IF_ERROR(_filter_block(block, column_to_keep, columns_to_filter)));
         }
+
         *read_rows = block->rows();
         return Status::OK();
     }
@@ -414,10 +420,8 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
             has_eof = true;
         }
     }
-
     *read_rows = batch_read_rows;
     *batch_eof = has_eof;
-
     return Status::OK();
 }
 
