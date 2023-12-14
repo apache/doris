@@ -954,8 +954,7 @@ public:
         }
 
         bool check_overflow_for_decimal = context->check_overflow_for_decimal();
-        auto status = Status::RuntimeError("{}'s arguments do not match the expected data types",
-                                           get_name());
+        Status status;
         bool valid = cast_both_types(
                 left_generic, right_generic, result_generic,
                 [&](const auto& left, const auto& right, const auto& res) {
@@ -1009,6 +1008,10 @@ public:
                     return false;
                 });
         if (!valid) {
+            if (status.ok()) {
+                return Status::RuntimeError("{}'s arguments do not match the expected data types",
+                                            get_name());
+            }
             return status;
         }
 
