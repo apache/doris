@@ -255,7 +255,7 @@ suite("cold_heat_dynamic_partition_by_hdfs") {
     }
 
     sql """
-    sql * from ${tableName}
+    select * from ${tableName}
     """
 
     sql """

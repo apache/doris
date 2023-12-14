@@ -247,11 +247,11 @@ suite("add_drop_partition_by_hdfs") {
     
     sql """
         alter table ${tableName} ADD PARTITION np
-        VALUES LESS THAN ("2016-01-01");
+        VALUES LESS THAN ("2017-01-01");
     """
 
     sql """
-        insert into ${tableName} values(1, "2016-01-01");
+        insert into ${tableName} values(1, "2017-01-01");
     """
 
     partitions = sql "show partitions from ${tableName}"
@@ -260,7 +260,7 @@ suite("add_drop_partition_by_hdfs") {
     }
 
     sql """
-    sql * from ${tableName}
+    select * from ${tableName}
     """
 
     sql """
