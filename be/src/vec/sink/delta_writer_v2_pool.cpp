@@ -41,13 +41,13 @@ DeltaWriterV2* DeltaWriterV2Map::get_or_create(
 Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
     int num_use = --_use_cnt;
     if (num_use > 0) {
-        LOG(INFO) << "not closing DeltaWriterV2Map << " << _load_id << " , use_cnt = " << num_use;
+        LOG(INFO) << "keeping DeltaWriterV2Map, load_id=" << _load_id << " , use_cnt=" << num_use;
         return Status::OK();
     }
-    LOG(INFO) << "closing DeltaWriterV2Map " << _load_id;
     if (_pool != nullptr) {
         _pool->erase(_load_id);
     }
+    LOG(INFO) << "closing DeltaWriterV2Map, load_id=" << _load_id;
     Status status = Status::OK();
     _map.for_each([&status](auto& entry) {
         if (status.ok()) {
@@ -57,6 +57,7 @@ Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
     if (!status.ok()) {
         return status;
     }
+    LOG(INFO) << "close-waiting DeltaWriterV2Map, load_id=" << _load_id;
     _map.for_each([&status, profile](auto& entry) {
         if (status.ok()) {
             status = entry.second->close_wait(profile);
@@ -67,7 +68,7 @@ Status DeltaWriterV2Map::close(RuntimeProfile* profile) {
 
 void DeltaWriterV2Map::cancel(Status status) {
     int num_use = --_use_cnt;
-    LOG(INFO) << "cancelling DeltaWriterV2Map " << _load_id << ", use_cnt = " << num_use;
+    LOG(INFO) << "cancelling DeltaWriterV2Map " << _load_id << ", use_cnt=" << num_use;
     if (num_use == 0 && _pool != nullptr) {
         _pool->erase(_load_id);
     }
@@ -95,7 +96,7 @@ std::shared_ptr<DeltaWriterV2Map> DeltaWriterV2Pool::get_or_create(PUniqueId loa
 
 void DeltaWriterV2Pool::erase(UniqueId load_id) {
     std::lock_guard<std::mutex> lock(_mutex);
-    LOG(INFO) << "erasing DeltaWriterV2Map, load_id = " << load_id;
+    LOG(INFO) << "erasing DeltaWriterV2Map, load_id=" << load_id;
     _pool.erase(load_id);
 }
 

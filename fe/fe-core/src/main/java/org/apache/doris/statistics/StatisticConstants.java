@@ -90,9 +90,17 @@ public class StatisticConstants {
 
     public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(12);
 
+    public static final long EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(24);
+
     public static final int TABLE_STATS_HEALTH_THRESHOLD = 60;
 
     public static final int ANALYZE_TIMEOUT_IN_SEC = 43200;
+
+    public static final int TASK_QUEUE_CAP = 10;
+
+    public static final int AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD = 70;
+
+    public static final int MSG_LEN_UPPER_BOUND = 1024;
 
     static {
         SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER

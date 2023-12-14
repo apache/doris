@@ -129,7 +129,9 @@ public class Statistics {
     }
 
     public double dataSizeFactor() {
-        return computeTupleSize() / K_BYTES;
+        double lowerBound = 0.03;
+        double upperBound = 0.07;
+        return Math.min(Math.max(computeTupleSize() / K_BYTES, lowerBound), upperBound);
     }
 
     @Override

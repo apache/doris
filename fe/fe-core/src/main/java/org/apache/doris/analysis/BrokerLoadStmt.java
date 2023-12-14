@@ -88,7 +88,7 @@ public class BrokerLoadStmt extends InsertStmt {
                     String location = brokerDesc.getFileLocation(dataDescription.getFilePaths().get(i));
                     dataDescription.getFilePaths().set(i, location);
                     StorageBackend.checkPath(dataDescription.getFilePaths().get(i),
-                            brokerDesc.getStorageType());
+                            brokerDesc.getStorageType(), "DATA INFILE must be specified.");
                     dataDescription.getFilePaths().set(i, dataDescription.getFilePaths().get(i));
                 }
             }
@@ -117,7 +117,7 @@ public class BrokerLoadStmt extends InsertStmt {
 
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<>(properties, "=", true, false));
+            sb.append(new PrintableMap<>(properties, "=", true, false, true));
             sb.append(")");
         }
         return sb.toString();

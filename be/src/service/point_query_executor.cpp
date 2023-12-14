@@ -48,7 +48,7 @@
 namespace doris {
 
 Reusable::~Reusable() {}
-constexpr static int s_preallocted_blocks_num = 64;
+constexpr static int s_preallocted_blocks_num = 32;
 Status Reusable::init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                       size_t block_size) {
     SCOPED_MEM_COUNT_BY_HOOK(&_mem_size);
@@ -114,7 +114,7 @@ LookupConnectionCache* LookupConnectionCache::create_global_instance(size_t capa
 RowCache::RowCache(int64_t capacity, int num_shards) {
     // Create Row Cache
     _cache = std::unique_ptr<Cache>(
-            new_lru_cache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
+            new ShardedLRUCache("RowCache", capacity, LRUCacheType::SIZE, num_shards));
 }
 
 // Create global instance of this class
@@ -286,7 +286,7 @@ Status PointQueryExecutor::_lookup_row_key() {
         auto rowset_ptr = std::make_unique<RowsetSharedPtr>();
         st = (_tablet->lookup_row_key(_row_read_ctxs[i]._primary_key, false, specified_rowsets,
                                       &location, INT32_MAX /*rethink?*/, segment_caches,
-                                      rowset_ptr.get()));
+                                      rowset_ptr.get(), false));
         if (st.is<ErrorCode::KEY_NOT_FOUND>()) {
             continue;
         }
@@ -334,6 +334,7 @@ Status PointQueryExecutor::_lookup_row_data() {
 template <typename MysqlWriter>
 Status _serialize_block(MysqlWriter& mysql_writer, vectorized::Block& block,
                         PTabletKeyLookupResponse* response) {
+    block.clear_names();
     RETURN_IF_ERROR(mysql_writer.append_block(block));
     assert(mysql_writer.results().size() == 1);
     uint8_t* buf = nullptr;

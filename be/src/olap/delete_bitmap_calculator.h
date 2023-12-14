@@ -29,6 +29,7 @@
 #include "olap/base_tablet.h"
 #include "olap/binlog_config.h"
 #include "olap/data_dir.h"
+#include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
@@ -47,13 +48,15 @@ class MergeIndexDeleteBitmapCalculatorContext {
 public:
     class Comparator {
     public:
-        Comparator(size_t sequence_length) : _sequence_length(sequence_length) {}
+        Comparator(size_t sequence_length, size_t rowid_length)
+                : _sequence_length(sequence_length), _rowid_length(rowid_length) {}
         bool operator()(MergeIndexDeleteBitmapCalculatorContext* lhs,
                         MergeIndexDeleteBitmapCalculatorContext* rhs) const;
         bool is_key_same(Slice const& lhs, Slice const& rhs) const;
 
     private:
         size_t _sequence_length;
+        size_t _rowid_length;
     };
 
     MergeIndexDeleteBitmapCalculatorContext(std::unique_ptr<segment_v2::IndexedColumnIterator> iter,
@@ -90,7 +93,7 @@ public:
     MergeIndexDeleteBitmapCalculator() = default;
 
     Status init(RowsetId rowset_id, std::vector<SegmentSharedPtr> const& segments,
-                size_t seq_col_length = 0, size_t max_batch_size = 1024);
+                size_t seq_col_length = 0, size_t rowid_length = 0, size_t max_batch_size = 1024);
 
     Status calculate_one(RowLocation& loc);
 
@@ -101,11 +104,13 @@ private:
                                      std::vector<MergeIndexDeleteBitmapCalculatorContext*>,
                                      MergeIndexDeleteBitmapCalculatorContext::Comparator>;
     std::vector<MergeIndexDeleteBitmapCalculatorContext> _contexts;
-    MergeIndexDeleteBitmapCalculatorContext::Comparator _comparator {0};
+    MergeIndexDeleteBitmapCalculatorContext::Comparator _comparator {0, 0};
     RowsetId _rowset_id;
     std::unique_ptr<Heap> _heap;
     std::string _last_key;
     size_t _seq_col_length;
+    size_t _rowid_length;
+    const KeyCoder* _rowid_coder = nullptr;
 };
 
 } // namespace doris

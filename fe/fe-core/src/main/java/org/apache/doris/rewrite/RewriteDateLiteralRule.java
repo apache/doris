@@ -62,8 +62,7 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
             if (childExpr instanceof LiteralExpr) {
                 try {
                     String dateStr = childExpr.getStringValue();
-                    DateLiteral dateLiteral = new DateLiteral();
-                    dateLiteral.fromDateStr(dateStr);
+                    DateLiteral dateLiteral = new DateLiteral(dateStr);
                     expr.setChild(1, dateLiteral);
                 } catch (AnalysisException e) {
                     if (ConnectContext.get() != null) {

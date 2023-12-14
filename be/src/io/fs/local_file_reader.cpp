@@ -54,19 +54,8 @@ Status LocalFileReader::close() {
     bool expected = false;
     if (_closed.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
         DorisMetrics::instance()->local_file_open_reading->increment(-1);
-        int res = -1;
-#if !defined(USE_BTHREAD_SCANNER)
         DCHECK(bthread_self() == 0);
-        res = ::close(_fd);
-#else
-        if (bthread_self() == 0) {
-            res = ::close(_fd);
-        } else {
-            auto task = [&] { res = ::close(_fd); };
-            AsyncIO::run_task(task, io::FileSystemType::LOCAL);
-        }
-#endif
-        if (-1 == res) {
+        if (-1 == ::close(_fd)) {
             std::string err = errno_to_str();
             LOG(WARNING) << fmt::format("failed to close {}: {}", _path.native(), err);
             return Status::IOError("failed to close {}: {}", _path.native(), err);

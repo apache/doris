@@ -366,25 +366,16 @@ void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t
 }
 
 template <typename T>
-void ColumnVector<T>::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                          const int* indices_end) {
+void ColumnVector<T>::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                          const uint32_t* indices_end) {
     auto origin_size = size();
     auto new_size = indices_end - indices_begin;
     data.resize(origin_size + new_size);
 
-    const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+    const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
-    if constexpr (std::is_same_v<T, UInt8>) {
-        // nullmap : indices_begin[i] == -1 means is null at the here, set true here
-        for (int i = 0; i < new_size; ++i) {
-            data[origin_size + i] = (indices_begin[i] == -1) +
-                                    (indices_begin[i] != -1) * src_data[indices_begin[i]];
-        }
-    } else {
-        // real data : indices_begin[i] == -1 what at is meaningless
-        for (int i = 0; i < new_size; ++i) {
-            data[origin_size + i] = src_data[indices_begin[i]];
-        }
+    for (uint32_t i = 0; i < new_size; ++i) {
+        data[origin_size + i] = src_data[indices_begin[i]];
     }
 }
 

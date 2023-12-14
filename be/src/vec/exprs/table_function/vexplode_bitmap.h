@@ -41,20 +41,20 @@ public:
     VExplodeBitmapTableFunction();
     ~VExplodeBitmapTableFunction() override = default;
 
-    Status reset() override;
+    void reset() override;
     void get_value(MutableColumnPtr& column) override;
-    Status forward(int step = 1) override;
+    void forward(int step = 1) override;
 
     Status process_init(Block* block, RuntimeState* state) override;
-    Status process_row(size_t row_idx) override;
-    Status process_close() override;
+    void process_row(size_t row_idx) override;
+    void process_close() override;
 
 private:
     void _reset_iterator();
     // Not own object, just a reference
     const BitmapValue* _cur_bitmap = nullptr;
     // iterator of _cur_bitmap
-    std::unique_ptr<BitmapValueIterator> _cur_iter = nullptr;
+    std::unique_ptr<BitmapValueIterator> _cur_iter;
     ColumnPtr _value_column;
 };
 

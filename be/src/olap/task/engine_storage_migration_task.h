@@ -78,7 +78,7 @@ private:
     // tablet to do migrated
     TabletSharedPtr _tablet;
     // destination data dir
-    DataDir* _dest_store;
+    DataDir* _dest_store = nullptr;
     int64_t _task_start_time;
     std::vector<PendingRowsetGuard> _pending_rs_guards;
 }; // EngineTask

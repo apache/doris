@@ -24,6 +24,7 @@
 #include <sys/sysctl.h>
 #endif
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/segment_v2.pb.h>
@@ -52,6 +53,12 @@
 #include "util/string_parser.hpp"
 
 namespace doris {
+
+bvar::PassiveStatus<int64_t> g_sys_mem_avail(
+        "meminfo_sys_mem_avail", [](void*) { return MemInfo::sys_mem_available(); }, nullptr);
+bvar::PassiveStatus<int64_t> g_proc_mem_no_allocator_cache(
+        "meminfo_proc_mem_no_allocator_cache",
+        [](void*) { return MemInfo::proc_mem_no_allocator_cache(); }, nullptr);
 
 bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;
@@ -237,17 +244,30 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
 
     ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
-                return !task_group->enable_memory_overcommit();
+                return task_group->is_mem_limit_valid() && !task_group->enable_memory_overcommit();
             },
             &task_groups);
     if (task_groups.empty()) {
         return 0;
     }
 
+    std::vector<taskgroup::TaskGroupPtr> task_groups_overcommit;
+    for (const auto& task_group : task_groups) {
+        taskgroup::TaskGroupInfo tg_info;
+        task_group->task_group_info(&tg_info);
+        if (task_group->memory_used() > tg_info.memory_limit) {
+            task_groups_overcommit.push_back(task_group);
+        }
+    }
+    if (task_groups_overcommit.empty()) {
+        return 0;
+    }
+
     LOG(INFO) << fmt::format(
-            "[MemoryGC] start GC work load group that not enable overcommit, number of group: {}, "
+            "[MemoryGC] start GC work load group that not enable overcommit, number of overcommit "
+            "group: {}, "
             "if it exceeds the limit, try free size = (group used - group limit).",
-            task_groups.size());
+            task_groups_overcommit.size());
 
     Defer defer {[&]() {
         if (total_free_memory > 0) {
@@ -255,13 +275,14 @@ int64_t MemInfo::tg_not_enable_overcommit_group_gc() {
             tg_profile->pretty_print(&ss);
             LOG(INFO) << fmt::format(
                     "[MemoryGC] end GC work load group that not enable overcommit, number of "
-                    "group: {}, free memory {}. cost(us): {}, details: {}",
-                    task_groups.size(), PrettyPrinter::print(total_free_memory, TUnit::BYTES),
+                    "overcommit group: {}, free memory {}. cost(us): {}, details: {}",
+                    task_groups_overcommit.size(),
+                    PrettyPrinter::print(total_free_memory, TUnit::BYTES),
                     watch.elapsed_time() / 1000, ss.str());
         }
     }};
 
-    for (const auto& task_group : task_groups) {
+    for (const auto& task_group : task_groups_overcommit) {
         taskgroup::TaskGroupInfo tg_info;
         task_group->task_group_info(&tg_info);
         auto used = task_group->memory_used();
@@ -279,7 +300,7 @@ int64_t MemInfo::tg_enable_overcommit_group_gc(int64_t request_free_memory,
     std::vector<taskgroup::TaskGroupPtr> task_groups;
     ExecEnv::GetInstance()->task_group_manager()->get_resource_groups(
             [](const taskgroup::TaskGroupPtr& task_group) {
-                return task_group->enable_memory_overcommit();
+                return task_group->is_mem_limit_valid() && task_group->enable_memory_overcommit();
             },
             &task_groups);
     if (task_groups.empty()) {
@@ -446,6 +467,20 @@ void MemInfo::init() {
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
     }
 
+    std::ifstream sys_transparent_hugepage("/sys/kernel/mm/transparent_hugepage/enabled",
+                                           std::ios::in);
+    std::string hugepage_enable;
+    // If file not exist, getline returns an empty string.
+    getline(sys_transparent_hugepage, hugepage_enable);
+    if (sys_transparent_hugepage.is_open()) sys_transparent_hugepage.close();
+    if (hugepage_enable == "[always] madvise never") {
+        std::cout << "[WARNING!] /sys/kernel/mm/transparent_hugepage/enabled: " << hugepage_enable
+                  << ", Doris not recommend turning on THP, which may cause the BE process to use "
+                     "more memory and cannot be freed in time. Turn off THP: `echo madvise | sudo "
+                     "tee /sys/kernel/mm/transparent_hugepage/enabled`"
+                  << std::endl;
+    }
+
     // Expect vm overcommit memory value to be 1, system will no longer throw bad_alloc, memory alloc are always accepted,
     // memory limit check is handed over to Doris Allocator, make sure throw exception position is controllable,
     // otherwise bad_alloc can be thrown anywhere and it will be difficult to achieve exception safety.
@@ -453,8 +488,8 @@ void MemInfo::init() {
     std::string vm_overcommit;
     getline(sys_vm, vm_overcommit);
     if (sys_vm.is_open()) sys_vm.close();
-    if (std::stoi(vm_overcommit) == 2) {
-        std::cout << "/proc/sys/vm/overcommit_memory: " << vm_overcommit
+    if (!vm_overcommit.empty() && std::stoi(vm_overcommit) == 2) {
+        std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
                   << ", expect is 1, memory limit check is handed over to Doris Allocator, "
                      "otherwise BE may crash even with remaining memory"
                   << std::endl;

@@ -21,6 +21,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "util/coding.h"
 #include "util/crc32c.h"
 #include "wal_writer.h"
 
@@ -52,8 +53,7 @@ Status WalReader::read_block(PBlock& block) {
     RETURN_IF_ERROR(
             file_reader->read_at(_offset, {row_len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
     _offset += WalWriter::LENGTH_SIZE;
-    size_t block_len;
-    memcpy(&block_len, row_len_buf, WalWriter::LENGTH_SIZE);
+    size_t block_len = decode_fixed64_le(row_len_buf);
     // read block
     std::string block_buf;
     block_buf.resize(block_len);
@@ -65,9 +65,36 @@ Status WalReader::read_block(PBlock& block) {
     RETURN_IF_ERROR(file_reader->read_at(_offset, {checksum_len_buf, WalWriter::CHECKSUM_SIZE},
                                          &bytes_read));
     _offset += WalWriter::CHECKSUM_SIZE;
-    uint32_t checksum;
-    memcpy(&checksum, checksum_len_buf, WalWriter::CHECKSUM_SIZE);
+    uint32_t checksum = decode_fixed32_le(checksum_len_buf);
     RETURN_IF_ERROR(_check_checksum(block_buf.data(), block_len, checksum));
+    return Status::OK();
+}
+
+Status WalReader::read_header(uint32_t& version, std::string& col_ids) {
+    size_t bytes_read = 0;
+    std::string magic_str;
+    magic_str.resize(k_wal_magic_length);
+    RETURN_IF_ERROR(file_reader->read_at(_offset, magic_str, &bytes_read));
+    if (strcmp(magic_str.c_str(), k_wal_magic) != 0) {
+        return Status::Corruption("Bad wal file {}: magic number not match", _file_name);
+    }
+    _offset += k_wal_magic_length;
+    uint8_t version_buf[WalWriter::VERSION_SIZE];
+    RETURN_IF_ERROR(
+            file_reader->read_at(_offset, {version_buf, WalWriter::VERSION_SIZE}, &bytes_read));
+    _offset += WalWriter::VERSION_SIZE;
+    version = decode_fixed32_le(version_buf);
+    uint8_t len_buf[WalWriter::LENGTH_SIZE];
+    RETURN_IF_ERROR(file_reader->read_at(_offset, {len_buf, WalWriter::LENGTH_SIZE}, &bytes_read));
+    _offset += WalWriter::LENGTH_SIZE;
+    size_t len = decode_fixed64_le(len_buf);
+    col_ids.resize(len);
+    RETURN_IF_ERROR(file_reader->read_at(_offset, col_ids, &bytes_read));
+    _offset += len;
+    if (len != bytes_read) {
+        return Status::InternalError("failed to read header expected= " + std::to_string(len) +
+                                     ",actually=" + std::to_string(bytes_read));
+    }
     return Status::OK();
 }
 

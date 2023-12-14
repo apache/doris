@@ -119,9 +119,7 @@ public class RestBaseController extends BaseController {
         if (env.isMaster()) {
             return null;
         }
-        if (!env.isReady()) {
-            throw new Exception("Node catalog is not ready, please wait for a while.");
-        }
+        env.checkReadyOrThrow();
         return redirectTo(request, new TNetworkAddress(env.getMasterHost(), env.getMasterHttpPort()));
     }
 

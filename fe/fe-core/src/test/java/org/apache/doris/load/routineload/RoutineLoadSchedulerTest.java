@@ -140,7 +140,7 @@ public class RoutineLoadSchedulerTest {
         KafkaRoutineLoadJob kafkaRoutineLoadJob = new KafkaRoutineLoadJob(1L, "test", "default_cluster", 1L, 1L,
                 "10.74.167.16:8092", "test", UserIdentity.ADMIN);
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db");
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob, "db", "table");
 
         List<Long> backendIds = new ArrayList<>();
         backendIds.add(1L);
@@ -176,7 +176,7 @@ public class RoutineLoadSchedulerTest {
         List<Integer> customKafkaPartitions = new ArrayList<>();
         customKafkaPartitions.add(2);
         Deencapsulation.setField(kafkaRoutineLoadJob1, "customKafkaPartitions", customKafkaPartitions);
-        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob1, "db");
+        routineLoadManager.addRoutineLoadJob(kafkaRoutineLoadJob1, "db", "table");
 
         Thread.sleep(10000);
     }

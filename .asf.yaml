@@ -116,6 +116,7 @@ github:
     - gitccl
     - shuke987
     - wm1581066
+    - KassieZ
 
 notifications:
     pullrequests_status:  commits@doris.apache.org

@@ -41,6 +41,7 @@
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/pad_rowset_action.h"
+#include "http/action/pipeline_task_action.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/reload_tablet_action.h"
 #include "http/action/reset_rpc_channel_action.h"
@@ -164,6 +165,11 @@ Status HttpService::start() {
     // Register BE health action
     HealthAction* health_action = _pool.add(new HealthAction());
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
+
+    // Register BE health action
+    PipelineTaskAction* pipeline_task_action = _pool.add(new PipelineTaskAction());
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/running_pipeline_tasks",
+                                      pipeline_task_action);
 
     // Register Tablets Info action
     TabletsInfoAction* tablets_info_action =

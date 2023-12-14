@@ -104,11 +104,12 @@ public class BDBHA implements HAProtocol {
 
     @Override
     public List<InetSocketAddress> getObserverNodes() {
+        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
         if (replicationGroupAdmin == null) {
-            return null;
+            return ret;
         }
-        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
+
         try {
             ReplicationGroup replicationGroup = replicationGroupAdmin.getGroup();
             for (ReplicationNode replicationNode : replicationGroup.getSecondaryNodes()) {
@@ -123,11 +124,12 @@ public class BDBHA implements HAProtocol {
 
     @Override
     public List<InetSocketAddress> getElectableNodes(boolean leaderIncluded) {
+        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
         ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
         if (replicationGroupAdmin == null) {
-            return null;
+            return ret;
         }
-        List<InetSocketAddress> ret = new ArrayList<InetSocketAddress>();
+
         try {
             ReplicationGroup replicationGroup = replicationGroupAdmin.getGroup();
             for (ReplicationNode replicationNode : replicationGroup.getElectableNodes()) {

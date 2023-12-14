@@ -134,18 +134,18 @@ protected:
     MutableColumnPtr _tuple_is_null_left_flag_column;
     MutableColumnPtr _tuple_is_null_right_flag_column;
 
-    RuntimeProfile* _build_phase_profile;
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _build_get_next_timer;
-    RuntimeProfile::Counter* _build_rows_counter;
+    RuntimeProfile* _build_phase_profile = nullptr;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _build_get_next_timer = nullptr;
+    RuntimeProfile::Counter* _build_rows_counter = nullptr;
 
-    RuntimeProfile* _probe_phase_profile;
-    RuntimeProfile::Counter* _probe_timer;
-    RuntimeProfile::Counter* _probe_rows_counter;
-    RuntimeProfile::Counter* _push_down_timer;
-    RuntimeProfile::Counter* _push_compute_timer;
-    RuntimeProfile::Counter* _join_filter_timer;
-    RuntimeProfile::Counter* _build_output_block_timer;
+    RuntimeProfile* _probe_phase_profile = nullptr;
+    RuntimeProfile::Counter* _probe_timer = nullptr;
+    RuntimeProfile::Counter* _probe_rows_counter = nullptr;
+    RuntimeProfile::Counter* _publish_runtime_filter_timer = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_compute_timer = nullptr;
+    RuntimeProfile::Counter* _join_filter_timer = nullptr;
+    RuntimeProfile::Counter* _build_output_block_timer = nullptr;
 };
 
 } // namespace doris::vectorized

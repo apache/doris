@@ -146,8 +146,6 @@ public:
         }
         return Status::OK();
     }
-
-    bool has_information_about_monotonicity() const override { return false; }
 };
 
 struct PositiveMonotonicity {

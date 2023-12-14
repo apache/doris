@@ -19,6 +19,7 @@ package org.apache.doris.mysql;
 
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectScheduler;
+import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Delegate;
 import mockit.Expectations;
@@ -31,7 +32,6 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.ServerSocket;
 import java.nio.channels.SocketChannel;
 
 public class MysqlServerTest {
@@ -79,10 +79,7 @@ public class MysqlServerTest {
 
     @Test
     public void testNormal() throws IOException, InterruptedException {
-        ServerSocket socket = new ServerSocket(0);
-        int port = socket.getLocalPort();
-        socket.close();
-
+        int port = TestWithFeService.findValidPort();
         MysqlServer server = new MysqlServer(port, scheduler);
         Assert.assertTrue(server.start());
 
@@ -108,9 +105,7 @@ public class MysqlServerTest {
 
     @Test
     public void testBindFail() throws IOException {
-        ServerSocket socket = new ServerSocket(0);
-        int port = socket.getLocalPort();
-        socket.close();
+        int port = TestWithFeService.findValidPort();
         MysqlServer server = new MysqlServer(port, scheduler);
         Assert.assertTrue(server.start());
         MysqlServer server1 = new MysqlServer(port, scheduler);
@@ -121,9 +116,7 @@ public class MysqlServerTest {
 
     @Test
     public void testSubFail() throws IOException, InterruptedException {
-        ServerSocket socket = new ServerSocket(0);
-        int port = socket.getLocalPort();
-        socket.close();
+        int port = TestWithFeService.findValidPort();
         MysqlServer server = new MysqlServer(port, badScheduler);
         Assert.assertTrue(server.start());
 

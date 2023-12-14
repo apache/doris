@@ -72,7 +72,7 @@ void SharedHashTableController::signal(int my_node_id, Status status) {
         _shared_contexts.erase(it);
     }
     for (auto& dep : _dependencies[my_node_id]) {
-        dep->set_ready_for_write();
+        dep->set_ready();
     }
     _cv.notify_all();
 }
@@ -85,7 +85,7 @@ void SharedHashTableController::signal(int my_node_id) {
         _shared_contexts.erase(it);
     }
     for (auto& dep : _dependencies[my_node_id]) {
-        dep->set_ready_for_write();
+        dep->set_ready();
     }
     _cv.notify_all();
 }
@@ -105,7 +105,8 @@ Status SharedHashTableController::wait_for_signal(RuntimeState* state,
     // maybe builder signaled before other instances waiting,
     // so here need to check value of `signaled`
     while (!context->signaled) {
-        _cv.wait_for(lock, std::chrono::milliseconds(400), [&]() { return context->signaled; });
+        _cv.wait_for(lock, std::chrono::milliseconds(400),
+                     [&]() { return context->signaled.load(); });
         // return if the instances is cancelled(eg. query timeout)
         RETURN_IF_CANCELLED(state);
     }

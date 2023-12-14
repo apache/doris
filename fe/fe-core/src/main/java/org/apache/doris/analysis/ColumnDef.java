@@ -181,6 +181,7 @@ public class ColumnDef {
     private DefaultValue defaultValue;
     private String comment;
     private boolean visible;
+    private int clusterKeyId = -1;
 
     public ColumnDef(String name, TypeDef typeDef) {
         this(name, typeDef, false, null, false, false, DefaultValue.NOT_SET, "");
@@ -304,6 +305,10 @@ public class ColumnDef {
 
     public boolean isVisible() {
         return visible;
+    }
+
+    public void setClusterKeyId(int clusterKeyId) {
+        this.clusterKeyId = clusterKeyId;
     }
 
     public void analyze(boolean isOlap) throws AnalysisException {
@@ -578,7 +583,8 @@ public class ColumnDef {
         }
 
         return new Column(name, type, isKey, aggregateType, isAllowNull, isAutoInc, defaultValue.value, comment,
-                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue());
+                visible, defaultValue.defaultValueExprDef, Column.COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue.getValue(),
+                clusterKeyId);
     }
 
     @Override

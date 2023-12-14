@@ -52,6 +52,13 @@ suite("test_subquery") {
         select * from nereids_test_query_db.baseall where k1 = (select k1 from nereids_test_query_db.baseall limit 1)
     """
 
+    // test uncorrelated subquery in having
+    sql """
+        select count(*) from nereids_test_query_db.baseall
+        group by k0 
+        having min(k0) in (select k0 from nereids_test_query_db.baseall)
+    """
+
     // test uncorrelated scalar subquery with more than one return rows
     test {
         sql """
@@ -116,6 +123,11 @@ suite("test_subquery") {
                             WHERE `col_bigint_undef_signed2` < 2)) ) ; 
         """
         contains("VAGGREGATE")
+    }
+
+    explain {
+        sql """SELECT * FROM table_1000_undef_undef t1 WHERE t1.pk <= (SELECT COUNT(t2.pk) FROM table_1000_undef_undef2 t2 WHERE (t1.col_bigint_undef_signed = t2.col_bigint_undef_signed)); """
+        contains("ifnull")
     }
 
     sql """DROP TABLE IF EXISTS table_1000_undef_undef"""

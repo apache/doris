@@ -22,6 +22,7 @@ suite("eliminate_outer_join") {
     sql "set disable_join_reorder=true"
     sql "set forbid_unknown_col_stats=false"
     sql "set enable_bucket_shuffle_join=false"
+    sql "set enable_runtime_filter_prune=false"
     sql """
     set ignore_shape_nodes='PhysicalDistribute, PhysicalProject'
     """

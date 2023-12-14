@@ -28,8 +28,6 @@ class LoadBlockQueue;
 
 namespace vectorized {
 
-class FutureBlock;
-
 class GroupCommitBlockSink : public DataSink {
 public:
     GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor& row_desc,
@@ -49,6 +47,7 @@ public:
 
 private:
     Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block);
+    Status _add_blocks();
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
@@ -64,9 +63,13 @@ private:
     int64_t _db_id;
     int64_t _table_id;
     int64_t _base_schema_version = 0;
+    TGroupCommitMode::type _group_commit_mode;
     UniqueId _load_id;
     std::shared_ptr<LoadBlockQueue> _load_block_queue;
-    std::vector<std::shared_ptr<vectorized::FutureBlock>> _future_blocks;
+    // used to calculate if meet the max filter ratio
+    std::vector<std::shared_ptr<vectorized::Block>> _blocks;
+    bool _is_block_appended = false;
+    double _max_filter_ratio = 0.0;
 };
 
 } // namespace vectorized

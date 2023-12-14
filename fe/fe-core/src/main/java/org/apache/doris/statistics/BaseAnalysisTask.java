@@ -57,9 +57,9 @@ public abstract class BaseAnalysisTask {
             + "         NULL AS `part_id`, "
             + "         COUNT(1) AS `row_count`, "
             + "         NDV(`${colName}`) AS `ndv`, "
-            + "         COUNT(1) - COUNT(${colName}) AS `null_count`, "
-            + "         CAST(MIN(${colName}) AS STRING) AS `min`, "
-            + "         CAST(MAX(${colName}) AS STRING) AS `max`, "
+            + "         COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
+            + "         SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
+            + "         SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
             + "         ${dataSizeFunction} AS `data_size`, "
             + "         NOW() AS `update_time` "
             + " FROM `${catalogName}`.`${dbName}`.`${tblName}`";
@@ -72,11 +72,11 @@ public abstract class BaseAnalysisTask {
             + "${idxId} AS `idx_id`, "
             + "'${colId}' AS `col_id`, "
             + "NULL AS `part_id`, "
-            + "ROUND(COUNT(1) * ${scaleFactor}) AS `row_count`, "
-            + "ROUND(NDV(`${colName}`) * ${scaleFactor})  as `ndv`, "
+            + "${rowCount} AS `row_count`, "
+            + "${ndvFunction} as `ndv`, "
             + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
-            + "${min} AS `min`, "
-            + "${max} AS `max`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleHints} ${limit}";
@@ -91,13 +91,13 @@ public abstract class BaseAnalysisTask {
             + "NULL AS `part_id`, "
             + "${rowCount} AS `row_count`, "
             + "${ndvFunction} as `ndv`, "
-            + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.count, 0)), 0) * ${scaleFactor} as `null_count`, "
-            + "'${min}' AS `min`, "
-            + "'${max}' AS `max`, "
+            + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM ( "
-            + "    SELECT t0.`${colName}` as column_key, COUNT(1) as `count` "
+            + "    SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count` "
             + "    FROM "
             + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` "
             + "    ${sampleHints} ${limit}) as `t0` "
@@ -115,8 +115,8 @@ public abstract class BaseAnalysisTask {
             + "${row_count} AS `row_count`, "
             + "${ndv} AS `ndv`, "
             + "${null_count} AS `null_count`, "
-            + "'${min}' AS `min`, "
-            + "'${max}' AS `max`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
             + "${data_size} AS `data_size`, "
             + "NOW() ";
 
@@ -181,7 +181,7 @@ public abstract class BaseAnalysisTask {
 
     protected void executeWithRetry() {
         int retriedTimes = 0;
-        while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+        while (retriedTimes < StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
             if (killed) {
                 break;
             }
@@ -193,7 +193,7 @@ public abstract class BaseAnalysisTask {
                     throw new RuntimeException(t);
                 }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
-                if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                if (retriedTimes >= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     job.taskFailed(this, t.getMessage());
                     throw new RuntimeException(t);
                 }
@@ -252,7 +252,7 @@ public abstract class BaseAnalysisTask {
 
     protected String getMinFunction() {
         if (tableSample == null) {
-            return "to_base64(CAST(MIN(`${colName}`) as ${type})) ";
+            return "CAST(MIN(`${colName}`) as ${type}) ";
         } else {
             // Min value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
             return "NULL";
@@ -260,8 +260,8 @@ public abstract class BaseAnalysisTask {
     }
 
     protected String getNdvFunction(String totalRows) {
-        String sampleRows = "SUM(t1.count)";
-        String onceCount = "SUM(IF(t1.count = 1, 1, 0))";
+        String sampleRows = "SUM(`t1`.`count`)";
+        String onceCount = "SUM(IF(`t1`.`count` = 1, 1, 0))";
         String countDistinct = "COUNT(1)";
         // DUJ1 estimator: n*d / (n - f1 + f1*n/N)
         // f1 is the count of element that appears only once in the sample.
@@ -276,7 +276,7 @@ public abstract class BaseAnalysisTask {
     // Max value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
     protected String getMaxFunction() {
         if (tableSample == null) {
-            return "to_base64(CAST(MAX(`${colName}`) as ${type})) ";
+            return "CAST(MAX(`${colName}`) as ${type}) ";
         } else {
             return "NULL";
         }
@@ -311,11 +311,11 @@ public abstract class BaseAnalysisTask {
         this.job = job;
     }
 
-    protected void runQuery(String sql, boolean needEncode) {
+    protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
-            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0), needEncode);
+            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             job.appendBuf(this, Collections.singletonList(colStatsData));
         } finally {
             LOG.debug("End cost time in secs: " + (System.currentTimeMillis() - startTime) / 1000);

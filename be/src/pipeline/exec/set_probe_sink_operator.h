@@ -67,14 +67,31 @@ private:
     int _child_id;
 };
 
+class SetProbeSinkDependency final : public Dependency {
+public:
+    using SharedState = SetSharedState;
+    SetProbeSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SetProbeSinkDependency", true, query_ctx) {}
+    ~SetProbeSinkDependency() override = default;
+
+    void set_cur_child_id(int id) {
+        _child_idx = id;
+        ((SetSharedState*)_shared_state.get())->probe_finished_children_dependency[id] = this;
+        block();
+    }
+
+private:
+    int _child_idx {0};
+};
+
 template <bool is_intersect>
 class SetProbeSinkOperatorX;
 
 template <bool is_intersect>
-class SetProbeSinkLocalState final : public PipelineXSinkLocalState<SetDependency> {
+class SetProbeSinkLocalState final : public PipelineXSinkLocalState<SetProbeSinkDependency> {
 public:
     ENABLE_FACTORY_CREATOR(SetProbeSinkLocalState);
-    using Base = PipelineXSinkLocalState<SetDependency>;
+    using Base = PipelineXSinkLocalState<SetProbeSinkDependency>;
     using Parent = SetProbeSinkOperatorX<is_intersect>;
 
     SetProbeSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
@@ -106,7 +123,12 @@ public:
     friend class SetProbeSinkLocalState<is_intersect>;
     SetProbeSinkOperatorX(int child_id, int sink_id, ObjectPool* pool, const TPlanNode& tnode,
                           const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, tnode.node_id), _cur_child_id(child_id) {}
+            : Base(sink_id, tnode.node_id, tnode.node_id),
+              _cur_child_id(child_id),
+              _is_colocate(is_intersect ? tnode.intersect_node.is_colocate
+                                        : tnode.except_node.is_colocate),
+              _partition_exprs(is_intersect ? tnode.intersect_node.result_expr_lists[child_id]
+                                            : tnode.except_node.result_expr_lists[child_id]) {}
     ~SetProbeSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError(
@@ -122,6 +144,10 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
+    ExchangeType get_local_exchange_type() const override {
+        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+    }
 
 private:
     void _finalize_probe(SetProbeSinkLocalState<is_intersect>& local_state);
@@ -132,6 +158,8 @@ private:
     const int _cur_child_id;
     // every child has its result expr list
     vectorized::VExprContextSPtrs _child_exprs;
+    const bool _is_colocate;
+    const std::vector<TExpr> _partition_exprs;
     using OperatorBase::_child_x;
 };
 

@@ -240,7 +240,6 @@ public:
     const std::string table() const { return _table; }
     const std::string access_key() const { return _access_key; }
     const std::string secret_key() const { return _secret_key; }
-    const std::string partition_spec() const { return _partition_spec; }
     const std::string public_access() const { return _public_access; }
 
 private:
@@ -249,7 +248,6 @@ private:
     std::string _table;
     std::string _access_key;
     std::string _secret_key;
-    std::string _partition_spec;
     std::string _public_access;
 };
 
@@ -399,7 +397,7 @@ private:
     friend class TabletSchema;
 
     const TupleId _id;
-    TableDescriptor* _table_desc;
+    TableDescriptor* _table_desc = nullptr;
     int64_t _byte_size;
     int _num_null_slots;
     int _num_null_bytes;

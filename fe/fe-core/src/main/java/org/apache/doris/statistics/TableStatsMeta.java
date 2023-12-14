@@ -17,11 +17,16 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
+import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
@@ -51,7 +56,7 @@ public class TableStatsMeta implements Writable {
 
     // Used for external table.
     @SerializedName("rowCount")
-    public final long rowCount;
+    public long rowCount;
 
     @SerializedName("updateTime")
     public long updatedTime;
@@ -62,13 +67,19 @@ public class TableStatsMeta implements Writable {
     @SerializedName("trigger")
     public JobType jobType;
 
+    @VisibleForTesting
+    public TableStatsMeta() {
+        tblId = 0;
+        idxId = 0;
+    }
+
     // It's necessary to store these fields separately from AnalysisInfo, since the lifecycle between AnalysisInfo
     // and TableStats is quite different.
-    public TableStatsMeta(long tblId, long rowCount, AnalysisInfo analyzedJob) {
-        this.tblId = tblId;
+    public TableStatsMeta(long rowCount, AnalysisInfo analyzedJob, TableIf table) {
+        this.tblId = table.getId();
         this.idxId = -1;
         this.rowCount = rowCount;
-        updateByJob(analyzedJob);
+        update(analyzedJob, table);
     }
 
     @Override
@@ -112,8 +123,8 @@ public class TableStatsMeta implements Writable {
         colNameToColStatsMeta.values().forEach(ColStatsMeta::clear);
     }
 
-    public void updateByJob(AnalysisInfo analyzedJob) {
-        updatedTime = System.currentTimeMillis();
+    public void update(AnalysisInfo analyzedJob, TableIf tableIf) {
+        updatedTime = analyzedJob.tblUpdateTime;
         String colNameStr = analyzedJob.colName;
         // colName field AnalyzeJob's format likes: "[col1, col2]", we need to remove brackets here
         // TODO: Refactor this later
@@ -130,8 +141,20 @@ public class TableStatsMeta implements Writable {
                 colStatsMeta.updatedTime = updatedTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
+                colStatsMeta.jobType = analyzedJob.jobType;
             }
         }
         jobType = analyzedJob.jobType;
+        if (tableIf != null) {
+            if (tableIf instanceof OlapTable) {
+                rowCount = tableIf.getRowCount();
+            }
+            if (analyzedJob.colToPartitions.keySet()
+                    .containsAll(tableIf.getBaseSchema().stream()
+                            .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
+                            .map(Column::getName).collect(Collectors.toSet()))) {
+                updatedRows.set(0);
+            }
+        }
     }
 }

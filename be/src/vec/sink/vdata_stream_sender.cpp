@@ -126,7 +126,7 @@ template <typename Parent>
 Status Channel<Parent>::send_local_block(Status exec_status, bool eos) {
     SCOPED_TIMER(_parent->local_send_timer());
     Block block = _serializer.get_block()->to_block();
-    _serializer.get_block()->set_muatable_columns(block.clone_empty_columns());
+    _serializer.get_block()->set_mutable_columns(block.clone_empty_columns());
     if (_recvr_is_valid()) {
         if constexpr (!std::is_same_v<pipeline::ResultFileSinkLocalState, Parent>) {
             COUNTER_UPDATE(_parent->local_bytes_send_counter(), block.bytes());
@@ -222,7 +222,7 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
 }
 
 template <typename Parent>
-Status Channel<Parent>::add_rows(Block* block, const std::vector<int>& rows, bool eos) {
+Status Channel<Parent>::add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) {
     if (_fragment_instance_id.lo == -1) {
         return Status::OK();
     }
@@ -431,6 +431,7 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     std::string title = fmt::format("VDataStreamSender (dst_id={}, dst_fragments=[{}])",
                                     _dest_node_id, instances);
     _profile = _pool->add(new RuntimeProfile(title));
+    init_sink_common_profile();
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = std::make_unique<MemTracker>("VDataStreamSender:" +
                                                 print_id(state->fragment_instance_id()));
@@ -464,7 +465,6 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _split_block_distribute_by_channel_timer =
             ADD_TIMER(profile(), "SplitBlockDistributeByChannelTime");
     _merge_block_timer = ADD_TIMER(profile(), "MergeBlockTime");
-    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(profile(), "BlocksSent", TUnit::UNIT, 1);
     _overall_throughput = profile()->add_derived_counter(
             "OverallThroughput", TUnit::BYTES_PER_SECOND,
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _bytes_sent_counter,
@@ -507,6 +507,8 @@ void VDataStreamSender::_handle_eof_channel(RuntimeState* state, ChannelPtrType 
 
 Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
     SCOPED_TIMER(_profile->total_time_counter());
+    SCOPED_TIMER(_exec_timer);
+    COUNTER_UPDATE(_output_rows_counter, block->rows());
     _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     bool all_receiver_eof = true;
     for (auto channel : _channels) {
@@ -566,7 +568,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         }
                     }
                     cur_block.clear_column_data();
-                    _serializer.get_block()->set_muatable_columns(cur_block.mutate_columns());
+                    _serializer.get_block()->set_mutable_columns(cur_block.mutate_columns());
                 }
             }
         } else {
@@ -593,7 +595,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                     }
                 }
                 cur_block.clear_column_data();
-                _serializer.get_block()->set_muatable_columns(cur_block.mutate_columns());
+                _serializer.get_block()->set_mutable_columns(cur_block.mutate_columns());
                 _roll_pb_block();
             }
         }
@@ -641,6 +643,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 }
 
 Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(_exec_timer);
     _serializer.reset_block();
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
@@ -653,6 +656,7 @@ Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
 }
 
 Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
+    SCOPED_TIMER(_exec_timer);
     if (_closed) {
         return Status::OK();
     }
@@ -709,7 +713,7 @@ BlockSerializer<Parent>::BlockSerializer(Parent* parent, bool is_local)
 template <typename Parent>
 Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest, int num_receivers,
                                                       bool* serialized, bool eos,
-                                                      const std::vector<int>* rows) {
+                                                      const std::vector<uint32_t>* rows) {
     if (_mutable_block == nullptr) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
@@ -718,9 +722,9 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
     {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (rows) {
-            if (rows->size() > 0) {
+            if (!rows->empty()) {
                 SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
-                const int* begin = &(*rows)[0];
+                const auto* begin = rows->data();
                 _mutable_block->add_rows(block, begin, begin + rows->size());
             }
         } else if (!block->empty()) {
@@ -746,7 +750,7 @@ Status BlockSerializer<Parent>::serialize_block(PBlock* dest, int num_receivers)
         auto block = _mutable_block->to_block();
         RETURN_IF_ERROR(serialize_block(&block, dest, num_receivers));
         block.clear_column_data();
-        _mutable_block->set_muatable_columns(block.mutate_columns());
+        _mutable_block->set_mutable_columns(block.mutate_columns());
     }
 
     return Status::OK();

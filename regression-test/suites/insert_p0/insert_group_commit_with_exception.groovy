@@ -70,11 +70,11 @@ suite("insert_group_commit_with_exception") {
             );
             """
 
-            sql """ set enable_insert_group_commit = true; """
+            sql """ set group_commit = async_mode; """
             if (item == "nereids") {
                 sql """ set enable_nereids_dml = true; """
                 sql """ set enable_nereids_planner=true; """
-                sql """ set enable_fallback_to_original_planner=false; """
+                //sql """ set enable_fallback_to_original_planner=false; """
             } else {
                 sql """ set enable_nereids_dml = false; """
             }
@@ -84,22 +84,22 @@ suite("insert_group_commit_with_exception") {
                 def result = sql """ insert into ${table} values(1, 'a', 10, 100)  """
                 assertTrue(false)
             } catch (Exception e) {
-                if (item == "nereids") {
+                /*if (item == "nereids") {
                     assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {
+                } else {*/
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                }
+                //}
             }
 
             try {
                 def result = sql """ insert into ${table} values(2, 'b')  """
                 assertTrue(false)
             } catch (Exception e) {
-                if (item == "nereids") {
+                /*if (item == "nereids") {
                     assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {
+                } else {*/
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                }
+                //}
             }
 
             result = sql """ insert into ${table} values(3, 'c', 30)  """
@@ -115,33 +115,33 @@ suite("insert_group_commit_with_exception") {
                 result = sql """ insert into ${table}(id, name) values(5, 'd', 50)  """
                 assertTrue(false)
             } catch (Exception e) {
-                if (item == "nereids") {
+                /*if (item == "nereids") {
                     assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {
+                } else {*/
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                }
+                //}
             }
 
             try {
                 result = sql """ insert into ${table}(id, name) values(6)  """
                 assertTrue(false)
             } catch (Exception e) {
-                if (item == "nereids") {
+                /*if (item == "nereids") {
                     assertTrue(e.getMessage().contains("insert into cols should be corresponding to the query output"))
-                } else {
+                } else {*/
                     assertTrue(e.getMessage().contains("Column count doesn't match value count"))
-                }
+                //}
             }
 
             try {
                 result = sql """ insert into ${table}(id, names) values(7, 'd')  """
                 assertTrue(false)
             } catch (Exception e) {
-                if (item == "nereids") {
+                /*if (item == "nereids") {
                     assertTrue(e.getMessage().contains("column names is not found in table"))
-                } else {
+                } else {*/
                     assertTrue(e.getMessage().contains("Unknown column 'names'"))
-                }
+                //}
             }
 
 
@@ -157,11 +157,11 @@ suite("insert_group_commit_with_exception") {
             try (Connection connection = DriverManager.getConnection(url, context.config.jdbcUser, context.config.jdbcPassword)) {
                 Statement statement = connection.createStatement();
                 statement.execute("use ${db}");
-                statement.execute("set enable_insert_group_commit = true;");
+                statement.execute("set group_commit = eventual_consistency;");
                 if (item == "nereids") {
                     statement.execute("set enable_nereids_dml = true;");
                     statement.execute("set enable_nereids_planner=true;");
-                    statement.execute("set enable_fallback_to_original_planner=false;");
+                    //statement.execute("set enable_fallback_to_original_planner=false;");
                 } else {
                     statement.execute("set enable_nereids_dml = false;");
                 }

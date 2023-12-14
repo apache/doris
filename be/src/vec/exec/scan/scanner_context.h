@@ -30,7 +30,6 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "concurrentqueue.h"
-#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/vscanner.h"
@@ -43,9 +42,8 @@ class TupleDescriptor;
 
 namespace pipeline {
 class ScanLocalStateBase;
-class ScannerDoneDependency;
-class FinishDependency;
-class DataReadyDependency;
+class ScanDependency;
+class Dependency;
 } // namespace pipeline
 
 namespace taskgroup {
@@ -106,10 +104,11 @@ public:
         return _process_status;
     }
 
-    virtual void set_dependency(
-            std::shared_ptr<pipeline::DataReadyDependency> dependency,
-            std::shared_ptr<pipeline::ScannerDoneDependency> scanner_done_dependency,
-            std::shared_ptr<pipeline::FinishDependency> finish_dependency) {}
+    void set_dependency(std::shared_ptr<pipeline::ScanDependency> dependency,
+                        std::shared_ptr<pipeline::Dependency> finish_dependency) {
+        _dependency = dependency;
+        _finish_dependency = finish_dependency;
+    }
 
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
@@ -117,10 +116,17 @@ public:
 
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
+    bool is_finished() { return _is_finished.load(); }
+    bool should_stop() { return _should_stop.load(); }
+    bool status_error() { return _status_error.load(); }
 
     void inc_num_running_scanners(int32_t scanner_inc);
 
+    void set_ready_to_finish();
+
     int get_num_running_scanners() const { return _num_running_scanners; }
+
+    int get_num_unfinished_scanners() const { return _num_unfinished_scanners; }
 
     void dec_num_scheduling_ctx();
 
@@ -155,6 +161,9 @@ public:
         int thread_slot_num = 0;
         thread_slot_num = (allowed_blocks_num() + _block_per_scanner - 1) / _block_per_scanner;
         thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
+        if (thread_slot_num <= 0) {
+            thread_slot_num = 1;
+        }
         return thread_slot_num;
     }
 
@@ -185,25 +194,27 @@ private:
 protected:
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
-    RuntimeState* _state;
-    VScanNode* _parent;
-    pipeline::ScanLocalStateBase* _local_state;
+    void _set_scanner_done();
+
+    RuntimeState* _state = nullptr;
+    VScanNode* _parent = nullptr;
+    pipeline::ScanLocalStateBase* _local_state = nullptr;
 
     // the comment of same fields in VScanNode
-    const TupleDescriptor* _output_tuple_desc;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
 
     // _transfer_lock is used to protect the critical section
     // where the ScanNode and ScannerScheduler interact.
     // Including access to variables such as blocks_queue, _process_status, _is_finished, etc.
-    doris::Mutex _transfer_lock;
+    std::mutex _transfer_lock;
     // The blocks got from scanners will be added to the "blocks_queue".
     // And the upper scan node will be as a consumer to fetch blocks from this queue.
     // Should be protected by "_transfer_lock"
     std::list<vectorized::BlockUPtr> _blocks_queue;
     // Wait in get_block_from_queue(), by ScanNode.
-    doris::ConditionVariable _blocks_queue_added_cv;
+    std::condition_variable _blocks_queue_added_cv;
     // Wait in clear_and_join(), by ScanNode.
-    doris::ConditionVariable _ctx_finish_cv;
+    std::condition_variable _ctx_finish_cv;
 
     // The following 3 variables control the process of the scanner scheduling.
     // Use _transfer_lock to protect them.
@@ -262,8 +273,10 @@ protected:
     // The scanner scheduler will pop scanners from this list, run scanner,
     // and then if the scanner is not finished, will be pushed back to this list.
     // Not need to protect by lock, because only one scheduler thread will access to it.
-    doris::Mutex _scanners_lock;
+    std::mutex _scanners_lock;
     std::list<VScannerSPtr> _scanners;
+    // weak pointer for _scanners, used in stop function
+    std::vector<VScannerWPtr> _scanners_ref;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
     std::vector<int64_t> _finished_scanner_wait_worker_time;
@@ -279,8 +292,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
-    std::shared_ptr<pipeline::ScannerDoneDependency> _scanner_done_dependency = nullptr;
-    std::shared_ptr<pipeline::FinishDependency> _finish_dependency = nullptr;
+    std::shared_ptr<pipeline::ScanDependency> _dependency;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency;
 };
 } // namespace vectorized
 } // namespace doris

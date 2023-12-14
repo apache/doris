@@ -75,7 +75,7 @@ private:
     // Owned by the RuntimeState.
     RowDescriptor _output_row_descriptor;
 
-    std::unique_ptr<Block> _output_block = nullptr;
+    std::unique_ptr<Block> _output_block;
     std::shared_ptr<BufferControlBlock> _sender;
     std::unique_ptr<VDataStreamSender> _stream_sender;
     int _buf_size = 1024; // Allocated from _pool

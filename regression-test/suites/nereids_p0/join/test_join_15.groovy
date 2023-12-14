@@ -192,13 +192,21 @@ suite("test_join_15", "nereids_p0") {
             order by a.k1, b.k1"""
         qt_right_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index}
             order by a.k1, b.k1"""
-        qt_hash_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k2=b.k2
+        qt_hash_right_join"""select * from ${null_table_1} a right join ${null_table_1} b on a.k${index}<=>b.k${index} and a.k2=b.k2
+            order by a.k1, b.k1"""
+        qt_hash_left_join"""select * from ${null_table_1} a left join ${null_table_1} b on a.k${index}<=>b.k${index} and a.k2=b.k2
+            order by a.k1, b.k1"""
+        qt_hash_inner_join"""select * from ${null_table_1} a inner join ${null_table_1} b on a.k${index}<=>b.k${index} and a.k2=b.k2
             order by a.k1, b.k1"""
         qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k2 !=b.k2
             order by a.k1, b.k1"""
         qt_cross_join"""select * from ${null_table_1} a right join ${null_table_1} b on  a.k${index}<=>b.k${index} and a.k1 > b.k1
             order by a.k1, b.k1"""
     }
+
+    qt_left_join_with_other_conjunct """
+        select * from join_null_safe_equal_1 a left join join_null_safe_equal_1 b on  b.k3<=>a.k3 and b.k1 > a.k1 order by a.k1, b.k1;
+    """
     //  windows
     // Nereids does't support window function
     // def res97 = sql"""select * from (select k1, k2, sum(k2) over (partition by k1) as ss from ${null_table_2})a
@@ -207,6 +215,4 @@ suite("test_join_15", "nereids_p0") {
       on  a.k2=b.k2 and a.k1 >b.k1 order by a.k1, b.k1"""
     // Nereids does't support window function
     // check2_doris(res97, res98)
-    sql"drop table ${null_table_1}"
-    sql"drop table ${null_table_2}"
 }

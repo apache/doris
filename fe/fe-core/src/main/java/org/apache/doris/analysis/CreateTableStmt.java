@@ -67,7 +67,7 @@ public class CreateTableStmt extends DdlStmt {
 
     protected static final String DEFAULT_ENGINE_NAME = "olap";
 
-    private boolean ifNotExists;
+    protected boolean ifNotExists;
     private boolean isExternal;
     protected TableName tableName;
     protected List<ColumnDef> columnDefs;
@@ -91,14 +91,11 @@ public class CreateTableStmt extends DdlStmt {
     static {
         engineNames = Sets.newHashSet();
         engineNames.add("olap");
+        engineNames.add("jdbc");
+        engineNames.add("elasticsearch");
         engineNames.add("odbc");
         engineNames.add("mysql");
         engineNames.add("broker");
-        engineNames.add("elasticsearch");
-        engineNames.add("hive");
-        engineNames.add("iceberg");
-        engineNames.add("hudi");
-        engineNames.add("jdbc");
     }
 
     // if auto bucket auto bucket enable, rewrite distribution bucket num &&
@@ -200,22 +197,6 @@ public class CreateTableStmt extends DdlStmt {
         this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
     }
 
-    // This is for iceberg/hudi table, which has no column schema
-    public CreateTableStmt(boolean ifNotExists,
-            boolean isExternal,
-            TableName tableName,
-            String engineName,
-            Map<String, String> properties,
-            String comment) {
-        this.ifNotExists = ifNotExists;
-        this.isExternal = isExternal;
-        this.tableName = tableName;
-        this.engineName = engineName;
-        this.properties = properties;
-        this.columnDefs = Lists.newArrayList();
-        this.comment = Strings.nullToEmpty(comment);
-    }
-
     // for Nereids
     public CreateTableStmt(boolean ifNotExists,
             boolean isExternal,
@@ -230,6 +211,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment,
             List<AlterClause> rollupAlterClauseList,
+            String clusterName,
             Void unused) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
@@ -244,7 +226,8 @@ public class CreateTableStmt extends DdlStmt {
         this.extProperties = extProperties;
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
-        this.rollupAlterClauseList = rollupAlterClauseList;
+        this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
+        this.setClusterName(clusterName);
     }
 
     public void addColumnDef(ColumnDef columnDef) {
@@ -450,6 +433,10 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             keysDesc.analyze(columnDefs);
+            if (!CollectionUtils.isEmpty(keysDesc.getClusterKeysColumnNames()) && !enableUniqueKeyMergeOnWrite) {
+                throw new AnalysisException("Cluster keys only support unique keys table which enabled "
+                        + PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE);
+            }
             for (int i = 0; i < keysDesc.keysColumnSize(); ++i) {
                 columnDefs.get(i).setIsKey(true);
             }
@@ -477,7 +464,7 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         // analyze column def
-        if (!(engineName.equals("iceberg") || engineName.equals("hudi") || engineName.equals("elasticsearch"))
+        if (!(engineName.equals("elasticsearch"))
                 && (columnDefs == null || columnDefs.isEmpty())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
@@ -658,11 +645,7 @@ public class CreateTableStmt extends DdlStmt {
 
         if (engineName.equals("mysql") || engineName.equals("odbc") || engineName.equals("broker")
                 || engineName.equals("elasticsearch") || engineName.equals("hive")
-                || engineName.equals("iceberg") || engineName.equals("hudi") || engineName.equals("jdbc")) {
-            if (engineName.equals("odbc") && !Config.enable_odbc_table) {
-                throw new AnalysisException("ODBC table is deprecated, use JDBC instead. Or you can set "
-                    + "`enable_odbc_table=true` in fe.conf to enable ODBC again.");
-            }
+                || engineName.equals("jdbc")) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
@@ -675,10 +658,13 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
 
-        if (Config.disable_iceberg_hudi_table && (engineName.equals("iceberg") || engineName.equals("hudi"))) {
+        if (!Config.enable_odbc_mysql_broker_table && (engineName.equals("odbc")
+                || engineName.equals("mysql") || engineName.equals("broker"))) {
             throw new AnalysisException(
-                    "iceberg and hudi table is no longer supported. Use multi catalog feature instead."
-                            + ". Or you can temporarily set 'disable_iceberg_hudi_table=false'"
+                    "odbc, mysql and broker table is no longer supported."
+                            + " For odbc and mysql external table, use jdbc table or jdbc catalog instead."
+                            + " For broker table, use table valued function instead."
+                            + ". Or you can temporarily set 'disable_odbc_mysql_broker_table=false'"
                             + " in fe.conf to reopen this feature.");
         }
     }

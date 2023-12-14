@@ -45,6 +45,7 @@ CREATE CATALOG dlf PROPERTIES (
    "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
    "dlf.region" = "cn-beijing",
    "dlf.uid" = "uid",
+   "dlf.catalog.id" = "catalog_id", //optional
    "dlf.access_key" = "ak",
    "dlf.secret_key" = "sk"
 );
@@ -55,6 +56,7 @@ CREATE CATALOG dlf PROPERTIES (
 * `dlf.endpoint`: DLF Endpoint. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
 * `dlf.region`: DLF Region. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
 * `dlf.uid`: Alibaba Cloud account. You can find the "Account ID" in the upper right corner on the Alibaba Cloud console.
+* `dlf.catalog.id`: Optional. Used to specify the dlf catalog, if not specified, the default Catalog ID will be used.
 * `dlf.access_key`：AccessKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
 * `dlf.secret_key`：SecretKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
 
@@ -79,6 +81,7 @@ Doris supports accessing Hive/Iceberg/Hudi metadata in DLF.
        "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
        "dlf.region" = "cn-beijing",
        "dlf.uid" = "uid",
+       "dlf.catalog.id" = "catalog_id", //optional
        "dlf.access_key" = "ak",
        "dlf.secret_key" = "sk",
        "oss.hdfs.enabled" = "true"
@@ -97,6 +100,7 @@ CREATE CATALOG dlf_iceberg PROPERTIES (
    "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
    "dlf.region" = "cn-beijing",
    "dlf.uid" = "uid",
+   "dlf.catalog.id" = "catalog_id", //optional
    "dlf.access_key" = "ak",
    "dlf.secret_key" = "sk"
 );

@@ -855,6 +855,7 @@ Status StructColumnWriter::finish() {
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->finish());
     }
+    _opts.meta->set_num_rows(get_next_rowid());
     return Status::OK();
 }
 
@@ -993,6 +994,7 @@ Status ArrayColumnWriter::finish() {
         RETURN_IF_ERROR(_null_writer->finish());
     }
     RETURN_IF_ERROR(_item_writer->finish());
+    _opts.meta->set_num_rows(get_next_rowid());
     return Status::OK();
 }
 
@@ -1091,6 +1093,7 @@ Status MapColumnWriter::finish() {
     for (auto& sub_writer : _kv_writers) {
         RETURN_IF_ERROR(sub_writer->finish());
     }
+    _opts.meta->set_num_rows(get_next_rowid());
     return Status::OK();
 }
 

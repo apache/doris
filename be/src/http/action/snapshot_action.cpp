@@ -41,6 +41,10 @@ SnapshotAction::SnapshotAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
         : HttpHandlerWithAuth(exec_env, hier, type) {}
 
 void SnapshotAction::handle(HttpRequest* req) {
+    if (!config::enable_snapshot_action) {
+        HttpChannel::send_reply(req, HttpStatus::BAD_REQUEST, "feature disabled");
+        return;
+    }
     LOG(INFO) << "accept one request " << req->debug_string();
     // Get tablet id
     const std::string& tablet_id_str = req->param(TABLET_ID);

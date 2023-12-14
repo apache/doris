@@ -42,7 +42,7 @@ struct ScanTask {
     }
 
     WorkFunction scan_func;
-    vectorized::ScannerContext* scanner_context;
+    vectorized::ScannerContext* scanner_context = nullptr;
     TGSTEntityPtr scan_entity;
     int priority;
 };

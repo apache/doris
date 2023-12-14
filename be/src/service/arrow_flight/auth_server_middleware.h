@@ -65,7 +65,7 @@ public:
 
 private:
     arrow::flight::CallHeaders _incoming_headers;
-    bool* _is_valid;
+    bool* _is_valid = nullptr;
 };
 
 // Factory for base64 header authentication.

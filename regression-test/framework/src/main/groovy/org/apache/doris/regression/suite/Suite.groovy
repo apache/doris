@@ -44,6 +44,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import groovy.util.logging.Slf4j
 
+import java.sql.Connection
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
@@ -257,24 +258,65 @@ class Suite implements GroovyInterceptable {
         return context.getSyncer(this)
     }
 
-    List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
+    List<List<Object>> sql_impl(Connection conn, String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
-        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
         return result
     }
 
-    List<List<Object>> insert_into_sql(String sqlStr, int num) {
-        logger.info("insert into " + num + " records")
-        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+    List<List<Object>> jdbc_sql(String sqlStr, boolean isOrder = false) {
+        return sql_impl(context.getConnection(), sqlStr, isOrder)
+    }
+
+    List<List<Object>> arrow_flight_sql(String sqlStr, boolean isOrder = false) {
+        return sql_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr), isOrder)
+    }
+
+    List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
+        if (context.useArrowFlightSql()) {
+            return arrow_flight_sql(sqlStr, isOrder)
+        } else {
+            return jdbc_sql(sqlStr, isOrder)
+        }
+    }
+
+    List<List<Object>> arrow_flight_sql_no_prepared (String sqlStr, boolean isOrder = false){
+        logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeQueryToList(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr))
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
         return result
     }
 
-    def sql_return_maparray(String sqlStr) {
+    List<List<Object>> insert_into_sql_impl(Connection conn, String sqlStr, int num) {
+        logger.info("insert into " + num + " records")
+        def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
+        return result
+    }
+
+    List<List<Object>> jdbc_insert_into_sql(String sqlStr, int num) {
+        return insert_into_sql_impl(context.getConnection(), sqlStr, num)
+    }
+
+    List<List<Object>> arrow_flight_insert_into_sql(String sqlStr, int num) {
+        return insert_into_sql_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr), num)
+    }
+
+    List<List<Object>> insert_into_sql(String sqlStr, int num) {
+        if (context.useArrowFlightSql()) {
+            return arrow_flight_insert_into_sql(sqlStr, num)
+        } else {
+            return jdbc_insert_into_sql(sqlStr, num)
+        }
+    }
+
+    def sql_return_maparray_impl(Connection conn, String sqlStr) {
         logger.info("Execute sql: ${sqlStr}".toString())
-        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
 
         // get all column names as list
         List<String> columnNames = new ArrayList<>()
@@ -292,6 +334,22 @@ class Suite implements GroovyInterceptable {
             res.add(row)
         }
         return res;
+    }
+
+    def jdbc_sql_return_maparray(String sqlStr) {
+        return sql_return_maparray_impl(context.getConnection(), sqlStr)
+    }
+
+    def arrow_flight_sql_return_maparray(String sqlStr) {
+        return sql_return_maparray_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr))
+    }
+
+    def sql_return_maparray(String sqlStr) {
+        if (context.useArrowFlightSql()) {
+            return arrow_flight_sql_return_maparray(sqlStr)
+        } else {
+            return jdbc_sql_return_maparray(sqlStr)
+        }
     }
 
     List<List<Object>> target_sql(String sqlStr, boolean isOrder = false) {
@@ -388,7 +446,11 @@ class Suite implements GroovyInterceptable {
     }
 
     void explain(Closure actionSupplier) {
-        runAction(new ExplainAction(context), actionSupplier)
+        if (context.useArrowFlightSql()) {
+            runAction(new ExplainAction(context, "ARROW_FLIGHT_SQL"), actionSupplier)
+        } else {
+            runAction(new ExplainAction(context), actionSupplier)
+        }
     }
 
     void createMV(String sql) {
@@ -525,6 +587,9 @@ class Suite implements GroovyInterceptable {
         assert p.exitValue() == 0
     }
 
+    List<String> getFrontendIpHttpPort() {
+        return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
+    }
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
@@ -608,6 +673,8 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
+                } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
                 }
                 else{
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
@@ -617,6 +684,9 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
+                } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(),
+                            (String) ("USE ${context.dbName};" + (String) arg))
                 }
                 else{
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
@@ -646,6 +716,8 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
+                } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
                 }
                 else{
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
@@ -655,6 +727,9 @@ class Suite implements GroovyInterceptable {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
                 }else if (tag.contains("hive_remote")) {
                     tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
+                } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(),
+                            (String) ("USE ${context.dbName};" + (String) arg))
                 }
                 else{
                     tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
@@ -766,6 +841,39 @@ class Suite implements GroovyInterceptable {
 
     DebugPoint GetDebugPoint() {
         return debugPoint
+    }
+
+    void waitingMTMVTaskFinished(String jobName) {
+        Thread.sleep(2000);
+        String showTasks = "select Status from tasks('type'='mv') where JobName = '${jobName}'"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(0)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
+    }
+
+    String getJobName(String dbName, String mtmvName) {
+        String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
+	    logger.info(showMTMV)
+        List<List<Object>> result = sql(showMTMV)
+        logger.info("result: " + result.toString())
+        if (result.isEmpty()) {
+            Assert.fail();
+        }
+        return result.last().get(0);
     }
 }
 

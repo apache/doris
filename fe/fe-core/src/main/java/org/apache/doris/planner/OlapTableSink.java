@@ -17,6 +17,7 @@
 
 package org.apache.doris.planner;
 
+import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -104,7 +105,7 @@ public class OlapTableSink extends DataSink {
     private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
-    private TDataSink tDataSink;
+    protected TDataSink tDataSink;
 
     private boolean singleReplicaLoad;
 
@@ -252,6 +253,12 @@ public class OlapTableSink extends DataSink {
             columns.addAll(indexMeta.getSchema().stream().map(Column::getNonShadowName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
                 TColumn tColumn = column.toThrift();
+                // When schema change is doing, some modified column has prefix in name. Columns here
+                // is for the schema in rowset meta, which should be no column with shadow prefix.
+                // So we should remove the shadow prefix here.
+                if (column.getName().startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
+                    tColumn.setColumnName(column.getNonShadowName());
+                }
                 column.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
@@ -361,23 +368,30 @@ public class OlapTableSink extends DataSink {
                         }
                     }
                 }
-                boolean  enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
+                boolean enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
                 // for auto create partition by function expr, there is no any partition firstly,
                 // But this is required in thrift struct.
                 if (enableAutomaticPartition && partitionIds.isEmpty()) {
                     partitionParam.setDistributedColumns(getDistColumns(table.getDefaultDistributionInfo()));
                     partitionParam.setPartitions(new ArrayList<TOlapTablePartition>());
                 }
-                ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
-                if (enableAutomaticPartition && exprs != null && analyzer != null) {
+
+                ArrayList<Expr> exprSource = partitionInfo.getPartitionExprs();
+                if (enableAutomaticPartition && exprSource != null && analyzer != null) {
                     Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
                     tupleDescriptor.setTable(table);
                     funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
+                    // we must clone the exprs. otherwise analyze will influence the origin exprs.
+                    ArrayList<Expr> exprs = new ArrayList<Expr>();
+                    for (Expr e : exprSource) {
+                        exprs.add(e.clone());
+                    }
                     for (Expr e : exprs) {
                         e.analyze(funcAnalyzer);
                     }
                     partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
                 }
+
                 partitionParam.setEnableAutomaticPartition(enableAutomaticPartition);
                 break;
             }

@@ -40,7 +40,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
@@ -52,7 +51,10 @@ struct AsyncRPCContext {
     brpc::CallId cid;
 };
 
-RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state) : _state(state) {}
+RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state) {
+    _state = state;
+    _state->runtime_filter_mgr = this;
+}
 
 RuntimeFilterMgr::RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx)
         : _query_ctx(query_ctx) {}
@@ -109,7 +111,7 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
 
 Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options, int node_id,
-                                                  bool build_bf_exactly) {
+                                                  bool build_bf_exactly, int merged_rf_num) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
@@ -134,8 +136,6 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
                                                build_bf_exactly));
         _consumer_map[key].emplace_back(node_id, filter);
     } else {
-        DCHECK(_state != nullptr);
-
         if (iter != _consumer_map.end()) {
             for (auto holder : iter->second) {
                 if (holder.node_id == node_id) {
@@ -221,7 +221,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     // LOG(INFO) << "entity filter id:" << filter_id;
     static_cast<void>(
             cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false));
-    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
+    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<std::mutex>()});
     return Status::OK();
 }
 
@@ -243,7 +243,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
     static_cast<void>(cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options));
-    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
+    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<std::mutex>()});
     return Status::OK();
 }
 
@@ -314,10 +314,9 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
                                            std::to_string(request->filter_id()));
         }
     }
-    // iter->second = pair{CntlVal,SpinLock}
     cntVal = iter->second.first;
     {
-        std::lock_guard<SpinLock> l(*iter->second.second);
+        std::lock_guard<std::mutex> l(*iter->second.second);
         MergeRuntimeFilterParams params(request, attach_data);
         ObjectPool* pool = cntVal->pool.get();
         RuntimeFilterWrapperHolder holder;
@@ -477,7 +476,8 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
 
 Status RuntimeFilterMergeController::add_entity(
         const TExecPlanFragmentParams& params,
-        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeState* state) {
+        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+        RuntimeFilterParamsContext* state) {
     if (!params.params.__isset.runtime_filter_params ||
         params.params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
         return Status::OK();
@@ -508,7 +508,8 @@ Status RuntimeFilterMergeController::add_entity(
 
 Status RuntimeFilterMergeController::add_entity(
         const TPipelineFragmentParams& params, const TPipelineInstanceParams& local_params,
-        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeState* state) {
+        std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+        RuntimeFilterParamsContext* state) {
     if (!local_params.__isset.runtime_filter_params ||
         local_params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {
         return Status::OK();

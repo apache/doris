@@ -152,6 +152,11 @@ public class BackendServiceClient {
         return stub.reportStreamLoadStatus(request);
     }
 
+    public Future<InternalService.PFetchRemoteSchemaResponse> fetchRemoteTabletSchemaAsync(
+            InternalService.PFetchRemoteSchemaRequest request) {
+        return stub.fetchRemoteTabletSchema(request);
+    }
+
     public Future<InternalService.PGlobResponse> glob(InternalService.PGlobRequest request) {
         return stub.glob(request);
     }
@@ -160,6 +165,12 @@ public class BackendServiceClient {
             InternalService.PGroupCommitInsertRequest request) {
         return stub.groupCommitInsert(request);
     }
+
+    public Future<InternalService.PGetWalQueueSizeResponse> getWalQueueSize(
+            InternalService.PGetWalQueueSizeRequest request) {
+        return stub.getWalQueueSize(request);
+    }
+
 
     public void shutdown() {
         if (!channel.isShutdown()) {

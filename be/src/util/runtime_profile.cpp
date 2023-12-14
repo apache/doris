@@ -38,8 +38,6 @@ static const std::string THREAD_TOTAL_TIME = "TotalWallClockTime";
 static const std::string THREAD_VOLUNTARY_CONTEXT_SWITCHES = "VoluntaryContextSwitches";
 static const std::string THREAD_INVOLUNTARY_CONTEXT_SWITCHES = "InvoluntaryContextSwitches";
 
-static const std::string SPAN_ATTRIBUTE_KEY_SEPARATOR = "-";
-
 // The root counter name for all top level counters.
 static const std::string ROOT_COUNTER;
 
@@ -49,8 +47,10 @@ RuntimeProfile::RuntimeProfile(const std::string& name, bool is_averaged_profile
           _metadata(-1),
           _timestamp(-1),
           _is_averaged_profile(is_averaged_profile),
-          _counter_total_time(TUnit::TIME_NS, 0, 1),
+          _counter_total_time(TUnit::TIME_NS, 0, 3),
           _local_time_percent(0) {
+    // TotalTime counter has level3 to disable it from plan profile, because
+    // it contains its child running time, we use exec time instead.
     _counter_map["TotalTime"] = &_counter_total_time;
 }
 

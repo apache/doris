@@ -323,3 +323,10 @@ zzz
 zzz
 zzz
 
+-- !decimalv3_scale0 --
+12.34
+34.45
+
+-- !decimalv3_scale1 --
+23.45
+45.56

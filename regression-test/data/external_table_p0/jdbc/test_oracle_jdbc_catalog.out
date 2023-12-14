@@ -187,6 +187,15 @@ DORIS_TEST
 3	jerry	23	88.0
 4	andy	21	93.0
 
+-- !lower_case_column_names1 --
+1	doris	3	1.0
+
+-- !lower_case_column_names2 --
+1	doris	3	1.0
+
+-- !lower_case_column_names3 --
+1	doris	3	1.0
+
 -- !query_clob --
 10010	liantong
 10086	yidong

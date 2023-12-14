@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -39,6 +40,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
+import java.util.Set;
 
 /**
  * syntax:
@@ -66,7 +68,7 @@ public class CreateJobStmt extends DdlStmt {
     private StatementBase doStmt;
 
     @Getter
-    private AbstractJob<?> jobInstance;
+    private AbstractJob jobInstance;
 
     private final LabelName labelName;
 
@@ -83,7 +85,12 @@ public class CreateJobStmt extends DdlStmt {
     private final String comment;
     private JobExecuteType executeType;
 
-    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+    // exclude job name prefix, which is used by inner job
+    private final Set<String> excludeJobNamePrefix = new HashSet<>();
+
+    {
+        excludeJobNamePrefix.add("inner_mtmv_");
+    }
 
     private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
             = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
@@ -114,7 +121,7 @@ public class CreateJobStmt extends DdlStmt {
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         analyzerSqlStmt();
         // check its insert stmt,currently only support insert stmt
-        //todo used InsertIntoCommand if job is InsertJob
+        //todo when support other stmt,need to check stmt type and generate jobInstance
         InsertJob job = new InsertJob();
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         jobExecutionConfiguration.setExecuteType(executeType);
@@ -128,7 +135,15 @@ public class CreateJobStmt extends DdlStmt {
             timerDefinition.setInterval(interval);
         }
         if (null != intervalTimeUnit) {
-            timerDefinition.setIntervalUnit(IntervalUnit.valueOf(intervalTimeUnit.toUpperCase()));
+            IntervalUnit intervalUnit = IntervalUnit.fromString(intervalTimeUnit.toUpperCase());
+            if (null == intervalUnit) {
+                throw new AnalysisException("interval time unit can not be " + intervalTimeUnit);
+            }
+            if (intervalUnit.equals(IntervalUnit.SECOND)
+                    && !Config.enable_job_schedule_second_for_test) {
+                throw new AnalysisException("interval time unit can not be second");
+            }
+            timerDefinition.setIntervalUnit(intervalUnit);
         }
         if (null != startsTimeStamp) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(startsTimeStamp));
@@ -136,6 +151,7 @@ public class CreateJobStmt extends DdlStmt {
         if (null != endsTimeStamp) {
             timerDefinition.setEndTimeMs(TimeUtils.timeStringToLong(endsTimeStamp));
         }
+        checkJobName(labelName.getLabelName());
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
         job.setJobConfig(jobExecutionConfiguration);
 
@@ -144,11 +160,21 @@ public class CreateJobStmt extends DdlStmt {
         job.setJobName(labelName.getLabelName());
         job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
         job.setJobStatus(JobStatus.RUNNING);
-        job.checkJobParams();
+        job.setJobId(Env.getCurrentEnv().getNextId());
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt);
         job.setExecuteSql(executeSql);
+
+        //job.checkJobParams();
         jobInstance = job;
+    }
+
+    private void checkJobName(String jobName) throws AnalysisException {
+        for (String prefix : excludeJobNamePrefix) {
+            if (jobName.startsWith(prefix)) {
+                throw new AnalysisException("job name can not start with " + prefix);
+            }
+        }
     }
 
     protected static void checkAuth() throws AnalysisException {
@@ -175,9 +201,13 @@ public class CreateJobStmt extends DdlStmt {
         doStmt.analyze(analyzer);
     }
 
+    /**
+     * parse execute sql from create job stmt
+     * Some stmt not implement toSql method,so we need to parse sql from originStmt
+     */
     private String parseExecuteSql(String sql) throws AnalysisException {
-        sql = sql.toLowerCase();
-        int executeSqlIndex = sql.indexOf(" do ");
+        String lowerCaseSql = sql.toLowerCase();
+        int executeSqlIndex = lowerCaseSql.indexOf(" do ");
         String executeSql = sql.substring(executeSqlIndex + 4).trim();
         if (StringUtils.isBlank(executeSql)) {
             throw new AnalysisException("execute sql has invalid format");

@@ -31,14 +31,14 @@ String[] getFiles(String dirName, int num) {
 suite("test_group_commit_insert_into_lineitem_normal") {
     String[] file_array;
     def prepare = {
-        def dataDir = "${context.config.cacheDataPath}/lineitem/"
+        def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_normal/"
         File dir = new File(dataDir)
         if (!dir.exists()) {
-            new File("${context.config.cacheDataPath}/lineitem/").mkdir()
+            new File("${context.config.cacheDataPath}/insert_into_lineitem_normal/").mkdir()
             for (int i = 1; i <= 10; i++) {
                 logger.info("download lineitem.tbl.${i}")
                 def download_file = """/usr/bin/curl ${getS3Url()}/regression/tpch/sf1/lineitem.tbl.${i}
---output ${context.config.cacheDataPath}/lineitem/lineitem.tbl.${i}""".execute().getText()
+--output ${context.config.cacheDataPath}/insert_into_lineitem_normal/lineitem.tbl.${i}""".execute().getText()
             }
         }
         file_array = getFiles(dataDir, 10)
@@ -98,7 +98,7 @@ PROPERTIES (
     "replication_num" = "1"
 );
         """
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
     }
 

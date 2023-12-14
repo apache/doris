@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.analyzer;
 
-import org.apache.doris.nereids.parser.trino.TrinoFnCallTransformer.PlaceholderCollector;
+import org.apache.doris.nereids.parser.CommonFnCallTransformer.PlaceholderCollector;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;

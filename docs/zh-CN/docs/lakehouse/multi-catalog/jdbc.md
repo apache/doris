@@ -44,16 +44,16 @@ PROPERTIES ("key"="value", ...)
 
 ## 参数说明
 
-| 参数                      | 必须 | 默认值  | 说明                                                                                          |
-|---------------------------|-----|---------|---------------------------------------------------------------------------------------------|
-| `user`                    | 是   |         | 对应数据库的用户名                                                                            |
-| `password`                | 是   |         | 对应数据库的密码                                                                              |
-| `jdbc_url`                | 是   |         | JDBC 连接串                                                                                   |
-| `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                                        |
-| `driver_class`            | 是   |         | JDBC Driver Class 名称                                                                        |
-| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名                                                |
-| `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                                 |
-| `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。         |
+| 参数                      | 必须 | 默认值  | 说明                                                                    |
+|---------------------------|-----|---------|-----------------------------------------------------------------------|
+| `user`                    | 是   |         | 对应数据库的用户名                                                             |
+| `password`                | 是   |         | 对应数据库的密码                                                              |
+| `jdbc_url`                | 是   |         | JDBC 连接串                                                              |
+| `driver_url`              | 是   |         | JDBC Driver Jar 包名称                                                   |
+| `driver_class`            | 是   |         | JDBC Driver Class 名称                                                  |
+| `lower_case_table_names`  | 否   | "false" | 是否以小写的形式同步jdbc外部数据源的库名和表名以及列名                                         |
+| `only_specified_database` | 否   | "false" | 指定是否只同步指定的 database                                                   |
+| `include_database_list`   | 否   | ""      | 当only_specified_database=true时，指定同步多个database，以','分隔。db名称是大小写敏感的。     |
 | `exclude_database_list`   | 否   | ""      | 当only_specified_database=true时，指定不需要同步的多个database，以','分割。db名称是大小写敏感的。 |
 
 ### 驱动包路径
@@ -68,7 +68,7 @@ PROPERTIES ("key"="value", ...)
 
 ### 小写表名同步
 
-当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表
+当 `lower_case_table_names` 设置为 `true` 时，Doris 通过维护小写名称到远程系统中实际名称的映射，能够查询非小写的数据库和表以及列
 
 **注意：**
 
@@ -78,9 +78,9 @@ PROPERTIES ("key"="value", ...)
 
     对于其他数据库，仍需要在查询时指定真实的库名和表名。
 
-2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
+2. 在 Doris 2.0.3 及之后的版本，对所有的数据库都有效，在查询时，会将所有的库名和表名以及列名转换为真实的名称，再去查询，如果是从老版本升级到 2.0.3 ，需要 `Refresh <catalog_name>` 才能生效。
 
-    但是，如果数据库或者表名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
+    但是，如果库名、表名或列名只有大小写不同，例如 `Doris` 和 `doris`，则 Doris 由于歧义而无法查询它们。
 
 3. 当 FE 参数的 `lower_case_table_names` 设置为 `1` 或 `2` 时，JDBC Catalog 的 `lower_case_table_names` 参数必须设置为 `true`。如果 FE 参数的 `lower_case_table_names` 设置为 `0`，则 JDBC Catalog 的参数可以为 `true` 或 `false`，默认为 `false`。这确保了 Doris 在处理内部和外部表配置时的一致性和可预测性。
 
@@ -114,7 +114,7 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 
 1. 当执行类似于 `where dt = '2022-01-01'` 这样的查询时，Doris 能够将这些过滤条件下推到外部数据源，从而直接在数据源层面排除不符合条件的数据，减少了不必要的数据获取和传输。这大大提高了查询性能，同时也降低了对外部数据源的负载。
    
-2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL，如遇到 MySQL 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数进行下推条件过滤，可通过 explain sql 查看。
+2. 当 `enable_func_pushdown` 设置为true，会将 where 之后的函数条件也下推到外部数据源，目前仅支持 MySQL 以及 ClickHouse，如遇到 MySQL 或 ClickHouse 不支持的函数，可以将此参数设置为 false，目前 Doris 会自动识别部分 MySQL 不支持的函数以及 CLickHouse 支持的函数进行下推条件过滤，可通过 explain sql 查看。
 
 目前不会下推的函数有：
 
@@ -122,6 +122,13 @@ select * from mysql_catalog.mysql_database.mysql_table where k1 > 1000 and k3 ='
 |:------------:|
 |  DATE_TRUNC  |
 | MONEY_FORMAT |
+
+目前会下推的函数有：
+
+|   ClickHouse   |
+|:--------------:|
+| FROM_UNIXTIME  |
+| UNIX_TIMESTAMP |
 
 ### 行数限制
 
@@ -149,6 +156,108 @@ set enable_odbc_transcation = true;
 事务保证了JDBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
 
 ## 使用指南
+
+### 查看 JDBC Catalog
+
+可以通过 SHOW CATALOGS 查询当前所在 Doris 集群里所有 Catalog：
+
+```sql
+SHOW CATALOGS;
+```
+
+通过 SHOW CREATE CATALOG 查询某个 Catalog 的创建语句：
+
+```sql
+SHOW CREATE CATALOG <catalog_name>;
+```
+
+### 删除 JDBC Catalog
+
+可以通过 DROP CATALOG 删除某个 Catalog：
+
+```sql
+DROP CATALOG <catalog_name>;
+```
+
+### 查询 JDBC Catalog
+
+1. 通过 SWITCH 切换当前会话生效的 Catalog：
+
+    ```sql
+    SWITCH <catalog_name>;
+    ```
+
+2. 通过 SHOW DATABASES 查询当前 Catalog 下的所有库：
+
+    ```sql
+    SHOW DATABASES FROM <catalog_name>;
+    ```
+
+    ```sql
+    SHOW DATABASES;
+    ```
+
+3. 通过 USE 切换当前会话生效的 Database：
+
+    ```sql
+    USE <database_name>;
+    ```
+
+    或者直接通过 `USE <catalog_name>.<database_name>;` 切换当前会话生效的 Database
+
+4. 通过 SHOW TABLES 查询当前 Catalog 下的所有表：
+
+    ```sql
+    SHOW TABLES FROM <catalog_name>.<database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES FROM <database_name>;
+    ```
+
+    ```sql
+    SHOW TABLES;
+    ```
+
+5. 通过 SELECT 查询当前 Catalog 下的某个表的数据：
+
+    ```sql
+    SELECT * FROM <table_name>;
+    ```
+
+### SQL 透传
+
+在 Doris 2.0.3 之前的版本中，用户只能通过 JDBC Catalog 进行查询操作（SELECT）。
+在 Doris 2.0.4 版本之后，用户可以通过 `CALL` 命令，对 JDBC 数据源进行 DDL 和 DML 操作。
+
+```
+CALL EXECUTE_STMT("catalog_name", "raw_stmt_string");
+```
+
+`EXECUTE_STMT()` 过程有两个参数：
+
+- Catalog Name：目前仅支持 Jdbc Catalog。
+- 执行语句：目前仅支持 DDL 和 DML 语句。并且需要直接使用 JDBC 数据源对应的语法。
+
+```
+CALL EXECUTE_STMT("jdbc_catalog", "insert into db1.tbl1 values(1,2), (3, 4)");
+
+CALL EXECUTE_STMT(jdbc_catalog", "delete from db1.tbl1 where k1 = 2");
+
+CALL EXECUTE_STMT(jdbc_catalog", "create table dbl1.tbl2 (k1 int)");
+```
+
+#### 原理和限制
+
+通过 `CALL EXECUTE_STMT()` 命令，Doris 会直接将用户编写的 SQL 语句发送给 Catalog 对应的 JDBC 数据源进行执行。因此，这个操作有如下限制：
+
+- SQL 语句必须是数据源对应的语法，Doris 不会做语法和语义检查。
+- SQL 语句中引用的表名建议是全限定名，即 `db.tbl` 这种格式。如果未指定 db，则会使用 JDBC Catalog 的 JDBC url 中指定的 db 名称。
+- SQL 语句中不可引用 JDBC 数据源之外的库表，也不可以引用 Doris 的库表。但可以引用在 JDBC 数据源内的，但是没有同步到 Doris JDBC Catalog 的库表。
+- 执行 DML 语句，无法获取插入、更新或删除的行数，只能获取命令是否执行成功。
+- 只有对 Catalog 有 LOAD 权限的用户，才能执行这个命令。
+
+## 支持的数据源
 
 ### MySQL
 
@@ -595,74 +704,6 @@ CREATE CATALOG jdbc_oceanbase PROPERTIES (
 :::tip
  Doris 在连接 OceanBase 时，会自动识别 OceanBase 处于 MySQL 或者 Oracle 模式，层级对应和类型映射参考 [MySQL](#MySQL) 与 [Oracle](#Oracle)
 :::
-
-### 查看 JDBC Catalog
-
-可以通过 SHOW CATALOGS 查询当前所在 Doris 集群里所有 Catalog：
-
-```sql
-SHOW CATALOGS;
-```
-
-通过 SHOW CREATE CATALOG 查询某个 Catalog 的创建语句：
-
-```sql
-SHOW CREATE CATALOG <catalog_name>;
-```
-
-### 删除 JDBC Catalog
-
-可以通过 DROP CATALOG 删除某个 Catalog：
-
-```sql
-DROP CATALOG <catalog_name>;
-```
-
-### 查询 JDBC Catalog
-
-1. 通过 SWITCH 切换当前会话生效的 Catalog：
-
-    ```sql
-    SWITCH <catalog_name>;
-    ```
-
-2. 通过 SHOW DATABASES 查询当前 Catalog 下的所有库：
-
-    ```sql
-    SHOW DATABASES FROM <catalog_name>;
-    ```
-
-    ```sql
-    SHOW DATABASES;
-    ```
-
-3. 通过 USE 切换当前会话生效的 Database：
-
-    ```sql
-    USE <database_name>;
-    ```
-
-    或者直接通过 `USE <catalog_name>.<database_name>;` 切换当前会话生效的 Database
-
-4. 通过 SHOW TABLES 查询当前 Catalog 下的所有表：
-
-    ```sql
-    SHOW TABLES FROM <catalog_name>.<database_name>;
-    ```
-
-    ```sql
-    SHOW TABLES FROM <database_name>;
-    ```
-
-    ```sql
-    SHOW TABLES;
-    ```
-
-5. 通过 SELECT 查询当前 Catalog 下的某个表的数据：
-
-    ```sql
-    SELECT * FROM <table_name>;
-    ```
 
 ## JDBC Driver 列表
 

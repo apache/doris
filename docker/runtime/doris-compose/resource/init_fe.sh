@@ -32,7 +32,7 @@ add_frontend() {
 
         output=$(mysql -P $FE_QUERY_PORT -h $MASTER_FE_IP -u root --execute "ALTER SYSTEM ADD FOLLOWER '$MY_IP:$FE_EDITLOG_PORT';" 2>&1)
         res=$?
-        health_log "$output"
+        health_log "${output}\n"
         [ $res -eq 0 ] && break
         (echo $output | grep "frontend already exists") && break
         sleep 1

@@ -146,7 +146,8 @@ Status RowGroupReader::init(
         const string& predicate_col_name = predicate_col_names[i];
         int slot_id = predicate_col_slot_ids[i];
         auto field = const_cast<FieldSchema*>(schema.get_column(predicate_col_name));
-        if (_can_filter_by_dict(slot_id,
+        if (!_lazy_read_ctx.has_complex_type &&
+            _can_filter_by_dict(slot_id,
                                 _row_group_meta.columns[field->physical_column_index].meta_data)) {
             _dict_filter_cols.emplace_back(std::make_pair(predicate_col_name, slot_id));
         } else {
