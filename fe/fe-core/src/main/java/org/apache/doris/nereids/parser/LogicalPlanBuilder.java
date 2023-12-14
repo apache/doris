@@ -115,7 +115,6 @@ import org.apache.doris.nereids.DorisParser.LogicalNotContext;
 import org.apache.doris.nereids.DorisParser.MapLiteralContext;
 import org.apache.doris.nereids.DorisParser.MultiStatementsContext;
 import org.apache.doris.nereids.DorisParser.MultipartIdentifierContext;
-import org.apache.doris.nereids.DorisParser.MvRefreshUnitContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionContext;
 import org.apache.doris.nereids.DorisParser.NamedExpressionSeqContext;
 import org.apache.doris.nereids.DorisParser.NullLiteralContext;
@@ -608,13 +607,26 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         int interval = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         String startTime = ctx.STARTS() == null ? null
                 : ctx.STRING_LITERAL().getText().substring(1, ctx.STRING_LITERAL().getText().length() - 1);
-        IntervalUnit unit = visitMvRefreshUnit(ctx.mvRefreshUnit());
+        IntervalUnit unit = visitMvRefreshUnit(ctx.refreshUnit);
         return new MTMVRefreshSchedule(startTime, interval, unit);
     }
 
-    @Override
-    public IntervalUnit visitMvRefreshUnit(MvRefreshUnitContext ctx) {
-        return IntervalUnit.valueOf(ctx.getText().toUpperCase());
+    /**
+     * get IntervalUnit,only enable_job_schedule_second_for_test is true, can use second
+     *
+     * @param ctx ctx
+     * @return IntervalUnit
+     */
+    public IntervalUnit visitMvRefreshUnit(IdentifierContext ctx) {
+        IntervalUnit intervalUnit = IntervalUnit.fromString(ctx.getText().toUpperCase());
+        if (null == intervalUnit) {
+            throw new AnalysisException("interval time unit can not be " + ctx.getText());
+        }
+        if (intervalUnit.equals(IntervalUnit.SECOND)
+                && !Config.enable_job_schedule_second_for_test) {
+            throw new AnalysisException("interval time unit can not be second");
+        }
+        return intervalUnit;
     }
 
     @Override

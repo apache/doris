@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
@@ -50,6 +51,7 @@ import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -70,7 +72,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable").add("SyncWithBaseTables")
+            .add("IsMutable").add("SyncWithBaseTables").add("UnSyncTables")
             .build();
 
     private Database db;
@@ -305,10 +307,21 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
 
                 partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
-                partitionInfo
-                        .add(olapTable instanceof MTMV ? MTMVUtil
-                                .isMTMVPartitionSync((MTMV) olapTable, partitionId)
-                                : true);
+                if (olapTable instanceof MTMV) {
+                    try {
+                        List<String> partitionUnSyncTables = MTMVUtil
+                                .getPartitionUnSyncTables((MTMV) olapTable, partitionId);
+                        partitionInfo.add(CollectionUtils.isEmpty(partitionUnSyncTables));
+                        partitionInfo.add(partitionUnSyncTables.toString());
+                    } catch (AnalysisException e) {
+                        partitionInfo.add(false);
+                        partitionInfo.add(e.getMessage());
+                    }
+                } else {
+                    partitionInfo.add(true);
+                    partitionInfo.add(FeConstants.null_string);
+                }
+
                 partitionInfos.add(partitionInfo);
             }
         } finally {

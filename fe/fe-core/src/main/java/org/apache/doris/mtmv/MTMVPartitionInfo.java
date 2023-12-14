@@ -92,4 +92,19 @@ public class MTMVPartitionInfo {
                 + ", partitionCol='" + partitionCol + '\''
                 + '}';
     }
+
+    public String toNameString() {
+        if (partitionType == MTMVPartitionType.SELF_MANAGE) {
+            return "MTMVPartitionInfo{"
+                    + "partitionType=" + partitionType
+                    + '}';
+        } else {
+            return "MTMVPartitionInfo{"
+                    + "partitionType=" + partitionType
+                    + ", relatedTable=" + relatedTable.getTableName()
+                    + ", relatedCol='" + relatedCol + '\''
+                    + ", partitionCol='" + partitionCol + '\''
+                    + '}';
+        }
+    }
 }

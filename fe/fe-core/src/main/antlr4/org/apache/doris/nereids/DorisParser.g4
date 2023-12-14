@@ -157,11 +157,7 @@ refreshTrigger
     ;
 
 refreshSchedule
-    : EVERY INTEGER_VALUE mvRefreshUnit (STARTS STRING_LITERAL)?
-    ;
-
-mvRefreshUnit
-    : MINUTE | HOUR | DAY | WEEK
+    : EVERY INTEGER_VALUE refreshUnit = identifier (STARTS STRING_LITERAL)?
     ;
 
 refreshMethod

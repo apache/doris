@@ -204,19 +204,42 @@ public class MTMVUtil {
     }
 
     /**
-     * compare with related partition and non related table
+     * get not sync tables
      *
      * @param mtmv
-     * @param partitionId partitionId of mtmv
+     * @param partitionId
      * @return
+     * @throws AnalysisException
      */
-    public static boolean isMTMVPartitionSync(MTMV mtmv, Long partitionId) {
-        try {
-            return isMTMVPartitionSync(mtmv, partitionId, mtmv.getRelation().getBaseTables(), Sets.newHashSet(), 0L);
-        } catch (AnalysisException e) {
-            LOG.warn("isMTMVPartitionSync error", e);
-            return false;
+    public static List<String> getPartitionUnSyncTables(MTMV mtmv, Long partitionId) throws AnalysisException {
+        List<String> res = Lists.newArrayList();
+        long maxAvailableTime = mtmv.getPartitionOrAnalysisException(partitionId).getVisibleVersionTimeIgnoreInit();
+        for (BaseTableInfo baseTableInfo : mtmv.getRelation().getBaseTables()) {
+            TableIf table = getTable(baseTableInfo);
+            if (!(table instanceof OlapTable)) {
+                continue;
+            }
+            OlapTable olapTable = (OlapTable) table;
+            if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE && mtmv
+                    .getMvPartitionInfo().getRelatedTable().equals(baseTableInfo)) {
+                PartitionItem item = mtmv.getPartitionInfo().getItemOrAnalysisException(partitionId);
+                long relatedPartitionId = getExistPartitionId(item,
+                        olapTable.getPartitionInfo().getIdToItem(false));
+                if (relatedPartitionId == -1L) {
+                    throw new AnalysisException("can not found related partition");
+                }
+                boolean isSyncWithPartition = isSyncWithPartition(mtmv, partitionId, olapTable, relatedPartitionId);
+                if (!isSyncWithPartition) {
+                    res.add(olapTable.getName());
+                }
+            } else {
+                long tableLastVisibleVersionTime = getTableMaxVisibleVersionTime((OlapTable) table);
+                if (tableLastVisibleVersionTime > maxAvailableTime) {
+                    res.add(table.getName());
+                }
+            }
         }
+        return res;
     }
 
     /**
