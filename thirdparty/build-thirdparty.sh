@@ -1073,6 +1073,7 @@ build_arrow() {
     strip_lib libarrow.a
     strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
+    cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a" "${TP_INSTALL_DIR}/lib64/libjemalloc.a" # TODO delete
 }
 
 # abseil
@@ -1519,6 +1520,8 @@ build_jemalloc() {
     CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_64K" ${JEMALLOC_CONFIG} --with-lg-page=16
     make -j "${PARALLEL}"
     make install
+
+    cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_4K.a" "${TP_INSTALL_DIR}/lib64/libjemalloc_doris.a" # TODO delete
 }
 
 # libunwind
