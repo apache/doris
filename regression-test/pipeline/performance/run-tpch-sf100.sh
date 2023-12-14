@@ -19,70 +19,57 @@
 # Build Step: Command Line
 : <<EOF
 #!/bin/bash
-
-teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
-if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/tpch/tpch-sf100/run.sh ]]; then
-    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/
-    bash -x run.sh
+export DEBUG=true
+export OSS_accessKeyID='LTAI5tMJ8betwXWK7Cwo8tJ3'
+export OSS_accessKeySecret='8yAa3kG9Wbpi7uu6uZo2UjLBmGoFFs'
+export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'}
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-tpch-sf100.sh ]]; then
+    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
+    bash -x run-tpch-sf100.sh
 else
-    echo "Build Step file missing: regression-test/pipeline/tpch/tpch-sf100/run.sh" && exit 1
+    echo "Build Step file missing: regression-test/pipeline/performance/run-tpch-sf100.sh" && exit 1
 fi
 EOF
 
 ## run.sh content ##
 
-# check_tpch_table_rows, stop_doris, set_session_variable
-source ../../common/doris-utils.sh
+# shellcheck source=/dev/null
+# check_tpch_table_rows, stop_doris, set_session_variable, check_tpch_result
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
+# shellcheck source=/dev/null
 # create_an_issue_comment
-source ../../common/github-utils.sh
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
+# shellcheck source=/dev/null
 # upload_doris_log_to_oss
-source ../../common/oss-utils.sh
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
+if ${DEBUG:-false}; then
+    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'
+    pull_request_num="28421"
+    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    SF="1"
+fi
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ||
-    -z "${pull_request_id}" ||
+    -z "${pull_request_num}" ||
     -z "${commit_id}" ]]; then
-    echo "ERROR: env teamcity_build_checkoutDir or pull_request_id or commit_id not set"
+    echo "ERROR: env teamcity_build_checkoutDir or pull_request_num or commit_id not set"
     exit 1
 fi
 
 echo "#### Run tpch-sf100 test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
+export DORIS_HOME
+cold_run_time_threshold=${cold_run_time_threshold:-50000}
+hot_run_time_threshold=${hot_run_time_threshold:-42000}
 exit_flag=0
-
-check_tpch_result() {
-    log_file="$1"
-    if ! grep '^Total cold run time' "${log_file}" || ! grep '^Total hot run time' "${log_file}"; then
-        echo "ERROR: can not find 'Total hot run time' in '${log_file}'"
-        return 1
-    else
-        cold_run_time=$(grep '^Total cold run time' "${log_file}" | awk '{print $5}')
-        hot_run_time=$(grep '^Total hot run time' "${log_file}" | awk '{print $5}')
-    fi
-    # 单位是毫秒
-    cold_run_time_threshold=${cold_run_time_threshold:-50000}
-    hot_run_time_threshold=${hot_run_time_threshold:-42000}
-    if [[ ${cold_run_time} -gt 50000 || ${hot_run_time} -gt 42000 ]]; then
-        echo "ERROR:
-    cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
-    or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"
-        return 1
-    else
-        echo "INFO:
-    cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
-    or, hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
-    fi
-}
 
 (
     set -e
     shopt -s inherit_errexit
 
     echo "#### 1. check if need to load data"
-    SF="100" # SCALE FACTOR
-    if ${DEBUG:-false}; then
-        SF="100"
-    fi
+    SF=${SF:-"100"}                                                                   # SCALE FACTOR
     TPCH_DATA_DIR="/data/tpch/sf_${SF}"                                               # no / at the end
     TPCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/tpch-data # no / at the end
     db_name="tpch_sf${SF}"
@@ -149,7 +136,7 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-q
 
     echo "#### 4. comment result on tpch"
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
-    create_an_issue_comment_tpch "${pull_request_id:-}" "${comment_body}"
+    create_an_issue_comment_tpch "${pull_request_num:-}" "${comment_body}"
 
     stop_doris
 )
@@ -159,7 +146,7 @@ echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_logs "${pull_request_id}_${commit_id}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi

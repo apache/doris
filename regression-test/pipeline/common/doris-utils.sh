@@ -116,7 +116,7 @@ function add_doris_be_to_fe() {
             echo 'Wait for Backends ready, sleep 2 seconds ...' && sleep 2
         fi
     done
-    if [[ ${i} -eq 60 ]]; then echo "ERROR: Add Doris Backend Failed after 2 mins wait..." && return 1; fi
+    if [[ ${i} -ge 60 ]]; then echo "ERROR: Add Doris Backend Failed after 2 mins wait..." && return 1; fi
 }
 
 function stop_doris() {
@@ -150,6 +150,31 @@ function check_tpch_table_rows() {
             echo "WARNING: ${table} actual rows: ${rows_actual}, expect rows: ${rows_expect}" && return 1
         fi
     done
+}
+
+function check_tpch_result() {
+    log_file="$1"
+    if [[ -z "${log_file}" ]]; then return 1; fi
+    if ! grep '^Total cold run time' "${log_file}" || ! grep '^Total hot run time' "${log_file}"; then
+        echo "ERROR: can not find 'Total hot run time' in '${log_file}'"
+        return 1
+    else
+        cold_run_time=$(grep '^Total cold run time' "${log_file}" | awk '{print $5}')
+        hot_run_time=$(grep '^Total hot run time' "${log_file}" | awk '{print $5}')
+    fi
+    # 单位是毫秒
+    cold_run_time_threshold=${cold_run_time_threshold:-50000}
+    hot_run_time_threshold=${hot_run_time_threshold:-42000}
+    if [[ ${cold_run_time} -gt 50000 || ${hot_run_time} -gt 42000 ]]; then
+        echo "ERROR:
+    cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
+    or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"
+        return 1
+    else
+        echo "INFO:
+    cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
+    or, hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
+    fi
 }
 
 get_session_variable() {
@@ -228,12 +253,11 @@ archive_doris_logs() {
     if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
     if tar -I pigz \
         --directory "${DORIS_HOME}" \
-        --absolute-names \
         -cf "${DORIS_HOME}/${archive_name}" \
-        "${DORIS_HOME}"/fe/conf \
-        "${DORIS_HOME}"/fe/log \
-        "${DORIS_HOME}"/be/conf \
-        "${DORIS_HOME}"/be/log; then
+        fe/conf \
+        fe/log \
+        be/conf \
+        be/log; then
         echo "${DORIS_HOME}/${archive_name}"
     else
         return 1

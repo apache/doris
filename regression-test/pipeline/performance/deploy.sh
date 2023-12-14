@@ -19,34 +19,43 @@
 # Build Step: Command Line
 : <<EOF
 #!/bin/bash
-
-teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
-if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/tpch/tpch-sf100/deploy.sh ]]; then
-    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/
+export DEBUG=true
+export OSS_accessKeyID='LTAI5tMJ8betwXWK7Cwo8tJ3'
+export OSS_accessKeySecret='8yAa3kG9Wbpi7uu6uZo2UjLBmGoFFs'
+export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'}
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/deploy.sh ]]; then
+    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance
     bash -x deploy.sh
 else
-    echo "Build Step file missing: regression-test/pipeline/tpch/tpch-sf100/deploy.sh" && exit 1
+    echo "Build Step file missing: regression-test/pipeline/performance/deploy.sh" && exit 1
 fi
 EOF
 
 ## deploy.sh content ##
 
-# download_oss_file
-source ../../common/oss-utils.sh
+# shellcheck source=/dev/null
+source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
+
+# shellcheck source=/dev/null
+# upload_doris_log_to_oss
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
+# shellcheck source=/dev/null
 # start_doris_fe, get_doris_conf_value, start_doris_be, stop_doris,
 # print_doris_fe_log, print_doris_be_log, archive_doris_logs
-source ../../common/doris-utils.sh
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 
+if ${DEBUG:-false}; then
+    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'
+    pull_request_num="28421"
+    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+fi
 echo "#### Check env"
 if [[ -z "${teamcity_build_checkoutDir}" ||
-    -z "${pull_request_id}" ||
+    -z "${pull_request_num}" ||
     -z "${commit_id}" ]]; then
-    echo "ERROR: env teamcity_build_checkoutDir or pull_request_id or commit_id not set"
+    echo "ERROR: env teamcity_build_checkoutDir or pull_request_num or commit_id not set"
     exit 1
-fi
-if ${DEBUG:-false}; then
-    pull_request_id="26465"
-    commit_id="a532f7113f463e144e83918a37288f2649448482"
 fi
 
 echo "#### Deploy Doris ####"
@@ -55,42 +64,29 @@ export DORIS_HOME
 exit_flag=0
 need_backup_doris_logs=false
 
-echo "#### 1. try to kill old doris process and remove old doris binary"
-stop_doris && rm -rf output
+echo "#### 1. try to kill old doris process"
+stop_doris
 
-echo "#### 2. download doris binary tar ball"
-cd "${teamcity_build_checkoutDir}" || exit 1
-if download_oss_file "${pull_request_id:-}_${commit_id:-}.tar.gz"; then
-    if ! command -v pigz >/dev/null; then sudo apt install -y pigz; fi
-    tar -I pigz -xf "${pull_request_id:-}_${commit_id:-}.tar.gz"
-    if [[ -d output && -d output/fe && -d output/be ]]; then
-        echo "INFO: be version: $(./output/be/lib/doris_be --version)"
-        rm -rf "${pull_request_id}_${commit_id}.tar.gz"
-    fi
-else
-    echo "ERROR: download compiled binary failed" && exit 1
-fi
-
-echo "#### 3. copy conf from regression-test/pipeline/tpch/tpch-sf100/conf/"
+echo "#### 2. copy conf from regression-test/pipeline/performance/conf/"
 rm -f "${DORIS_HOME}"/fe/conf/fe_custom.conf "${DORIS_HOME}"/be/conf/be_custom.conf
-if [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf ]]; then
-    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf "${DORIS_HOME}"/fe/conf/
-    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf "${DORIS_HOME}"/be/conf/
+if [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf ]]; then
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf "${DORIS_HOME}"/fe/conf/
+    cp -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf "${DORIS_HOME}"/be/conf/
 else
-    echo "ERROR: doris conf file missing in ${teamcity_build_checkoutDir}/regression-test/pipeline/tpch/tpch-sf100/conf/"
+    echo "ERROR: doris conf file missing in ${teamcity_build_checkoutDir}/regression-test/pipeline/performance/conf/"
     exit 1
 fi
 
-echo "#### 4. start Doris"
-meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf meta_dir)
-storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf storage_root_path)
+echo "#### 3. start Doris"
+meta_dir=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe_custom.conf meta_dir)
+storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be_custom.conf storage_root_path)
 mkdir -p "${meta_dir}"
 mkdir -p "${storage_root_path}"
 if ! start_doris_fe; then
     echo "WARNING: Start doris fe failed at first time"
     print_doris_fe_log
-    echo "WARNING: delete meta_dir and storage_root_path, then retry"
+    echo "WARNING: delete meta_dir and storage_root_path, then retry start doris fe"
     rm -rf "${meta_dir:?}/"*
     rm -rf "${storage_root_path:?}/"*
     if ! start_doris_fe; then
@@ -101,7 +97,7 @@ fi
 if ! start_doris_be; then
     echo "WARNING: Start doris be failed at first time"
     print_doris_be_log
-    echo "WARNING: delete storage_root_path, then retry"
+    echo "WARNING: delete storage_root_path, then retry start doris be"
     rm -rf "${storage_root_path:?}/"*
     if ! start_doris_be; then
         need_backup_doris_logs=true
@@ -117,14 +113,14 @@ else
     sleep 10s
 fi
 
-echo "#### 5. set session variables"
+echo "#### 4. set session variables"
 echo "TODO"
 
-echo "#### 6. check if need backup doris logs"
+echo "#### 5. check if need backup doris logs"
 if ${need_backup_doris_logs}; then
     print_doris_fe_log
     print_doris_be_log
-    if file_name=$(archive_doris_logs "${pull_request_id}_${commit_id}_doris_logs.tar.gz"); then
+    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
         upload_doris_log_to_oss "${file_name}"
     fi
 fi

@@ -19,11 +19,8 @@
 # Build Step: Command Line
 : <<EOF
 #!/bin/bash
-
+export DEBUG=true
 export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'}
-export pull_request_num=${pull_request_num:-'28421'}
-export commit_id=${commit_id:-'5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5'}
-export target_branch=${target_branch:-'master'}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/compile.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash -x compile.sh
@@ -32,15 +29,22 @@ else
 fi
 EOF
 
+if ${DEBUG:-false}; then
+    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'
+    pull_request_num="28421"
+    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    target_branch="master"
+fi
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 2; fi
 if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 2; fi
 if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 2; fi
 
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
-# shellcheck source=/dev/null
-source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
+# shellcheck source=/dev/null
+# _get_pr_changed_files file_changed_ckb
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
 if _get_pr_changed_files "${pull_request_num}"; then
     if ! file_changed_ckb; then bash get-or-set-tmp-env.sh 'set' "export skip_pipeline=true" && exit 0; fi
 fi
@@ -106,7 +110,9 @@ if sudo docker ps -a --no-trunc | grep "${docker_name}"; then
     sudo docker stop "${docker_name}"
     sudo docker rm "${docker_name}"
 fi
+rm -f custom_env.sh
 cp "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh .
+rm -rf "${teamcity_build_checkoutDir}"/output
 set -x
 # shellcheck disable=SC2086
 sudo docker run -i --rm \

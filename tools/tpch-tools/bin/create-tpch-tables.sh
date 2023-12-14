@@ -47,7 +47,7 @@ OPTS=$(getopt \
 
 eval set -- "${OPTS}"
 HELP=0
-SCALE_FACTOR=100
+SCALE_FACTOR=1
 
 if [[ $# == 0 ]]; then
     usage
