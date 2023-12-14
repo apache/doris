@@ -104,6 +104,12 @@ public:
         }
     }
 
+    void update_total_return_rows(int64_t rows) {
+        if (_query_statistics != nullptr) {
+            _query_statistics->set_total_return_rows(rows);
+        }
+    }
+
     void update_max_peak_memory_bytes() {
         if (_query_statistics != nullptr) {
             int64_t max_peak_memory_bytes = _query_statistics->calculate_max_peak_memory_bytes();

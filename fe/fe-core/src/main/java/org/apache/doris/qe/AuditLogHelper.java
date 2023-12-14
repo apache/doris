@@ -40,6 +40,8 @@ public class AuditLogHelper {
         long endTime = System.currentTimeMillis();
         long elapseMs = endTime - ctx.getStartTime();
 
+        long totalReturnRows = statistics == null ? 0 : statistics.getTotalReturnRows();
+        ctx.setFoundRows(totalReturnRows);
         ctx.getAuditEventBuilder().setEventType(EventType.AFTER_QUERY)
                 .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
                 .setState(ctx.getState().toString())

@@ -41,9 +41,9 @@ void QueryStatistics::merge(const QueryStatistics& other) {
     scan_rows += other.scan_rows;
     scan_bytes += other.scan_bytes;
     cpu_ms += other.cpu_ms;
-    for (auto& other_node_statistics : other._nodes_statistics_map) {
+    for (const auto& other_node_statistics : other._nodes_statistics_map) {
         int64_t node_id = other_node_statistics.first;
-        auto node_statistics = add_nodes_statistics(node_id);
+        auto* node_statistics = add_nodes_statistics(node_id);
         node_statistics->merge(*other_node_statistics.second);
     }
 }
@@ -55,8 +55,9 @@ void QueryStatistics::to_pb(PQueryStatistics* statistics) {
     statistics->set_cpu_ms(cpu_ms);
     statistics->set_returned_rows(returned_rows);
     statistics->set_max_peak_memory_bytes(max_peak_memory_bytes);
+    statistics->set_total_return_rows(total_return_rows);
     for (auto iter = _nodes_statistics_map.begin(); iter != _nodes_statistics_map.end(); ++iter) {
-        auto node_statistics = statistics->add_nodes_statistics();
+        auto* node_statistics = statistics->add_nodes_statistics();
         node_statistics->set_node_id(iter->first);
         iter->second->to_pb(node_statistics);
     }
