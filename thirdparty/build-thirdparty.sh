@@ -1066,12 +1066,12 @@ build_arrow() {
     "${BUILD_SYSTEM}" install
 
     #copy dep libs
-    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc.a"
+    cp -rf ./jemalloc_ep-prefix/src/jemalloc_ep/dist/lib/libjemalloc_pic.a "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlienc-static.a "${TP_INSTALL_DIR}/lib64/libbrotlienc.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlidec-static.a "${TP_INSTALL_DIR}/lib64/libbrotlidec.a"
     cp -rf ./brotli_ep/src/brotli_ep-install/lib/libbrotlicommon-static.a "${TP_INSTALL_DIR}/lib64/libbrotlicommon.a"
     strip_lib libarrow.a
-    strip_lib libjemalloc.a
+    strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
 }
 
@@ -1497,15 +1497,28 @@ build_jemalloc() {
     check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
     cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
-    mkdir -p "${BUILD_DIR}"
-    cd "${BUILD_DIR}"
-
     cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+    JEMALLOC_CONFIG='--with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared'
 
+    # When compiling Doris, the default page size used by Jemalloc is 4K. If used in a system with a page size of 64K,
+    # an error message of `unsupported system page size` will be reported. It needs to be compiled with `PAGE_SIZE=64K ./build.sh`
+    # Jemalloc compiled on a system with page size 4K can only run on a system with the same page size 4K.
+    # If it is run on a system with page size > 4K, an error will be reported. But Jemalloc compiled on a system with
+    # page size 64K can run on a system with page size < 64K, but this will waste more memory.
+    # Jemalloc does not support dynamic adaptation to the page size of the system. The reason is that jemalloc will
+    # perform some optimizations based on the page size when compiling.
+    mkdir -p "${BUILD_DIR}_4K"
+    cd "${BUILD_DIR}_4K"
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_4K" ${JEMALLOC_CONFIG} --with-lg-page=12
     make -j "${PARALLEL}"
     make install
-    mv "${TP_INSTALL_DIR}"/lib/libjemalloc.a "${TP_INSTALL_DIR}"/lib/libjemalloc_doris.a
+
+    cd ..
+    mkdir -p "${BUILD_DIR}_64K"
+    cd "${BUILD_DIR}_64K"
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_64K" ${JEMALLOC_CONFIG} --with-lg-page=16
+    make -j "${PARALLEL}"
+    make install
 }
 
 # libunwind
