@@ -2013,7 +2013,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_preceding_filter "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -2094,7 +2094,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_where "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -2184,7 +2184,7 @@ suite("test_routine_load","p0") {
                     sleep(5000)
                     count++
                 }
-                
+
                 if (i <= 3) {
                     qt_sql_delete "select * from ${tableName1} order by k00,k01"
                 } else {
@@ -2329,7 +2329,7 @@ suite("test_routine_load","p0") {
 
             sql """
                 CREATE ROUTINE LOAD job_uniq_tbl_partial ON routine_load_uniq_tbl_partial
-                COLUMNS(k00,k01,k02,k03,k04,k05,k06,k07,k08,k09,k10,k11,k12,k13,k14,k15,k16,k17,k18),
+                COLUMNS(k00,k01,k02,k03,k04,k05,k06,k07,k08),
                 COLUMNS TERMINATED BY "|"
                 PROPERTIES
                 (
