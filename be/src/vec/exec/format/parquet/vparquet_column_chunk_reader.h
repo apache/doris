@@ -201,7 +201,7 @@ private:
 
     io::BufferedStreamReader* _stream_reader = nullptr;
     tparquet::ColumnMetaData _metadata;
-    //    cctz::time_zone* _ctz;
+    cctz::time_zone* _ctz;
     io::IOContext* _io_ctx = nullptr;
 
     std::unique_ptr<PageReader> _page_reader;
