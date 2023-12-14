@@ -1233,9 +1233,8 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
-                                                    p._col_distribute_ids, 1);
-    _scan_dependency->set_scanner_ctx(_scanner_ctx.get());
-    _scanner_ctx->set_dependency(_scan_dependency, _finish_dependency);
+                                                    p._col_distribute_ids, 1, _scan_dependency,
+                                                    _finish_dependency);
     return Status::OK();
 }
 
@@ -1438,7 +1437,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
 
     SCOPED_TIMER(exec_time_counter());
-    if (_scanner_ctx.get()) {
+    if (_scanner_ctx) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
     }
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
