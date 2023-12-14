@@ -488,6 +488,7 @@ protected:
     // parent profile
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
+    RuntimeProfile::Counter* _merge_local_rf_timer = nullptr;
     bool _opt_remote_rf;
     const bool _is_global = false;
     std::mutex _local_merge_mutex;

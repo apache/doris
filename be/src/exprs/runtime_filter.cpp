@@ -1013,6 +1013,7 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
 }
 
 Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num) {
+    SCOPED_TIMER(_merge_local_rf_timer);
     std::unique_lock lock(_local_merge_mutex);
     if (_merged_rf_num == 0) {
         _wrapper = wrapper;
@@ -1367,6 +1368,9 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     _profile_init = true;
     parent_profile->add_child(_profile.get(), true, nullptr);
     _profile->add_info_string("Info", _format_status());
+    if (_is_global) {
+        _merge_local_rf_timer = ADD_TIMER(_profile.get(), "MergeLocalRuntimeFilterTime");
+    }
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
     }
