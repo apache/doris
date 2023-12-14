@@ -1656,7 +1656,6 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
     }
 
     std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
-
     // read row by row
     for (size_t i = 0; i < request.row_locs_size(); ++i) {
         const auto& row_loc = request.row_locs(i);
@@ -1695,8 +1694,8 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                 },
                 &acquire_segments_ms));
         // find segment
-        auto it = std::find_if(segment_cache.get_segments().begin(),
-                               segment_cache.get_segments().end(),
+        auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                               segment_cache.get_segments().cend(),
                                [&row_loc](const segment_v2::SegmentSharedPtr& seg) {
                                    return seg->id() == row_loc.segment_id();
                                });
@@ -1737,11 +1736,15 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),
                                       .slot_id = desc.slots()[x]->id()};
-            // hold the reference
-            iterator_map[iterator_key].segment = segment;
+            IteratorItem& iterator_item = iterator_map[iterator_key];
+            if (iterator_item.segment == nullptr) {
+                // hold the reference
+                iterator_map[iterator_key].segment = segment;
+            }
+            segment = iterator_item.segment;
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
                                                             row_id, column, stats,
-                                                            iterator_map[iterator_key].iterator));
+                                                            iterator_item.iterator));
         }
     }
     // serialize block if not empty
