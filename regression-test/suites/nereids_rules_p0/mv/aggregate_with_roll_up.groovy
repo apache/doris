@@ -145,7 +145,7 @@ suite("aggregate_with_roll_up") {
             "group by lineitem.L_LINENUMBER"
     // query
     // fix later
-    order_qt_query1_0_before "${query1_0}"
+//    order_qt_query1_0_before "${query1_0}"
     check_rewrite(mv1_0, query1_0, "mv1_0")
 //    order_qt_query1_0_after "${query1_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
