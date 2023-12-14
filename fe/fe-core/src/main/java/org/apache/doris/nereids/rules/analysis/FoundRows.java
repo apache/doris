@@ -19,15 +19,24 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.copier.ExpressionDeepCopier;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 public class FoundRows extends OneRewriteRuleFactory {
@@ -57,8 +66,20 @@ public class FoundRows extends OneRewriteRuleFactory {
                     LogicalPlan restoredPlan = ctx.cascadesContext.getConnectContext().getRootPlan();
                     if (equalsTree(innerPlan, restoredPlan)) {
                         long foundRows = ctx.cascadesContext.getConnectContext().getTotalReturnRows();
-                        // TODO: return foundRows
-                        return null;
+                        List<NamedExpression> newProjects = new ArrayList<>();
+                        RelationId id = StatementScopeIdGenerator.newRelationId();
+
+                        BigIntLiteral literal = new BigIntLiteral(foundRows);
+                        Alias alias = new Alias(literal, literal.toString());
+
+                        newProjects.add(alias);
+
+                        LogicalOneRowRelation foundRowRelation = new LogicalOneRowRelation(id, newProjects);
+                        LogicalProject newProject = new LogicalProject(foundRowRelation.getProjects(), foundRowRelation);
+
+                        LogicalResultSink newResultSink = new LogicalResultSink<>(newProject.getOutputs(), newProject);
+
+                        return newResultSink;
                     }
                     return null;
                 }).toRule(RuleType.FOUND_ROWS);
