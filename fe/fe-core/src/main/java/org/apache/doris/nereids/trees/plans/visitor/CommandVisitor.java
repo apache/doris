@@ -25,7 +25,8 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -68,8 +69,12 @@ public interface CommandVisitor<R, C> {
         return visitCommand(updateCommand, context);
     }
 
-    default R visitDeleteCommand(DeleteCommand deleteCommand, C context) {
-        return visitCommand(deleteCommand, context);
+    default R visitDeleteFromCommand(DeleteFromCommand deleteFromCommand, C context) {
+        return visitCommand(deleteFromCommand, context);
+    }
+
+    default R visitDeleteFromUsingCommand(DeleteFromUsingCommand deleteFromUsingCommand, C context) {
+        return visitCommand(deleteFromUsingCommand, context);
     }
 
     default R visitLoadCommand(LoadCommand loadCommand, C context) {

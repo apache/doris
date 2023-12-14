@@ -580,6 +580,10 @@ public class HyperGraph {
         LongBitmap.getIterator(addedNodes).forEach(index -> nodes.get(index).attachEdge(edge));
     }
 
+    public int edgeSize() {
+        return joinEdges.size() + filterEdges.size();
+    }
+
     /**
      * compare hypergraph
      *
@@ -588,20 +592,37 @@ public class HyperGraph {
      *          be pull up from this hyper graph
      */
     public @Nullable List<Expression> isLogicCompatible(HyperGraph viewHG, LogicalCompatibilityContext ctx) {
-        if (viewHG.filterEdges.size() != filterEdges.size() && viewHG.joinEdges.size() != joinEdges.size()) {
-            return null;
-        }
         Map<Edge, Edge> queryToView = constructEdgeMap(viewHG, ctx.getQueryToViewEdgeExpressionMapping());
-        if (queryToView.size() != filterEdges.size() + joinEdges.size()) {
+
+        // All edge in view must have a mapped edge in query
+        if (queryToView.size() != viewHG.edgeSize()) {
             return null;
         }
+
         boolean allMatch = queryToView.entrySet().stream()
                 .allMatch(entry ->
                         compareEdgeWithNode(entry.getKey(), entry.getValue(), ctx.getQueryToViewNodeIDMapping()));
         if (!allMatch) {
             return null;
         }
-        return ImmutableList.of();
+
+        // join edges must be identical
+        boolean isJoinIdentical = joinEdges.stream()
+                .allMatch(queryToView::containsKey);
+        if (!isJoinIdentical) {
+            return null;
+        }
+
+        // extract all top filters
+        List<FilterEdge> residualFilterEdges = filterEdges.stream()
+                .filter(e -> !queryToView.containsKey(e))
+                .collect(ImmutableList.toImmutableList());
+        if (residualFilterEdges.stream().anyMatch(e -> !e.isTopFilter())) {
+            return null;
+        }
+        return residualFilterEdges.stream()
+                .flatMap(e -> e.getExpressions().stream())
+                .collect(ImmutableList.toImmutableList());
     }
 
     private Map<Edge, Edge> constructEdgeMap(HyperGraph viewHG, Map<Expression, Expression> exprMap) {
@@ -622,11 +643,17 @@ public class HyperGraph {
 
     private boolean compareEdgeWithNode(Edge t, Edge o, Map<Integer, Integer> nodeMap) {
         if (t instanceof FilterEdge && o instanceof FilterEdge) {
-            return false;
+            return compareEdgeWithFilter((FilterEdge) t, (FilterEdge) o, nodeMap);
         } else if (t instanceof JoinEdge && o instanceof JoinEdge) {
             return compareJoinEdge((JoinEdge) t, (JoinEdge) o, nodeMap);
         }
         return false;
+    }
+
+    private boolean compareEdgeWithFilter(FilterEdge t, FilterEdge o, Map<Integer, Integer> nodeMap) {
+        long tChild = t.getReferenceNodes();
+        long oChild = o.getReferenceNodes();
+        return compareNodeMap(tChild, oChild, nodeMap);
     }
 
     private boolean compareJoinEdge(JoinEdge t, JoinEdge o, Map<Integer, Integer> nodeMap) {

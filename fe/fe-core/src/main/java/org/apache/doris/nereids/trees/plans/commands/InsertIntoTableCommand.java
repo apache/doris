@@ -31,11 +31,11 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -46,6 +46,7 @@ import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PGroupCommitInsertResponse;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.thrift.TStatusCode;
@@ -123,15 +124,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+            executor.setPlanner(planner);
             executor.checkBlockRules();
             if (ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
 
-            Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
+            // TODO: support other type table insert into
+            Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
+                    .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalOlapTableSink.class::isInstance)).stream()
+                    .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
-            physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
+            physicalOlapTableSink = plan.get();
 
             Table targetTable = physicalOlapTableSink.getTargetTable();
             // check auth
@@ -156,7 +160,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     physicalOlapTableSink.getTargetTable(), label, planner);
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(sink, physicalOlapTableSink.isPartialUpdate(),
-                    physicalOlapTableSink.isFromNativeInsertStmt());
+                    physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT);
         } finally {
             targetTableIf.readUnlock();
         }
@@ -216,17 +220,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     private boolean analyzeGroupCommit(ConnectContext ctx, DataSink sink,
             PhysicalOlapTableSink<?> physicalOlapTableSink) {
-        if (!(sink instanceof OlapTableSink)) {
+        if (!(sink instanceof OlapTableSink) || !ctx.getSessionVariable().isEnableInsertGroupCommit()
+                || ctx.getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
             return false;
         }
-        if (!ctx.getSessionVariable().isEnableInsertGroupCommit()) {
-            return false;
-        }
-        return ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
-            && physicalOlapTableSink.getTargetTable() instanceof OlapTable
-            && !ConnectContext.get().isTxnModel()
-            && sink.getFragment().getPlanRoot() instanceof UnionNode
-            && physicalOlapTableSink.getPartitionIds().isEmpty();
+        return ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
+                && physicalOlapTableSink.getTargetTable() instanceof OlapTable && !ConnectContext.get().isTxnModel()
+                && sink.getFragment().getPlanRoot() instanceof UnionNode && physicalOlapTableSink.getPartitionIds()
+                .isEmpty();
     }
 
     @Override

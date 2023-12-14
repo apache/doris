@@ -144,6 +144,19 @@ public:
     void set_num_tasks(int num_tasks) { _num_tasks = num_tasks; }
     int num_tasks() const { return _num_tasks; }
 
+    std::string debug_string() {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "Pipeline [id: {}, _num_tasks: {}, _num_tasks_created: {}, "
+                       "_need_to_local_shuffle: {}]",
+                       _pipeline_id, _num_tasks, _num_tasks_created, _need_to_local_shuffle);
+        for (size_t i = 0; i < operatorXs.size(); i++) {
+            fmt::format_to(debug_string_buffer, "\n{}", operatorXs[i]->debug_string(i));
+        }
+        fmt::format_to(debug_string_buffer, "\n{}", _sink_x->debug_string(operatorXs.size()));
+        return fmt::to_string(debug_string_buffer);
+    }
+
 private:
     void _init_profile();
 

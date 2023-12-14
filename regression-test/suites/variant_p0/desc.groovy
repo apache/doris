@@ -217,6 +217,22 @@ suite("regression_test_variant_desc", "nonConcurrent"){
         sql """ insert into ${table_name} values (0, '{"名字" : "jack", "!@#^&*()": "11111", "金额" : 200, "画像" : {"地址" : "北京", "\\\u4E2C\\\u6587": "unicode"}}')"""
         sql """set describe_extend_variant_column = true"""
         qt_sql_11 """desc ${table_name}"""
+
+        // varaint subcolumn: empty
+        table_name = "no_subcolumn_table"
+        sql """
+            CREATE TABLE IF NOT EXISTS ${table_name} (
+                k bigint,
+                v variant
+            )
+            DUPLICATE KEY(`k`)
+            DISTRIBUTED BY HASH(k) BUCKETS 5
+            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+        """
+        sql """ insert into ${table_name} values (0, '{}')"""
+        sql """ insert into ${table_name} values (0, '100')"""
+        sql """set describe_extend_variant_column = true"""
+        qt_sql_12 """desc ${table_name}"""
     } finally {
         // reset flags
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")

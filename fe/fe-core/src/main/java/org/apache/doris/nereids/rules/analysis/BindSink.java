@@ -22,6 +22,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
@@ -45,6 +46,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -78,7 +80,7 @@ public class BindSink implements AnalysisRuleFactory {
                     Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
                     Database database = pair.first;
                     OlapTable table = pair.second;
-                    boolean isPartialUpdate = sink.isPartialUpdate();
+                    boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
 
                     LogicalPlan child = ((LogicalPlan) sink.child());
                     boolean childHasSeqCol = child.getOutput().stream()
@@ -100,16 +102,16 @@ public class BindSink implements AnalysisRuleFactory {
                                     .map(NamedExpression.class::cast)
                                     .collect(ImmutableList.toImmutableList()),
                             isPartialUpdate,
-                            sink.isFromNativeInsertStmt(),
+                            sink.getDMLCommandType(),
                             child);
 
                     if (isPartialUpdate) {
                         // check the necessary conditions for partial updates
                         if (!table.getEnableUniqueKeyMergeOnWrite()) {
-                            throw new AnalysisException("Partial update is only allowed in"
+                            throw new AnalysisException("Partial update is only allowed on "
                                     + "unique table with merge-on-write enabled.");
                         }
-                        if (sink.getColNames().isEmpty() && sink.isFromNativeInsertStmt()) {
+                        if (sink.getColNames().isEmpty() && sink.getDMLCommandType() == DMLCommandType.INSERT) {
                             throw new AnalysisException("You must explicitly specify the columns to be updated when "
                                     + "updating partial columns using the INSERT statement.");
                         }
@@ -167,7 +169,13 @@ public class BindSink implements AnalysisRuleFactory {
                                 }
                             }
 
-                            if (!haveInputSeqCol && !isPartialUpdate) {
+                            // Don't require user to provide sequence column for partial updates,
+                            // including the following cases:
+                            // 1. it's a load job with `partial_columns=true`
+                            // 2. UPDATE and DELETE, planner will automatically add these hidden columns
+                            if (!haveInputSeqCol && !isPartialUpdate && (
+                                    boundSink.getDmlCommandType() != DMLCommandType.UPDATE
+                                            && boundSink.getDmlCommandType() != DMLCommandType.DELETE)) {
                                 if (!seqColInTable.isPresent() || seqColInTable.get().getDefaultValue() == null
                                         || !seqColInTable.get().getDefaultValue()
                                         .equals(DefaultValue.CURRENT_TIMESTAMP)) {

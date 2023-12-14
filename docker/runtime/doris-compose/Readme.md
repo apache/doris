@@ -83,14 +83,12 @@ python docker/runtime/doris-compose/doris-compose.py restart  <cluster-name>  --
 ### List doris cluster
 
 ```
-python docker/runtime/doris-compose/doris-compose.py ls <-a>  <multiple cluster names>
+python docker/runtime/doris-compose/doris-compose.py ls <multiple cluster names>
 ```
 
 if specific cluster names, it will list all the cluster's nodes.
 
-Otherwise it will just list summary of each clusters. If not specific -a, it will list only active clusters. 
-
-If specific `-a`, it will list the unactive clusters too.
+Otherwise it will just list summary of each clusters.
 
 There are more options about doris-compose. Just try 
 
