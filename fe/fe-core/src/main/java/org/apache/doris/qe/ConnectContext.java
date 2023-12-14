@@ -793,8 +793,8 @@ public class ConnectContext {
         closeChannel();
         threadLocalInfo.remove();
         returnRows = 0;
-        totalReturnRows = 0;
-        rootPlan = null;
+        foundRows = 0;
+        foundRowsPlan = null;
     }
 
     public boolean isKilled() {
