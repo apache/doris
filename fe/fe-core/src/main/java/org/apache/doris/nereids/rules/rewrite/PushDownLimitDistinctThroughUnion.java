@@ -24,7 +24,9 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation.Qualifier;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -63,7 +65,14 @@ public class PushDownLimitDistinctThroughUnion implements RewriteRuleFactory {
         return ImmutableList.of(
                 logicalLimit(logicalAggregate(logicalUnion().when(union -> union.getQualifier() == Qualifier.ALL))
                         .when(agg -> agg.isDistinct()))
-                        .then(limit -> {
+                        .thenApply(ctx -> {
+                            if (ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                                return null;
+                            }
+                            LogicalLimit<LogicalAggregate<LogicalUnion>> limit = ctx.root;
+                            if (limit.isTopLimit()) {
+                                return null;
+                            }
                             LogicalAggregate<LogicalUnion> agg = limit.child();
                             LogicalUnion union = agg.child();
 

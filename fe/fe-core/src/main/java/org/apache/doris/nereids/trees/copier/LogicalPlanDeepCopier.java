@@ -309,7 +309,7 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
     @Override
     public Plan visitLogicalLimit(LogicalLimit<? extends Plan> limit, DeepCopierContext context) {
         Plan child = limit.child().accept(this, context);
-        return new LogicalLimit<>(limit.getLimit(), limit.getOffset(), limit.getPhase(), child);
+        return new LogicalLimit<>(limit.getLimit(), limit.getOffset(), limit.isTopLimit(), limit.getPhase(), child);
     }
 
     @Override

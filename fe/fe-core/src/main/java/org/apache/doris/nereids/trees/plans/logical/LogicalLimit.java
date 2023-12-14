@@ -52,8 +52,14 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     private final long limit;
     private final long offset;
 
+    private boolean isTop = false;
+
     public LogicalLimit(long limit, long offset, LimitPhase phase, CHILD_TYPE child) {
-        this(limit, offset, phase, Optional.empty(), Optional.empty(), child);
+        this(limit, offset, false, phase, Optional.empty(), Optional.empty(), child);
+    }
+
+    public LogicalLimit(long limit, long offset, boolean isTop, LimitPhase phase, CHILD_TYPE child) {
+        this(limit, offset, isTop, phase, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalLimit(long limit, long offset, LimitPhase phase, Optional<GroupExpression> groupExpression,
@@ -61,6 +67,15 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
         super(PlanType.LOGICAL_LIMIT, groupExpression, logicalProperties, child);
         this.limit = limit;
         this.offset = offset;
+        this.phase = phase;
+    }
+
+    public LogicalLimit(long limit, long offset, boolean isTop, LimitPhase phase, Optional<GroupExpression> groupExpression,
+            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
+        super(PlanType.LOGICAL_LIMIT, groupExpression, logicalProperties, child);
+        this.limit = limit;
+        this.offset = offset;
+        this.isTop = isTop;
         this.phase = phase;
     }
 
@@ -78,6 +93,14 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
 
     public long getOffset() {
         return offset;
+    }
+
+    public boolean isTopLimit() {
+        return isTop;
+    }
+
+    public void setIsTopLimit(boolean isTop) {
+        this.isTop = isTop;
     }
 
     @Override

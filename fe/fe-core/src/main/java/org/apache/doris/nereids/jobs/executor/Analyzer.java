@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.LeadingJoin;
+import org.apache.doris.nereids.rules.analysis.MarkTopLimit;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.OneRowRelationExtractAggregate;
@@ -125,6 +126,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
             bottomUp(new JoinCommute()),
+            topDown(new MarkTopLimit()),
             bottomUp(
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()
