@@ -507,6 +507,10 @@ public class Config extends ConfigBase {
                     + "insert into and stream load use group commit by default."})
     public static boolean wait_internal_group_commit_finish = false;
 
+    @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交时间，单位是毫秒",
+            "Default commit interval in ms for group commit"})
+    public static int group_commit_interval_ms_default_value = 10000;
+
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
     public static int stream_load_default_timeout_second = 86400 * 3; // 3days
