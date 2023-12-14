@@ -2491,9 +2491,6 @@ public class SessionVariable implements Serializable, Writable {
         return enableFoundRows;
     }
 
-    public void setEnableFoundRows(boolean enableFoundRows) {
-        this.enableFoundRows = enableFoundRows;
-    }
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
     }

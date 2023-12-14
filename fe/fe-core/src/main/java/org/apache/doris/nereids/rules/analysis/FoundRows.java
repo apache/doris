@@ -14,12 +14,12 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.copier.ExpressionDeepCopier;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -39,12 +39,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 
+/**
+ * FoundRows support.
+ */
 public class FoundRows extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalResultSink(logicalProject(logicalAggregate(logicalSubQueryAlias())))
                 .thenApply(ctx -> {
-                    if (!ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                    if (!ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()
+                            || ctx.cascadesContext.getConnectContext().getFoundRowsPlan() == null) {
                         return null;
                     }
                     LogicalResultSink<LogicalProject<LogicalAggregate<LogicalSubQueryAlias<Plan>>>> rs = ctx.root;
@@ -62,40 +66,38 @@ public class FoundRows extends OneRewriteRuleFactory {
                         return null;
                     }
                     LogicalSubQueryAlias<Plan> subQueryAlias = aggr.child();
-                    LogicalPlan innerPlan = (LogicalPlan) subQueryAlias.child();
-                    LogicalPlan restoredPlan = ctx.cascadesContext.getConnectContext().getRootPlan();
-                    if (equalsTree(innerPlan, restoredPlan)) {
+                    LogicalPlan currentPlan = (LogicalPlan) subQueryAlias.child();
+                    LogicalPlan foundRowsPlan = ctx.cascadesContext.getConnectContext().getFoundRowsPlan();
+                    if (checkPlanTreeEquals(currentPlan, foundRowsPlan)) {
+                        // reset saved foundRowsPlan
+                        ctx.cascadesContext.getConnectContext().setFoundRowsPlan(null);
                         long foundRows = ctx.cascadesContext.getConnectContext().getTotalReturnRows();
                         List<NamedExpression> newProjects = new ArrayList<>();
                         RelationId id = StatementScopeIdGenerator.newRelationId();
-
                         BigIntLiteral literal = new BigIntLiteral(foundRows);
-                        Alias alias = new Alias(literal, literal.toString());
+                        Alias aliasExpr = new Alias(literal, literal.toString());
+                        newProjects.add(aliasExpr);
 
-                        newProjects.add(alias);
+                        LogicalOneRowRelation relation = new LogicalOneRowRelation(id, newProjects);
+                        LogicalProject newProject = new LogicalProject(relation.getProjects(), relation);
 
-                        LogicalOneRowRelation foundRowRelation = new LogicalOneRowRelation(id, newProjects);
-                        LogicalProject newProject = new LogicalProject(foundRowRelation.getProjects(), foundRowRelation);
-
-                        LogicalResultSink newResultSink = new LogicalResultSink<>(newProject.getOutputs(), newProject);
-
-                        return newResultSink;
+                        return new LogicalResultSink<>(newProject.getOutputs(), newProject);
                     }
                     return null;
                 }).toRule(RuleType.FOUND_ROWS);
     }
 
-    private boolean equalsTree(LogicalPlan plan, LogicalPlan other) {
+    private boolean checkPlanTreeEquals(LogicalPlan plan, LogicalPlan other) {
         if (!plan.equals(other)) {
             return false;
         } else if (plan.children().size() != other.children().size()) {
             return false;
         } else {
             int childSize = plan.children().size();
-            for (int i = 0; i < childSize; i ++) {
+            for (int i = 0; i < childSize; i++) {
                 LogicalPlan planChild = (LogicalPlan) plan.children().get(i);
                 LogicalPlan otherChild = (LogicalPlan) other.children().get(i);
-                if (!equalsTree(planChild, otherChild)) {
+                if (!checkPlanTreeEquals(planChild, otherChild)) {
                     return false;
                 }
             }

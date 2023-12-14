@@ -14,6 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
@@ -24,8 +25,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 
-import java.util.Optional;
-
+/**
+ * CalcFoundRows support.
+ */
 public class CalcFoundRows extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
@@ -35,14 +37,13 @@ public class CalcFoundRows extends OneRewriteRuleFactory {
                         return null;
                     }
                     LogicalResultSink<LogicalLimit<Plan>> rs = ctx.root;
-                    LogicalLimit limit = rs.child();
+                    LogicalLimit<Plan> limit = rs.child();
                     LogicalPlan limitChild = (LogicalPlan) limit.child();
-                    // record the plan shape into connect context
-                    ctx.cascadesContext.getConnectContext().setRootPlan(limitChild);
-                    LogicalResultSink newResultSink = new LogicalResultSink<>(rs.getOutputExprs(),
-                            limit.getLimit(), limit.getOffset(), limitChild);
 
-                    return newResultSink;
+                    ctx.cascadesContext.getConnectContext().setFoundRowsPlan(limitChild);
+
+                    return new LogicalResultSink<>(rs.getOutputExprs(),
+                            limit.getLimit(), limit.getOffset(), limitChild);
                 }).toRule(RuleType.CALC_FOUND_ROWS);
     }
 }

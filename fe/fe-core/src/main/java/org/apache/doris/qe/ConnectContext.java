@@ -165,7 +165,7 @@ public class ConnectContext {
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
 
-    protected volatile LogicalPlan rootPlan;
+    protected volatile LogicalPlan foundRowsPlan;
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
@@ -317,7 +317,7 @@ public class ConnectContext {
         state = new QueryState();
         returnRows = 0;
         totalReturnRows = 0;
-        rootPlan = null;
+        foundRowsPlan = null;
         isKilled = false;
         sessionVariable = VariableMgr.newSessionVariable();
         userVars = new HashMap<>();
@@ -595,12 +595,12 @@ public class ConnectContext {
         returnRows = 0;
     }
 
-    public LogicalPlan getRootPlan() {
-        return rootPlan;
+    public LogicalPlan getFoundRowsPlan() {
+        return foundRowsPlan;
     }
 
-    public void setRootPlan(LogicalPlan rootPlan) {
-        this.rootPlan = rootPlan;
+    public void setFoundRowsPlan(LogicalPlan plan) {
+        this.foundRowsPlan = plan;
     }
 
     public void updateReturnRows(int returnRows) {
@@ -617,10 +617,6 @@ public class ConnectContext {
 
     public long getTotalReturnRows() {
         return totalReturnRows;
-    }
-
-    public void resetTotalReturnRows() {
-        totalReturnRows = 0;
     }
 
     public void setTotalReturnRows(long rows) {
