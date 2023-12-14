@@ -27,7 +27,6 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
         externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
 
         def test_dir = "user/doris/preinstalled_data/data_case/autoinc"
-        def test_dir = "test"
 
         def load_from_hdfs = {columns, testTable, label, testFile, format, brokerName, hdfsUser, hdfsPasswd ->
             def result1= sql """ LOAD LABEL ${label} (
@@ -82,6 +81,33 @@ suite("test_autoinc_broker_load", "p0,external,hive,external_docker,external_doc
         load_from_hdfs("name, value", table, test_load_label, "auto_inc_basic.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
         wait_for_load_result(test_load_label, table)
         qt_sql "select * from ${table};"
+        sql """ insert into ${table} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
+        qt_sql "select * from ${table} order by id"
+        sql "drop table if exists ${table};"
+
+
+        table = "test_autoinc_broker_load2"
+        sql "drop table if exists ${table}"
+        sql """ CREATE TABLE IF NOT EXISTS `${table}` (
+            `id` BIGINT NOT NULL AUTO_INCREMENT COMMENT "用户 ID",
+            `name` varchar(65533) NOT NULL COMMENT "用户姓名",
+            `value` int(11) NOT NULL COMMENT "用户得分"
+            ) ENGINE=OLAP
+            UNIQUE KEY(`id`)
+            COMMENT "OLAP"
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "in_memory" = "false",
+            "storage_format" = "V2",
+            "enable_unique_key_merge_on_write" = "true");"""
+        test_load_label = UUID.randomUUID().toString().replaceAll("-", "")
+        load_from_hdfs("id, name, value", table, test_load_label, "auto_inc_with_null.csv", "csv", brokerName, hdfsUser, hdfsPasswd)
+        wait_for_load_result(test_load_label, table)
+        sql "sync"
+        qt_sql "select * from ${table};"
+        sql """ insert into ${table} values(0, "Bob", 123), (2, "Tom", 323), (4, "Carter", 523);"""
+        qt_sql "select * from ${table} order by id"
         sql "drop table if exists ${table};"
     }
 }
