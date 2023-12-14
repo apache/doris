@@ -103,6 +103,8 @@ public:
 
     ThreadPoolToken* get_token() { return _thread_token.get(); }
 
+    [[nodiscard]] bool reach_limit() const { return _reach_limit.load(); }
+    void set_reach_limit() { _reach_limit = true; }
     void set_ready_to_execute(bool is_cancelled) {
         {
             std::lock_guard<std::mutex> l(_start_lock);
@@ -218,6 +220,7 @@ private:
     // And all fragments of this query will start execution when this is set to true.
     std::atomic<bool> _ready_to_execute {false};
     std::atomic<bool> _is_cancelled {false};
+    std::atomic<bool> _reach_limit {false};
 
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;

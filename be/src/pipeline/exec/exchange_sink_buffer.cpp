@@ -300,6 +300,9 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         _instance_to_sending_by_pipeline[id] = true;
     }
 
+    if (_is_receiver_eof(id)) {
+        return Status::EndOfFile("receiver eof");
+    }
     return Status::OK();
 }
 

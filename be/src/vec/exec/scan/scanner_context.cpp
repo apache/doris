@@ -177,7 +177,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
     // (if the scheduler continues to schedule, it will cause a lot of busy running).
     // At this point, consumers are required to trigger new scheduling to ensure that
     // data can be continuously fetched.
-    if (has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
+    if (!done() && has_enough_space_in_blocks_queue() && _num_running_scanners == 0) {
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
             _num_scheduling_ctx++;
@@ -211,7 +211,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         _queued_blocks_memory_usage->add(-block_bytes);
         return Status::OK();
     } else {
-        *eos = _is_finished;
+        *eos = done();
     }
     return Status::OK();
 }
@@ -352,6 +352,9 @@ std::string ScannerContext::debug_string() {
 
 void ScannerContext::reschedule_scanner_ctx() {
     std::lock_guard l(_transfer_lock);
+    if (done()) {
+        return;
+    }
     auto state = _scanner_scheduler->submit(this);
     //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
     if (state.ok()) {
@@ -367,7 +370,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
         _scanners.push_front(scanner);
     }
     std::lock_guard l(_transfer_lock);
-    if (has_enough_space_in_blocks_queue()) {
+    if (!done() && has_enough_space_in_blocks_queue()) {
         auto state = _scanner_scheduler->submit(this);
         if (state.ok()) {
             _num_scheduling_ctx++;

@@ -676,7 +676,12 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         // 1. calculate range
         // 2. dispatch rows to channel
     }
-    return Status::OK();
+    for (auto channel : _channels) {
+        if (!channel->is_receiver_eof()) {
+            return Status::OK();
+        }
+    }
+    return Status::EndOfFile("all data stream channels EOF");
 }
 
 Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {

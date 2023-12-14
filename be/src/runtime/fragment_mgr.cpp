@@ -1008,7 +1008,11 @@ void FragmentMgr::cancel(const TUniqueId& fragment_id, const PPlanFragmentCancel
     }
     if (pipeline_fragment_ctx) {
         find_the_fragment = true;
-        pipeline_fragment_ctx->cancel(reason, msg);
+        if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
+            pipeline_fragment_ctx->set_reach_limit();
+        } else {
+            pipeline_fragment_ctx->cancel(reason, msg);
+        }
     }
 
     if (!find_the_fragment) {

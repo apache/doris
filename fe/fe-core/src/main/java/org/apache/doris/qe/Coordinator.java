@@ -1186,7 +1186,7 @@ public class Coordinator implements CoordInterface {
             this.returnedAllResults = true;
 
             // if this query is a block query do not cancel.
-            Long numLimitRows = fragments.get(0).getPlanRoot().getLimit();
+            long numLimitRows = fragments.get(0).getPlanRoot().getLimit();
             boolean hasLimit = numLimitRows > 0;
             if (!isBlockQuery && instanceIds.size() > 1 && hasLimit && numReceivedRows >= numLimitRows) {
                 LOG.debug("no block query, return num >= limit rows, need cancel");
@@ -1198,6 +1198,12 @@ public class Coordinator implements CoordInterface {
             }
         } else if (resultBatch.getBatch() != null) {
             numReceivedRows += resultBatch.getBatch().getRowsSize();
+        }
+        long numLimitRows = fragments.get(0).getPlanRoot().getLimit();
+        if (numLimitRows > 0) {
+            if (numReceivedRows >= numLimitRows) {
+                cleanRemoteFragmentsAsync(Types.PPlanFragmentCancelReason.LIMIT_REACH);
+            }
         }
 
         return resultBatch;
@@ -1237,6 +1243,18 @@ public class Coordinator implements CoordInterface {
         }
         cancelRemoteFragmentsAsync(cancelReason);
         executionProfile.onCancel();
+    }
+
+    private void cleanRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cleanReason) {
+        if (enablePipelineEngine) {
+            for (PipelineExecContext ctx : pipelineExecContexts.values()) {
+                ctx.cleanFragmentInstance(cleanReason);
+            }
+        } else {
+            for (BackendExecState backendExecState : backendExecStates) {
+                backendExecState.cleanFragmentInstance(cleanReason);
+            }
+        }
     }
 
     private void cancelRemoteFragmentsAsync(Types.PPlanFragmentCancelReason cancelReason) {
@@ -2695,6 +2713,18 @@ public class Coordinator implements CoordInterface {
             this.instanceProfile.prettyPrint(builder, "");
         }
 
+        public synchronized void cleanFragmentInstance(Types.PPlanFragmentCancelReason cleanReason) {
+            if (!initiated || done || hasCanceled) {
+                return;
+            }
+            try {
+                BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
+                        fragmentInstanceId(), cleanReason);
+            } catch (RpcException ignored) {
+                // do nothing
+            }
+        }
+
         // cancel the fragment instance.
         // return true if cancel success. Otherwise, return false
         public synchronized boolean cancelFragmentInstance(Types.PPlanFragmentCancelReason cancelReason) {
@@ -2852,6 +2882,22 @@ public class Coordinator implements CoordInterface {
                 p.computeTimeInProfile();
                 p.prettyPrint(builder, "");
             });
+        }
+
+        // clean all fragment instances, inorder to stop the running instances when query is finished.
+        // for query with limit statement.
+        public synchronized void cleanFragmentInstance(Types.PPlanFragmentCancelReason cleanReason) {
+            if (!initiated || done || hasCanceled) {
+                return;
+            }
+            for (TPipelineInstanceParams localParam : rpcParams.local_params) {
+                try {
+                    BackendServiceProxy.getInstance().cancelPlanFragmentAsync(brpcAddress,
+                            localParam.fragment_instance_id, cleanReason);
+                } catch (RpcException ignored) {
+                    // do nothing
+                }
+            }
         }
 
         // cancel all fragment instances.
