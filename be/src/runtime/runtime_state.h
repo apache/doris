@@ -636,8 +636,8 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
-            _op_id_to_sink_local_state;
+
+    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 
