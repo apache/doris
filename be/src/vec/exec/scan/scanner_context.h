@@ -104,12 +104,6 @@ public:
         return _process_status;
     }
 
-    void set_dependency(std::shared_ptr<pipeline::ScanDependency> dependency,
-                        std::shared_ptr<pipeline::Dependency> finish_dependency) {
-        _dependency = dependency;
-        _finish_dependency = finish_dependency;
-    }
-
     // Called by ScanNode.
     // Used to notify the scheduler that this ScannerContext can stop working.
     void set_should_stop();
@@ -192,6 +186,12 @@ private:
     Status _close_and_clear_scanners(Parent* parent, RuntimeState* state);
 
 protected:
+    ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
+                   const std::list<VScannerSPtr>& scanners_, int64_t limit_,
+                   int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
+                   pipeline::ScanLocalStateBase* local_state,
+                   std::shared_ptr<pipeline::ScanDependency> dependency,
+                   std::shared_ptr<pipeline::Dependency> finish_dependency);
     virtual void _dispose_coloate_blocks_not_in_queue() {}
 
     void _set_scanner_done();
@@ -292,8 +292,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
-    std::shared_ptr<pipeline::ScanDependency> _dependency;
-    std::shared_ptr<pipeline::Dependency> _finish_dependency;
+    std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
+    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
 };
 } // namespace vectorized
 } // namespace doris
