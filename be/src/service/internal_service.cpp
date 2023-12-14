@@ -807,6 +807,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         int64_t index_id = param.indexid();
         auto tablet_ids = param.tablet_ids();
         std::set<std::set<int32_t>> filter_set;
+        std::map<int32_t, const TabletColumn*> id_to_column;
         for (const int64_t tablet_id : tablet_ids) {
             TabletSharedPtr tablet = tablet_mgr->get_tablet(tablet_id);
             if (tablet == nullptr) {
@@ -819,17 +820,45 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
             }
             // check schema consistency, column ids should be the same
             const auto& columns = tablet->tablet_schema()->columns();
+
             std::set<int32_t> column_ids;
             for (const auto& col : columns) {
                 column_ids.insert(col.unique_id());
             }
             filter_set.insert(column_ids);
+
+            if (id_to_column.empty()) {
+                for (const auto& col : columns) {
+                    id_to_column.insert(std::pair {col.unique_id(), &col});
+                }
+            } else {
+                for (const auto& col : columns) {
+                    auto it = id_to_column.find(col.unique_id());
+                    if (it == id_to_column.end() || *(it->second) != col) {
+                        ColumnPB prev_col_pb;
+                        ColumnPB curr_col_pb;
+                        if (it != id_to_column.end()) {
+                            it->second->to_schema_pb(&prev_col_pb);
+                        }
+                        col.to_schema_pb(&curr_col_pb);
+                        std::stringstream ss;
+                        ss << "consistency check failed: index{ " << index_id << " }"
+                           << " got inconsistent schema, prev column: " << prev_col_pb.DebugString()
+                           << " current column: " << curr_col_pb.DebugString();
+                        LOG(WARNING) << ss.str();
+                        response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
+                        response->mutable_status()->add_error_msgs(ss.str());
+                        return;
+                    }
+                }
+            }
         }
+
         if (filter_set.size() > 1) {
             // consistecy check failed
             std::stringstream ss;
             ss << "consistency check failed: index{" << index_id << "}"
-               << "got inconsistent shema";
+               << "got inconsistent schema";
             LOG(WARNING) << ss.str();
             response->mutable_status()->set_status_code(TStatusCode::ILLEGAL_STATE);
             response->mutable_status()->add_error_msgs(ss.str());
