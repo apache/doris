@@ -42,6 +42,10 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
     doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
     _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
     _cv = std::make_shared<std::condition_variable>();
+    static_cast<void>(ThreadPoolBuilder("GroupCommitReplayWalThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(50)
+                              .build(&_thread_pool));
 }
 
 WalManager::~WalManager() {
@@ -56,6 +60,7 @@ void WalManager::stop() {
         if (_replay_thread) {
             _replay_thread->join();
         }
+        _thread_pool->shutdown();
         LOG(INFO) << "WalManager is stopped";
     }
 }
@@ -312,10 +317,12 @@ Status WalManager::replay() {
             }
         }
         for (const auto& table_id : replay_tables) {
-            auto st = _table_map[table_id]->replay_wals();
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed add replay wal on table " << table_id;
-            }
+            RETURN_IF_ERROR(_thread_pool->submit_func([table_id, this] {
+                auto st = this->_table_map[table_id]->replay_wals();
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed add replay wal on table " << table_id;
+                }
+            }));
         }
     } while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::group_commit_replay_wal_retry_interval_seconds)));

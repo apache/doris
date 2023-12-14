@@ -537,9 +537,9 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
             return;
         }
-        // long maxWalId = Env.getCurrentGlobalTransactionMgr()
-        //         .getTransactionIDGenerator().getNextTransactionId();
-        // waitWalFinished(maxWalId);
+        long maxWalId = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionIDGenerator().getNextTransactionId();
+        waitWalFinished(maxWalId);
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.

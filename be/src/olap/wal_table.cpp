@@ -313,7 +313,7 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
             auto it = _column_id_name_map.find(column_id);
             auto it2 = _column_id_index_map.find(column_id);
             if (it != _column_id_name_map.end() && it2 != _column_id_index_map.end()) {
-                ss_name << it->second << ",";
+                ss_name << "`" << it->second << "`,";
                 ss_id << "c" << std::to_string(_column_id_index_map[column_id]) << ",";
                 index_vector.emplace_back(index_raw);
                 //_column_id_name_map.erase(column_id);

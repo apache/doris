@@ -31,6 +31,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/thread.h"
+#include "util/threadpool.h"
 
 namespace doris {
 class WalManager {
@@ -100,5 +101,6 @@ private:
     std::unordered_map<int64_t, std::shared_ptr<std::condition_variable>> _wal_cv_map;
     std::unordered_map<int64_t, bool> _wal_relay_map;
     std::shared_ptr<std::condition_variable> _cv;
+    std::unique_ptr<doris::ThreadPool> _thread_pool;
 };
 } // namespace doris
