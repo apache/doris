@@ -117,6 +117,8 @@ public:
     // in open()/get_next().
     void close();
 
+    void set_reach_limit() { _query_ctx->set_reach_limit(); }
+
     // Initiate cancellation. Must not be called until after prepare() returned.
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
                 const std::string& msg = "");

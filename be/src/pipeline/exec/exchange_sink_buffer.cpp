@@ -362,6 +362,9 @@ Status ExchangeSinkBuffer<Parent>::_send_rpc(InstanceLoId id) {
         _set_ready_to_finish(_busy_channels.fetch_sub(1) == 1);
     }
 
+    if (_is_receiver_eof(id)) {
+        return Status::EndOfFile("receiver eof");
+    }
     return Status::OK();
 }
 

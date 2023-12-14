@@ -106,6 +106,8 @@ public:
             const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
             const std::string& msg = "");
 
+    void set_reach_limit() { _query_ctx->set_reach_limit(); }
+
     // TODO: Support pipeline runtime filter
 
     QueryContext* get_query_context() { return _query_ctx.get(); }

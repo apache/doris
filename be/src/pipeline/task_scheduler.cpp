@@ -281,7 +281,11 @@ void TaskScheduler::_do_work(size_t index) {
         auto status = Status::OK();
 
         try {
-            status = task->execute(&eos);
+            if (task->query_context()->reach_limit()) {
+                eos = true;
+            } else {
+                status = task->execute(&eos);
+            }
         } catch (const Exception& e) {
             status = e.to_status();
         }
