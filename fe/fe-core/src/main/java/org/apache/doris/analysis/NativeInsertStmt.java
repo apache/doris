@@ -1021,7 +1021,7 @@ public class NativeInsertStmt extends InsertStmt {
                 throw new DdlException("txn does not exist: " + transactionId);
             }
             txnState.addTableIndexes((OlapTable) targetTable);
-            if (!isFromDeleteOrUpdateStmt && isPartialUpdate) {
+            if (isPartialUpdate) {
                 txnState.setSchemaForPartialUpdate((OlapTable) targetTable);
             }
         }
