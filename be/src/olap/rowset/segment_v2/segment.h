@@ -156,6 +156,8 @@ public:
     std::shared_ptr<const vectorized::IDataType> get_data_type_of(const Field& filed,
                                                                   bool ignore_children) const;
 
+    std::shared_ptr<const vectorized::IDataType> get_data_type_of(vectorized::PathInData path,
+                                                                  bool ignore_children) const;
     // If column in segment is the same type in schema
     bool is_same_file_col_type_with_expected(int32_t cid, const Schema& schema,
                                              bool ignore_children) const;

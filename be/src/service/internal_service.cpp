@@ -71,6 +71,7 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
@@ -1613,17 +1614,21 @@ struct IteratorKey {
 
 struct HashOfIteratorKey {
     size_t operator()(const IteratorKey& key) const {
-        size_t hashValue = 0;
-        std::hash<long> h1;
-        std::hash<unsigned long> h3;
-        std::hash<int> h4;
-        hashValue ^= h1(key.tablet_id) + 0x9e3779b9 + (hashValue << 6) + (hashValue >> 2);
-        hashValue ^=
-                HashOfRowsetId()(key.rowset_id) + 0x9e3779b9 + (hashValue << 6) + (hashValue >> 2);
-        hashValue ^= h3(key.segment_id) + 0x9e3779b9 + (hashValue << 6) + (hashValue >> 2);
-        hashValue ^= h4(key.slot_id) + 0x9e3779b9 + (hashValue << 6) + (hashValue >> 2);
-        return hashValue;
+        size_t seed = 0;
+        seed = HashUtil::hash64(&key.tablet_id, sizeof(key.tablet_id), seed);
+        seed = HashUtil::hash64(&key.rowset_id.hi, sizeof(key.rowset_id.hi), seed);
+        seed = HashUtil::hash64(&key.rowset_id.mi, sizeof(key.rowset_id.mi), seed);
+        seed = HashUtil::hash64(&key.rowset_id.lo, sizeof(key.rowset_id.lo), seed);
+        seed = HashUtil::hash64(&key.segment_id, sizeof(key.segment_id), seed);
+        seed = HashUtil::hash64(&key.slot_id, sizeof(key.slot_id), seed);
+        return seed;
     }
+};
+
+struct IteratorItem {
+    std::unique_ptr<ColumnIterator> iterator;
+    // for holding the reference of segment to avoid use after release
+    SegmentSharedPtr segment;
 };
 
 Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
@@ -1650,8 +1655,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         full_read_schema.append_column(TabletColumn(column_pb));
     }
 
-    std::unordered_map<IteratorKey, std::unique_ptr<ColumnIterator>, HashOfIteratorKey>
-            iterator_map;
+    std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
 
     // read row by row
     for (size_t i = 0; i < request.row_locs_size(); ++i) {
@@ -1733,9 +1737,11 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),
                                       .slot_id = desc.slots()[x]->id()};
+            // hold the reference
+            iterator_map[iterator_key].segment = segment;
             RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
                                                             row_id, column, stats,
-                                                            iterator_map[iterator_key]));
+                                                            iterator_map[iterator_key].iterator));
         }
     }
     // serialize block if not empty

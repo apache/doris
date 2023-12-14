@@ -352,8 +352,8 @@ static vectorized::DataTypePtr get_data_type_from_column_meta(
 
 vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignore_children) const {
     // Path has higher priority
-    if (!path.empty()) {
-        auto node = _sub_column_tree.find_leaf(path);
+    if (!field.path().empty()) {
+        auto node = _sub_column_tree.find_leaf(field.path());
         if (node) {
             if (ignore_children || node->children.empty()) {
                 return node->data.file_column_type;
@@ -367,13 +367,6 @@ vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignor
         if (it != _file_column_types.end()) {
             return it->second;
         }
-<<<<<<< HEAD
-=======
-        // it contains children or column missing in storage, so treat it as variant
-        return is_nullable
-                       ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>())
-                       : std::make_shared<vectorized::DataTypeObject>();
->>>>>>> 892cc8e23a ([performance](variant) support topn 2phase read for variant column)
     }
     return nullptr;
 }
@@ -681,23 +674,38 @@ bool Segment::is_same_file_col_type_with_expected(int32_t cid, const Schema& sch
     return (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
 }
 
+ std::shared_ptr<const vectorized::IDataType>
+ Segment::get_data_type_of(vectorized::PathInData path,
+                            bool ignore_children) const {
+    auto node = _sub_column_tree.find_leaf(path);
+    if (node) {
+        if (ignore_children || node->children.empty()) {
+            return node->data.file_column_type;
+        }
+    }
+    // it contains children or column missing in storage, so treat it as variant
+    return std::make_shared<vectorized::DataTypeObject>();
+}
+
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
                                        uint32_t row_id, vectorized::MutableColumnPtr& result,
                                        OlapReaderStatistics& stats,
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
     StorageReadOptions storage_read_opt;
     storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+    io::IOContext io_ctx;
+    io_ctx.reader_type = ReaderType::READER_QUERY;
     segment_v2::ColumnIteratorOptions opt {
-            .use_page_cache = !config::disable_storage_page_cache,
             .file_reader = file_reader().get(),
             .stats = &stats,
-            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+            .use_page_cache = !config::disable_storage_page_cache,
+            .io_ctx = io_ctx,
     };
     std::vector<segment_v2::rowid_t> single_row_loc {row_id};
     if (!slot->column_paths().empty()) {
         vectorized::PathInData path(schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
                                     slot->column_paths());
-        auto storage_type = get_data_type_of(path, slot->is_nullable(), false);
+        auto storage_type = get_data_type_of(path, false);
         vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
         DCHECK(storage_type != nullptr);
         TabletColumn column = TabletColumn::create_materialized_variant_column(
@@ -705,7 +713,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                 slot->col_unique_id());
         if (iterator_hint == nullptr) {
             RETURN_IF_ERROR(
-                    new_column_iterator_with_path(column, &iterator_hint, &storage_read_opt));
+                    new_column_iterator(column, &iterator_hint, &storage_read_opt));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(
