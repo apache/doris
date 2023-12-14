@@ -70,7 +70,7 @@ k8	DATETIME	Yes	true	\N
 k9	LARGEINT	Yes	true	\N	
 k10	DECIMAL	Yes	true	\N	
 k11	BOOLEAN	Yes	true	\N	
-v1	INT	Yes	false	\N	REPLACE
+v1	INT	Yes	false	\N	NONE
 
 -- !sql --
 default_cluster:regression_test_inverted_index_p0.test_bitmap_index_unique		index1		k1						BITMAP		
