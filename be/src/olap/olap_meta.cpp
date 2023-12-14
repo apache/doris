@@ -57,7 +57,6 @@ using namespace ErrorCode;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 
-
 bvar::LatencyRecorder g_meta_put_latency("meta_put_latency");
 bvar::LatencyRecorder g_meta_get_latency("meta_get_latency");
 bvar::LatencyRecorder g_meta_remove_latency("meta_remove_latency");
@@ -156,7 +155,6 @@ bool OlapMeta::key_may_exist(const int column_family_index, const std::string& k
 
 Status OlapMeta::put(const int column_family_index, const std::string& key,
                      const std::string& value) {
-
     // log all params
     VLOG_DEBUG << "column_family_index: " << column_family_index << ", key: " << key
                << ", value: " << value;
@@ -165,9 +163,7 @@ Status OlapMeta::put(const int column_family_index, const std::string& key,
     rocksdb::Status s;
     {
         int64_t duration_ns = 0;
-        Defer defer([&] {
-            g_meta_put_latency << (duration_ns / 1000);
-        });
+        Defer defer([&] { g_meta_put_latency << (duration_ns / 1000); });
         SCOPED_RAW_TIMER(&duration_ns);
 
         WriteOptions write_options;
@@ -183,14 +179,11 @@ Status OlapMeta::put(const int column_family_index, const std::string& key,
 }
 
 Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry>& entries) {
-
     auto* handle = _handles[column_family_index].get();
     rocksdb::Status s;
     {
         int64_t duration_ns = 0;
-        Defer defer([&] {
-            g_meta_put_latency << (duration_ns / 1000);
-        });
+        Defer defer([&] { g_meta_put_latency << (duration_ns / 1000); });
         SCOPED_RAW_TIMER(&duration_ns);
 
         // construct write batch
@@ -214,13 +207,10 @@ Status OlapMeta::put(const int column_family_index, const std::vector<BatchEntry
 }
 
 Status OlapMeta::put(rocksdb::WriteBatch* batch) {
-
     rocksdb::Status s;
     {
         int64_t duration_ns = 0;
-        Defer defer([&] {
-            g_meta_put_latency << (duration_ns / 1000);
-        });
+        Defer defer([&] { g_meta_put_latency << (duration_ns / 1000); });
         SCOPED_RAW_TIMER(&duration_ns);
 
         WriteOptions write_options;
