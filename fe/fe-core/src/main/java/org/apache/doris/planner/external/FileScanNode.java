@@ -70,6 +70,8 @@ public abstract class FileScanNode extends ExternalScanNode {
     protected long totalPartitionNum = 0;
     protected long readPartitionNum = 0;
 
+    List<Split> inputSplits = Lists.newArrayList();
+
     public FileScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, StatisticalType statisticalType,
             boolean needCheckColumnPriv) {
         super(id, desc, planNodeName, statisticalType, needCheckColumnPriv);
