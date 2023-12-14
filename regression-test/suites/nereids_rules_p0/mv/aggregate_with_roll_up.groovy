@@ -95,14 +95,17 @@ suite("aggregate_with_roll_up") {
     )
     """
 
+    waiteCreateTableFinished("lineitem")
     sql """ insert into lineitem values (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-12-08', '2023-12-09', '2023-12-10', 'a', 'b', 'yyyyyyyyy'),
     (2, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-12-11', '2023-12-12', '2023-12-13', 'c', 'd', 'xxxxxxxxx');"""
 
+    waiteCreateTableFinished("orders")
     sql """
     insert into orders values (1, 1, 'ok', 99.5, '2023-12-08', 'a', 'b', 1, 'yy'),
     (2, 2, 'ok', 109.2, '2023-12-09', 'c','d',2, 'mm');  
     """
 
+    waiteCreateTableFinished("partsupp")
     sql """
     insert into partsupp values (2, 3, 9, 10.01, 'supply1'),
     (2, 3, 10, 11.01, 'supply2');
