@@ -206,9 +206,9 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
                         ? params.send_query_statistics_with_every_batch
                         : false;
         // TODO: figure out good buffer size based on size of output row
-        sink->reset(new vectorized::VDataStreamSender(state, pool, local_params.sender_id, row_desc,
-                                                      thrift_sink.stream_sink, params.destinations,
-                                                      send_query_statistics_with_every_batch));
+        *sink = std::make_unique<vectorized::VDataStreamSender>(
+                state, pool, local_params.sender_id, row_desc, thrift_sink.stream_sink,
+                params.destinations, send_query_statistics_with_every_batch);
         // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
         break;
     }

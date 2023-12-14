@@ -33,7 +33,7 @@ static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 // Like PriorityThreadPool::Task
 struct ScanTask {
     ScanTask();
-    ScanTask(WorkFunction scan_func, vectorized::ScannerContext* scanner_context,
+    ScanTask(WorkFunction scan_func, std::shared_ptr<vectorized::ScannerContext> scanner_context,
              TGSTEntityPtr scan_entity, int priority);
     bool operator<(const ScanTask& o) const { return priority < o.priority; }
     ScanTask& operator++() {
@@ -42,7 +42,7 @@ struct ScanTask {
     }
 
     WorkFunction scan_func;
-    vectorized::ScannerContext* scanner_context = nullptr;
+    std::shared_ptr<vectorized::ScannerContext> scanner_context = nullptr;
     TGSTEntityPtr scan_entity;
     int priority;
 };
