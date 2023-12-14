@@ -26,10 +26,12 @@ suite("test_duplicate_table_bitmap") {
     sql "insert into ${tbName} values(1,to_bitmap(1));"
     sql "insert into ${tbName} values(2,bitmap_or(to_bitmap(3),to_bitmap(1000)));"
     sql "insert into ${tbName} values(3,bitmap_or(to_bitmap(999),to_bitmap(1000),to_bitmap(888888)));"
-    qt_sql "select k,bitmap_count(id_bitmap),bitmap_to_string(id_bitmap) from ${tbName} order by k;"
+    qt_sql "select k,bitmap_count(id_bitmap),bitmap_to_string(id_bitmap) from ${tbName} order by k, bitmap_count(id_bitmap);"
     sql "insert into ${tbName} values(3,bitmap_from_string('1,0,1,2,3,1,5,99,876,2445'));"
     sql "insert into ${tbName} values(1,bitmap_or(bitmap_from_string('90,5,876'),to_bitmap(1000)));"
-    qt_sql "select k,bitmap_count(id_bitmap),bitmap_to_string(id_bitmap) from ${tbName} order by k;"
+    qt_sql "select k,bitmap_count(id_bitmap),bitmap_to_string(id_bitmap) from ${tbName} order by k, bitmap_count(id_bitmap);"
+    sql "insert into ${tbName} select * from ${tbName};"
+    qt_sql "select k,bitmap_count(id_bitmap),bitmap_to_string(id_bitmap) from ${tbName} order by k, bitmap_count(id_bitmap);"
     sql "DROP TABLE IF EXISTS ${tbName};"
 
 
