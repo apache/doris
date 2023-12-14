@@ -121,7 +121,8 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
             return false;
         }
         PhysicalResultSink<?> that = (PhysicalResultSink<?>) o;
-        return outputExprs.equals(that.outputExprs);
+        return outputExprs.equals(that.outputExprs) && limit == ((PhysicalResultSink<?>) o).limit
+                && offset == ((PhysicalResultSink<?>) o).offset;
     }
 
     @Override
@@ -132,7 +133,7 @@ public class PhysicalResultSink<CHILD_TYPE extends Plan> extends PhysicalSink<CH
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalResultSink[" + id.asInt() + "]",
-                "outputExprs", outputExprs);
+                "outputExprs", outputExprs, "limit", limit, "offset", offset);
     }
 
     @Override

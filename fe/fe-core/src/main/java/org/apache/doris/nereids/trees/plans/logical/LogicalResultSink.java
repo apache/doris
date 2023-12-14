@@ -37,23 +37,21 @@ import java.util.Optional;
  */
 public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD_TYPE>
         implements Sink, PropagateFuncDeps {
-    private long limit;
-    private long offset;
+    private final long limit;
+    private final long offset;
 
     public LogicalResultSink(List<NamedExpression> outputExprs, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_RESULT_SINK, outputExprs, child);
+        this(outputExprs, -1, 0, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalResultSink(List<NamedExpression> outputExprs, long limit, long offset, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_RESULT_SINK, outputExprs, child);
-        this.limit = limit;
-        this.offset = offset;
+        this(outputExprs, limit, offset, Optional.empty(), Optional.empty(), child);
     }
 
     public LogicalResultSink(List<NamedExpression> outputExprs,
             Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        super(PlanType.LOGICAL_RESULT_SINK, outputExprs, groupExpression, logicalProperties, child);
+        this(outputExprs, -1, 0, groupExpression, logicalProperties, child);
     }
 
     public LogicalResultSink(List<NamedExpression> outputExprs, long limit, long offset,
@@ -70,14 +68,6 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
 
     public long getOffset() {
         return offset;
-    }
-
-    public void setOffset(long offset) {
-        this.offset = offset;
-    }
-
-    public void setLimit(long limit) {
-        this.limit = limit;
     }
 
     @Override
@@ -108,6 +98,6 @@ public class LogicalResultSink<CHILD_TYPE extends Plan> extends LogicalSink<CHIL
     @Override
     public String toString() {
         return Utils.toSqlString("LogicalResultSink[" + id.asInt() + "]",
-                "outputExprs", outputExprs);
+                "outputExprs", outputExprs, "limit", limit, "offset", offset);
     }
 }

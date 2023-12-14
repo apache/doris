@@ -39,9 +39,8 @@ public class CalcFoundRows extends OneRewriteRuleFactory {
                     LogicalPlan limitChild = (LogicalPlan) limit.child();
                     // record the plan shape into connect context
                     ctx.cascadesContext.getConnectContext().setRootPlan(limitChild);
-                    LogicalResultSink newResultSink = new LogicalResultSink<>(rs.getOutputExprs(), limit.getLimit(),
-                            limit.getOffset(), rs.getGroupExpression(),
-                            Optional.of(rs.getLogicalProperties()), limitChild);
+                    LogicalResultSink newResultSink = new LogicalResultSink<>(rs.getOutputExprs(),
+                            limit.getLimit(), limit.getOffset(), limitChild);
 
                     return newResultSink;
                 }).toRule(RuleType.CALC_FOUND_ROWS);
