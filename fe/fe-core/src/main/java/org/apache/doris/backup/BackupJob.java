@@ -32,7 +32,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.Config;
@@ -357,6 +356,9 @@ public class BackupJob extends AbstractJob {
         unfinishedTaskIds.clear();
         taskProgress.clear();
         taskErrMsg.clear();
+        // copy all related schema at this moment
+        List<Table> copiedTables = Lists.newArrayList();
+        List<Resource> copiedResources = Lists.newArrayList();
         AgentBatchTask batchTask = new AgentBatchTask();
         for (TableRef tableRef : tableRefs) {
             String tblName = tableRef.getName().getTbl();
@@ -365,46 +367,49 @@ public class BackupJob extends AbstractJob {
                 status = new Status(ErrCode.NOT_FOUND, "table " + tblName + " does not exist");
                 return;
             }
-            switch (tbl.getType()) {
-                case OLAP:
-                    checkOlapTable((OlapTable) tbl, tableRef);
-                    if (!status.ok()) {
-                        return;
-                    }
-                    if (getContent() == BackupContent.ALL) {
-                        prepareSnapshotTaskForOlapTable((OlapTable) tbl, tableRef, batchTask);
+            tbl.readLock();
+            try {
+                switch (tbl.getType()) {
+                    case OLAP:
+                        OlapTable olapTable = (OlapTable) tbl;
+                        checkOlapTable(olapTable, tableRef);
                         if (!status.ok()) {
                             return;
                         }
-                    }
-                    break;
-                case VIEW:
-                    break;
-                case ODBC:
-                    OdbcTable odbcTable = (OdbcTable) tbl;
-                    if (odbcTable.getOdbcCatalogResourceName() != null) {
-                        String odbcResourceName = odbcTable.getOdbcCatalogResourceName();
-                        Resource resource = Env.getCurrentEnv().getResourceMgr()
-                                .getResource(odbcResourceName);
-                        if (resource == null) {
-                            status = new Status(ErrCode.NOT_FOUND, "resource " + odbcResourceName
-                                    + " related to " + tblName + "does not exist.");
+                        if (getContent() == BackupContent.ALL) {
+                            prepareSnapshotTaskForOlapTableWithoutLock((OlapTable) tbl, tableRef, batchTask);
+                            if (!status.ok()) {
+                                return;
+                            }
+                        }
+                        prepareBackupMetaForOlapTableWithoutLock(tableRef, olapTable, copiedTables);
+                        if (!status.ok()) {
                             return;
                         }
-                    }
-                    break;
-                default:
-                    status = new Status(ErrCode.COMMON_ERROR,
-                            "backup job does not support this type of table " + tblName);
-                    return;
+                        break;
+                    case VIEW:
+                        prepareBackupMetaForViewWithoutLock((View) tbl, copiedTables);
+                        if (!status.ok()) {
+                            return;
+                        }
+                        break;
+                    case ODBC:
+                        prepareBackupMetaForOdbcTableWithoutLock((OdbcTable) tbl, copiedTables, copiedResources);
+                        if (!status.ok()) {
+                            return;
+                        }
+                        break;
+                    default:
+                        status = new Status(ErrCode.COMMON_ERROR,
+                                "backup job does not support this type of table " + tblName);
+                        return;
+                }
+            } finally {
+                tbl.readUnlock();
             }
         }
 
-        // copy all related schema at this moment
-        prepareBackupMeta(db);
-        if (!status.ok()) {
-            return;
-        }
+        backupMeta = new BackupMeta(copiedTables, copiedResources);
 
         // send tasks
         for (AgentTask task : batchTask.getAllTasks()) {
@@ -438,121 +443,117 @@ public class BackupJob extends AbstractJob {
         }
     }
 
-    private void prepareSnapshotTaskForOlapTable(OlapTable olapTable,
+    private void prepareSnapshotTaskForOlapTableWithoutLock(OlapTable olapTable,
             TableRef backupTableRef, AgentBatchTask batchTask) {
-        olapTable.readLock();
-        try {
-            // check backup table again
-            if (backupTableRef.getPartitionNames() != null) {
-                for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                    Partition partition = olapTable.getPartition(partName);
-                    if (partition == null) {
-                        status = new Status(ErrCode.NOT_FOUND, "partition " + partName
-                                + " does not exist  in table" + backupTableRef.getName().getTbl());
+        // check backup table again
+        if (backupTableRef.getPartitionNames() != null) {
+            for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+                Partition partition = olapTable.getPartition(partName);
+                if (partition == null) {
+                    status = new Status(ErrCode.NOT_FOUND, "partition " + partName
+                            + " does not exist  in table" + backupTableRef.getName().getTbl());
+                    return;
+                }
+            }
+        }
+
+        // create snapshot tasks
+        List<Partition> partitions = Lists.newArrayList();
+        if (backupTableRef.getPartitionNames() == null) {
+            partitions.addAll(olapTable.getPartitions());
+        } else {
+            for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
+                Partition partition = olapTable.getPartition(partName);
+                partitions.add(partition);
+            }
+        }
+
+        // snapshot partitions
+        for (Partition partition : partitions) {
+            long visibleVersion = partition.getVisibleVersion();
+            List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
+            for (MaterializedIndex index : indexes) {
+                int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
+                List<Tablet> tablets = index.getTablets();
+                for (Tablet tablet : tablets) {
+                    Replica replica = chooseReplica(tablet, visibleVersion);
+                    if (replica == null) {
+                        status = new Status(ErrCode.COMMON_ERROR,
+                                "failed to choose replica to make snapshot for tablet " + tablet.getId()
+                                        + ". visible version: " + visibleVersion);
                         return;
                     }
+                    SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
+                            jobId, dbId, olapTable.getId(), partition.getId(),
+                            index.getId(), tablet.getId(),
+                            visibleVersion,
+                            schemaHash, timeoutMs, false /* not restore task */);
+                    batchTask.addTask(task);
+                    unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
                 }
             }
 
-            // create snapshot tasks
-            List<Partition> partitions = Lists.newArrayList();
-            if (backupTableRef.getPartitionNames() == null) {
-                partitions.addAll(olapTable.getPartitions());
-            } else {
-                for (String partName : backupTableRef.getPartitionNames().getPartitionNames()) {
-                    Partition partition = olapTable.getPartition(partName);
-                    partitions.add(partition);
-                }
-            }
-
-            // snapshot partitions
-            for (Partition partition : partitions) {
-                long visibleVersion = partition.getVisibleVersion();
-                List<MaterializedIndex> indexes = partition.getMaterializedIndices(IndexExtState.VISIBLE);
-                for (MaterializedIndex index : indexes) {
-                    int schemaHash = olapTable.getSchemaHashByIndexId(index.getId());
-                    List<Tablet> tablets = index.getTablets();
-                    for (Tablet tablet : tablets) {
-                        Replica replica = chooseReplica(tablet, visibleVersion);
-                        if (replica == null) {
-                            status = new Status(ErrCode.COMMON_ERROR,
-                                    "failed to choose replica to make snapshot for tablet " + tablet.getId()
-                                            + ". visible version: " + visibleVersion);
-                            return;
-                        }
-                        SnapshotTask task = new SnapshotTask(null, replica.getBackendId(), tablet.getId(),
-                                jobId, dbId, olapTable.getId(), partition.getId(),
-                                index.getId(), tablet.getId(),
-                                visibleVersion,
-                                schemaHash, timeoutMs, false /* not restore task */);
-                        batchTask.addTask(task);
-                        unfinishedTaskIds.put(tablet.getId(), replica.getBackendId());
-                    }
-                }
-
-                LOG.info("snapshot for partition {}, version: {}",
-                        partition.getId(), visibleVersion);
-            }
-        } finally {
-            olapTable.readUnlock();
+            LOG.info("snapshot for partition {}, version: {}",
+                    partition.getId(), visibleVersion);
         }
     }
 
-    private void prepareBackupMeta(Database db) {
-        // copy all related schema at this moment
-        List<Table> copiedTables = Lists.newArrayList();
-        List<Resource> copiedResources = Lists.newArrayList();
-        for (TableRef tableRef : tableRefs) {
-            String tblName = tableRef.getName().getTbl();
-            Table table = db.getTableNullable(tblName);
-            table.readLock();
-            try {
-                if (table.getType() == TableType.OLAP) {
-                    OlapTable olapTable = (OlapTable) table;
-                    // only copy visible indexes
-                    List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
-                            : tableRef.getPartitionNames().getPartitionNames();
-                    OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
-                    if (copiedTbl == null) {
-                        status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + tblName);
-                        return;
-                    }
-
-                    removeUnsupportProperties(copiedTbl);
-                    copiedTables.add(copiedTbl);
-                } else if (table.getType() == TableType.VIEW) {
-                    View view = (View) table;
-                    View copiedView = view.clone();
-                    if (copiedView == null) {
-                        status = new Status(ErrCode.COMMON_ERROR, "failed to copy view: " + tblName);
-                        return;
-                    }
-                    copiedTables.add(copiedView);
-                } else if (table.getType() == TableType.ODBC) {
-                    OdbcTable odbcTable = (OdbcTable) table;
-                    OdbcTable copiedOdbcTable = odbcTable.clone();
-                    if (copiedOdbcTable == null) {
-                        status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + tblName);
-                        return;
-                    }
-                    copiedTables.add(copiedOdbcTable);
-                    if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
-                        Resource resource = Env.getCurrentEnv().getResourceMgr()
-                                .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
-                        Resource copiedResource = resource.clone();
-                        if (copiedResource == null) {
-                            status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
-                                    + resource.getName());
-                            return;
-                        }
-                        copiedResources.add(copiedResource);
-                    }
-                }
-            } finally {
-                table.readUnlock();
+    private void checkResourceForOdbcTable(OdbcTable odbcTable) {
+        if (odbcTable.getOdbcCatalogResourceName() != null) {
+            String odbcResourceName = odbcTable.getOdbcCatalogResourceName();
+            Resource resource = Env.getCurrentEnv().getResourceMgr()
+                    .getResource(odbcResourceName);
+            if (resource == null) {
+                status = new Status(ErrCode.NOT_FOUND, "resource " + odbcResourceName
+                        + " related to " + odbcTable.getName() + "does not exist.");
+                return;
             }
         }
-        backupMeta = new BackupMeta(copiedTables, copiedResources);
+    }
+
+    private void prepareBackupMetaForOlapTableWithoutLock(TableRef tableRef, OlapTable olapTable,
+                                                          List<Table> copiedTables) {
+        // only copy visible indexes
+        List<String> reservedPartitions = tableRef.getPartitionNames() == null ? null
+                : tableRef.getPartitionNames().getPartitionNames();
+        OlapTable copiedTbl = olapTable.selectiveCopy(reservedPartitions, IndexExtState.VISIBLE, true);
+        if (copiedTbl == null) {
+            status = new Status(ErrCode.COMMON_ERROR, "failed to copy table: " + olapTable.getName());
+            return;
+        }
+
+        removeUnsupportProperties(copiedTbl);
+        copiedTables.add(copiedTbl);
+    }
+
+    private void prepareBackupMetaForViewWithoutLock(View view, List<Table> copiedTables) {
+        View copiedView = view.clone();
+        if (copiedView == null) {
+            status = new Status(ErrCode.COMMON_ERROR, "failed to copy view: " + view.getName());
+            return;
+        }
+        copiedTables.add(copiedView);
+    }
+
+    private void prepareBackupMetaForOdbcTableWithoutLock(OdbcTable odbcTable, List<Table> copiedTables,
+            List<Resource> copiedResources) {
+        OdbcTable copiedOdbcTable = odbcTable.clone();
+        if (copiedOdbcTable == null) {
+            status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc table: " + odbcTable.getName());
+            return;
+        }
+        copiedTables.add(copiedOdbcTable);
+        if (copiedOdbcTable.getOdbcCatalogResourceName() != null) {
+            Resource resource = Env.getCurrentEnv().getResourceMgr()
+                    .getResource(copiedOdbcTable.getOdbcCatalogResourceName());
+            Resource copiedResource = resource.clone();
+            if (copiedResource == null) {
+                status = new Status(ErrCode.COMMON_ERROR, "failed to copy odbc resource: "
+                        + resource.getName());
+                return;
+            }
+            copiedResources.add(copiedResource);
+        }
     }
 
     private void removeUnsupportProperties(OlapTable tbl) {
