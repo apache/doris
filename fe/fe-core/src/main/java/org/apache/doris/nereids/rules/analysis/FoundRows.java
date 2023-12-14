@@ -71,7 +71,7 @@ public class FoundRows extends OneRewriteRuleFactory {
                     if (checkPlanTreeEquals(currentPlan, foundRowsPlan)) {
                         // reset saved foundRowsPlan
                         ctx.cascadesContext.getConnectContext().setFoundRowsPlan(null);
-                        long foundRows = ctx.cascadesContext.getConnectContext().getTotalReturnRows();
+                        long foundRows = ctx.cascadesContext.getConnectContext().getFoundRows();
                         List<NamedExpression> newProjects = new ArrayList<>();
                         RelationId id = StatementScopeIdGenerator.newRelationId();
                         BigIntLiteral literal = new BigIntLiteral(foundRows);

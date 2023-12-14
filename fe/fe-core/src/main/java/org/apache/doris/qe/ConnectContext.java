@@ -126,7 +126,8 @@ public class ConnectContext {
     protected volatile QueryState state;
     protected volatile long returnRows;
 
-    protected volatile long totalReturnRows;
+    // found rows
+    protected volatile long foundRows;
     // the protocol capability which server say it can support
     protected volatile MysqlCapability serverCapability;
     // the protocol capability after server and client negotiate
@@ -316,7 +317,7 @@ public class ConnectContext {
     public void init() {
         state = new QueryState();
         returnRows = 0;
-        totalReturnRows = 0;
+        foundRows = 0;
         foundRowsPlan = null;
         isKilled = false;
         sessionVariable = VariableMgr.newSessionVariable();
@@ -615,12 +616,12 @@ public class ConnectContext {
         returnRows = 0;
     }
 
-    public long getTotalReturnRows() {
-        return totalReturnRows;
+    public long getFoundRows() {
+        return foundRows;
     }
 
-    public void setTotalReturnRows(long rows) {
-        totalReturnRows = rows;
+    public void setFoundRows(long rows) {
+        foundRows = rows;
     }
 
     public int getConnectionId() {
