@@ -32,26 +32,26 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function Ipv4StringToNumOrNull
+ * scalar function Ipv6StringToNumOrNull
  */
-public class Ipv4StringToNumOrNull extends ScalarFunction
+public class Ipv6StringToNumOrNull extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE));
 
-    public Ipv4StringToNumOrNull(Expression arg0) {
-        super("ipv4stringtonumornull", arg0);
+    public Ipv6StringToNumOrNull(Expression arg0) {
+        super("ipv6stringtonumornull", arg0);
     }
 
     @Override
-    public Ipv4StringToNumOrNull withChildren(List<Expression> children) {
+    public Ipv6StringToNumOrNull withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "ipv4stringtonumornull accept 1 args, but got %s (%s)",
+                "ipv6stringtonumornull accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv4StringToNumOrNull(children.get(0));
+        return new Ipv6StringToNumOrNull(children.get(0));
     }
 
     @Override
@@ -61,6 +61,6 @@ public class Ipv4StringToNumOrNull extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitIpv4StringToNumOrNull(this, context);
+        return visitor.visitIpv6StringToNumOrNull(this, context);
     }
 }

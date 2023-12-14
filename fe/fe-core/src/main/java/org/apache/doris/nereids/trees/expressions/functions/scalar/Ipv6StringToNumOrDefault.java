@@ -32,7 +32,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * scalar function Ipv4StringToNumOrDefault
+ * scalar function Ipv6StringToNumOrDefault
  */
 public class Ipv6StringToNumOrDefault extends ScalarFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNotNullable {
@@ -41,17 +41,17 @@ public class Ipv6StringToNumOrDefault extends ScalarFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).args(VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE));
 
-    public Ipv4StringToNumOrDefault(Expression arg0) {
-        super("ipv4stringtonumordefault", arg0);
+    public Ipv6StringToNumOrDefault(Expression arg0) {
+        super("ipv6stringtonumordefault", arg0);
     }
 
     @Override
-    public Ipv4StringToNumOrDefault withChildren(List<Expression> children) {
+    public Ipv6StringToNumOrDefault withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1,
-                "ipv4stringtonumordefault accept 1 args, but got %s (%s)",
+                "ipv6stringtonumordefault accept 1 args, but got %s (%s)",
                 children.size(),
                 children);
-        return new Ipv4StringToNumOrDefault(children.get(0));
+        return new Ipv6StringToNumOrDefault(children.get(0));
     }
 
     @Override
@@ -61,6 +61,6 @@ public class Ipv6StringToNumOrDefault extends ScalarFunction
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitIpv4StringToNumOrDefault(this, context);
+        return visitor.visitIpv6StringToNumOrDefault(this, context);
     }
 }

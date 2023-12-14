@@ -42,7 +42,7 @@ public class Ipv6StringToNum extends ScalarFunction
             FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE));
 
     public Ipv6StringToNum(Expression arg0) {
-        super("ipv4stringtonum", arg0);
+        super("ipv6stringtonum", arg0);
     }
 
     @Override
