@@ -31,7 +31,6 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -124,15 +123,18 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
             LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
             NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
             planner.plan(logicalPlanAdapter, ctx.getSessionVariable().toThrift());
+            executor.setPlanner(planner);
             executor.checkBlockRules();
             if (ctx.getMysqlChannel() != null) {
                 ctx.getMysqlChannel().reset();
             }
 
-            Optional<TreeNode<?>> plan = (planner.getPhysicalPlan()
-                    .<Set<TreeNode<?>>>collect(node -> node instanceof PhysicalOlapTableSink)).stream().findAny();
+            // TODO: support other type table insert into
+            Optional<PhysicalOlapTableSink<?>> plan = (planner.getPhysicalPlan()
+                    .<Set<PhysicalOlapTableSink<?>>>collect(PhysicalOlapTableSink.class::isInstance)).stream()
+                    .findAny();
             Preconditions.checkArgument(plan.isPresent(), "insert into command must contain OlapTableSinkNode");
-            physicalOlapTableSink = ((PhysicalOlapTableSink<?>) plan.get());
+            physicalOlapTableSink = plan.get();
 
             Table targetTable = physicalOlapTableSink.getTargetTable();
             // check auth

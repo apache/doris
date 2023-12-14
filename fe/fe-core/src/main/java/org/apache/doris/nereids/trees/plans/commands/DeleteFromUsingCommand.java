@@ -18,12 +18,10 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -34,9 +32,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
@@ -48,50 +46,44 @@ import java.util.Optional;
 /**
  * delete from unique key table.
  */
-public class DeleteCommand extends Command implements ForwardWithSync, Explainable {
+public class DeleteFromUsingCommand extends Command implements ForwardWithSync, Explainable {
+
     private final List<String> nameParts;
     private final String tableAlias;
+    private final boolean isTempPart;
     private final List<String> partitions;
-    private LogicalPlan logicalQuery;
-    private OlapTable targetTable;
     private final Optional<LogicalPlan> cte;
+    private final LogicalPlan logicalQuery;
 
     /**
      * constructor
      */
-    public DeleteCommand(List<String> nameParts, String tableAlias, List<String> partitions,
-            LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
+    public DeleteFromUsingCommand(List<String> nameParts, String tableAlias,
+            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
         super(PlanType.DELETE_COMMAND);
         this.nameParts = Utils.copyRequiredList(nameParts);
         this.tableAlias = tableAlias;
+        this.isTempPart = isTempPart;
         this.partitions = Utils.copyRequiredList(partitions);
-        this.logicalQuery = logicalQuery;
         this.cte = cte;
+        this.logicalQuery = logicalQuery;
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        if (ctx.getSessionVariable().isInDebugMode()) {
+            throw new AnalysisException("Delete is forbidden since current session is in debug mode."
+                    + " Please check the following session variables: "
+                    + String.join(", ", SessionVariable.DEBUG_VARIABLES));
+        }
         new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty()).run(ctx, executor);
-    }
-
-    private void checkTable(ConnectContext ctx) {
-        List<String> qualifieredTableName = RelationUtil.getQualifierName(ctx, nameParts);
-        TableIf table = RelationUtil.getTable(qualifieredTableName, ctx.getEnv());
-        if (!(table instanceof OlapTable)) {
-            throw new AnalysisException("table must be olapTable in delete command");
-        }
-        targetTable = ((OlapTable) table);
-        if (targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
-            throw new AnalysisException("Nereids only support delete command on unique key table now");
-        }
     }
 
     /**
      * public for test
      */
     public LogicalPlan completeQueryPlan(ConnectContext ctx, LogicalPlan logicalQuery) {
-        checkTable(ctx);
-
+        OlapTable targetTable = CommandUtils.checkAndGetDeleteTargetTable(ctx, nameParts);
         // add select and insert node.
         List<NamedExpression> selectLists = Lists.newArrayList();
         List<String> cols = Lists.newArrayList();
@@ -122,7 +114,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundTableSink<>(nameParts, cols, ImmutableList.of(),
-                false, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
+                isTempPart, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {
@@ -136,6 +128,6 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return visitor.visitDeleteCommand(this, context);
+        return visitor.visitDeleteFromUsingCommand(this, context);
     }
 }

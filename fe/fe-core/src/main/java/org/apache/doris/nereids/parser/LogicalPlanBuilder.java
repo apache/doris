@@ -326,7 +326,8 @@ import org.apache.doris.nereids.trees.plans.commands.Constraint;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -477,24 +478,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Optional<String> labelName = ctx.labelName == null ? Optional.empty() : Optional.of(ctx.labelName.getText());
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
-        PartitionSpecContext partitionSpecCtx = ctx.partitionSpec();
-        List<String> partitions = ImmutableList.of();
-        boolean temporaryPartition = false;
-        if (partitionSpecCtx != null) {
-            temporaryPartition = partitionSpecCtx.TEMPORARY() != null;
-            if (partitionSpecCtx.partition != null) {
-                partitions = ImmutableList.of(partitionSpecCtx.partition.getText());
-            } else {
-                partitions = visitIdentifierList(partitionSpecCtx.partitions);
-            }
-        }
+        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
         LogicalPlan plan = ctx.query() != null ? visitQuery(ctx.query()) : visitInlineTable(ctx.inlineTable());
         UnboundTableSink<?> sink = new UnboundTableSink<>(
                 tableName.build(),
                 colNames,
                 ImmutableList.of(),
-                temporaryPartition,
-                partitions,
+                partitionSpec.first,
+                partitionSpec.second,
                 ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate(),
                 DMLCommandType.INSERT,
                 plan);
@@ -512,6 +503,24 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             return withExplain(command, ctx.explain());
         }
         return command;
+    }
+
+    /**
+     * return a pair, first will be true if partitions is temp partition, select is a list to present partition list.
+     */
+    @Override
+    public Pair<Boolean, List<String>> visitPartitionSpec(PartitionSpecContext ctx) {
+        List<String> partitions = ImmutableList.of();
+        boolean temporaryPartition = false;
+        if (ctx != null) {
+            temporaryPartition = ctx.TEMPORARY() != null;
+            if (ctx.partition != null) {
+                partitions = ImmutableList.of(ctx.partition.getText());
+            } else {
+                partitions = visitIdentifierList(ctx.partitions);
+            }
+        }
+        return Pair.of(temporaryPartition, partitions);
     }
 
     @Override
@@ -708,22 +717,28 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public LogicalPlan visitDelete(DeleteContext ctx) {
         List<String> tableName = visitMultipartIdentifier(ctx.tableName);
-        List<String> partitions = ctx.partition == null ? ImmutableList.of() : visitIdentifierList(ctx.partition);
+        Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
         LogicalPlan query = withTableAlias(LogicalPlanBuilderAssistant.withCheckPolicy(
-                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName)), ctx.tableAlias());
-        if (ctx.USING() != null) {
-            query = withRelations(query, ctx.relation());
-        }
-        query = withFilter(query, Optional.of(ctx.whereClause()));
+                new UnboundRelation(StatementScopeIdGenerator.newRelationId(), tableName,
+                        partitionSpec.second, partitionSpec.first)), ctx.tableAlias());
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().getText();
         }
-        Optional<LogicalPlan> cte = Optional.empty();
-        if (ctx.cte() != null) {
-            cte = Optional.ofNullable(withCte(query, ctx.cte()));
+        if (ctx.USING() == null && ctx.cte() == null && ctx.explain() == null) {
+            query = withFilter(query, Optional.of(ctx.whereClause()));
+            return new DeleteFromCommand(tableName, tableAlias, partitionSpec.first, partitionSpec.second, query);
+        } else {
+            // convert to insert into select
+            query = withRelations(query, ctx.relation());
+            query = withFilter(query, Optional.of(ctx.whereClause()));
+            Optional<LogicalPlan> cte = Optional.empty();
+            if (ctx.cte() != null) {
+                cte = Optional.ofNullable(withCte(query, ctx.cte()));
+            }
+            return withExplain(new DeleteFromUsingCommand(tableName, tableAlias,
+                    partitionSpec.first, partitionSpec.second, query, cte), ctx.explain());
         }
-        return withExplain(new DeleteCommand(tableName, tableAlias, partitions, query, cte), ctx.explain());
     }
 
     @Override
@@ -2744,6 +2759,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withRelations(LogicalPlan inputPlan, List<RelationContext> relations) {
+        if (relations == null) {
+            return inputPlan;
+        }
         LogicalPlan left = inputPlan;
         for (RelationContext relation : relations) {
             // build left deep join tree

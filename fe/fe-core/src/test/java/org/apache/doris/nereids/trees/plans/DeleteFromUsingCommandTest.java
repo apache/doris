@@ -19,7 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanPatternMatchSupported;
@@ -28,7 +28,7 @@ import org.apache.doris.utframe.TestWithFeService;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
-public class DeleteCommandTest extends TestWithFeService implements PlanPatternMatchSupported {
+public class DeleteFromUsingCommandTest extends TestWithFeService implements PlanPatternMatchSupported {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
@@ -73,8 +73,8 @@ public class DeleteCommandTest extends TestWithFeService implements PlanPatternM
     public void testFromClauseDelete() throws AnalysisException {
         String sql = "delete from t1 a using src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(parsed instanceof DeleteCommand);
-        DeleteCommand command = ((DeleteCommand) parsed);
+        Assertions.assertTrue(parsed instanceof DeleteFromUsingCommand);
+        DeleteFromUsingCommand command = ((DeleteFromUsingCommand) parsed);
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
         PlanChecker.from(connectContext, plan)
                 .analyze(plan)
