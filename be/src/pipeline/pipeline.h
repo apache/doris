@@ -141,7 +141,12 @@ public:
 
     void incr_created_tasks() { _num_tasks_created++; }
     bool need_to_create_task() const { return _num_tasks > _num_tasks_created; }
-    void set_num_tasks(int num_tasks) { _num_tasks = num_tasks; }
+    void set_num_tasks(int num_tasks) {
+        _num_tasks = num_tasks;
+        for (auto& op : operatorXs) {
+            op->set_parallel_tasks(_num_tasks);
+        }
+    }
     int num_tasks() const { return _num_tasks; }
 
     std::string debug_string() {

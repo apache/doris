@@ -769,27 +769,24 @@ Status PipelineXFragmentContext::_add_local_exchange(
     RETURN_IF_ERROR(new_pip->set_sink(sink));
     RETURN_IF_ERROR(new_pip->sink_x()->init(exchange_type, num_buckets));
 
-    // 2. Inherit properties from current pipeline.
-    _inherit_pipeline_properties(exchange_type, cur_pipe, new_pip);
-
-    // 3. Create and initialize LocalExchangeSharedState.
+    // 2. Create and initialize LocalExchangeSharedState.
     auto shared_state = LocalExchangeSharedState::create_shared();
     switch (exchange_type) {
     case ExchangeType::HASH_SHUFFLE:
         shared_state->exchanger =
-                ShuffleExchanger::create_unique(new_pip->num_tasks(), _num_instances);
+                ShuffleExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
         break;
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         shared_state->exchanger = BucketShuffleExchanger::create_unique(
-                new_pip->num_tasks(), _num_instances, num_buckets);
+                cur_pipe->num_tasks(), _num_instances, num_buckets);
         break;
     case ExchangeType::PASSTHROUGH:
         shared_state->exchanger =
-                PassthroughExchanger::create_unique(new_pip->num_tasks(), _num_instances);
+                PassthroughExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
         break;
     case ExchangeType::BROADCAST:
         shared_state->exchanger =
-                BroadcastExchanger::create_unique(new_pip->num_tasks(), _num_instances);
+                BroadcastExchanger::create_unique(cur_pipe->num_tasks(), _num_instances);
         break;
     default:
         return Status::InternalError("Unsupported local exchange type : " +
@@ -803,17 +800,17 @@ Status PipelineXFragmentContext::_add_local_exchange(
     shared_state->sink_dependency = sink_dep.get();
     _op_id_to_le_state.insert({local_exchange_id, {shared_state, sink_dep}});
 
-    // 4. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
+    // 3. Set two pipelines' operator list. For example, split pipeline [Scan - AggSink] to
     // pipeline1 [Scan - LocalExchangeSink] and pipeline2 [LocalExchangeSource - AggSink].
 
-    // 4.1 Initialize new pipeline's operator list.
+    // 3.1 Initialize new pipeline's operator list.
     std::copy(operator_xs.begin(), operator_xs.begin() + idx,
               std::inserter(new_pip->operator_xs(), new_pip->operator_xs().end()));
 
-    // 4.2 Erase unused operators in previous pipeline.
+    // 3.2 Erase unused operators in previous pipeline.
     operator_xs.erase(operator_xs.begin(), operator_xs.begin() + idx);
 
-    // 5. Initialize LocalExchangeSource and insert it into this pipeline.
+    // 4. Initialize LocalExchangeSource and insert it into this pipeline.
     OperatorXPtr source_op;
     source_op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
     RETURN_IF_ERROR(source_op->init(exchange_type));
@@ -823,7 +820,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
     operator_xs.insert(operator_xs.begin(), source_op);
     RETURN_IF_ERROR(source_op->set_child(new_pip->operator_xs().back()));
 
-    // 6. Set children for two pipelines separately.
+    // 5. Set children for two pipelines separately.
     std::vector<std::shared_ptr<Pipeline>> new_children;
     std::vector<PipelineId> edges_with_source;
     for (auto child : cur_pipe->children()) {
@@ -842,7 +839,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
     new_children.push_back(new_pip);
     edges_with_source.push_back(new_pip->id());
 
-    // 7. Set DAG for new pipelines.
+    // 6. Set DAG for new pipelines.
     if (!new_pip->children().empty()) {
         std::vector<PipelineId> edges_with_sink;
         for (auto child : new_pip->children()) {
@@ -854,6 +851,9 @@ Status PipelineXFragmentContext::_add_local_exchange(
     _dag[downstream_pipeline_id] = edges_with_source;
     RETURN_IF_ERROR(new_pip->sink_x()->set_child(new_pip->operator_xs().back()));
     RETURN_IF_ERROR(cur_pipe->sink_x()->set_child(cur_pipe->operator_xs().back()));
+
+    // 7. Inherit properties from current pipeline.
+    _inherit_pipeline_properties(exchange_type, cur_pipe, new_pip);
 
     CHECK(total_op_num + 1 == cur_pipe->operator_xs().size() + new_pip->operator_xs().size())
             << "total_op_num: " << total_op_num
@@ -998,7 +998,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
         _dag[downstream_pipeline_id].push_back(build_side_pipe->id());
 
         DataSinkOperatorXPtr sink;
-        sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs));
+        sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
+                                                  request.__isset.parallel_instances));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));

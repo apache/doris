@@ -135,7 +135,7 @@ class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs);
+                               const DescriptorTbl& descs, bool use_global_rf);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -187,6 +187,8 @@ private:
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::vector<TExpr> _partition_exprs;
+
+    const bool _use_global_rf;
 };
 
 } // namespace pipeline

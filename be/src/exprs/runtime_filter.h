@@ -186,7 +186,7 @@ enum RuntimeFilterState {
 class IRuntimeFilter {
 public:
     IRuntimeFilter(RuntimeFilterParamsContext* state, ObjectPool* pool,
-                   const TRuntimeFilterDesc* desc)
+                   const TRuntimeFilterDesc* desc, bool is_global = false, int parallel_tasks = -1)
             : _state(state),
               _pool(pool),
               _filter_id(desc->filter_id),
@@ -206,9 +206,12 @@ public:
               _runtime_filter_type(get_runtime_filter_type(desc)),
               _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                 to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)) {}
+              _profile(new RuntimeProfile(_name)),
+              _is_global(is_global),
+              _parallel_build_tasks(parallel_tasks) {}
 
-    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc)
+    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc,
+                   bool is_global = false, int parallel_tasks = -1)
             : _query_ctx(query_ctx),
               _pool(pool),
               _filter_id(desc->filter_id),
@@ -228,18 +231,22 @@ public:
               _runtime_filter_type(get_runtime_filter_type(desc)),
               _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
                                 to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)) {}
+              _profile(new RuntimeProfile(_name)),
+              _is_global(is_global),
+              _parallel_build_tasks(parallel_tasks) {}
 
     ~IRuntimeFilter() = default;
 
     static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                          const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
-                         bool build_bf_exactly = false);
+                         bool build_bf_exactly = false, bool is_global = false,
+                         int parallel_tasks = 0);
 
     static Status create(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc,
                          const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
+                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false,
+                         bool is_global = false, int parallel_tasks = 0);
 
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
@@ -385,6 +392,8 @@ public:
 
     void set_filter_timer(std::shared_ptr<pipeline::RuntimeFilterTimer>);
 
+    Status merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num);
+
 protected:
     // serialize _wrapper to protobuf
     void to_protobuf(PInFilter* filter);
@@ -480,6 +489,10 @@ protected:
     // only effect on consumer
     std::unique_ptr<RuntimeProfile> _profile;
     bool _opt_remote_rf;
+    const bool _is_global = false;
+    std::mutex _local_merge_mutex;
+    int _merged_rf_num = 0;
+    const int _parallel_build_tasks = -1;
 
     std::vector<std::shared_ptr<pipeline::RuntimeFilterTimer>> _filter_timer;
 };

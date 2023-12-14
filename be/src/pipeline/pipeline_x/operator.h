@@ -188,7 +188,9 @@ public:
                        ? ExchangeType::PASSTHROUGH
                        : ExchangeType::NOOP;
     }
-    [[nodiscard]] bool ignore_data_distribution() const { return _ignore_data_distribution; }
+    [[nodiscard]] virtual bool ignore_data_distribution() const {
+        return _child_x ? _child_x->ignore_data_distribution() : _ignore_data_distribution;
+    }
     void set_ignore_data_distribution() { _ignore_data_distribution = true; }
 
     Status prepare(RuntimeState* state) override;
@@ -279,6 +281,8 @@ public:
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
                           vectorized::Block* output_block) const;
+    void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
+    int parallel_tasks() const { return _parallel_tasks; }
 
 protected:
     template <typename Dependency>
@@ -304,6 +308,7 @@ protected:
 
     std::string _op_name;
     bool _ignore_data_distribution = false;
+    int _parallel_tasks = 0;
 };
 
 template <typename LocalStateType>

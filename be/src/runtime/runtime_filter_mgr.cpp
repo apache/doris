@@ -101,7 +101,8 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(key);
     if (iter == _consumer_map.end()) {
-        return Status::InvalidArgument("unknown filter: {}, role: CONSUMER", key);
+        return Status::InvalidArgument("unknown filter: {}, role: CONSUMER. stack trace: {}", key,
+                                       get_stack_trace());
     }
     for (auto& holder : iter->second) {
         consumer_filters.emplace_back(holder.filter);
@@ -111,7 +112,7 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
 
 Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options, int node_id,
-                                                  bool build_bf_exactly, int merged_rf_num) {
+                                                  bool build_bf_exactly, bool is_global) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
 
@@ -135,6 +136,20 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
                                                RuntimeFilterRole::CONSUMER, node_id, &filter,
                                                build_bf_exactly));
         _consumer_map[key].emplace_back(node_id, filter);
+    } else if (is_global) {
+        if (iter != _consumer_map.end()) {
+            for (auto holder : iter->second) {
+                if (holder.node_id == node_id) {
+                    return Status::OK();
+                }
+            }
+        }
+
+        IRuntimeFilter* filter;
+        RETURN_IF_ERROR(IRuntimeFilter::create(_query_ctx, &_query_ctx->obj_pool, &desc, &options,
+                                               RuntimeFilterRole::CONSUMER, node_id, &filter,
+                                               build_bf_exactly, is_global));
+        _consumer_map[key].emplace_back(node_id, filter);
     } else {
         if (iter != _consumer_map.end()) {
             for (auto holder : iter->second) {
@@ -155,7 +170,8 @@ Status RuntimeFilterMgr::register_consumer_filter(const TRuntimeFilterDesc& desc
 
 Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc,
                                                   const TQueryOptions& options,
-                                                  bool build_bf_exactly) {
+                                                  bool build_bf_exactly, bool is_global,
+                                                  int parallel_tasks) {
     SCOPED_CONSUME_MEM_TRACKER(_tracker.get());
     int32_t key = desc.filter_id;
     std::lock_guard<std::mutex> l(_lock);
@@ -168,7 +184,7 @@ Status RuntimeFilterMgr::register_producer_filter(const TRuntimeFilterDesc& desc
     IRuntimeFilter* filter;
     RETURN_IF_ERROR(IRuntimeFilter::create(_state, &_pool, &desc, &options,
                                            RuntimeFilterRole::PRODUCER, -1, &filter,
-                                           build_bf_exactly));
+                                           build_bf_exactly, is_global, parallel_tasks));
     _producer_map.emplace(key, filter);
     return Status::OK();
 }
