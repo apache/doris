@@ -26,6 +26,7 @@
 #include <ostream>
 #include <utility>
 
+#include "CLucene/analysis/CachingTokenFilter.h"
 #include "common/status.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/descriptors.pb.h"
@@ -35,6 +36,7 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
 #include "olap/olap_common.h"
+#include "parquet_bloom_reader.h"
 #include "parquet_pred_cmp.h"
 #include "parquet_thrift_util.h"
 #include "runtime/define_primitive_type.h"
@@ -862,7 +864,7 @@ Status ParquetReader::_process_row_group_filter(const tparquet::RowGroup& row_gr
     _init_chunk_dicts();
     RETURN_IF_ERROR(_process_dict_filter(filter_group));
     _init_bloom_filter();
-    RETURN_IF_ERROR(_process_bloom_filter(filter_group));
+    RETURN_IF_ERROR(_process_bloom_filter(filter_group, row_group));
     return Status::OK();
 }
 
@@ -909,6 +911,83 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
     return Status::OK();
 }
 
+template <PrimitiveType T>
+std::vector<BloomScanPredicate> ParquetReader::_value_range_to_predicate_bloom(
+        const ColumnValueRange<T>& col_value_range) {
+    std::vector<BloomScanPredicate> predicates;
+    if (col_value_range.is_fixed_value_range()) {
+        BloomScanPredicate in_predicate;
+        in_predicate.op = SQLFilterOp::FILTER_IN;
+        in_predicate.scale = col_value_range.scale();
+        for (const auto& value : col_value_range.get_fixed_value_set()) {
+            in_predicate.values.emplace_back(&value);
+        }
+        if (!in_predicate.values.empty()) {
+            predicates.emplace_back(in_predicate);
+        }
+    }
+    return predicates;
+}
+
+template <PrimitiveType T>
+bool ParquetReader::_apply_filter_bloom(const ColumnValueRange<T>& col_value_range,
+                                        const BloomScanPredicate& predicate,
+                                        const FieldSchema* col_schema,
+                                        std::unique_ptr<BloomFilter>& bf) {
+    const auto bloom_filter = dynamic_cast<BlockSplitBloomFilter*>(bf.get());
+    if (predicate.values.empty() || predicate.op != FILTER_IN) {
+        return false;
+    }
+
+    bool result = false;
+    switch (predicate.op) {
+    case FILTER_IN: {
+        for (const void* v : predicate.values) {
+            switch (col_value_range.type()) {
+            case TYPE_DECIMAL64: {
+                const int64_t ba = *reinterpret_cast<const int64_t*>(v);
+                result = !(bloom_filter->find_hash(bloom_filter->hash(&ba)));
+                break;
+            }
+
+            case TYPE_INT: {
+                const int32_t ba = *reinterpret_cast<const int32_t*>(v);
+                result = !(bloom_filter->find_hash(bloom_filter->hash(&ba)));
+                break;
+            }
+
+            default:
+                break;
+            }
+        }
+        break;
+    }
+
+    default:
+        return false;
+    }
+
+    return result;
+}
+
+bool ParquetReader::_filter_by_bloom(const ColumnValueRangeType& col_value_range,
+                                     const FieldSchema* col_schema,
+                                     std::unique_ptr<BloomFilter>& bf) {
+    bool need_filter = false;
+    std::visit(
+            [&](auto&& range) {
+                std::vector<BloomScanPredicate> filters = _value_range_to_predicate_bloom(range);
+                for (auto& filter : filters) {
+                    need_filter |= _apply_filter_bloom(range, filter, col_schema, bf);
+                    if (need_filter) {
+                        break;
+                    }
+                }
+            },
+            col_value_range);
+    return need_filter;
+}
+
 void ParquetReader::_init_chunk_dicts() {}
 
 Status ParquetReader::_process_dict_filter(bool* filter_group) {
@@ -917,7 +996,40 @@ Status ParquetReader::_process_dict_filter(bool* filter_group) {
 
 void ParquetReader::_init_bloom_filter() {}
 
-Status ParquetReader::_process_bloom_filter(bool* filter_group) {
+Status ParquetReader::_process_bloom_filter(bool* filter_group,
+                                            const tparquet::RowGroup& row_group) {
+    if (_colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
+        return Status::OK();
+    }
+
+    BloomFilterReader& bloom_filter_reader = get_bloom_filter_reader();
+    auto row_group_ = bloom_filter_reader.row_group(&row_group);
+
+    for (auto& col_name : _read_columns) {
+        auto slot_iter = _colname_to_value_range->find(col_name);
+        if (slot_iter == _colname_to_value_range->end()) {
+            continue;
+        }
+
+        int parquet_col_id = _file_metadata->schema().get_column(col_name)->physical_column_index;
+        if (parquet_col_id < 0) {
+            // complex type not supported for filter yet
+            continue;
+        }
+
+        std::unique_ptr<BloomFilter> bloom_filter =
+                row_group_->get_column_bloom_filter(parquet_col_id);
+        if (bloom_filter == nullptr) {
+            continue;
+        }
+
+        auto& schema_desc = _file_metadata->schema();
+        const FieldSchema* col_schema = schema_desc.get_column(col_name);
+        *filter_group = _filter_by_bloom(slot_iter->second, col_schema, bloom_filter);
+        if (*filter_group) {
+            break;
+        }
+    }
     return Status::OK();
 }
 
@@ -928,4 +1040,19 @@ int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& 
     }
     return column.data_page_offset;
 }
+
+BloomFilterReader& ParquetReader::get_bloom_filter_reader() {
+    if (!_t_metadata) {
+        // should not happen
+    }
+
+    if (!bloom_filter_reader_) {
+        bloom_filter_reader_ = BloomFilterReader::make(_file_reader, _t_metadata, _io_ctx);
+        if (bloom_filter_reader_ == nullptr) {
+            // handle this..
+        }
+    }
+    return *bloom_filter_reader_;
+}
+
 } // namespace doris::vectorized
