@@ -185,15 +185,17 @@ suite("test_routine_load","p0") {
 
         for (String kafkaCsvTopic in kafkaCsvTpoics) {
             def txt = new File("""${context.file.parent}/data/${kafkaCsvTopic}.csv""").text
-            logger.info("=====${txt}========")
             def record = new ProducerRecord<>(kafkaCsvTopic, null, txt)
             producer.send(record)
         }
         for (String kafkaJsonTopic in kafkaJsonTopics) {
-            def txt = new File("""${context.file.parent}/data/${kafkaJsonTopic}.json""").text
-            logger.info("=====${txt}========")
-            def record = new ProducerRecord<>(kafkaJsonTopic, null, txt)
-            producer.send(record)
+            def kafkaJson = new File("""${context.file.parent}/data/${kafkaJsonTopic}.json""").text
+            def lines = kafkaJson.readLines()
+            lines.each { line ->
+                logger.info("=====${line}========")
+                def record = new ProducerRecord<>(kafkaJsonTopic, null, line)
+                producer.send(record)
+            }
         } 
     }  
 
