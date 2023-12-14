@@ -32,6 +32,7 @@ under the License.
 
 
 It returns the left part of a string of specified length, length is char length not the byte size. Another alias for this function is [strleft](./strleft.md).
+If the function parameters contain a NULL value, the function will always return NULL. If the integer parameter is less than or equal to 0, it will return an empty value.
 
 ### example
 
@@ -42,6 +43,24 @@ mysql> select left("Hello doris",5);
 +------------------------+
 | Hello                  |
 +------------------------+
+mysql> select left("Hello doris",-5);
++----------------------------+
+| left('Hello doris', -5) |
++----------------------------+
+|                            |
++----------------------------+
+mysql> select left("Hello doris",NULL);
++------------------------------+
+| left('Hello doris', NULL) |
++------------------------------+
+| NULL                         |
++------------------------------+
+mysql> select left(NULL,3);
++------------------+
+| left(NULL, 3) |
++------------------+
+| NULL             |
++------------------+
 ```
 ### keywords
     LEFT

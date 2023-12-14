@@ -32,6 +32,7 @@ under the License.
 
 
 它返回具有指定长度的字符串的右边部分, 长度的单位为utf8字符。此函数的另一个别名为[strright](./strright.md)。
+如果参数中含有NULL值，那么函数始终返回NULL，如果整型参数为负数，那么会得到字符串左到右第 abs(len) 开始向右的部分。
 
 ### example
 
@@ -42,6 +43,24 @@ mysql> select right("Hello doris",5);
 +-------------------------+
 | doris                   |
 +-------------------------+
+mysql> select right("Hello doris",-7);
++--------------------------+
+| right('Hello doris', -7) |
++--------------------------+
+| doris                    |
++--------------------------+
+mysql> select right("Hello doris",NULL);
++----------------------------+
+| right('Hello doris', NULL) |
++----------------------------+
+| NULL                       |
++----------------------------+
+mysql> select right(NULL,5);
++----------------+
+| right(NULL, 5) |
++----------------+
+| NULL           |
++----------------+
 ```
 ### keywords
     RIGHT

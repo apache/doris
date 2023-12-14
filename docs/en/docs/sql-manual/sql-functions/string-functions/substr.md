@@ -29,6 +29,7 @@ under the License.
 `VARCHAR substr(VARCHAR content, INT start, INT length)`
 
 Find a substring, return the part of the string described by the first parameter starting from start and having a length of len. The index of the first letter is 1.
+If the parameters contain a NULL value, the function will always return NULL. If only two parameters are provided, with the sole integer parameter being "start," the function will return the portion to the right of "start."
 
 ### example
 
@@ -45,6 +46,24 @@ mysql> select substr("Hello doris", 1, 2);
 +-----------------------------+
 | He                          |
 +-----------------------------+
+mysql>  select substr("Hello doris", 7);
++-----------------------------------------+
+| substring('Hello doris', 7, 2147483647) |
++-----------------------------------------+
+| doris                                   |
++-----------------------------------------+
+mysql>  select substr("Hello doris", -7);
++------------------------------------------+
+| substring('Hello doris', -7, 2147483647) |
++------------------------------------------+
+| o doris                                  |
++------------------------------------------+
+mysql>  select substr("Hello doris", NULL, 10);
++------------------------------------+
+| substring('Hello doris', NULL, 10) |
++------------------------------------+
+| NULL                               |
++------------------------------------+
 ```
 ### keywords
     SUBSTR

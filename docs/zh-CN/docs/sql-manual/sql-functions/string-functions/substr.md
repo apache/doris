@@ -29,6 +29,7 @@ under the License.
 `VARCHAR substr(VARCHAR content, INT start, INT length)`
 
 求子字符串，返回第一个参数描述的字符串中从start开始长度为len的部分字符串。首字母的下标为1。
+如果参数中含有NULL值，那么函数始终返回NULL，如果只输入两个参数那么唯一的整型参数为 start 返回 start 右边部分。
 
 ### example
 
@@ -45,6 +46,24 @@ mysql> select substr("Hello doris", 1, 2);
 +-----------------------------+
 | He                          |
 +-----------------------------+
+mysql>  select substr("Hello doris", 7);
++-----------------------------------------+
+| substring('Hello doris', 7, 2147483647) |
++-----------------------------------------+
+| doris                                   |
++-----------------------------------------+
+mysql>  select substr("Hello doris", -7);
++------------------------------------------+
+| substring('Hello doris', -7, 2147483647) |
++------------------------------------------+
+| o doris                                  |
++------------------------------------------+
+mysql>  select substr("Hello doris", NULL, 10);
++------------------------------------+
+| substring('Hello doris', NULL, 10) |
++------------------------------------+
+| NULL                               |
++------------------------------------+
 ```
 ### keywords
     SUBSTR

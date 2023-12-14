@@ -70,7 +70,7 @@ mysql> select substring('abc1', 5);
 +-----------------------------+
 | substring('abc1', 5)        |
 +-----------------------------+
-| NULL                        |
+|                             |
 +-----------------------------+
 
 mysql> select substring('abc1def', 2, 2);
