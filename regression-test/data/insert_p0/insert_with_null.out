@@ -2,12 +2,6 @@
 -- !sql --
 1	"b"	["k1=v1, k2=v2"]
 2	N	["k3=v3, k4=v4"]
-<<<<<<< HEAD
-4	null	[]
-5	NULL	["k5, k6"]
-6	\N	["k7", "k8"]
-7	abc	\N
-=======
 3	null	[]
 4	NULL	["k5, k6"]
 5	\N	["k7", "k8"]
@@ -16,15 +10,14 @@
 8		["k7", "k8"]
 9	"a	["k7", "k8"]
 10	a"	["k7", "k8"]
-22	\N	[]
->>>>>>> 8fdbdc9cb8 (fix write null)
+22	\N	\N
 
 -- !sql --
 5	\N	["k7", "k8"]
-22	\N	[]
+22	\N	\N
 
 -- !sql --
-7	abc	\N
+22	\N	\N
 
 -- !sql --
 1	"b"	["k1=v1, k2=v2"]
@@ -46,12 +39,6 @@
 -- !sql --
 1	"b"	["k1=v1, k2=v2"]
 2	N	["k3=v3, k4=v4"]
-<<<<<<< HEAD
-4	null	[]
-5	NULL	["k5, k6"]
-6	\N	["k7", "k8"]
-7	abc	\N
-=======
 3	null	[]
 4	NULL	["k5, k6"]
 5	\N	["k7", "k8"]
@@ -60,25 +47,18 @@
 8		["k7", "k8"]
 9	"a	["k7", "k8"]
 10	a"	["k7", "k8"]
-22	\N	[]
->>>>>>> 8fdbdc9cb8 (fix write null)
+22	\N	\N
 
 -- !sql --
 5	\N	["k7", "k8"]
-22	\N	[]
+22	\N	\N
 
 -- !sql --
-7	abc	\N
+22	\N	\N
 
 -- !sql --
 1	"b"	["k1=v1, k2=v2"]
 2	N	["k3=v3, k4=v4"]
-<<<<<<< HEAD
-4	null	[]
-5	NULL	["k5, k6"]
-6	\N	["k7", "k8"]
-7	abc	\N
-=======
 3	null	[]
 4	NULL	["k5, k6"]
 5	\N	["k7", "k8"]
@@ -87,13 +67,12 @@
 8		["k7", "k8"]
 9	"a	["k7", "k8"]
 10	a"	["k7", "k8"]
-22	\N	[]
->>>>>>> 8fdbdc9cb8 (fix write null)
+22	\N	\N
 
 -- !sql --
 5	\N	["k7", "k8"]
-22	\N	[]
+22	\N	\N
 
 -- !sql --
-7	abc	\N
+22	\N	\N
 
