@@ -1,0 +1,3 @@
+be/src/vec/exprs/vcompound_pred.h
+regression-test/data/query_p0/test_constant_fold.out
+regression-test/suites/query_p0/test_constant_fold.groovy
