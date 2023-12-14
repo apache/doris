@@ -34,7 +34,11 @@
 
 #include "common/logging.h"
 #ifdef USE_JEMALLOC
-#include "jemalloc/jemalloc.h"
+#ifdef LARGE_PAGE_SIZE
+#include <jemalloc/jemalloc_64K.h>
+#else
+#include <jemalloc/jemalloc_4K.h>
+#endif
 #else
 #include <gperftools/malloc_extension.h>
 #endif

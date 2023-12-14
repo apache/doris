@@ -28,7 +28,11 @@
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/segment_v2.pb.h>
-#include <jemalloc/jemalloc.h>
+#ifdef LARGE_PAGE_SIZE
+#include <jemalloc/jemalloc_64K.h>
+#else
+#include <jemalloc/jemalloc_4K.h>
+#endif
 
 #include <algorithm>
 #include <boost/algorithm/string/trim.hpp>

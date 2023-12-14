@@ -20,7 +20,11 @@
 #include <stdlib.h>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "jemalloc/jemalloc.h"
+#ifdef LARGE_PAGE_SIZE
+#include <jemalloc/jemalloc_64K.h>
+#else
+#include <jemalloc/jemalloc_4K.h>
+#endif
 #include "runtime/thread_context.h"
 #include "util/sse_util.hpp"
 

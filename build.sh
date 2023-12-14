@@ -369,6 +369,10 @@ if [[ -z "${USE_UNWIND}" ]]; then
     fi
 fi
 
+if [[ -z "${LARGE_PAGE_SIZE}" ]]; then
+    LARGE_PAGE_SIZE='OFF'
+fi
+
 if [[ -z "${DISPLAY_BUILD_TIME}" ]]; then
     DISPLAY_BUILD_TIME='OFF'
 fi
@@ -431,6 +435,7 @@ echo "Get params:
     USE_LIBCPP                  -- ${USE_LIBCPP}
     USE_DWARF                   -- ${USE_DWARF}
     USE_UNWIND                  -- ${USE_UNWIND}
+    LARGE_PAGE_SIZE             -- ${LARGE_PAGE_SIZE}
     STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
     USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
     USE_JEMALLOC                -- ${USE_JEMALLOC}
@@ -521,6 +526,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_UNWIND="${USE_UNWIND}" \
+        -DLARGE_PAGE_SIZE="${LARGE_PAGE_SIZE}" \
         -DDISPLAY_BUILD_TIME="${DISPLAY_BUILD_TIME}" \
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \

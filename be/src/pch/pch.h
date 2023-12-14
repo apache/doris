@@ -244,7 +244,11 @@
 #include <hs/hs_runtime.h>
 
 // jemalloc headers
-#include <jemalloc/jemalloc.h>
+#ifdef LARGE_PAGE_SIZE
+#include <jemalloc/jemalloc_64K.h>
+#else
+#include <jemalloc/jemalloc_4K.h>
+#endif
 
 // json2pb headers
 #include <json2pb/json_to_pb.h>

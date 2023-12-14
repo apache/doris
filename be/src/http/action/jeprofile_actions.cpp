@@ -17,7 +17,12 @@
 
 #include "http/action/jeprofile_actions.h"
 
-#include <jemalloc/jemalloc.h>
+#ifdef LARGE_PAGE_SIZE
+#include <jemalloc/jemalloc_64K.h>
+#else
+#include <jemalloc/jemalloc_4K.h>
+#endif
+
 #include <stdlib.h>
 #include <unistd.h>
 

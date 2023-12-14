@@ -72,6 +72,7 @@ option(USE_LIBCPP "Use libc++" OFF)
 option(USE_MEM_TRACKER, "Use memory tracker" ON)
 option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
+option(LARGE_PAGE_SIZE "Large page size" OFF)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
@@ -88,6 +89,7 @@ message(STATUS "USE_LIBCPP is ${USE_LIBCPP}")
 message(STATUS "USE_MEM_TRACKER is ${USE_MEM_TRACKER}")
 message(STATUS "USE_JEMALLOC is ${USE_JEMALLOC}")
 message(STATUS "USE_UNWIND is ${USE_UNWIND}")
+message(STATUS "LARGE_PAGE_SIZE is ${LARGE_PAGE_SIZE}")
 message(STATUS "ENABLE_PCH is ${ENABLE_PCH}")
 
 # set CMAKE_BUILD_TYPE
@@ -329,6 +331,10 @@ endif()
 # Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
 if (USE_JEMALLOC)
     add_compile_options(-DUSE_JEMALLOC)
+endif()
+
+if (LARGE_PAGE_SIZE)
+    add_compile_options(-DLARGE_PAGE_SIZE)
 endif()
 
 # Compile with libunwind
@@ -579,7 +585,11 @@ endif()
 
 
 if (USE_JEMALLOC)
-    set(MALLOCLIB jemalloc)
+    if (LARGE_PAGE_SIZE)
+        set(MALLOCLIB jemalloc_64K)
+    else()
+        set(MALLOCLIB jemalloc_4K)
+    endif()
 else ()
     set(MALLOCLIB tcmalloc)
 endif()

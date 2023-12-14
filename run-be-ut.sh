@@ -215,6 +215,10 @@ if [[ -z "${USE_UNWIND}" ]]; then
     fi
 fi
 
+if [[ -z "${LARGE_PAGE_SIZE}" ]]; then
+    LARGE_PAGE_SIZE='OFF'
+fi
+
 MAKE_PROGRAM="$(command -v "${BUILD_SYSTEM}")"
 echo "-- Make program: ${MAKE_PROGRAM}"
 echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
@@ -232,6 +236,7 @@ cd "${CMAKE_BUILD_DIR}"
     -DWITH_MYSQL=ON \
     -DUSE_DWARF="${USE_DWARF}" \
     -DUSE_UNWIND="${USE_UNWIND}" \
+    -DLARGE_PAGE_SIZE="${LARGE_PAGE_SIZE}" \
     -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
     -DUSE_JEMALLOC=OFF \
     -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
