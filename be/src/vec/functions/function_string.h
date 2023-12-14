@@ -589,7 +589,7 @@ public:
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = arguments[1];
 
-        bool is_nullable{};
+        bool is_nullable {};
 
         // check nullable
         auto str_col =
@@ -625,7 +625,7 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        bool is_nullable{};
+        bool is_nullable {};
         auto int_type = std::make_shared<DataTypeInt32>();
         auto params1 = ColumnInt32::create(input_rows_count);
         auto params2 = ColumnInt32::create(input_rows_count);
