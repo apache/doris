@@ -718,7 +718,7 @@ Status VFileScanner::_get_next_reader() {
         }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
-        if (_next_range >= _ranges.size()) {
+        if (_next_range >= _ranges.size() || _should_stop) {
             _scanner_eof = true;
             _state->update_num_finished_scan_range(1);
             return Status::OK();
@@ -1108,6 +1108,13 @@ Status VFileScanner::close(RuntimeState* state) {
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
+}
+
+void VFileScanner::try_stop() {
+    VScanner::try_stop();
+    if (_io_ctx) {
+        _io_ctx->should_stop = true;
+    }
 }
 
 } // namespace doris::vectorized

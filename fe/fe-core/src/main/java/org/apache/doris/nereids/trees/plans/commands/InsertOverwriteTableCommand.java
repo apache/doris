@@ -199,7 +199,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     true,
                     tempPartitionNames,
                     sink.isPartialUpdate(),
-                    sink.isFromNativeInsertStmt(),
+                    sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
             new InsertIntoTableCommand(copySink, labelName).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {

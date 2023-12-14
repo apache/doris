@@ -31,4 +31,77 @@ suite("fix-overflow") {
     qt_sql """
         select l.k1, r.k1, l.k1 * r.k1 from fix_overflow_l l left join fix_overflow_r r on l.k1=r.k1;
     """
+
+    sql """
+        drop TABLE if exists `fix_overflow_null1`;
+    """
+    sql """
+    CREATE TABLE `fix_overflow_null1`
+        (
+            `country`             varchar(20),
+            `financing_amount`    decimalv3(20, 2)
+        ) 
+        DISTRIBUTED BY HASH(`country`) BUCKETS 10
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    sql """
+        insert into fix_overflow_null1 values("a", null), ("b", 976109703976856034.13);
+    """
+
+    sql """
+        drop TABLE if exists `fix_overflow_null2`;
+    """
+    sql """
+    CREATE TABLE `fix_overflow_null2`
+        (
+            `country`             varchar(20),
+            `financing_amount`    decimalv3(20, 2)
+        ) 
+        DISTRIBUTED BY HASH(`country`) BUCKETS 10
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+
+    sql """
+    insert into fix_overflow_null2
+        select
+            *
+        from
+            (
+                with temp as (
+                    select
+                        sum(financing_amount) / 100000000 as amount,
+                        country
+                    from
+                        fix_overflow_null1
+                    group by
+                        country
+                )
+                select
+                    t1.country,
+                    IF(
+                        1 + (t1.amount - t2.amount) / ABS(t2.amount) > 0,
+                        POW(
+                            1 + (t1.amount - t2.amount) / ABS(t2.amount),
+                            1 / 5
+                        ) - 1,
+                        - POW(
+                            -(
+                                1 + (t1.amount - t2.amount) / ABS(t2.amount)
+                            ),
+                            1 / 5
+                        ) - 1
+                    ) as past_5_cagr
+                from
+                    temp t1
+                    left join temp t2 on
+                    t2.country = t1.country
+            ) as ret;
+    """
+    qt_select_insert """
+        select * from fix_overflow_null2 order by 1,2;
+    """
 }

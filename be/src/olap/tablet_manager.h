@@ -225,8 +225,8 @@ private:
         std::set<int64_t> tablets_under_clone;
     };
 
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
     // trace the memory use by meta of tablet
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;

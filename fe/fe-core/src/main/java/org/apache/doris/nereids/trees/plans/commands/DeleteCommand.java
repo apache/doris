@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -121,7 +122,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundTableSink<>(nameParts, cols, ImmutableList.of(),
-                partitions, isPartialUpdate, logicalQuery);
+                false, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {

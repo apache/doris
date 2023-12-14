@@ -961,6 +961,7 @@ public:
         }
 
         bool check_overflow_for_decimal = context->check_overflow_for_decimal();
+        Status status;
         bool valid = cast_both_types(
                 left_generic, right_generic, result_generic,
                 [&](const auto& left, const auto& right, const auto& res) {
@@ -978,6 +979,13 @@ public:
                                                         (IsDataTypeDecimal<LeftDataType> ||
                                                          IsDataTypeDecimal<RightDataType>))) {
                         if (check_overflow_for_decimal) {
+                            if constexpr ((IsDecimalV2<typename LeftDataType::FieldType> ||
+                                           IsDecimalV2<typename RightDataType::
+                                                               FieldType>)&&!is_to_null_type) {
+                                status = Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
+                                        "cannot check overflow with decimalv2");
+                                return false;
+                            }
                             auto column_result = ConstOrVectorAdapter<
                                     LeftDataType, RightDataType,
                                     std::conditional_t<IsDataTypeDecimal<ExpectedResultDataType>,
@@ -1007,8 +1015,11 @@ public:
                     return false;
                 });
         if (!valid) {
-            return Status::RuntimeError("{}'s arguments do not match the expected data types",
-                                        get_name());
+            if (status.ok()) {
+                return Status::RuntimeError("{}'s arguments do not match the expected data types",
+                                            get_name());
+            }
+            return status;
         }
 
         return Status::OK();
