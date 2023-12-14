@@ -521,7 +521,6 @@ public class InsertExecutor {
                     }
                 }
             }
-            
         }
 
         Plan query = unboundTableSink.child();
