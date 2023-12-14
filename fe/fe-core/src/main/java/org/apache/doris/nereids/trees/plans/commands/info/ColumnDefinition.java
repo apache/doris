@@ -198,9 +198,6 @@ public class ColumnDefinition {
             isNullable = false;
         }
         if (type.isBitmapType()) {
-            if (keysType == KeysType.DUP_KEYS) {
-                throw new AnalysisException("column:" + name + " must be used in AGG_KEYS or UNIQUE_KEYS.");
-            }
             if (aggType != null) {
                 isNullable = false;
             }
@@ -354,12 +351,7 @@ public class ColumnDefinition {
         }
 
         if (type.isObjectType()) {
-            if (type.isBitmapType()) {
-                if (keysType == KeysType.DUP_KEYS) {
-                    throw new AnalysisException(
-                            "column:" + name + " must be used in AGG_KEYS or UNIQUE_KEYS.");
-                }
-            } else {
+            if (!type.isBitmapType()) {
                 if (keysType != KeysType.AGG_KEYS) {
                     throw new AnalysisException("column:" + name + " must be used in AGG_KEYS.");
                 }

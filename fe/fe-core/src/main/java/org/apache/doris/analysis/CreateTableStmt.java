@@ -524,12 +524,7 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             if (columnDef.getType().isObjectStored()) {
-                if (columnDef.getType().isBitmapType()) {
-                    if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
-                        throw new AnalysisException("column:" + columnDef.getName()
-                                + " must be used in AGG_KEYS or UNIQUE_KEYS.");
-                    }
-                } else {
+                if (!columnDef.getType().isBitmapType()) {
                     if (keysDesc.getKeysType() != KeysType.AGG_KEYS) {
                         throw new AnalysisException("column:" + columnDef.getName() + " must be used in AGG_KEYS.");
                     }
