@@ -195,6 +195,10 @@ public class DatabaseTransactionMgr {
         return dbId;
     }
 
+    public TransactionIdGenerator getIdGenerator() {
+        return idGenerator;
+    }
+
     protected TransactionState getTransactionState(Long transactionId) {
         readLock();
         try {
