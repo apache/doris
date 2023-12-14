@@ -55,7 +55,15 @@ public:
                   int64_t bufferLength);
 
 private:
-    CL_NS(store)::Directory* directory;
+    class FileInfo {
+    public:
+        std::string filename;
+        int32_t filesize;
+    };
+
+    void sort_files(std::vector<FileInfo>& file_infos);
+
+    CL_NS(store)::Directory* directory = nullptr;
 };
 
 class CLUCENE_EXPORT DorisCompoundDirectory : public lucene::store::Directory {
@@ -143,6 +151,7 @@ class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndex
         this->_pos = 0;
         this->_handle = handle;
         this->_io_ctx.reader_type = ReaderType::READER_QUERY;
+        this->_io_ctx.read_segment_index = false;
     }
 
 protected:
@@ -160,6 +169,11 @@ public:
     const char* getDirectoryType() const override { return DorisCompoundDirectory::getClassName(); }
     const char* getObjectName() const override { return getClassName(); }
     static const char* getClassName() { return "FSIndexInput"; }
+
+    // Sets the flag to enable or disable the index file cache.
+    // @param index If true, the data read afterwards will be stored in the index file cache.
+    // @param index If false, the data read afterwards will not be stored in the index file cache.
+    void setIdxFileCache(bool index) override { _io_ctx.read_segment_index = index; }
 
     doris::Mutex _this_lock;
 
