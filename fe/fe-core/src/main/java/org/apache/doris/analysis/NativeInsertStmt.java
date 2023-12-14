@@ -45,6 +45,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.jdbc.JdbcExternalCatalog;
+import org.apache.doris.load.Load;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
@@ -709,15 +710,16 @@ public class NativeInsertStmt extends InsertStmt {
                     if (entry.second == null) {
                         queryStmt.getResultExprs().add(queryStmt.getResultExprs().get(entry.first));
                     } else {
-                        //substitute define expr slot with select statement result expr
+                        // substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
+                            smap.getRhs()
+                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
                         }
-                        Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
-                                smap, analyzer, false).get(0);
+                        Expr e = entry.second.getDefineExpr().clone(smap);
+                        e.analyze(analyzer);
                         queryStmt.getResultExprs().add(e);
                     }
                 }
@@ -740,15 +742,16 @@ public class NativeInsertStmt extends InsertStmt {
                     if (entry.second == null) {
                         queryStmt.getBaseTblResultExprs().add(queryStmt.getBaseTblResultExprs().get(entry.first));
                     } else {
-                        //substitute define expr slot with select statement result expr
+                        // substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
+                            smap.getRhs()
+                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
                         }
-                        Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
-                                smap, analyzer, false).get(0);
+                        Expr e = entry.second.getDefineExpr().clone(smap);
+                        e.analyze(analyzer);
                         queryStmt.getBaseTblResultExprs().add(e);
                     }
                 }
@@ -835,7 +838,8 @@ public class NativeInsertStmt extends InsertStmt {
                         List<SlotRef> columns = entry.second.getRefColumns();
                         for (SlotRef slot : columns) {
                             smap.getLhs().add(slot);
-                            smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
+                            smap.getRhs()
+                                    .add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
                         }
                         extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0));
@@ -901,9 +905,7 @@ public class NativeInsertStmt extends InsertStmt {
         int numCols = targetColumns.size();
         for (int i = 0; i < numCols; ++i) {
             Column col = targetColumns.get(i);
-            Expr expr = selectList.get(i).checkTypeCompatibility(col.getType());
-            selectList.set(i, expr);
-            exprByName.put(col.getName(), expr);
+            exprByName.put(col.getName(), selectList.get(i));
         }
 
         List<Pair<String, Expr>> resultExprByName = Lists.newArrayList();
@@ -933,16 +935,7 @@ public class NativeInsertStmt extends InsertStmt {
                     }
                     continue;
                 } else if (col.getDefineExpr() != null) {
-                    // substitute define expr slot with select statement result expr
-                    ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                    List<SlotRef> columns = col.getRefColumns();
-                    for (SlotRef slot : columns) {
-                        smap.getLhs().add(slot);
-                        smap.getRhs().add(slotToIndex.get(slot.getColumnName()));
-                    }
-                    targetExpr = Expr
-                            .substituteList(Lists.newArrayList(col.getDefineExpr().clone()), smap, analyzer, false)
-                            .get(0);
+                    targetExpr = col.getDefineExpr().clone();
                 } else if (col.getDefaultValue() == null) {
                     targetExpr = NullLiteral.create(col.getType());
                 } else {
@@ -955,11 +948,24 @@ public class NativeInsertStmt extends InsertStmt {
                     }
                 }
             }
+
+            List<SlotRef> columns = col.getRefColumns();
+            if (columns != null) {
+                // substitute define expr slot with select statement result expr
+                ExprSubstitutionMap smap = new ExprSubstitutionMap();
+                for (SlotRef slot : columns) {
+                    smap.getLhs().add(slot);
+                    smap.getRhs().add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
+                }
+                targetExpr = Expr.substituteList(Lists.newArrayList(col.getDefineExpr().clone()), smap, analyzer, false)
+                        .get(0);
+            }
             resultExprByName.add(Pair.of(col.getName(), targetExpr));
             slotToIndex.put(col.getName(), targetExpr);
         }
         resultExprs.addAll(resultExprByName.stream().map(Pair::value).collect(Collectors.toList()));
     }
+
 
     private DataSink createDataSink() throws AnalysisException {
         if (dataSink != null) {
