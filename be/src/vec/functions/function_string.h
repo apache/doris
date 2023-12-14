@@ -204,6 +204,10 @@ private:
 
                     int fixed_pos = start_value;
 
+                    if (fixed_pos < 0) {
+                        fixed_pos = str_size + fixed_pos + 1;
+                    }
+                    
                     byte_pos = index[fixed_pos - 1];
                     int fixed_len = str_size - byte_pos;
                     if (fixed_pos + len_value <= index.size()) {
