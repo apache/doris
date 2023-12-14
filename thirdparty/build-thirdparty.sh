@@ -1073,6 +1073,7 @@ build_arrow() {
     strip_lib libarrow.a
     strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
+
     cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a" "${TP_INSTALL_DIR}/lib64/libjemalloc.a" # TODO delete
 }
 
@@ -1510,14 +1511,14 @@ build_jemalloc() {
     # perform some optimizations based on the page size when compiling.
     mkdir -p "${BUILD_DIR}_4K"
     cd "${BUILD_DIR}_4K"
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_4K" ${JEMALLOC_CONFIG} --with-lg-page=12
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_4K" "${JEMALLOC_CONFIG}" --with-lg-page=12
     make -j "${PARALLEL}"
     make install
 
     cd ..
     mkdir -p "${BUILD_DIR}_64K"
     cd "${BUILD_DIR}_64K"
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_64K" ${JEMALLOC_CONFIG} --with-lg-page=16
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_64K" "${JEMALLOC_CONFIG}" --with-lg-page=16
     make -j "${PARALLEL}"
     make install
 
