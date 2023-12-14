@@ -846,7 +846,7 @@ class Suite implements GroovyInterceptable {
     void waitingMTMVTaskFinished(String jobName) {
         Thread.sleep(2000);
         String showTasks = "select Status from tasks('type'='mv') where JobName = '${jobName}'"
-        String status = "NULL"
+        String status = "PENDING"
         List<List<Object>> result
         long startTime = System.currentTimeMillis()
         long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
@@ -858,7 +858,7 @@ class Suite implements GroovyInterceptable {
             }
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
