@@ -176,7 +176,7 @@ suite("test_build_mtmv") {
     def startTime= dateTime.format(formatter);
     sql """
         CREATE MATERIALIZED VIEW ${mvName}
-        BUILD DEFERRED REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS ${startTime}
+        BUILD DEFERRED REFRESH COMPLETE ON SCHEDULE EVERY 10 SECOND STARTS '${startTime}'
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1')
         AS
