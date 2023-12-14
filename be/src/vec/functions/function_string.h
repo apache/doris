@@ -126,10 +126,9 @@ struct SubstringUtil {
     static constexpr auto name = "substring";
 
     static void substring_execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                                  size_t input_rows_count, const bool is_nullable) {
+                                  size_t input_rows_count) {
         DCHECK_EQ(arguments.size(), 3);
         auto res = ColumnString::create();
-        auto null_map = ColumnUInt8::create(input_rows_count, 0);
 
         bool col_const[3];
         ColumnPtr argument_columns[3];
@@ -143,10 +142,6 @@ struct SubstringUtil {
 
         default_preprocess_parameter_columns(argument_columns, col_const, {1, 2}, block, arguments);
 
-        for (int i = 0; i < 3; i++) {
-            check_set_nullable(argument_columns[i], null_map, col_const[i]);
-        }
-
         auto specific_str_column = assert_cast<const ColumnString*>(argument_columns[0].get());
         auto specific_start_column =
                 assert_cast<const ColumnVector<Int32>*>(argument_columns[1].get());
@@ -155,26 +150,20 @@ struct SubstringUtil {
         if (col_const[1] && col_const[2]) {
             vectors<true>(specific_str_column->get_chars(), specific_str_column->get_offsets(),
                           specific_start_column->get_data(), specific_len_column->get_data(),
-                          null_map->get_data(), res->get_chars(), res->get_offsets());
+                          res->get_chars(), res->get_offsets());
         } else {
             vectors<false>(specific_str_column->get_chars(), specific_str_column->get_offsets(),
                            specific_start_column->get_data(), specific_len_column->get_data(),
-                           null_map->get_data(), res->get_chars(), res->get_offsets());
+                           res->get_chars(), res->get_offsets());
         }
-        if (is_nullable) {
-            block.get_by_position(result).column =
-                    ColumnNullable::create(std::move(res), std::move(null_map));
-        } else {
-            block.replace_by_position(result, std::move(res));
-        }
+        block.replace_by_position(result, std::move(res));
     }
 
 private:
     template <bool Const>
     static void vectors(const ColumnString::Chars& chars, const ColumnString::Offsets& offsets,
                         const PaddedPODArray<Int32>& start, const PaddedPODArray<Int32>& len,
-                        NullMap& null_map, ColumnString::Chars& res_chars,
-                        ColumnString::Offsets& res_offsets) {
+                        ColumnString::Chars& res_chars, ColumnString::Offsets& res_offsets) {
         size_t size = offsets.size();
         res_offsets.resize(size);
         res_chars.reserve(chars.size());
@@ -214,12 +203,6 @@ private:
                     }
 
                     int fixed_pos = start_value;
-                    if (fixed_pos < 0) {
-                        fixed_pos = str_size + fixed_pos + 1;
-                    } else if (fixed_pos > index.size()) {
-                        StringOP::push_null_string(i, res_chars, res_offsets, null_map);
-                        continue;
-                    }
 
                     byte_pos = index[fixed_pos - 1];
                     int fixed_len = str_size - byte_pos;
@@ -275,10 +258,6 @@ private:
                 if (fixed_pos < 0) {
                     fixed_pos = index.size() + fixed_pos + 1;
                 }
-                if (fixed_pos > index.size()) {
-                    StringOP::push_null_string(i, res_chars, res_offsets, null_map);
-                    continue;
-                }
 
                 byte_pos = index[fixed_pos - 1];
                 int fixed_len = str_size - byte_pos;
@@ -308,7 +287,7 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionSubstring<Impl>>(); }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        return std::make_shared<DataTypeString>();
     }
     DataTypes get_variadic_argument_types_impl() const override {
         return Impl::get_variadic_argument_types();
@@ -317,7 +296,7 @@ public:
         return get_variadic_argument_types_impl().size();
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -334,7 +313,7 @@ struct Substr3Impl {
     static Status execute_impl(FunctionContext* context, Block& block,
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
-        SubstringUtil::substring_execute(block, arguments, result, input_rows_count, true);
+        SubstringUtil::substring_execute(block, arguments, result, input_rows_count);
         return Status::OK();
     }
 };
@@ -353,9 +332,7 @@ struct Substr2Impl {
         ColumnPtr str_col;
         bool str_const;
         std::tie(str_col, str_const) = unpack_if_const(block.get_by_position(arguments[0]).column);
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
-            str_col = nullable->get_nested_column_ptr();
-        }
+
         auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
 
         if (str_const) {
@@ -370,7 +347,7 @@ struct Substr2Impl {
         block.insert({std::move(col_len), std::make_shared<DataTypeInt32>(), "strlen"});
         ColumnNumbers temp_arguments = {arguments[0], arguments[1], block.columns() - 1};
 
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count, true);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
@@ -570,13 +547,10 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments[0]->is_nullable() || arguments[1]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeString>());
-        }
         return std::make_shared<DataTypeString>();
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
@@ -589,21 +563,7 @@ public:
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = arguments[1];
 
-        bool is_nullable = false;
-
-        // check nullable
-        auto str_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
-            is_nullable = true;
-        }
-        auto pos_col =
-                block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
-            is_nullable = true;
-        }
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count,
-                                         is_nullable);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };
@@ -615,17 +575,13 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 2; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
-        if (arguments[0]->is_nullable() || arguments[1]->is_nullable()) {
-            return make_nullable(std::make_shared<DataTypeString>());
-        }
         return std::make_shared<DataTypeString>();
     }
 
-    bool use_default_implementation_for_nulls() const override { return false; }
+    bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
-        bool is_nullable = false;
         auto int_type = std::make_shared<DataTypeInt32>();
         auto params1 = ColumnInt32::create(input_rows_count);
         auto params2 = ColumnInt32::create(input_rows_count);
@@ -635,24 +591,12 @@ public:
         auto& index_data = params1->get_data();
         auto& strlen_data = params2->get_data();
 
-        // we don't have to update null_map because FunctionSubstring will
-        // update it
-        // getNestedColumnIfNull arg[0]
         auto str_col =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*str_col)) {
-            str_col = nullable->get_nested_column_ptr();
-            is_nullable = true;
-        }
         auto& str_offset = assert_cast<const ColumnString*>(str_col.get())->get_offsets();
 
-        // getNestedColumnIfNull arg[1]
         auto pos_col =
                 block.get_by_position(arguments[1]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
-            pos_col = nullable->get_nested_column_ptr();
-            is_nullable = true;
-        }
         auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
 
         for (int i = 0; i < input_rows_count; ++i) {
@@ -670,8 +614,7 @@ public:
         temp_arguments[0] = arguments[0];
         temp_arguments[1] = num_columns_without_result;
         temp_arguments[2] = num_columns_without_result + 1;
-        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count,
-                                         is_nullable);
+        SubstringUtil::substring_execute(block, temp_arguments, result, input_rows_count);
         return Status::OK();
     }
 };

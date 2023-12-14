@@ -1545,8 +1545,8 @@ visible_functions = {
 
     # String builtin functions
     "String": [
-        [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
-        [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['substr', 'substring'], 'VARCHAR', ['VARCHAR', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['mask'], 'STRING', ['STRING', '...'], ''],
         [['mask_first_n'], 'STRING', ['STRING'], ''],
         [['mask_first_n'], 'STRING', ['STRING', 'INT'], ''],
@@ -1610,8 +1610,8 @@ visible_functions = {
 
         [['char'], 'VARCHAR', ['VARCHAR', 'INT', '...'], 'ALWAYS_NULLABLE'],
 
-        [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'ALWAYS_NULLABLE'],
-        [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
+        [['substr', 'substring'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
+        [['substr', 'substring'], 'STRING', ['STRING', 'INT', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['strleft', 'left'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['strright', 'right'], 'STRING', ['STRING', 'INT'], 'DEPEND_ON_ARGUMENT'],
         [['ends_with'], 'BOOLEAN', ['STRING', 'STRING'], ''],
