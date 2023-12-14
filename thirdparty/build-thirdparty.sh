@@ -1523,6 +1523,7 @@ build_jemalloc() {
     make install
 
     cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_4K.a" "${TP_INSTALL_DIR}/lib64/libjemalloc_doris.a" # TODO delete
+    cp -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc_4K.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h" # TODO delete
 }
 
 # libunwind
