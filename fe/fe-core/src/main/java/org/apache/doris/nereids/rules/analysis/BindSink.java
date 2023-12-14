@@ -105,31 +105,6 @@ public class BindSink implements AnalysisRuleFactory {
                             sink.getDMLCommandType(),
                             child);
 
-                    if (isPartialUpdate) {
-                        // check the necessary conditions for partial updates
-                        if (!table.getEnableUniqueKeyMergeOnWrite()) {
-                            throw new AnalysisException("Partial update is only allowed on "
-                                    + "unique table with merge-on-write enabled.");
-                        }
-                        if (sink.getColNames().isEmpty() && sink.getDMLCommandType() == DMLCommandType.INSERT) {
-                            throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                                    + "updating partial columns using the INSERT statement.");
-                        }
-                        for (Column col : table.getFullSchema()) {
-                            boolean exists = false;
-                            for (Column insertCol : boundSink.getCols()) {
-                                if (insertCol.getName().equals(col.getName())) {
-                                    exists = true;
-                                    break;
-                                }
-                            }
-                            if (col.isKey() && !exists) {
-                                throw new AnalysisException("Partial update should include all key columns, missing: "
-                                        + col.getName());
-                            }
-                        }
-                    }
-
                     // we need to insert all the columns of the target table
                     // although some columns are not mentions.
                     // so we add a projects to supply the default value.
