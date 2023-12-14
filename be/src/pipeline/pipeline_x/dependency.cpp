@@ -57,7 +57,7 @@ void Dependency::set_ready() {
 Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load() || _is_cancelled();
-    if (!ready && !push_to_blocking_queue() && task) {
+    if (!ready && task) {
         _add_block_task(task);
     }
     return ready ? nullptr : this;
@@ -66,7 +66,7 @@ Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
 Dependency* FinishDependency::is_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
-    if (!ready && !push_to_blocking_queue() && task) {
+    if (!ready && task) {
         _add_block_task(task);
     }
     return ready ? nullptr : this;
