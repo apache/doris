@@ -646,7 +646,6 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
             }
         }
     }
-    default_value_block.set_columns(std::move(mutable_default_value_columns));
 
     // fill all missing value from mutable_old_columns, need to consider default value and null value
     for (auto idx = 0; idx < use_default_or_null_flag.size(); idx++) {
@@ -686,6 +685,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                     pos_in_old_block);
         }
     }
+    default_value_block.set_columns(std::move(mutable_default_value_columns));
     return Status::OK();
 }
 
