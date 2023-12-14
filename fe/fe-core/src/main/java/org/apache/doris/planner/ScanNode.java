@@ -712,7 +712,8 @@ public abstract class ScanNode extends PlanNode {
     // 1. is key search
     // 2. session variable not enable_shared_scan
     public boolean shouldDisableSharedScan(ConnectContext context) {
-        return isKeySearch() || !context.getSessionVariable().getEnableSharedScan()
+        return isKeySearch() || context == null
+                ||!context.getSessionVariable().getEnableSharedScan()
                 || !context.getSessionVariable().getEnablePipelineEngine()
                 || context.getSessionVariable().getEnablePipelineXEngine()
                 || this instanceof FileScanNode

@@ -63,7 +63,7 @@ class LocalExchangeSinkLocalState;
 struct ShuffleBlockWrapper {
     ENABLE_FACTORY_CREATOR(ShuffleBlockWrapper);
     ShuffleBlockWrapper(vectorized::Block&& data_block_) : data_block(std::move(data_block_)) {}
-    void ref() { ref_count++; }
+    void ref(int delta) { ref_count += delta; }
     void unref(LocalExchangeSharedState* shared_state) {
         if (ref_count.fetch_sub(1) == 1) {
             shared_state->sub_total_mem_usage(data_block.allocated_bytes());
