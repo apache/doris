@@ -31,8 +31,8 @@ EOF
 
 if ${DEBUG:-false}; then
     teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'
-    pull_request_num="28421"
-    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    pull_request_num="28431"
+    commit_id="b052225cd0a180b4576319b5bd6331218dd0d3fe"
     target_branch="master"
 fi
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 2; fi
