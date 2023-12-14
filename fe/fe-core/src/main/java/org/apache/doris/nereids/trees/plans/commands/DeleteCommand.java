@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -70,7 +71,7 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty(), false).run(ctx, executor);
+        new InsertIntoTableCommand(completeQueryPlan(ctx, logicalQuery), Optional.empty()).run(ctx, executor);
     }
 
     private void checkTable(ConnectContext ctx) {
@@ -120,8 +121,8 @@ public class DeleteCommand extends Command implements ForwardWithSync, Explainab
                 && cols.size() < targetTable.getColumns().size();
 
         // make UnboundTableSink
-        return new UnboundOlapTableSink<>(nameParts, cols, ImmutableList.of(),
-                partitions, isPartialUpdate, logicalQuery);
+        return new UnboundTableSink<>(nameParts, cols, ImmutableList.of(),
+                false, partitions, isPartialUpdate, DMLCommandType.DELETE, logicalQuery);
     }
 
     public LogicalPlan getLogicalQuery() {

@@ -18,6 +18,9 @@
 #include "agent/cgroup_cpu_ctl.h"
 
 #include <fmt/format.h>
+#include <sys/stat.h>
+
+#include <filesystem>
 
 namespace doris {
 
@@ -100,9 +103,32 @@ Status CgroupV1CpuCtl::init() {
         int ret = mkdir(_cgroup_v1_cpu_query_path.c_str(), S_IRWXU);
         if (ret != 0) {
             LOG(ERROR) << "cgroup v1 mkdir query failed, path=" << _cgroup_v1_cpu_query_path;
-            return Status::InternalError<false>("cgroup v1 mkdir query failed, path=",
+            return Status::InternalError<false>("cgroup v1 mkdir query failed, path={}",
                                                 _cgroup_v1_cpu_query_path);
         }
+    }
+
+    // check whether current user specified path is a valid cgroup path
+    std::string query_path_tasks = _cgroup_v1_cpu_query_path + "/tasks";
+    std::string query_path_cpu_shares = _cgroup_v1_cpu_query_path + "/cpu.shares";
+    std::string query_path_quota = _cgroup_v1_cpu_query_path + "/cpu.cfs_quota_us";
+    if (access(query_path_tasks.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("invalid cgroup path, not find task file");
+    }
+    if (access(query_path_cpu_shares.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("invalid cgroup path, not find cpu share file");
+    }
+    if (access(query_path_quota.c_str(), F_OK) != 0) {
+        return Status::InternalError<false>("invalid cgroup path, not find cpu quota file");
+    }
+
+    if (_tg_id == -1) {
+        // means current cgroup cpu ctl is just used to clear dir,
+        // it does not contains task group.
+        // todo(wb) rethinking whether need to refactor cgroup_cpu_ctl
+        _init_succ = true;
+        LOG(INFO) << "init cgroup cpu query path succ, path=" << _cgroup_v1_cpu_query_path;
+        return Status::OK();
     }
 
     // workload group path
@@ -157,4 +183,52 @@ Status CgroupV1CpuCtl::add_thread_to_cgroup() {
     return CgroupCpuCtl::write_cg_sys_file(_cgroup_v1_cpu_tg_task_file, tid, msg, true);
 #endif
 }
+
+Status CgroupV1CpuCtl::delete_unused_cgroup_path(std::set<uint64_t>& used_wg_ids) {
+    if (!_init_succ) {
+        return Status::InternalError<false>(
+                "cgroup cpu ctl init failed, delete can not be executed");
+    }
+    // 1 get unused wg id
+    std::set<std::string> unused_wg_ids;
+    for (const auto& entry : std::filesystem::directory_iterator(_cgroup_v1_cpu_query_path)) {
+        const std::string dir_name = entry.path().string();
+        struct stat st;
+        // == 0 means exists
+        if (stat(dir_name.c_str(), &st) == 0 && (st.st_mode & S_IFDIR)) {
+            int pos = dir_name.rfind("/");
+            std::string wg_dir_name = dir_name.substr(pos + 1, dir_name.length());
+            if (wg_dir_name.empty()) {
+                return Status::InternalError<false>("find an empty workload group path, path={}",
+                                                    dir_name);
+            }
+            if (std::all_of(wg_dir_name.begin(), wg_dir_name.end(), ::isdigit)) {
+                uint64_t id_in_path = std::stoll(wg_dir_name);
+                if (used_wg_ids.find(id_in_path) == used_wg_ids.end()) {
+                    unused_wg_ids.insert(wg_dir_name);
+                }
+            }
+        }
+    }
+
+    // 2 delete unused cgroup path
+    int failed_count = 0;
+    std::string query_path = _cgroup_v1_cpu_query_path.back() != '/'
+                                     ? _cgroup_v1_cpu_query_path + "/"
+                                     : _cgroup_v1_cpu_query_path;
+    for (const std::string& unused_wg_id : unused_wg_ids) {
+        std::string wg_path = query_path + unused_wg_id;
+        int ret = rmdir(wg_path.c_str());
+        if (ret < 0) {
+            LOG(WARNING) << "rmdir failed, path=" << wg_path;
+            failed_count++;
+        }
+    }
+    if (failed_count != 0) {
+        return Status::InternalError<false>("error happens when delete unused path, count={}",
+                                            failed_count);
+    }
+    return Status::OK();
+}
+
 } // namespace doris

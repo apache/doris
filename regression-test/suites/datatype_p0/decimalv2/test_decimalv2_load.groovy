@@ -23,6 +23,7 @@ suite("test_decimalv2_load", "nonConcurrent") {
     sql """
         admin set frontend config("enable_decimal_conversion" = "false");
     """
+    sql "set check_overflow_for_decimal=false;"
 
     def tableName = "test_decimalv2_load_tbl"
     sql """ DROP TABLE IF EXISTS ${tableName} """

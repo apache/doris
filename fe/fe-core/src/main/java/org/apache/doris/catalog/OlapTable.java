@@ -1155,11 +1155,6 @@ public class OlapTable extends Table {
         if (tblStats == null) {
             return true;
         }
-        long rowCount = getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
-        }
         if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
                 .stream()
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
@@ -1167,6 +1162,7 @@ public class OlapTable extends Table {
                 .collect(Collectors.toSet()))) {
             return true;
         }
+        long rowCount = getRowCount();
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
@@ -1311,8 +1307,21 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public boolean isPartitioned() {
+    public boolean isPartitionedTable() {
         return !PartitionType.UNPARTITIONED.equals(partitionInfo.getType());
+    }
+
+    // Return true if data is distributed by one more partitions or buckets.
+    @Override
+    public boolean isPartitionDistributed() {
+        int numSegs = 0;
+        for (Partition part : getPartitions()) {
+            numSegs += part.getDistributionInfo().getBucketNum();
+            if (numSegs > 1) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -2426,5 +2435,15 @@ public class OlapTable extends Table {
             }
         }
         return false;
+    }
+
+    public List<Tablet> getAllTablets() throws AnalysisException {
+        List<Tablet> tablets = Lists.newArrayList();
+        for (Partition partition : getPartitions()) {
+            for (Tablet tablet : partition.getBaseIndex().getTablets()) {
+                tablets.add(tablet);
+            }
+        }
+        return tablets;
     }
 }

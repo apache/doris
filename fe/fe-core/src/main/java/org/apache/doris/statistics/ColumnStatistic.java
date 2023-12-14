@@ -19,7 +19,6 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.InternalCatalog;
@@ -89,21 +88,12 @@ public class ColumnStatistic {
     public final LiteralExpr minExpr;
     public final LiteralExpr maxExpr;
 
-    @SerializedName("histogram")
-    // assign value when do stats estimation.
-    public final Histogram histogram;
-
-    @SerializedName("partitionIdToColStats")
-    public final Map<String, ColumnStatistic> partitionIdToColStats = new HashMap<>();
-
     public final String updatedTime;
-
-    public final PartitionInfo partitionInfo;
 
     public ColumnStatistic(double count, double ndv, ColumnStatistic original, double avgSizeByte,
             double numNulls, double dataSize, double minValue, double maxValue,
-            LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown, Histogram histogram,
-            String updatedTime, PartitionInfo partitionInfo) {
+            LiteralExpr minExpr, LiteralExpr maxExpr, boolean isUnKnown,
+            String updatedTime) {
         this.count = count;
         this.ndv = ndv;
         this.original = original;
@@ -115,9 +105,7 @@ public class ColumnStatistic {
         this.minExpr = minExpr;
         this.maxExpr = maxExpr;
         this.isUnKnown = isUnKnown;
-        this.histogram = histogram;
         this.updatedTime = updatedTime;
-        this.partitionInfo = partitionInfo;
     }
 
     public static ColumnStatistic fromResultRow(List<ResultRow> resultRows) {
@@ -139,7 +127,6 @@ public class ColumnStatistic {
         if (columnStatistic == null) {
             return ColumnStatistic.UNKNOWN;
         }
-        columnStatistic.partitionIdToColStats.putAll(partitionIdToColStats);
         return columnStatistic;
     }
 
@@ -242,7 +229,7 @@ public class ColumnStatistic {
 
     public ColumnStatistic updateBySelectivity(double selectivity, double rowCount) {
         if (isUnKnown) {
-            return UNKNOWN;
+            return this;
         }
         ColumnStatisticBuilder builder = new ColumnStatisticBuilder(this);
         Double rowsAfterFilter = rowCount * selectivity;
@@ -329,7 +316,6 @@ public class ColumnStatistic {
         statistic.put("MinExpr", minExpr);
         statistic.put("MaxExpr", maxExpr);
         statistic.put("IsUnKnown", isUnKnown);
-        statistic.put("Histogram", Histogram.serializeToJson(histogram));
         statistic.put("Original", original);
         statistic.put("LastUpdatedTime", updatedTime);
         return statistic;
@@ -379,17 +365,12 @@ public class ColumnStatistic {
             null,
             null,
             stat.getBoolean("IsUnKnown"),
-            Histogram.deserializeFromJson(stat.getString("Histogram")),
-            stat.getString("LastUpdatedTime"), null
+            stat.getString("LastUpdatedTime")
         );
     }
 
     public boolean minOrMaxIsInf() {
         return Double.isInfinite(maxValue) || Double.isInfinite(minValue);
-    }
-
-    public boolean hasHistogram() {
-        return histogram != null && histogram != Histogram.UNKNOWN;
     }
 
     public double getOriginalNdv() {
@@ -399,16 +380,7 @@ public class ColumnStatistic {
         return ndv;
     }
 
-    // TODO expanded this function to support more cases, help to compute the change of ndv density
-    public boolean rangeChanged() {
-        return original != null && (minValue != original.minValue || maxValue != original.maxValue);
-    }
-
     public boolean isUnKnown() {
         return isUnKnown;
-    }
-
-    public void putPartStats(String partId, ColumnStatistic columnStatistic) {
-        this.partitionIdToColStats.put(partId, columnStatistic);
     }
 }

@@ -41,7 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.Set;
 
 /**
- * create multi table materialized view
+ * add constraint command
  */
 public class AddConstraintCommand extends Command implements ForwardWithSync {
 
@@ -62,10 +62,10 @@ public class AddConstraintCommand extends Command implements ForwardWithSync {
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         Pair<ImmutableList<String>, TableIf> columnsAndTable = extractColumnsAndTable(ctx, constraint.toProject());
         if (constraint.isForeignKey()) {
-            Pair<ImmutableList<String>, TableIf> foreignColumnsAndTable
+            Pair<ImmutableList<String>, TableIf> referencedColumnsAndTable
                     = extractColumnsAndTable(ctx, constraint.toReferenceProject());
             columnsAndTable.second.addForeignConstraint(name, columnsAndTable.first,
-                    foreignColumnsAndTable.second, foreignColumnsAndTable.first);
+                    referencedColumnsAndTable.second, referencedColumnsAndTable.first);
         } else if (constraint.isPrimaryKey()) {
             columnsAndTable.second.addPrimaryKeyConstraint(name, columnsAndTable.first);
         } else if (constraint.isUnique()) {

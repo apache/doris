@@ -52,6 +52,7 @@ import java.io.IOException;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -153,6 +154,7 @@ public class VariableMgr {
     // Set value to a variable
     private static boolean setValue(Object obj, Field field, String value) throws DdlException {
         VarAttr attr = field.getAnnotation(VarAttr.class);
+
         if (VariableVarConverters.hasConverter(attr.name())) {
             value = VariableVarConverters.encode(attr.name(), value).toString();
         }
@@ -160,8 +162,11 @@ public class VariableMgr {
             Preconditions.checkArgument(obj instanceof SessionVariable);
             try {
                 SessionVariable.class.getDeclaredMethod(attr.checker(), String.class).invoke(obj, value);
+            } catch (InvocationTargetException e) {
+                // Exception thrown from reflect method will always be InvocationTargetException
+                ErrorReport.reportDdlException(((InvocationTargetException) e).getTargetException().getMessage());
             } catch (Exception e) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value, attr.name(), e.getMessage());
             }
         }
         // If the session variable has specified the setter, then not use reflect
@@ -169,8 +174,10 @@ public class VariableMgr {
             Preconditions.checkArgument(obj instanceof SessionVariable);
             try {
                 SessionVariable.class.getDeclaredMethod(attr.setter(), String.class).invoke(obj, value);
+            } catch (InvocationTargetException e) {
+                ErrorReport.reportDdlException(((InvocationTargetException) e).getTargetException().getMessage());
             } catch (Exception e) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value, attr.name(), e.getMessage());
             }
         } else  {
             try {

@@ -220,7 +220,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     SCOPED_TIMER(_scanner_init_timer);
 
-    if (!_conjuncts.empty()) {
+    if (!_conjuncts.empty() && RuntimeFilterConsumer::_state->enable_profile()) {
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
@@ -298,7 +298,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     return Status::OK();
 }
 
-TOlapScanNode& OlapScanLocalState::olap_scan_node() {
+TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
     return _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 }
 

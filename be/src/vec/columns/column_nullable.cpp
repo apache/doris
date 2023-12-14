@@ -50,6 +50,16 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     _need_update_has_null = true;
 }
 
+void ColumnNullable::update_null_data() {
+    const auto& null_map_data = _get_null_map_data();
+    auto s = size();
+    for (size_t i = 0; i < s; ++i) {
+        if (null_map_data[i]) {
+            nested_column->replace_column_data_default(i);
+        }
+    }
+}
+
 MutableColumnPtr ColumnNullable::get_shrinked_column() {
     return ColumnNullable::create(get_nested_column_ptr()->get_shrinked_column(),
                                   get_null_map_column_ptr());
@@ -294,23 +304,13 @@ void ColumnNullable::insert_range_from(const IColumn& src, size_t start, size_t 
     _has_null |= simd::contain_byte(src_null_map_data.data() + start, length, 1);
 }
 
-void ColumnNullable::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                         const int* indices_end) {
+void ColumnNullable::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                         const uint32_t* indices_end) {
     const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
     get_nested_column().insert_indices_from(src_concrete.get_nested_column(), indices_begin,
                                             indices_end);
     _get_null_map_column().insert_indices_from(src_concrete.get_null_map_column(), indices_begin,
                                                indices_end);
-    _need_update_has_null = true;
-}
-
-void ColumnNullable::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
-                                              const uint32_t* indices_end) {
-    const auto& src_concrete = assert_cast<const ColumnNullable&>(src);
-    get_nested_column().insert_indices_from_join(src_concrete.get_nested_column(), indices_begin,
-                                                 indices_end);
-    _get_null_map_column().insert_indices_from_join(src_concrete.get_null_map_column(),
-                                                    indices_begin, indices_end);
     _need_update_has_null = true;
 }
 

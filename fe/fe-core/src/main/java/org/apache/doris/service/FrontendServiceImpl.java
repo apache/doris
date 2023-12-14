@@ -42,6 +42,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -156,6 +157,7 @@ import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
+import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
@@ -225,6 +227,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
@@ -1990,10 +1993,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             NativeInsertStmt parsedStmt = (NativeInsertStmt) SqlParserUtils.getFirstStmt(parser);
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
-            if (request.isGroupCommit()) {
+            if (!StringUtils.isEmpty(request.getGroupCommitMode())) {
                 if (parsedStmt.getLabel() != null) {
                     throw new AnalysisException("label and group_commit can't be set at the same time");
                 }
+                ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();
                 parsedStmt.isGroupCommitStreamLoadSql = true;
             }
             StmtExecutor executor = new StmtExecutor(ctx, parsedStmt);
@@ -2020,9 +2024,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // The txn_id here is obtained from the NativeInsertStmt
             result.getParams().setTxnConf(new TTxnParams().setTxnId(txn_id));
             result.getParams().setImportLabel(parsedStmt.getLabel());
-            if (parsedStmt.isGroupCommitTvf) {
-                result.getParams().params.setGroupCommit(true);
-            }
             result.setDbId(parsedStmt.getTargetTable().getDatabase().getId());
             result.setTableId(parsedStmt.getTargetTable().getId());
             result.setBaseSchemaVersion(((OlapTable) parsedStmt.getTargetTable()).getBaseSchemaVersion());
@@ -2084,7 +2085,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TExecPlanFragmentParams plan = planner.plan(streamLoadTask.getId(), multiTableFragmentInstanceIdIndex);
-            if (!request.isGroupCommit()) {
+            if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
                 // add table indexes to transaction state
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionState(db.getId(), request.getTxnId());
@@ -2150,7 +2151,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
             TPipelineFragmentParams plan = planner.planForPipeline(streamLoadTask.getId(),
                     multiTableFragmentInstanceIdIndex);
-            if (!request.isGroupCommit()) {
+            if (StringUtils.isEmpty(streamLoadTask.getGroupCommit())) {
                 // add table indexes to transaction state
                 TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                         .getTransactionState(db.getId(), request.getTxnId());
@@ -3109,6 +3110,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
+    public TStatus invalidateStatsCache(TInvalidateFollowerStatsCacheRequest request) throws TException {
+        StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
+        Env.getCurrentEnv().getStatisticsCache().invalidate(k.tableId, k.idxId, k.colName);
+        return new TStatus(TStatusCode.OK);
+    }
+
+    @Override
     public TCreatePartitionResult createPartition(TCreatePartitionRequest request) throws TException {
         LOG.info("Receive create partition request: {}", request);
         long dbId = request.getDbId();
@@ -3152,15 +3160,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         OlapTable olapTable = (OlapTable) table;
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        ArrayList<TStringLiteral> partitionValues = new ArrayList<TStringLiteral>();
+        ArrayList<List<TStringLiteral>> partitionValues = new ArrayList<>();
         for (int i = 0; i < request.partitionValues.size(); i++) {
-            if (request.partitionValues.get(i).size() != 1) {
+            if (partitionInfo.getType() == PartitionType.RANGE && request.partitionValues.get(i).size() != 1) {
                 errorStatus.setErrorMsgs(
-                        Lists.newArrayList("Only support single partition, partitionValues size should equal 1."));
+                        Lists.newArrayList(
+                                "Only support single partition of RANGE, partitionValues size should equal 1."));
                 result.setStatus(errorStatus);
                 return result;
             }
-            partitionValues.add(request.partitionValues.get(i).get(0));
+            partitionValues.add(request.partitionValues.get(i));
         }
         Map<String, AddPartitionClause> addPartitionClauseMap;
         try {

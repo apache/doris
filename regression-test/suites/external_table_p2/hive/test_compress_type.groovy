@@ -83,6 +83,52 @@ suite("test_compress_type", "p2,external,hive,external_remote,external_remote_hi
         order_qt_q48 """ select * from parquet_lz4_compression where col_string != "Random"
             order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal        
              """
+        
+        order_qt_lzo_1 """ select * from parquet_lzo_compression 
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 20; 
+        """
+
+        order_qt_lzo_2 """ select * from parquet_lzo_compression where col_int > 1000 
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10; 
+        """
+
+
+        order_qt_lzo_3 """ select * from parquet_lzo_compression where col_float > 5.1 and col_boolean = 1  
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10; 
+        """
+
+        order_qt_lzo_4 """ select * from parquet_lzo_compression where col_float > 1000 and col_boolean != 1  
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10; 
+        """
+
+
+        order_qt_lzo_5 """ select * from parquet_lzo_compression where col_double < 17672101476 and col_char !='ft'  
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10; 
+        """
+
+
+        order_qt_lzo_6 """ select * from parquet_lzo_compression where col_string='nuXBDInOfoaWz'
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10; 
+        """
+
+
+        order_qt_lzo_7 """ select * from parquet_lzo_compression where col_decimal < 50071 and year(col_timestamp) = 2023
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10; 
+        """
+
+
+        order_qt_lzo_8 """ select * from parquet_lzo_compression where year(col_date)!=2023 and year(col_timestamp) = 2023
+        order by col_int,col_smallint,col_tinyint,col_bigint,col_float,col_double,col_boolean,col_string,col_char,col_varchar,col_date,col_timestamp,col_decimal
+        limit 10; 
+        """
+
 
     }
 }

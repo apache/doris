@@ -157,14 +157,14 @@ private:
     friend class QueryStatistics;
 
     void merge(QueryStatistics* statistics) {
-        std::lock_guard<SpinLock> l(_lock);
+        std::lock_guard<std::mutex> l(_lock);
         for (auto& pair : _query_statistics) {
             statistics->merge(*(pair.second));
         }
     }
 
     std::map<int, QueryStatisticsPtr> _query_statistics;
-    SpinLock _lock;
+    std::mutex _lock;
 };
 
 } // namespace doris

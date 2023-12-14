@@ -105,7 +105,7 @@ public class OlapTableSink extends DataSink {
     private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
-    private TDataSink tDataSink;
+    protected TDataSink tDataSink;
 
     private boolean singleReplicaLoad;
 

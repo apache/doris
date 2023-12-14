@@ -241,8 +241,8 @@ public class CacheTest extends TestWithFeService {
             public Optional<ColumnStatistic> getColumnStatistic(String colName) {
                 return Optional.of(new ColumnStatistic(1, 2,
                         null, 3, 4, 5, 6, 7,
-                        null, null, false, null,
-                        new Date().toString(), null));
+                        null, null, false,
+                        new Date().toString()));
             }
         };
 
@@ -356,7 +356,7 @@ public class CacheTest extends TestWithFeService {
     }
 
     @Test
-    public void testEvict() {
+    public void testEvict() throws InterruptedException {
         ThreadPoolExecutor threadPool
                 = ThreadPoolManager.newDaemonFixedThreadPool(
                 1, Integer.MAX_VALUE, "STATS_FETCH", true);
@@ -377,6 +377,7 @@ public class CacheTest extends TestWithFeService {
         columnStatisticsCache.get(1);
         columnStatisticsCache.get(2);
         Assertions.assertTrue(columnStatisticsCache.synchronous().asMap().containsKey(2));
+        Thread.sleep(100);
         Assertions.assertEquals(1, columnStatisticsCache.synchronous().asMap().size());
     }
 }

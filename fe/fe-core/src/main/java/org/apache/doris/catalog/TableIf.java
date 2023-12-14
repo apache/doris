@@ -22,6 +22,7 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -236,6 +237,36 @@ public interface TableIf {
         }
     }
 
+    default void dropConstraint(String name) {
+        writeLock();
+        try {
+            Map<String, Constraint> constraintMap = getConstraintsMap();
+            if (!constraintMap.containsKey(name)) {
+                throw new AnalysisException(
+                        String.format("Unknown constraint %s on table %s.", name, this.getName()));
+            }
+            Constraint constraint = constraintMap.get(name);
+            constraintMap.remove(name);
+            if (constraint instanceof PrimaryKeyConstraint) {
+                ((PrimaryKeyConstraint) constraint).getForeignTables()
+                        .forEach(t -> t.dropFKReferringPK(this, (PrimaryKeyConstraint) constraint));
+            }
+        } finally {
+            writeUnlock();
+        }
+    }
+
+    default void dropFKReferringPK(TableIf table, PrimaryKeyConstraint constraint) {
+        writeLock();
+        try {
+            Map<String, Constraint> constraintMap = getConstraintsMap();
+            constraintMap.entrySet().removeIf(e -> e.getValue() instanceof ForeignKeyConstraint
+                    && ((ForeignKeyConstraint) e.getValue()).isReferringPK(table, constraint));
+        } finally {
+            writeUnlock();
+        }
+    }
+
     /**
      * return true if this kind of table need read lock when doing query plan.
      *
@@ -343,6 +374,12 @@ public interface TableIf {
 
     default Partition getPartition(String name) {
         return null;
+    }
+
+    default List<String> getFullQualifiers() {
+        return ImmutableList.of(getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getName());
     }
 
     default boolean isManagedTable() {

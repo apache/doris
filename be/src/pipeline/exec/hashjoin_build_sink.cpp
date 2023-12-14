@@ -385,6 +385,8 @@ HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int ope
                                                        const TPlanNode& tnode,
                                                        const DescriptorTbl& descs)
         : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
+          _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
+                                                                    : TJoinDistributionType::NONE),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
                              tnode.hash_join_node.is_broadcast_join) {
     _runtime_filter_descs = tnode.runtime_filters;
@@ -414,6 +416,7 @@ Status HashJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* st
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
         vectorized::VExprContextSPtr ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.right, ctx));
+        _partition_exprs.push_back(eq_join_conjunct.right);
         _build_expr_ctxs.push_back(ctx);
 
         const auto vexpr = _build_expr_ctxs.back()->root();

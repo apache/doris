@@ -88,6 +88,7 @@ public class NereidsPlanner extends Planner {
     private PhysicalPlan physicalPlan;
     // The cost of optimized plan
     private double cost = 0;
+    private List<PlannerHook> hooks = new ArrayList<>();
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -260,35 +261,32 @@ public class NereidsPlanner extends Planner {
         if (statementContext.getConnectContext().getTables() != null) {
             cascadesContext.setTables(statementContext.getConnectContext().getTables());
         }
-        if (statementContext.getConnectContext().getSessionVariable().isEnableMaterializedViewRewrite()) {
-            // TODO Pre handle materialized view to materializationContext and
-            //  call cascadesContext.addMaterializationContext() to add it
-        }
     }
 
     private void analyze() {
-        LOG.info("Start analyze plan");
+        LOG.debug("Start analyze plan");
         cascadesContext.newAnalyzer().analyze();
+        getHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
-        LOG.info("End analyze plan");
+        LOG.debug("End analyze plan");
     }
 
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
-        LOG.info("Start rewrite plan");
+        LOG.debug("Start rewrite plan");
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndRewritePlan");
-        LOG.info("End rewrite plan");
+        LOG.debug("End rewrite plan");
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
     private void optimize() {
-        LOG.info("Start optimize plan");
+        LOG.debug("Start optimize plan");
         new Optimizer(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndOptimizePlan");
-        LOG.info("End optimize plan");
+        LOG.debug("End optimize plan");
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
@@ -465,7 +463,7 @@ public class NereidsPlanner extends Planner {
             if (expr instanceof Literal) {
                 LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
                 columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                super.handleLiteralInFe(legacyExpr, data);
+                data.add(legacyExpr.getStringValueInFe());
             } else {
                 return Optional.empty();
             }
@@ -524,5 +522,13 @@ public class NereidsPlanner extends Planner {
 
     public PhysicalPlan getPhysicalPlan() {
         return physicalPlan;
+    }
+
+    public List<PlannerHook> getHooks() {
+        return hooks;
+    }
+
+    public void addHook(PlannerHook hook) {
+        this.hooks.add(hook);
     }
 }

@@ -310,6 +310,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         DataPartition dataPartition = toDataPartition(distribute.getDistributionSpec(), validOutputIds, context);
+        exchangeNode.setPartitionType(dataPartition.getType());
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
         exchangeNode.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         if (distribute.getDistributionSpec() instanceof DistributionSpecGather) {
@@ -859,6 +860,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 && inputPlanFragment.getDataPartition().getType() != TPartitionType.RANDOM
                 && aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
             inputPlanFragment.setHasColocatePlanNode(true);
+            // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
+            // local exchanger will be used.
+            aggregationNode.setColocate(true);
         }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
@@ -1751,6 +1755,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!setOperation.getPhysicalProperties().equals(PhysicalProperties.ANY)
                 && findOlapScanNodesByPassExchangeAndJoinNode(setOperationFragment.getPlanRoot())) {
             setOperationFragment.setHasColocatePlanNode(true);
+            setOperationNode.setColocate(true);
         }
 
         return setOperationFragment;
@@ -1796,6 +1801,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             SortNode sortNode = (SortNode) inputFragment.getPlanRoot().getChild(0);
             ((ExchangeNode) inputFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfo());
+            sortNode.setMergeByExchange();
         }
         return inputFragment;
     }
@@ -1850,6 +1856,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             exchangeNode.setMergeInfo(((SortNode) exchangeNode.getChild(0)).getSortInfo());
             exchangeNode.setLimit(topN.getLimit());
             exchangeNode.setOffset(topN.getOffset());
+            ((SortNode) exchangeNode.getChild(0)).setMergeByExchange();
         }
         updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), topN);
         return inputFragment;
@@ -2016,6 +2023,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
         if (findOlapScanNodesByPassExchangeAndJoinNode(inputPlanFragment.getPlanRoot())) {
             inputPlanFragment.setHasColocatePlanNode(true);
+            analyticEvalNode.setColocate(true);
         }
         return inputPlanFragment;
     }

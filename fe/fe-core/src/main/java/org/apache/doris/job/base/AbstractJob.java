@@ -26,14 +26,18 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
+import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.RandomUtils;
 
@@ -41,10 +45,14 @@ import java.io.DataInput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 @Data
-public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Writable {
+@Log4j2
+public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C>, Writable {
 
     @SerializedName(value = "jid")
     private Long jobId;
@@ -72,6 +80,9 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
 
     @SerializedName(value = "sql")
     String executeSql;
+
+    @SerializedName(value = "ftm")
+    private long finishTimeMs;
 
     private List<T> runningTasks = new ArrayList<>();
 
@@ -104,7 +115,43 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
             throw new JobException("no running task");
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
-                .orElseThrow(() -> new JobException("no task id:" + taskId)).cancel();
+                .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
+        if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
+            updateJobStatus(JobStatus.FINISHED);
+        }
+    }
+
+    public List<T> queryAllTasks() {
+        List<T> tasks = new ArrayList<>();
+        if (CollectionUtils.isEmpty(runningTasks)) {
+            return queryTasks();
+        }
+
+        List<T> historyTasks = queryTasks();
+        if (CollectionUtils.isNotEmpty(historyTasks)) {
+            tasks.addAll(historyTasks);
+        }
+        Set<Long> loadTaskIds = tasks.stream().map(AbstractTask::getTaskId).collect(Collectors.toSet());
+        runningTasks.forEach(task -> {
+            if (!loadTaskIds.contains(task.getTaskId())) {
+                tasks.add(task);
+            }
+        });
+        Comparator<T> taskComparator = Comparator.comparingLong(T::getCreateTimeMs).reversed();
+        tasks.sort(taskComparator);
+        return tasks;
+    }
+
+    public List<T> commonCreateTasks(TaskType taskType, C taskContext) {
+        if (!getJobStatus().equals(JobStatus.RUNNING)) {
+            log.warn("job is not running, job id is {}", jobId);
+            return new ArrayList<>();
+        }
+        if (!isReadyForScheduling(taskContext)) {
+            log.info("job is not ready for scheduling, job id is {}", jobId);
+            return new ArrayList<>();
+        }
+        return createTasks(taskType, taskContext);
     }
 
     public void initTasks(List<? extends AbstractTask> tasks) {
@@ -131,21 +178,26 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         checkJobParamsInternal();
     }
 
-    public void updateJobStatus(JobStatus newJobStatus) {
+    public void updateJobStatus(JobStatus newJobStatus) throws JobException {
         if (null == newJobStatus) {
             throw new IllegalArgumentException("jobStatus cannot be null");
         }
+        String errorMsg = String.format("Can't update job %s status to the %s status",
+                jobStatus.name(), newJobStatus.name());
         if (jobStatus == newJobStatus) {
-            throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
-                    jobStatus.name(), this.jobStatus.name()));
+            throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.RUNNING) && !jobStatus.equals(JobStatus.PAUSED)) {
-            throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
-                    jobStatus.name(), this.jobStatus.name()));
+            throw new IllegalArgumentException(errorMsg);
         }
         if (newJobStatus.equals(JobStatus.STOPPED) && !jobStatus.equals(JobStatus.RUNNING)) {
-            throw new IllegalArgumentException(String.format("Can't update job %s status to the %s status",
-                    jobStatus.name(), this.jobStatus.name()));
+            throw new IllegalArgumentException(errorMsg);
+        }
+        if (newJobStatus.equals(JobStatus.FINISHED)) {
+            this.finishTimeMs = System.currentTimeMillis();
+        }
+        if (JobStatus.PAUSED.equals(newJobStatus)) {
+            cancelAllTasks();
         }
         jobStatus = newJobStatus;
     }
@@ -155,25 +207,26 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
 
     public static AbstractJob readFields(DataInput in) throws IOException {
         String jsonJob = Text.readString(in);
-        AbstractJob<?> job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
+        AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
         job.setRunningTasks(new ArrayList<>());
         return job;
     }
 
     @Override
-    public void onTaskFail(T task) {
+    public void onTaskFail(T task) throws JobException {
         updateJobStatusIfEnd();
         runningTasks.remove(task);
     }
 
     @Override
-    public void onTaskSuccess(T task) {
+    public void onTaskSuccess(T task) throws JobException {
         updateJobStatusIfEnd();
         runningTasks.remove(task);
 
     }
 
-    private void updateJobStatusIfEnd() {
+
+    private void updateJobStatusIfEnd() throws JobException {
         JobExecuteType executeType = getJobConfig().getExecuteType();
         if (executeType.equals(JobExecuteType.MANUAL)) {
             return;
@@ -216,9 +269,28 @@ public abstract class AbstractJob<T extends AbstractTask> implements Job<T>, Wri
         return commonShowInfo;
     }
 
+    public TRow getCommonTvfInfo() {
+        TRow trow = new TRow();
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(jobId)));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
+        trow.addToColumnValue(new TCell().setStringVal(createUser.getQualifiedUser()));
+        trow.addToColumnValue(new TCell().setStringVal(jobConfig.getExecuteType().name()));
+        trow.addToColumnValue(new TCell().setStringVal(jobConfig.convertRecurringStrategyToString()));
+        trow.addToColumnValue(new TCell().setStringVal(jobStatus.name()));
+        trow.addToColumnValue(new TCell().setStringVal(executeSql));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(createTimeMs)));
+        trow.addToColumnValue(new TCell().setStringVal(comment));
+        return trow;
+    }
+
     @Override
     public List<String> getShowInfo() {
         return getCommonShowInfo();
+    }
+
+    @Override
+    public TRow getTvfInfo() {
+        return getCommonTvfInfo();
     }
 
     @Override

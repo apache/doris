@@ -58,15 +58,7 @@ public:
     IntCounter* create_tablet_requests_failed = nullptr;
     IntCounter* drop_tablet_requests_total = nullptr;
 
-    IntCounter* report_all_tablets_requests_total = nullptr;
-    IntCounter* report_all_tablets_requests_failed = nullptr;
-    IntCounter* report_tablet_requests_total = nullptr;
-    IntCounter* report_tablet_requests_failed = nullptr;
     IntCounter* report_all_tablets_requests_skip = nullptr;
-    IntCounter* report_disk_requests_total = nullptr;
-    IntCounter* report_disk_requests_failed = nullptr;
-    IntCounter* report_task_requests_total = nullptr;
-    IntCounter* report_task_requests_failed = nullptr;
 
     IntCounter* schema_change_requests_total = nullptr;
     IntCounter* schema_change_requests_failed = nullptr;
@@ -201,8 +193,6 @@ public:
     UIntGauge* query_cache_sql_total_count = nullptr;
     UIntGauge* query_cache_partition_total_count = nullptr;
 
-    IntCounter* tablet_schema_cache_count = nullptr;
-    UIntGauge* tablet_schema_cache_memory_bytes = nullptr;
     IntGauge* lru_cache_memory_bytes = nullptr;
 
     UIntGauge* scanner_thread_pool_queue_size = nullptr;

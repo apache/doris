@@ -229,6 +229,8 @@ message PExecPlanFragmentResult {
 message PCancelPlanFragmentRequest {
     required PUniqueId finst_id = 1;
     optional PPlanFragmentCancelReason cancel_reason = 2;
+    optional PUniqueId query_id = 3;
+    optional int32 fragment_id = 4;
 };
 
 message PCancelPlanFragmentResult {
@@ -790,6 +792,8 @@ message PStreamHeader {
     optional int64 src_id = 8;
     optional SegmentStatisticsPB segment_statistics = 9;
     repeated PTabletID tablets = 10;
+    optional TabletSchemaPB flush_schema = 11;
+    optional uint64 offset = 12;
 }
 
 message PGetWalQueueSizeRequest{
@@ -800,6 +804,23 @@ message PGetWalQueueSizeRequest{
 message PGetWalQueueSizeResponse{
     required PStatus status = 1;
     optional int64 size = 2;
+}
+
+message PTabletsLocation {
+    required string host = 1;
+    required int32  brpc_port = 2;
+    repeated int64  tablet_id = 3;
+}
+
+message PFetchRemoteSchemaRequest {
+    repeated PTabletsLocation tablet_location = 1;
+    required bool is_coordinator = 2;
+}
+
+message PFetchRemoteSchemaResponse {
+    optional PStatus status = 1;
+    // intermediate merged schema
+    optional TabletSchemaPB merged_schema = 2;
 }
 
 service PBackendService {
@@ -845,5 +866,6 @@ service PBackendService {
     rpc group_commit_insert(PGroupCommitInsertRequest) returns (PGroupCommitInsertResponse);
     rpc get_wal_queue_size(PGetWalQueueSizeRequest) returns(PGetWalQueueSizeResponse);
     rpc fetch_arrow_flight_schema(PFetchArrowFlightSchemaRequest) returns (PFetchArrowFlightSchemaResult);
+    rpc fetch_remote_tablet_schema(PFetchRemoteSchemaRequest) returns (PFetchRemoteSchemaResponse);
 };
 

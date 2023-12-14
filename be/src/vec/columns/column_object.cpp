@@ -1422,27 +1422,26 @@ void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
     return append_data_by_selector_impl<ColumnObject>(res, selector);
 }
 
-void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnObject::insert_default();
-        } else {
-            ColumnObject::insert_from(src, *x);
-        }
-    }
-}
-
-void ColumnObject::insert_indices_from_join(const IColumn& src, const uint32_t* indices_begin,
-                                            const uint32_t* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
+void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                       const uint32_t* indices_end) {
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
         ColumnObject::insert_from(src, *x);
     }
 }
 
 void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
-    for_each_imutable_subcolumn(
-            [&](const auto& subcolumn) { return subcolumn.update_hash_with_value(n, hash); });
+    if (!is_finalized()) {
+        // finalize has no side effect and can be safely used in const functions
+        const_cast<ColumnObject*>(this)->finalize();
+    }
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        if (n >= subcolumn.size()) {
+            LOG(FATAL) << n << " greater than column size " << subcolumn.size()
+                       << " sub_column_info:" << subcolumn.dump_structure()
+                       << " total lines of this column " << num_rows;
+        }
+        return subcolumn.update_hash_with_value(n, hash);
+    });
 }
 
 void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {

@@ -126,6 +126,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = false, masterOnly = false,
+            description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
+    public static boolean check_table_lock_leaky = false;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
@@ -1566,7 +1570,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(description = {"用于分发定时任务的线程数",
             "The number of threads used to dispatch timer job."})
-    public static int job_dispatch_timer_job_thread_num = 5;
+    public static int job_dispatch_timer_job_thread_num = 2;
 
     /**
      * The number of timer jobs that can be queued.
@@ -1578,6 +1582,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
 
+    @ConfField(description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
+            "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
+    public static int finished_job_cleanup_threshold_time_hour = 24;
+
     @ConfField(description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为5",
             "The number of threads used to consume Insert tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 5."})
@@ -1587,6 +1595,13 @@ public class Config extends ConfigBase {
             "The number of threads used to consume mtmv tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 5."})
     public static int job_mtmv_task_consumer_thread_num = 10;
+
+    /* job test config */
+    /**
+     * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
+     */
+    @ConfField
+    public static boolean enable_job_schedule_second_for_test = false;
 
     /*---------------------- JOB CONFIG END------------------------*/
     /**
@@ -1617,6 +1632,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
+
+    @ConfField(mutable = true)
+    public static long query_queue_update_interval_ms = 5000;
 
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
@@ -1872,8 +1890,8 @@ public class Config extends ConfigBase {
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.
      */
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_query_hive_views = false;
+    @ConfField(mutable = true)
+    public static boolean enable_query_hive_views = true;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
@@ -2290,6 +2308,18 @@ public class Config extends ConfigBase {
     @ConfField(description = {"nereids trace文件的存放路径。",
             "The path of the nereids trace file."})
     public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
+            "The max number of upload tasks assigned to each be during the backup process, the default value is 3."
+    })
+    public static int backup_upload_task_num_per_be = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "恢复过程中，分配给每个be的download任务最大个数，默认值为3个。",
+            "The max number of download tasks assigned to each be during the restore process, the default value is 3."
+    })
+    public static int restore_download_task_num_per_be = 3;
 
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})

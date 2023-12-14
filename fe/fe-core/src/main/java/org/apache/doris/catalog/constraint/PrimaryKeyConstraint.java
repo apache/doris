@@ -46,7 +46,7 @@ public class PrimaryKeyConstraint extends Constraint {
         foreignTables.add(new TableIdentifier(table));
     }
 
-    public List<TableIf> getReferenceTables() {
+    public List<TableIf> getForeignTables() {
         return foreignTables.stream()
                 .map(TableIdentifier::toTableIf)
                 .collect(ImmutableList.toImmutableList());

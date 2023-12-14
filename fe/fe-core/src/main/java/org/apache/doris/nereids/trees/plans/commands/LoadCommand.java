@@ -30,10 +30,10 @@ import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -225,8 +226,8 @@ public class LoadCommand extends Command implements ForwardWithSync {
         checkAndAddSequenceCol(olapTable, dataDesc, sinkCols, selectLists);
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
-        return new UnboundOlapTableSink<>(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                dataDesc.getPartitionNames(), isPartialUpdate, tvfLogicalPlan);
+        return new UnboundTableSink<>(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
+                false, dataDesc.getPartitionNames(), isPartialUpdate, DMLCommandType.LOAD, tvfLogicalPlan);
     }
 
     private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,

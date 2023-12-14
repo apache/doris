@@ -116,12 +116,17 @@ public:
 
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
+    bool is_finished() { return _is_finished.load(); }
+    bool should_stop() { return _should_stop.load(); }
+    bool status_error() { return _status_error.load(); }
 
     void inc_num_running_scanners(int32_t scanner_inc);
 
     void set_ready_to_finish();
 
     int get_num_running_scanners() const { return _num_running_scanners; }
+
+    int get_num_unfinished_scanners() const { return _num_unfinished_scanners; }
 
     void dec_num_scheduling_ctx();
 
@@ -156,6 +161,9 @@ public:
         int thread_slot_num = 0;
         thread_slot_num = (allowed_blocks_num() + _block_per_scanner - 1) / _block_per_scanner;
         thread_slot_num = std::min(thread_slot_num, _max_thread_num - _num_running_scanners);
+        if (thread_slot_num <= 0) {
+            thread_slot_num = 1;
+        }
         return thread_slot_num;
     }
 
@@ -267,6 +275,8 @@ protected:
     // Not need to protect by lock, because only one scheduler thread will access to it.
     std::mutex _scanners_lock;
     std::list<VScannerSPtr> _scanners;
+    // weak pointer for _scanners, used in stop function
+    std::vector<VScannerWPtr> _scanners_ref;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
     std::vector<int64_t> _finished_scanner_wait_worker_time;

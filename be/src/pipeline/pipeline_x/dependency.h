@@ -161,12 +161,10 @@ class RuntimeFilterDependency;
 class RuntimeFilterTimer {
 public:
     RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
-                       std::shared_ptr<RuntimeFilterDependency> parent,
-                       IRuntimeFilter* runtime_filter)
+                       std::shared_ptr<RuntimeFilterDependency> parent)
             : _parent(std::move(parent)),
               _registration_time(registration_time),
-              _wait_time_ms(wait_time_ms),
-              _runtime_filter(runtime_filter) {}
+              _wait_time_ms(wait_time_ms) {}
 
     void call_ready();
 
@@ -188,7 +186,7 @@ private:
     std::mutex _lock;
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
-    IRuntimeFilter* _runtime_filter = nullptr;
+    bool _is_ready = false;
 };
 
 struct RuntimeFilterTimerQueue {
@@ -339,7 +337,7 @@ public:
     size_t input_num_rows = 0;
     std::vector<vectorized::AggregateDataPtr> values;
     std::unique_ptr<vectorized::Arena> agg_profile_arena;
-    std::unique_ptr<DataQueue> data_queue;
+    std::unique_ptr<DataQueue> data_queue = std::make_unique<DataQueue>(1);
     /// The total size of the row from the aggregate functions.
     size_t total_size_of_aggregate_states = 0;
     size_t align_aggregate_states = 1;
@@ -353,13 +351,9 @@ public:
         int64_t used_in_state;
     };
     MemoryRecord mem_usage_record;
-    std::unique_ptr<MemTracker> mem_tracker = std::make_unique<MemTracker>("AggregateOperator");
     bool agg_data_created_without_key = false;
 
 private:
-    void _release_tracker() {
-        mem_tracker->release(mem_usage_record.used_in_state + mem_usage_record.used_in_arena);
-    }
     void _close_with_serialized_key() {
         std::visit(
                 [&](auto&& agg_method) -> void {
@@ -379,7 +373,6 @@ private:
                     }
                 },
                 agg_data->method_variant);
-        _release_tracker();
     }
     void _close_without_key() {
         //because prepare maybe failed, and couldn't create agg data.
@@ -389,7 +382,6 @@ private:
             static_cast<void>(_destroy_agg_status(agg_data->without_key));
             agg_data_created_without_key = false;
         }
-        _release_tracker();
     }
     Status _destroy_agg_status(vectorized::AggregateDataPtr data) {
         for (int i = 0; i < aggregate_evaluators.size(); ++i) {
@@ -580,6 +572,28 @@ public:
     }
 };
 
+enum class ExchangeType : uint8_t {
+    NOOP = 0,
+    HASH_SHUFFLE = 1,
+    PASSTHROUGH = 2,
+    BUCKET_HASH_SHUFFLE = 3,
+};
+
+inline std::string get_exchange_type_name(ExchangeType idx) {
+    switch (idx) {
+    case ExchangeType::NOOP:
+        return "NOOP";
+    case ExchangeType::HASH_SHUFFLE:
+        return "HASH_SHUFFLE";
+    case ExchangeType::PASSTHROUGH:
+        return "PASSTHROUGH";
+    case ExchangeType::BUCKET_HASH_SHUFFLE:
+        return "BUCKET_HASH_SHUFFLE";
+    }
+    LOG(FATAL) << "__builtin_unreachable";
+    __builtin_unreachable();
+}
+
 class Exchanger;
 
 struct LocalExchangeSharedState : public BasicSharedState {
@@ -587,6 +601,9 @@ public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     std::unique_ptr<Exchanger> exchanger {};
     std::vector<Dependency*> source_dependencies;
+    Dependency* sink_dependency;
+    std::vector<MemTracker*> mem_trackers;
+    std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
     void _set_ready_for_read() {
@@ -595,13 +612,29 @@ public:
             dep->set_ready();
         }
     }
+
     void set_dep_by_channel_id(Dependency* dep, int channel_id) {
         source_dependencies[channel_id] = dep;
     }
-    void set_ready_for_read(int channel_id) {
+
+    void set_ready_to_read(int channel_id) {
         auto* dep = source_dependencies[channel_id];
-        DCHECK(dep) << channel_id << " " << (int64_t)this;
+        DCHECK(dep) << channel_id;
         dep->set_ready();
+    }
+
+    void add_mem_usage(int channel_id, size_t delta) {
+        mem_trackers[channel_id]->consume(delta);
+        if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
+            sink_dependency->block();
+        }
+    }
+
+    void sub_mem_usage(int channel_id, size_t delta) {
+        mem_trackers[channel_id]->release(delta);
+        if (mem_usage.fetch_sub(delta) < config::local_exchange_buffer_mem_limit) {
+            sink_dependency->set_ready();
+        }
     }
 };
 

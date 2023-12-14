@@ -523,7 +523,9 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
           _shards(nullptr),
           _last_id(1),
           _total_capacity(total_capacity) {
-    _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, name);
+    _mem_tracker = std::make_unique<MemTrackerLimiter>(
+            MemTrackerLimiter::Type::GLOBAL,
+            fmt::format("{}[{}]", name, lru_cache_type_string(type)));
     CHECK(num_shards > 0) << "num_shards cannot be 0";
     CHECK_EQ((num_shards & (num_shards - 1)), 0)
             << "num_shards should be power of two, but got " << num_shards;
@@ -663,11 +665,6 @@ void ShardedLRUCache::update_cache_metrics() const {
     cache_usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
     cache_hit_ratio->set_value(
             total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
-}
-
-Cache* new_lru_cache(const std::string& name, size_t capacity, LRUCacheType type,
-                     uint32_t num_shards) {
-    return new ShardedLRUCache(name, capacity, type, num_shards);
 }
 
 } // namespace doris

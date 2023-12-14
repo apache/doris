@@ -310,10 +310,11 @@ void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
         TabletColumn common_column;
         // const std::string& column_name = variant_col_name + "." + tuple_paths[i].get_path();
         get_column_by_type(tuple_types[i], tuple_paths[i].get_path(), common_column,
-                           ExtraInfo {.unique_id = variant_col_unique_id,
+                           ExtraInfo {.unique_id = -1,
                                       .parent_unique_id = variant_col_unique_id,
                                       .path_info = tuple_paths[i]});
-        common_schema->append_column(common_column);
+        // set ColumnType::VARIANT to occupy _field_path_to_index
+        common_schema->append_column(common_column, TabletSchema::ColumnType::VARIANT);
     }
 }
 
@@ -350,10 +351,29 @@ void inherit_tablet_index(TabletSchemaSPtr& schema) {
     }
 }
 
-TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                                         const TabletSchemaSPtr& base_schema) {
-    auto output_schema = std::make_shared<TabletSchema>();
+Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                               const TabletSchemaSPtr& base_schema, TabletSchemaSPtr& output_schema,
+                               bool check_schema_size) {
     std::vector<int32_t> variant_column_unique_id;
+
+    // Construct a schema excluding the extracted columns and gather unique identifiers for variants.
+    // Ensure that the output schema also excludes these extracted columns. This approach prevents
+    // duplicated paths following the update_least_common_schema process.
+    auto build_schema_without_extracted_columns = [&](const TabletSchemaSPtr& base_schema) {
+        output_schema = std::make_shared<TabletSchema>();
+        output_schema->copy_from(*base_schema);
+        // Merge columns from other schemas
+        output_schema->clear_columns();
+        // Get all columns without extracted columns and collect variant col unique id
+        for (const TabletColumn& col : base_schema->columns()) {
+            if (col.is_variant_type()) {
+                variant_column_unique_id.push_back(col.unique_id());
+            }
+            if (!col.is_extracted_column()) {
+                output_schema->append_column(col);
+            }
+        }
+    };
     if (base_schema == nullptr) {
         // Pick tablet schema with max schema version
         auto max_version_schema =
@@ -362,27 +382,10 @@ TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& sc
                                       return a->schema_version() < b->schema_version();
                                   });
         CHECK(max_version_schema);
-        output_schema->copy_from(*max_version_schema);
-        // Merge columns from other schemas
-        output_schema->clear_columns();
-        // Get all columns without extracted columns and collect variant col unique id
-        for (const TabletColumn& col : max_version_schema->columns()) {
-            if (col.is_variant_type()) {
-                variant_column_unique_id.push_back(col.unique_id());
-            }
-            if (!col.is_extracted_column()) {
-                output_schema->append_column(col);
-            }
-        }
+        build_schema_without_extracted_columns(max_version_schema);
     } else {
-        // use input common schema as base schema
-        // Get all columns without extracted columns and collect variant col unique id
-        for (const TabletColumn& col : base_schema->columns()) {
-            if (col.is_variant_type()) {
-                variant_column_unique_id.push_back(col.unique_id());
-            }
-        }
-        output_schema->copy_from(*base_schema);
+        // use input base_schema schema as base schema
+        build_schema_without_extracted_columns(base_schema);
     }
 
     for (int32_t unique_id : variant_column_unique_id) {
@@ -390,13 +393,18 @@ TabletSchemaSPtr get_least_common_schema(const std::vector<TabletSchemaSPtr>& sc
     }
 
     inherit_tablet_index(output_schema);
-    return output_schema;
+    if (check_schema_size &&
+        output_schema->columns().size() > config::variant_max_merged_tablet_schema_size) {
+        return Status::DataQualityError("Reached max column size limit {}",
+                                        config::variant_max_merged_tablet_schema_size);
+    }
+    return Status::OK();
 }
 
 Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos) {
     try {
         // Parse each variant column from raw string column
-        vectorized::schema_util::parse_variant_columns(block, variant_pos);
+        RETURN_IF_ERROR(vectorized::schema_util::parse_variant_columns(block, variant_pos));
         vectorized::schema_util::finalize_variant_columns(block, variant_pos,
                                                           false /*not ingore sparse*/);
         vectorized::schema_util::encode_variant_sparse_subcolumns(block, variant_pos);
@@ -408,7 +416,7 @@ Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& va
     return Status::OK();
 }
 
-void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
     for (int i = 0; i < variant_pos.size(); ++i) {
         const auto& column_ref = block.get_by_position(variant_pos[i]).column;
         bool is_nullable = column_ref->is_nullable();
@@ -418,14 +426,23 @@ void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
             // already parsed
             continue;
         }
-        const auto& root = *var.get_root();
-        const auto& raw_json_column =
-                root.is_nullable()
-                        ? static_cast<const ColumnString&>(
-                                  static_cast<const ColumnNullable&>(root).get_nested_column())
-                        : static_cast<const ColumnString&>(root);
+        ColumnPtr raw_json_column;
+        if (WhichDataType(remove_nullable(var.get_root_type())).is_json()) {
+            // TODO more efficient way to parse jsonb type, currently we just convert jsonb to
+            // json str and parse them into variant
+            RETURN_IF_ERROR(cast_column({var.get_root(), var.get_root_type(), ""},
+                                        std::make_shared<DataTypeString>(), &raw_json_column));
+        } else {
+            const auto& root = *var.get_root();
+            raw_json_column =
+                    root.is_nullable()
+                            ? static_cast<const ColumnNullable&>(root).get_nested_column_ptr()
+                            : var.get_root();
+        }
+
         MutableColumnPtr variant_column = ColumnObject::create(true);
-        parse_json_to_variant(*variant_column.get(), raw_json_column);
+        parse_json_to_variant(*variant_column.get(),
+                              assert_cast<const ColumnString&>(*raw_json_column));
         // Wrap variant with nullmap if it is nullable
         ColumnPtr result = variant_column->get_ptr();
         if (is_nullable) {
@@ -436,6 +453,7 @@ void parse_variant_columns(Block& block, const std::vector<int>& variant_pos) {
         block.get_by_position(variant_pos[i]).column = result;
         // block.get_by_position(variant_pos[i]).type = std::make_shared<DataTypeObject>("json", true);
     }
+    return Status::OK();
 }
 
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
