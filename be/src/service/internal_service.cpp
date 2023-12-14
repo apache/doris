@@ -729,7 +729,7 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
 
             if (id_to_column.empty()) {
                 for (const auto& col : columns) {
-                    id_to_column.insert(std::pair{col.unique_id(), &col});
+                    id_to_column.insert(std::pair {col.unique_id(), &col});
                 }
             } else {
                 for (const auto& col : columns) {
