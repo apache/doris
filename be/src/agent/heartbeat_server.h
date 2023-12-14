@@ -53,13 +53,13 @@ public:
 private:
     Status _heartbeat(const TMasterInfo& master_info);
 
-    StorageEngine* _olap_engine;
+    StorageEngine* _olap_engine = nullptr;
     int64_t _be_epoch;
 
     // mutex to protect master_info and _epoch
     std::mutex _hb_mtx;
     // Not owned. Point to the ExecEnv::_master_info
-    TMasterInfo* _master_info;
+    TMasterInfo* _master_info = nullptr;
     int64_t _fe_epoch;
 
     DISALLOW_COPY_AND_ASSIGN(HeartbeatServer);

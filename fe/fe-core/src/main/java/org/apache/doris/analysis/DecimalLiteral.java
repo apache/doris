@@ -213,6 +213,7 @@ public class DecimalLiteral extends LiteralExpr {
                 buffer.putLong(value.unscaledValue().longValue());
                 break;
             case DECIMAL128:
+            case DECIMAL256:
                 LargeIntLiteral tmp = new LargeIntLiteral(value.unscaledValue());
                 return tmp.getHashValue(type);
             default:
@@ -243,6 +244,11 @@ public class DecimalLiteral extends LiteralExpr {
                         + " and " + expr.toSqlImpl());
             }
         }
+    }
+
+    @Override
+    public String getStringValueInFe() {
+        return value.toPlainString();
     }
 
     @Override

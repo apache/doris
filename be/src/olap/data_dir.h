@@ -82,7 +82,7 @@ public:
     Status set_cluster_id(int32_t cluster_id);
     void health_check();
 
-    Status get_shard(uint64_t* shard);
+    uint64_t get_shard();
 
     OlapMeta* get_meta() { return _meta; }
 
@@ -104,10 +104,6 @@ public:
 
     // load data from meta and data files
     Status load();
-
-    // this function scans the paths in data dir to collect the paths to check
-    // this is a producer function. After scan, it will notify the perform_path_gc function to gc
-    Status perform_path_scan();
 
     void perform_path_gc();
 
@@ -158,13 +154,11 @@ private:
     // process will log fatal.
     Status _check_incompatible_old_format_tablet();
 
-    void _process_garbage_path(const std::string& path);
+    std::vector<std::string> _perform_path_scan();
 
-    void _remove_check_paths(const std::set<std::string>& paths);
+    void _perform_path_gc_by_tablet(std::vector<std::string>& tablet_paths);
 
-    void _perform_path_gc_by_tablet();
-
-    void _perform_path_gc_by_rowsetid();
+    void _perform_path_gc_by_rowset(const std::vector<std::string>& tablet_paths);
 
 private:
     std::atomic<bool> _stop_bg_worker = false;
@@ -181,8 +175,8 @@ private:
     TStorageMedium::type _storage_medium;
     bool _is_used;
 
-    TabletManager* _tablet_manager;
-    TxnManager* _txn_manager;
+    TabletManager* _tablet_manager = nullptr;
+    TxnManager* _txn_manager = nullptr;
     int32_t _cluster_id;
     bool _cluster_id_incomplete = false;
     // This flag will be set true if this store was not in root path when reloading
@@ -198,20 +192,15 @@ private:
     OlapMeta* _meta = nullptr;
     RowsetIdGenerator* _id_generator = nullptr;
 
-    std::mutex _check_path_mutex;
-    std::condition_variable _check_path_cv;
-    std::set<std::string> _all_check_paths;
-    std::set<std::string> _all_tablet_schemahash_paths;
-
     std::shared_ptr<MetricEntity> _data_dir_metric_entity;
-    IntGauge* disks_total_capacity;
-    IntGauge* disks_avail_capacity;
-    IntGauge* disks_local_used_capacity;
-    IntGauge* disks_remote_used_capacity;
-    IntGauge* disks_trash_used_capacity;
-    IntGauge* disks_state;
-    IntGauge* disks_compaction_score;
-    IntGauge* disks_compaction_num;
+    IntGauge* disks_total_capacity = nullptr;
+    IntGauge* disks_avail_capacity = nullptr;
+    IntGauge* disks_local_used_capacity = nullptr;
+    IntGauge* disks_remote_used_capacity = nullptr;
+    IntGauge* disks_trash_used_capacity = nullptr;
+    IntGauge* disks_state = nullptr;
+    IntGauge* disks_compaction_score = nullptr;
+    IntGauge* disks_compaction_num = nullptr;
 };
 
 } // namespace doris

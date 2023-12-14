@@ -188,13 +188,13 @@ There are two ways to configure BE configuration items:
 
 * Type: string
 * Description: Limit the percentage of the server's maximum memory used by the BE process. It is used to prevent BE memory from occupying too the machine's memory. This parameter must be greater than 0. When the percentage is greater than 100%, the value will default to 100%.
-* Default value: 80%
+* Default value: 90%
 
 #### `cluster_id`
 
 * Type: int32
 * Description: Configure the cluster id to which the BE belongs.
-    - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Drois cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
+    - This value is usually delivered by the FE to the BE by the heartbeat, no need to configure. When it is confirmed that a BE belongs to a certain Doris cluster, it can be configured. The cluster_id file under the data directory needs to be modified to make sure same as this parament.
 * Default value: -1
 
 #### `custom_config_dir`
@@ -215,7 +215,7 @@ There are two ways to configure BE configuration items:
 
 #### `es_scroll_keepalive`
 
-* Description: es scroll Keeplive hold time
+* Description: es scroll keep-alive hold time
 * Default value: 5 (m)
 
 #### `external_table_connect_timeout_sec`
@@ -400,7 +400,7 @@ There are two ways to configure BE configuration items:
 #### `enable_prefetch`
 
 * Type: bool
-* Description: When using PartitionedHashTable for aggregation and join calculations, whether to perform HashBuket prefetch. Recommended to be set to true
+* Description: When using PartitionedHashTable for aggregation and join calculations, whether to perform HashBucket prefetch. Recommended to be set to true
 * Default value: true
 
 #### `enable_quadratic_probing`
@@ -528,7 +528,7 @@ There are two ways to configure BE configuration items:
 * Type: int64
 * Description: If the total disk size of the output rowset of the cumulative compaction is lower than this configuration size, the rowset will not undergo base compaction and is still in the cumulative compaction process. The unit is m bytes.
   - Generally, the configuration is within 512m. If the configuration is too large, the size of the early base version is too small, and base compaction has not been performed.
-* Default value: 64
+* Default value: 128
 
 #### `compaction_min_size_mbytes`
 
@@ -637,7 +637,7 @@ BaseCompaction:546859:
 #### `segcompaction_batch_size`
 
 * Type: int32
-* Description: Max number of segments allowed in a single segcompaction task.
+* Description: Max number of segments allowed in a single segment compaction task.
 * Default value: 10
 
 #### `segcompaction_candidate_max_rows`
@@ -721,7 +721,7 @@ BaseCompaction:546859:
 #### `enable_single_replica_load`
 
 * Description: Whether to enable the single-copy data import function
-* Default value: false
+* Default value: true
 
 #### `load_error_log_reserve_hours`
 
@@ -736,7 +736,7 @@ BaseCompaction:546859:
 
 #### `load_process_soft_mem_limit_percent`
 
-* Description: The soft limit refers to the proportion of the load memory limit of a single node. For example, the load memory limit for all load tasks is 20GB, and the soft limit defaults to 50% of this value, that is, 10GB. When the load memory usage exceeds the soft limit, the job with the largest memory consuption will be selected to be flushed to release the memory space, the default is 50%
+* Description: The soft limit refers to the proportion of the load memory limit of a single node. For example, the load memory limit for all load tasks is 20GB, and the soft limit defaults to 50% of this value, that is, 10GB. When the load memory usage exceeds the soft limit, the job with the largest memory consumption will be selected to be flushed to release the memory space, the default is 50%
 * Default value: 50 (%)
 
 #### `routine_load_thread_pool_size`
@@ -823,6 +823,16 @@ BaseCompaction:546859:
   - Some data formats, such as JSON, cannot be split. Doris must read all the data into the memory before parsing can begin. Therefore, this value is used to limit the maximum amount of data that can be loaded in a single Stream load.
 * Default value: 100
 * Dynamically modifiable: Yes
+
+#### `olap_table_sink_send_interval_microseconds`
+
+* Description: While loading data, there's a polling thread keep sending data to corresponding BE from Coordinator's sink node. This thread will check whether there's data to send every `olap_table_sink_send_interval_microseconds` microseconds.
+* Default value: 1000
+
+#### `olap_table_sink_send_interval_auto_partition_factor`
+
+* Description: If we load data to a table which enabled auto partition. the interval of `olap_table_sink_send_interval_microseconds` is too slow. In that case the real interval will multiply this factor.
+* Default value: 0.001
 
 ### Thread
 
@@ -986,7 +996,7 @@ BaseCompaction:546859:
 #### `memory_mode`
 
 * Type: string
-* Description: Control gc of tcmalloc, in performance mode doirs releases memory of tcmalloc cache when usgae >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
+* Description: Control gc of tcmalloc, in performance mode Doris releases memory of tcmalloc cache when usage >= 90% * mem_limit, otherwise, doris releases memory of tcmalloc cache when usage >= 50% * mem_limit;
 * Default value: performance
 
 #### `max_sys_mem_available_low_water_mark_bytes`
@@ -1290,7 +1300,7 @@ BaseCompaction:546859:
 * Description: The number of threads making schema changes
 * Default value: 3
 
-### `alter_index_worker_count`
+#### `alter_index_worker_count`
 
 * Description: The number of threads making index change
 * Default value: 3
@@ -1463,11 +1473,6 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: Default dirs to put jdbc drivers.
 * Default value: `${DORIS_HOME}/jdbc_drivers`
-
-#### `enable_parse_multi_dimession_array`
-
-* Description: Whether parse multidimensional array, if false encountering will return ERROR
-* Default value: true
 
 #### `enable_simdjson_reader`
 

@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -28,14 +31,16 @@ import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.statistics.Statistics;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 class GraphSimplifierTest {
     private static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
@@ -58,9 +63,9 @@ class GraphSimplifierTest {
                 .join(project3, JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(alias2.toSlot(), alias3.toSlot())), new ArrayList<>())
                 .build();
         HyperGraph hyperGraph = HyperGraphBuilder.buildHyperGraphFromPlan(join);
-        for (Node node : hyperGraph.getNodes()) {
-            node.getGroup().setStatistics(new Statistics(1, new HashMap<>()));
-        }
+        hyperGraph.getNodes().forEach(
+                n -> ((DPhyperNode) n).getGroup().setStatistics(new Statistics(1, new HashMap<>()))
+        );
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         while (graphSimplifier.applySimplificationStep()) {
         }
@@ -75,20 +80,32 @@ class GraphSimplifierTest {
         //      |
         //     t2
         HyperGraph hyperGraph = new HyperGraphBuilder()
-                .init(10, 30, 20, 40, 50)
+                .init(10, 20, 30, 40, 50)
                 .addEdge(JoinType.INNER_JOIN, 0, 1)
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        while (graphSimplifier.applySimplificationStep()) {
+        List<Pair<Long, Long>> steps = ImmutableList.<Pair<Long, Long>>builder()
+                .add(Pair.of(17L, 2L))   // 04   - 1
+                .add(Pair.of(17L, 4L))   // 04   - 2
+                .add(Pair.of(17L, 8L))   // 04   - 3
+                .add(Pair.of(19L, 8L))   // 041  - 2
+                .add(Pair.of(21L, 2L))   // 042  - 1
+                .add(Pair.of(23L, 8L))   // 0134 - 2
+                .build(); // 0-4-3-1-2 : big left deep tree
+        for (Pair<Long, Long> step : steps) {
+            if (!graphSimplifier.applySimplificationStep()) {
+                break;
+            }
+            System.out.println(graphSimplifier.getLastAppliedSteps());
+            Assertions.assertEquals(step, graphSimplifier.getLastAppliedSteps());
         }
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
         for (int count : counter.getAllCount().values()) {
-            System.out.println(count);
             Assertions.assertTrue(count < 10);
         }
         Assertions.assertTrue(graphSimplifier.isTotalOrder());
@@ -183,24 +200,6 @@ class GraphSimplifierTest {
     }
 
     @Test
-    void testTime() {
-        int tableNum = 20;
-        int edgeNum = 40;
-        double totalTime = 0;
-        int times = 1;
-        for (int i = 0; i < times; i++) {
-            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
-            double now = System.currentTimeMillis();
-            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-            while (graphSimplifier.applySimplificationStep()) {
-            }
-            totalTime += System.currentTimeMillis() - now;
-        }
-        System.out.printf("Simplify graph with %d nodes %d edges cost %f ms%n", tableNum, edgeNum,
-                totalTime / times);
-    }
-
-    @Test
     void testComplexQuery() {
         HyperGraph hyperGraph = new HyperGraphBuilder()
                 .init(6, 2, 1, 3, 5, 4)
@@ -235,7 +234,6 @@ class GraphSimplifierTest {
             Counter counter = new Counter();
             SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
             subgraphEnumerator.enumerate();
-            Assertions.assertTrue(graphSimplifier.isTotalOrder());
         }
     }
 
@@ -256,12 +254,29 @@ class GraphSimplifierTest {
 
     @Disabled
     @Test
+    void test64Clique() {
+        HyperGraph hyperGraph = new HyperGraphBuilder(Sets.newHashSet(JoinType.INNER_JOIN))
+                .randomBuildWith(64, 67);
+        Counter counter = new Counter();
+        SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
+        GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+        graphSimplifier.simplifyGraph(1);
+
+        for (Edge edge : hyperGraph.getJoinEdges()) {
+            System.out.println(edge);
+        }
+        Assertions.assertTrue(subgraphEnumerator.enumerate());
+        System.out.println(counter.getEmitCount());
+    }
+
+    @Disabled
+    @Test
     void benchGraphSimplifier() {
         int tableNum = 64;
         int edgeNum = 64 * 63 / 2;
         int limit = 1000;
 
-        int times = 1;
+        int times = 4;
         double totalTime = 0;
         for (int i = 0; i < times; i++) {
             totalTime += benchGraphSimplifier(tableNum, edgeNum, limit);

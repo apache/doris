@@ -259,7 +259,7 @@ suite("cold_heat_dynamic_partition") {
     }
 
     sql """
-    sql * from ${tableName}
+    select * from ${tableName}
     """
 
     sql """

@@ -60,6 +60,11 @@ public class LocalFileSystem implements FileSystem {
     }
 
     @Override
+    public RemoteFiles listLocatedFiles(String remotePath, boolean onlyFiles, boolean recursive) {
+        throw new UnsupportedOperationException("Unsupported operation on local file system.");
+    }
+
+    @Override
     public Status list(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
         throw new UnsupportedOperationException("Unsupported operation on local file system.");
     }

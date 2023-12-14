@@ -97,7 +97,7 @@ OperatorPtr DistinctStreamingAggSinkOperatorBuilder::build_operator() {
 
 DistinctStreamingAggSinkLocalState::DistinctStreamingAggSinkLocalState(
         DataSinkOperatorXBase* parent, RuntimeState* state)
-        : AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>(parent, state),
+        : AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>(parent, state),
           dummy_mapped_data(std::make_shared<char>('A')) {}
 
 Status DistinctStreamingAggSinkLocalState::_distinct_pre_agg_with_serialized_key(
@@ -127,7 +127,7 @@ Status DistinctStreamingAggSinkLocalState::_distinct_pre_agg_with_serialized_key
     RETURN_IF_CATCH_EXCEPTION(
             _emplace_into_hash_table_to_distinct(_distinct_row, key_columns, rows));
 
-    bool mem_reuse = _dependency->make_nullable_keys().empty() && out_block->mem_reuse();
+    bool mem_reuse = _shared_state->make_nullable_keys.empty() && out_block->mem_reuse();
     if (mem_reuse) {
         for (int i = 0; i < key_size; ++i) {
             auto dst = out_block->get_by_position(i).column->assume_mutable();
@@ -183,7 +183,8 @@ DistinctStreamingAggSinkOperatorX::DistinctStreamingAggSinkOperatorX(ObjectPool*
                                                                      int operator_id,
                                                                      const TPlanNode& tnode,
                                                                      const DescriptorTbl& descs)
-        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, operator_id, tnode, descs) {}
+        : AggSinkOperatorX<DistinctStreamingAggSinkLocalState>(pool, operator_id, tnode, descs,
+                                                               true) {}
 
 Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<DistinctStreamingAggSinkLocalState>::init(tnode, state));
@@ -194,7 +195,7 @@ Status DistinctStreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeSt
 Status DistinctStreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                                SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
     Status ret = Status::OK();
@@ -235,7 +236,7 @@ Status DistinctStreamingAggSinkLocalState::close(RuntimeState* state, Status exe
     if (_closed) {
         return Status::OK();
     }
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_shared_state->data_queue && !_shared_state->data_queue->is_finish()) {
         // finish should be set, if not set here means error.

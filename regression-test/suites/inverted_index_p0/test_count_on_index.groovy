@@ -268,6 +268,10 @@ suite("test_count_on_index_httplogs", "p0") {
             contains "pushAggOp=COUNT_ON_INDEX"
         }
         qt_sql "select COUNT() from ${tableName} where key_id match 'bjn002'"
+
+        // case4: test compound query when inverted_index_query disable
+        qt_sql "SELECT  COUNT() from ${testTable_dup} where request = 'images'  or (size = 0 and status > 400)"
+        qt_sql "SELECT /*+SET_VAR(enable_inverted_index_query=false) */ COUNT() from ${testTable_dup} where request = 'images'  or (size = 0 and status > 400)"
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

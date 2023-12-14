@@ -6,9 +6,9 @@ PhysicalResultSink
 ------PhysicalDistribute
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = part.p_partkey))otherCondition=()
+------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_partkey = part.p_partkey)) otherCondition=() build RFs:RF0 l_partkey->[p_partkey]
 --------------PhysicalProject
-----------------PhysicalOlapScan[part]
+----------------PhysicalOlapScan[part] apply RFs: RF0
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------filter((lineitem.l_shipdate < '1995-10-01') and (lineitem.l_shipdate >= '1995-09-01'))

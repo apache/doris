@@ -29,7 +29,6 @@
 #include <typeinfo>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -77,7 +76,7 @@
 namespace doris {
 class QueryStatistics;
 
-const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsReturnedRate";
+const std::string ExecNode::ROW_THROUGHPUT_COUNTER = "RowsProducedRate";
 
 ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
         : _id(tnode.node_id),
@@ -127,15 +126,13 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status ExecNode::prepare(RuntimeState* state) {
     DCHECK(_runtime_profile.get() != nullptr);
-    _span = state->get_tracer()->StartSpan(get_name());
-    OpentelemetryScope scope {_span};
-
     _exec_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "ExecTime", 1);
     _rows_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsReturned", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "RowsProduced", TUnit::UNIT, 1);
     _output_bytes_counter =
-            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "OutputBytes", TUnit::BYTES, 1);
-    _block_count_counter = ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlockCount", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BytesProduced", TUnit::BYTES, 1);
+    _block_count_counter =
+            ADD_COUNTER_WITH_LEVEL(_runtime_profile, "BlocksProduced", TUnit::UNIT, 1);
     _projection_timer = ADD_TIMER(_runtime_profile, "ProjectionTime");
     _rows_returned_rate = runtime_profile()->add_derived_counter(
             ROW_THROUGHPUT_COUNTER, TUnit::UNIT_PER_SECOND,
@@ -201,8 +198,10 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
             COUNTER_SET(_rows_returned_counter, _num_rows_returned);
         }
 
-        runtime_profile()->add_to_span(_span);
         _is_resource_released = true;
+    }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
 }
 
@@ -213,8 +212,6 @@ Status ExecNode::close(RuntimeState* state) {
                   << " already closed";
         return Status::OK();
     }
-    LOG(INFO) << "query= " << print_id(state->query_id())
-              << " fragment_instance_id=" << print_id(state->fragment_instance_id()) << " closed";
     _is_closed = true;
 
     Status result;
@@ -224,10 +221,10 @@ Status ExecNode::close(RuntimeState* state) {
             result = st;
         }
     }
-    if (_peak_memory_usage_counter) {
-        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
-    }
     release_resource(state);
+    LOG(INFO) << "query= " << print_id(state->query_id())
+              << ", fragment_instance_id=" << print_id(state->fragment_instance_id())
+              << ", id=" << _id << " type=" << print_plan_node_type(_type) << " closed";
     return result;
 }
 
@@ -541,7 +538,14 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
-        DCHECK(mutable_columns.size() == _projections.size());
+
+        if (mutable_columns.size() != _projections.size()) {
+            return Status::InternalError(
+                    "Logical error during processing {}, output of projections {} mismatches with "
+                    "exec node output {}",
+                    this->get_name(), _projections.size(), mutable_columns.size());
+        }
+
         for (int i = 0; i < mutable_columns.size(); ++i) {
             auto result_column_id = -1;
             RETURN_IF_ERROR(_projections[i]->execute(origin_block, &result_column_id));

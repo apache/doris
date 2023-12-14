@@ -55,7 +55,7 @@ std::string cast_to_string(T value, int scale) {
     } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
         return ((vectorized::Decimal<int128_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL256) {
-        return ((vectorized::Decimal<Int256>)value).to_string(scale);
+        return ((vectorized::Decimal<wide::Int256>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_TINYINT) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
@@ -304,6 +304,8 @@ public:
                 condition.__set_condition_op("match_all");
             } else if (value.first == MatchType::MATCH_PHRASE) {
                 condition.__set_condition_op("match_phrase");
+            } else if (value.first == MatchType::MATCH_PHRASE_PREFIX) {
+                condition.__set_condition_op("match_phrase_prefix");
             } else if (value.first == MatchType::MATCH_ELEMENT_EQ) {
                 condition.__set_condition_op("match_element_eq");
             } else if (value.first == MatchType::MATCH_ELEMENT_LT) {

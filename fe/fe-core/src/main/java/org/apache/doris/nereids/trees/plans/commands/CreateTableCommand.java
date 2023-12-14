@@ -24,7 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.nereids.NereidsPlanner;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -108,8 +108,8 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             } else if (i == 0 && dataType.isStringType()) {
                 dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
             } else if (dataType instanceof CharacterType) {
-                // if column is not come from column, we should set varchar length to max
-                if (((CharacterType) dataType).getLen() > 0 && !s.isColumnFromTable()) {
+                // if column is not come from table, we should set varchar length to max
+                if (!s.isColumnFromTable()) {
                     dataType = VarcharType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
                 }
             }
@@ -126,10 +126,10 @@ public class CreateTableCommand extends Command implements ForwardWithSync {
             throw new AnalysisException(e.getMessage(), e.getCause());
         }
 
-        query = new UnboundOlapTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
+        query = new UnboundTableSink<>(createTableInfo.getTableNameParts(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), query);
         try {
-            new InsertIntoTableCommand(query, Optional.empty(), false).run(ctx, executor);
+            new InsertIntoTableCommand(query, Optional.empty()).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 handleFallbackFailedCtas(ctx);
             }

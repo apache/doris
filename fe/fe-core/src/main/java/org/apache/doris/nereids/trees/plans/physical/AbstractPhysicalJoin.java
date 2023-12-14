@@ -35,6 +35,7 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.json.JSONObject;
 
@@ -42,7 +43,9 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * Abstract class for all physical join node.
@@ -217,12 +220,17 @@ public abstract class AbstractPhysicalJoin<
                 .build();
     }
 
+    public Set<Slot> getConditionSlot() {
+        return Stream.concat(hashJoinConjuncts.stream(), otherJoinConjuncts.stream())
+                .flatMap(expr -> expr.getInputSlots().stream()).collect(ImmutableSet.toImmutableSet());
+    }
+
     @Override
     public String toString() {
         List<Object> args = Lists.newArrayList("type", joinType,
+                "stats", statistics,
                 "hashCondition", hashJoinConjuncts,
-                "otherCondition", otherJoinConjuncts,
-                "stats", statistics);
+                "otherCondition", otherJoinConjuncts);
         if (markJoinSlotReference.isPresent()) {
             args.add("isMarkJoin");
             args.add("true");

@@ -204,7 +204,7 @@
 private:                                                       \
     struct rvalue_type {                                       \
         explicit rvalue_type(type* object) : object(object) {} \
-        type* object;                                          \
+        type* object = nullptr;                                          \
     };                                                         \
     type(type&);                                               \
     void operator=(type&);                                     \

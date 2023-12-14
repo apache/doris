@@ -21,6 +21,7 @@
 
 #include "io/fs/file_handle_cache.h"
 
+#include <thread>
 #include <tuple>
 
 #include "io/fs/err_utils.h"

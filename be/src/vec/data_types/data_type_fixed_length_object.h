@@ -56,14 +56,15 @@ public:
         return TypeDescriptor(INVALID_TYPE);
     }
 
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::INVALID_TYPE;
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_NONE;
     }
 
     Field get_default() const override { return String(); }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for DataTypeFixedLengthObject";
+        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
@@ -83,8 +84,8 @@ public:
     bool have_subtypes() const override { return false; }
 
     bool can_be_inside_low_cardinality() const override { return false; }
-    DataTypeSerDeSPtr get_serde() const override {
-        return std::make_shared<DataTypeFixedLengthObjectSerDe>();
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<DataTypeFixedLengthObjectSerDe>(nesting_level);
     };
 };
 

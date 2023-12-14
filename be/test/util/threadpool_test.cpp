@@ -331,10 +331,7 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
 #ifdef NDEBUG
     const char* death_msg = "doris::ThreadPool::check_not_pool_thread_unlocked()";
 #elif defined(__APPLE__)
-    const char* death_msg =
-            "_ZNSt3__1L8__invokeIRNS_6__bindIMN5doris10ThreadPoolEFvvEJPS3_EEEJEEEDTclscT_fp_"
-            "spscT0_fp0_EEOS9_DpOSA_|6__bindIMN5doris10ThreadPoolEFvvEJPS3_"
-            "EEEJEEEDTclclsr3stdE7declvalIT_EEspclsr3stdE7declvalIT0_EEEEOS9_DpOSA_";
+    const char* death_msg = "pthread_start";
 #else
     const char* death_msg =
             "_ZNSt5_BindIFMN5doris10ThreadPoolEFvvEPS1_EE6__callIvJEJLm0EEEET_OSt5tupleIJDpT0_"

@@ -26,6 +26,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.PlanFragment;
@@ -137,10 +138,9 @@ public class ExplainInsertCommandTest extends TestWithFeService {
         StatementScopeIdGenerator.clear();
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
         NereidsPlanner planner = new NereidsPlanner(statementContext);
-        PhysicalPlan plan = planner.plan(
-                ((ExplainCommand) parser.parseSingle(sql)).getLogicalPlan(),
-                PhysicalProperties.ANY
-        );
+        LogicalPlan logicalPlan = (LogicalPlan) ((Explainable) (((ExplainCommand) parser.parseSingle(sql))
+                .getLogicalPlan())).getExplainPlan(connectContext);
+        PhysicalPlan plan = planner.plan(logicalPlan, PhysicalProperties.ANY);
         return new PhysicalPlanTranslator(new PlanTranslatorContext(planner.getCascadesContext())).translatePlan(plan);
     }
 }

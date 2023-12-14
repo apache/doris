@@ -54,6 +54,8 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/data_types/data_type_hll.h"
+#include "vec/data_types/data_type_ipv4.h"
+#include "vec/data_types/data_type_ipv6.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_quantilestate.h"
@@ -61,6 +63,8 @@
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/runtime/ipv4_value.h"
+#include "vec/runtime/ipv6_value.h"
 #include "vec/runtime/vdatetime_value.h"
 #include "vec/sink/vmysql_result_writer.cpp"
 #include "vec/sink/vmysql_result_writer.h"
@@ -76,7 +80,9 @@ void serialize_and_deserialize_mysql_test() {
             {"k2", FieldType::OLAP_FIELD_TYPE_STRING, 2, TYPE_STRING, false},
             {"k3", FieldType::OLAP_FIELD_TYPE_DECIMAL128I, 3, TYPE_DECIMAL128I, false},
             {"k11", FieldType::OLAP_FIELD_TYPE_DATETIME, 11, TYPE_DATETIME, false},
-            {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false}};
+            {"k4", FieldType::OLAP_FIELD_TYPE_BOOL, 4, TYPE_BOOLEAN, false},
+            {"k5", FieldType::OLAP_FIELD_TYPE_IPV4, 5, TYPE_IPV4, false},
+            {"k6", FieldType::OLAP_FIELD_TYPE_IPV6, 6, TYPE_IPV6, false}};
     int row_num = 7;
     // make desc and generate block
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
@@ -240,6 +246,40 @@ void serialize_and_deserialize_mysql_test() {
                 vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
                                                                 datetime_type, col_name);
                 block.insert(test_datetime);
+            }
+            break;
+        case TYPE_IPV4:
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                auto column_vector_ipv4 = vectorized::ColumnVector<vectorized::IPv4>::create();
+                auto& ipv4_data = column_vector_ipv4->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    IPv4Value ipv4_value;
+                    bool res = ipv4_value.from_string("192.168.0." + std::to_string(i));
+                    ASSERT_TRUE(res);
+                    ipv4_data.push_back(ipv4_value.value());
+                }
+                vectorized::DataTypePtr ipv4_type(std::make_shared<vectorized::DataTypeIPv4>());
+                vectorized::ColumnWithTypeAndName test_ipv4(column_vector_ipv4->get_ptr(),
+                                                            ipv4_type, col_name);
+                block.insert(test_ipv4);
+            }
+            break;
+        case TYPE_IPV6:
+            tslot.__set_slotType(type_desc.to_thrift());
+            {
+                auto column_vector_ipv6 = vectorized::ColumnVector<vectorized::IPv6>::create();
+                auto& ipv6_data = column_vector_ipv6->get_data();
+                for (int i = 0; i < row_num; ++i) {
+                    IPv6Value ipv6_value;
+                    bool res = ipv6_value.from_string("2001:2000:3080:1351::" + std::to_string(i));
+                    ASSERT_TRUE(res);
+                    ipv6_data.push_back(ipv6_value.value());
+                }
+                vectorized::DataTypePtr ipv6_type(std::make_shared<vectorized::DataTypeIPv6>());
+                vectorized::ColumnWithTypeAndName test_ipv6(column_vector_ipv6->get_ptr(),
+                                                            ipv6_type, col_name);
+                block.insert(test_ipv6);
             }
             break;
         default:

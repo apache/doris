@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "agent/agent_server.h"
+#include "agent/topic_subscriber.h"
 #include "common/status.h"
 
 namespace doris {
@@ -58,6 +59,7 @@ class TTransmitDataParams;
 class TUniqueId;
 class TIngestBinlogRequest;
 class TIngestBinlogResult;
+class ThreadPool;
 
 // This class just forward rpc for actual handler
 // make this class because we can bind multiple service on single point
@@ -137,10 +139,14 @@ public:
 
     void ingest_binlog(TIngestBinlogResult& result, const TIngestBinlogRequest& request) override;
 
+    void query_ingest_binlog(TQueryIngestBinlogResult& result,
+                             const TQueryIngestBinlogRequest& request) override;
+
 private:
     Status start_plan_fragment_execution(const TExecPlanFragmentParams& exec_params);
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
     std::unique_ptr<AgentServer> _agent_server;
+    std::unique_ptr<ThreadPool> _ingest_binlog_workers;
 };
 
 } // namespace doris

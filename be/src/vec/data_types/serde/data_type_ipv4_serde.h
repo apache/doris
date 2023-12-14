@@ -39,10 +39,17 @@ namespace doris {
 namespace vectorized {
 
 class DataTypeIPv4SerDe : public DataTypeNumberSerDe<IPv4> {
+public:
+    DataTypeIPv4SerDe(int nesting_level = 1) : DataTypeNumberSerDe<IPv4>(nesting_level) {};
+
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<true>& row_buffer,
                                  int row_idx, bool col_const) const override;
     Status write_column_to_mysql(const IColumn& column, MysqlRowBuffer<false>& row_buffer,
                                  int row_idx, bool col_const) const override;
+    Status serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
+                                      FormatOptions& options) const override;
+    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
+                                          const FormatOptions& options) const override;
 
 private:
     template <bool is_binary_format>

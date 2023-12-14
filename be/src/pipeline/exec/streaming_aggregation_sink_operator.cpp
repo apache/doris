@@ -21,7 +21,6 @@
 
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/operator.h"
@@ -144,7 +143,6 @@ StreamingAggSinkLocalState::StreamingAggSinkLocalState(DataSinkOperatorXBase* pa
 
 Status StreamingAggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
-    _shared_state->data_queue.reset(new DataQueue(1, _dependency));
     _queue_byte_size_counter = ADD_COUNTER(profile(), "MaxSizeInBlockQueue", TUnit::BYTES);
     _queue_size_counter = ADD_COUNTER(profile(), "MaxSizeOfBlockQueue", TUnit::UNIT);
     _streaming_agg_timer = ADD_TIMER(profile(), "StreamingAggTime");
@@ -157,7 +155,7 @@ Status StreamingAggSinkLocalState::do_pre_agg(vectorized::Block* input_block,
 
     // pre stream agg need use _num_row_return to decide whether to do pre stream agg
     _num_rows_returned += output_block->rows();
-    _dependency->_make_nullable_output_key(output_block);
+    _make_nullable_output_key(output_block);
     //    COUNTER_SET(_rows_returned_counter, _num_rows_returned);
     _executor.update_memusage();
     return Status::OK();
@@ -272,7 +270,7 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
                         // non-nullable column(id in `_make_nullable_keys`)
                         // will be converted to nullable.
                         bool mem_reuse =
-                                _dependency->make_nullable_keys().empty() && out_block->mem_reuse();
+                                _shared_state->make_nullable_keys.empty() && out_block->mem_reuse();
 
                         std::vector<vectorized::DataTypePtr> data_types;
                         vectorized::MutableColumns value_columns;
@@ -332,7 +330,7 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
 
         for (int i = 0; i < _shared_state->aggregate_evaluators.size(); ++i) {
             RETURN_IF_ERROR(_shared_state->aggregate_evaluators[i]->execute_batch_add(
-                    in_block, _dependency->offsets_of_aggregate_states()[i], _places.data(),
+                    in_block, _shared_state->offsets_of_aggregate_states[i], _places.data(),
                     _agg_arena_pool, _should_expand_hash_table));
         }
     }
@@ -343,7 +341,7 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
 StreamingAggSinkOperatorX::StreamingAggSinkOperatorX(ObjectPool* pool, int operator_id,
                                                      const TPlanNode& tnode,
                                                      const DescriptorTbl& descs)
-        : AggSinkOperatorX<StreamingAggSinkLocalState>(pool, operator_id, tnode, descs) {}
+        : AggSinkOperatorX<StreamingAggSinkLocalState>(pool, operator_id, tnode, descs, true) {}
 
 Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<StreamingAggSinkLocalState>::init(tnode, state));
@@ -354,7 +352,7 @@ Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* sta
 Status StreamingAggSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
                                        SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     local_state._shared_state->input_num_rows += in_block->rows();
     Status ret = Status::OK();

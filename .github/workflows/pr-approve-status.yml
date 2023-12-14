@@ -33,7 +33,7 @@ jobs:
               echo "PR number is not set"
               exit 1
           fi
-          response=$(curl -s  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} "  "https://api.github.com/repos/apache/doris/pulls/${pr_num}/reviews")
+          response=$(curl -s  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} "  "https://api.github.com/repos/apache/doris/pulls/${pr_num}/reviews?per_page=100")
           # shellcheck disable=SC2207
           reviewers=($(echo $response | jq -r '.[] | .user.login'))
           # shellcheck disable=SC2207

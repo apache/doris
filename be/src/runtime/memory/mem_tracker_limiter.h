@@ -155,6 +155,9 @@ public:
 
     // Transfer 'bytes' of consumption from this tracker to 'dst'.
     void transfer_to(int64_t size, MemTrackerLimiter* dst) {
+        if (label() == dst->label()) {
+            return;
+        }
         cache_consume(-size);
         dst->cache_consume(size);
     }

@@ -34,16 +34,14 @@ namespace vectorized {
 template <typename T>
 Status DataTypeDecimalSerDe<T>::serialize_column_to_json(const IColumn& column, int start_idx,
                                                          int end_idx, BufferWritable& bw,
-                                                         FormatOptions& options,
-                                                         int nesting_level) const {
+                                                         FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int row_num,
                                                            BufferWritable& bw,
-                                                           FormatOptions& options,
-                                                           int nesting_level) const {
+                                                           FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -61,19 +59,16 @@ Status DataTypeDecimalSerDe<T>::serialize_one_cell_to_json(const IColumn& column
 }
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(IColumn& column,
-                                                                    std::vector<Slice>& slices,
-                                                                    int* num_deserialized,
-                                                                    const FormatOptions& options,
-                                                                    int nesting_level) const {
+Status DataTypeDecimalSerDe<T>::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 template <typename T>
 Status DataTypeDecimalSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                               const FormatOptions& options,
-                                                               int nesting_level) const {
+                                                               const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnDecimal<T>&>(column).get_data();
     T val = {};
     ReadBuffer rb(slice.data, slice.size);
@@ -172,6 +167,8 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
             static_cast<const arrow::DecimalType*>(arrow_array->type().get());
     const auto arrow_scale = arrow_decimal_type->scale();
     auto& column_data = static_cast<ColumnDecimal<T>&>(column).get_data();
+    // Decimal<Int128> for decimalv2
+    // Decimal<Int128I> for deicmalv3
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         // TODO check precision
         for (size_t value_i = start; value_i < end; ++value_i) {
@@ -195,13 +192,13 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
             }
             column_data.emplace_back(value);
         }
-    } else if constexpr (std::is_same_v<T, Decimal64> || std::is_same_v<T, Decimal32>) {
+    } else if constexpr (std::is_same_v<T, Decimal128I> || std::is_same_v<T, Decimal64> ||
+                         std::is_same_v<T, Decimal32>) {
         for (size_t value_i = start; value_i < end; ++value_i) {
             column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
         }
     } else {
-        throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
-                               "read_column_from_arrow with type " + column.get_name());
+        LOG(WARNING) << "Unsuppoted convertion to decimal from " << column.get_name();
     }
 }
 
@@ -242,7 +239,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_mysql(const IColumn& column,
 }
 
 template <typename T>
-Status DataTypeDecimalSerDe<T>::write_column_to_orc(const IColumn& column, const NullMap* null_map,
+Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
+                                                    const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
                                                     int start, int end,
                                                     std::vector<StringRef>& buffer_list) const {

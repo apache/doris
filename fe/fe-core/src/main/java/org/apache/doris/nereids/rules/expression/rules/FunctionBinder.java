@@ -49,8 +49,11 @@ import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdfBuilder;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
@@ -59,6 +62,7 @@ import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -142,7 +146,6 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
 
         // bind function
         FunctionRegistry functionRegistry = Env.getCurrentEnv().getFunctionRegistry();
-        String functionName = unboundFunction.getName();
         List<Object> arguments = unboundFunction.isDistinct()
                 ? ImmutableList.builder()
                 .add(unboundFunction.isDistinct())
@@ -150,21 +153,38 @@ public class FunctionBinder extends AbstractExpressionRewriteRule {
                 .build()
                 : (List) unboundFunction.getArguments();
 
-        // we will change arithmetic function like add(), subtract(), bitnot() to the corresponding objects rather than
-        // BoundFunction.
-        ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
-        if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
-            return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
-                    .accept(this, context);
+        if (StringUtils.isEmpty(unboundFunction.getDbName())) {
+            // we will change arithmetic function like add(), subtract(), bitnot()
+            // to the corresponding objects rather than BoundFunction.
+            ArithmeticFunctionBinder functionBinder = new ArithmeticFunctionBinder();
+            if (functionBinder.isBinaryArithmetic(unboundFunction.getName())) {
+                return functionBinder.bindBinaryArithmetic(unboundFunction.getName(), unboundFunction.children())
+                        .accept(this, context);
+            }
         }
 
+        String functionName = unboundFunction.getName();
         FunctionBuilder builder = functionRegistry.findFunctionBuilder(
                 unboundFunction.getDbName(), functionName, arguments);
         if (builder instanceof AliasUdfBuilder) {
             // we do type coercion in build function in alias function, so it's ok to return directly.
             return builder.build(functionName, arguments);
         } else {
-            return TypeCoercionUtils.processBoundFunction((BoundFunction) builder.build(functionName, arguments));
+            Expression boundFunction = TypeCoercionUtils
+                    .processBoundFunction((BoundFunction) builder.build(functionName, arguments));
+            if (boundFunction instanceof Count
+                    && context.cascadesContext.getOuterScope().isPresent()
+                    && !context.cascadesContext.getOuterScope().get().getCorrelatedSlots()
+                            .isEmpty()) {
+                // consider sql: SELECT * FROM t1 WHERE t1.a <= (SELECT COUNT(t2.a) FROM t2 WHERE (t1.b = t2.b));
+                // when unnest correlated subquery, we create a left join node.
+                // outer query is left table and subquery is right one
+                // if there is no match, the row from right table is filled with nulls
+                // but COUNT function is always not nullable.
+                // so wrap COUNT with Nvl to ensure it's result is 0 instead of null to get the correct result
+                boundFunction = new Nvl(boundFunction, new BigIntLiteral(0));
+            }
+            return boundFunction;
         }
     }
 

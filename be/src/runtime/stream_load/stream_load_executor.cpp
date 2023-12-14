@@ -89,7 +89,7 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                 (double)ctx->number_filtered_rows / num_selected_rows > ctx->max_filter_ratio) {
                 // NOTE: Do not modify the error message here, for historical reasons,
                 // some users may rely on this error message.
-                *status = Status::InternalError("too many filtered rows");
+                *status = Status::DataQualityError("too many filtered rows");
             }
             if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
                 ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
@@ -101,6 +101,15 @@ Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadConte
                         ctx->number_loaded_rows);
             }
         } else {
+            if (ctx->group_commit && status->is<DATA_QUALITY_ERROR>()) {
+                ctx->number_total_rows = state->num_rows_load_total();
+                ctx->number_loaded_rows = state->num_rows_load_success();
+                ctx->number_filtered_rows = state->num_rows_load_filtered();
+                ctx->number_unselected_rows = state->num_rows_load_unselected();
+                if (ctx->number_filtered_rows > 0 && !state->get_error_log_file_path().empty()) {
+                    ctx->error_url = to_load_error_http_path(state->get_error_log_file_path());
+                }
+            }
             LOG(WARNING) << "fragment execute failed"
                          << ", query_id=" << UniqueId(ctx->put_result.params.params.query_id)
                          << ", err_msg=" << status->to_string() << ", " << ctx->brief();
@@ -190,7 +199,7 @@ Status StreamLoadExecutor::begin_txn(StreamLoadContext* ctx) {
 #else
         result = k_stream_load_begin_result;
 #endif
-        status = Status::create(result.status);
+        status = Status::create<false>(result.status);
     }
     g_stream_load_begin_txn_latency << duration_ns / 1000;
     if (!status.ok()) {
@@ -254,7 +263,7 @@ Status StreamLoadExecutor::operate_txn_2pc(StreamLoadContext* ctx) {
     request.__set_operation(ctx->txn_operation);
     request.__set_thrift_rpc_timeout_ms(config::txn_commit_rpc_timeout_ms);
     request.__set_label(ctx->label);
-    if (ctx->txn_id != ctx->default_txn_id) {
+    if (ctx->txn_id != doris::StreamLoadContext::default_txn_id) {
         request.__set_txnId(ctx->txn_id);
     }
 

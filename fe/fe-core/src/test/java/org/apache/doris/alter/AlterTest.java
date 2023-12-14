@@ -91,6 +91,7 @@ public class AlterTest {
         Config.disable_balance = true;
         Config.schedule_batch_size = 400;
         Config.schedule_slot_num_per_hdd_path = 100;
+        Config.enable_odbc_mysql_broker_table = true;
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 5);
 
         List<Backend> backends = Env.getCurrentSystemInfo().getIdToBackend().values().asList();
@@ -251,7 +252,7 @@ public class AlterTest {
     }
 
     private static void createTable(String sql) throws Exception {
-        Config.enable_odbc_table = true;
+        Config.enable_odbc_mysql_broker_table = true;
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(sql, connectContext);
         Env.getCurrentEnv().createTable(createTableStmt);
     }

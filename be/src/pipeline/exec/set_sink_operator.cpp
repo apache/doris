@@ -56,12 +56,11 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
 
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
 
     auto& mem_used = local_state._shared_state->mem_used;
-    auto& build_blocks = local_state._shared_state->build_blocks;
-    auto& build_block_index = local_state._shared_state->build_block_index;
+    auto& build_block = local_state._shared_state->build_block;
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
 
     if (in_block->rows() != 0) {
@@ -71,11 +70,9 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
 
     if (source_state == SourceState::FINISHED ||
         local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
-        build_blocks.emplace_back(local_state._mutable_block.to_block());
-        RETURN_IF_ERROR(_process_build_block(local_state, build_blocks[build_block_index],
-                                             build_block_index, state));
+        build_block = local_state._mutable_block.to_block();
+        RETURN_IF_ERROR(_process_build_block(local_state, build_block, state));
         local_state._mutable_block.clear();
-        ++build_block_index;
 
         if (source_state == SourceState::FINISHED) {
             if constexpr (is_intersect) {
@@ -90,9 +87,10 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
                         },
                         *local_state._shared_state->hash_table_variants);
             }
-            local_state._shared_state->probe_finished_children_index[_cur_child_id] = true;
+            local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
+                    ->set_ready();
             if (_child_quantity == 1) {
-                local_state._dependency->set_ready_for_read();
+                local_state._shared_state->source_dep->set_ready();
             }
         }
     }
@@ -101,7 +99,7 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized::Blo
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::_process_build_block(
-        SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block, uint8_t offset,
+        SetSinkLocalState<is_intersect>& local_state, vectorized::Block& block,
         RuntimeState* state) {
     size_t rows = block.rows();
     if (rows == 0) {
@@ -117,7 +115,7 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
                 using HashTableCtxType = std::decay_t<decltype(arg)>;
                 if constexpr (!std::is_same_v<HashTableCtxType, std::monostate>) {
                     vectorized::HashTableBuild<HashTableCtxType, is_intersect>
-                            hash_table_build_process(&local_state, rows, raw_ptrs, offset, state);
+                            hash_table_build_process(&local_state, rows, raw_ptrs, state);
                     static_cast<void>(hash_table_build_process(arg, local_state._arena));
                 } else {
                     LOG(FATAL) << "FATAL: uninited hash table";
@@ -159,19 +157,19 @@ Status SetSinkOperatorX<is_intersect>::_extract_build_column(
 
 template <bool is_intersect>
 Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetSinkDependency>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _build_timer = ADD_TIMER(_profile, "BuildTime");
 
     Parent& parent = _parent->cast<Parent>();
+    _dependency->set_cur_child_id(parent._cur_child_id);
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
     }
 
     _shared_state->child_quantity = parent._child_quantity;
-    _shared_state->probe_finished_children_index.assign(parent._child_quantity, false);
 
     auto& child_exprs_lists = _shared_state->child_exprs_lists;
     DCHECK(child_exprs_lists.size() == 0 || child_exprs_lists.size() == parent._child_quantity);
@@ -192,6 +190,7 @@ Status SetSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkState
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState* state) {
+    Base::_name = "SET_SINK_OPERATOR";
     const std::vector<std::vector<TExpr>>* result_texpr_lists;
 
     // Create result_expr_ctx_lists_ from thrift exprs.

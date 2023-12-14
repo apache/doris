@@ -102,8 +102,8 @@ protected:
     void TearDown() override {
         ExecEnv* exec_env = doris::ExecEnv::GetInstance();
         exec_env->set_memtable_memory_limiter(nullptr);
+        _engine.reset();
         exec_env->set_storage_engine(nullptr);
-        _engine.reset(nullptr);
         EXPECT_EQ(system("rm -rf ./data_test"), 0);
         static_cast<void>(io::global_local_filesystem()->delete_directory(
                 std::string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX));
@@ -140,9 +140,9 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     write_req.slots = &(tuple_desc->slots());
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
-    DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("MemTableMemoryLimiterTest");
-    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get(), TUniqueId()));
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*_engine, &write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
     auto mem_limiter = ExecEnv::GetInstance()->memtable_memory_limiter();
 
@@ -174,10 +174,9 @@ TEST_F(MemTableMemoryLimiterTest, handle_memtable_flush_test) {
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
     EXPECT_EQ(Status::OK(), res);
     res = _engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
-    delete delta_writer;
 }
 } // namespace doris

@@ -215,11 +215,11 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-1.8.2
-LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/refs/tags/v1.8.2.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-1.8.2.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-1.8.2
-LIBRDKAFKA_MD5SUM="0abec0888d10c9553cdcbcbf9172d558"
+# librdkafka-2.0.2
+LIBRDKAFKA_DOWNLOAD="https://github.com/confluentinc/librdkafka/archive/refs/tags/v2.0.2.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-2.0.2.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-2.0.2
+LIBRDKAFKA_MD5SUM="c0120dc32acc129bfb4656fe17568da1"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz"
@@ -430,18 +430,6 @@ NLOHMANN_JSON_NAME=json-3.10.1.tar.gz
 NLOHMANN_JSON_SOURCE=json-3.10.1
 NLOHMANN_JSON_MD5SUM="7b369d567afc0dffdcf5800fd9abb836"
 
-# opentelemetry-proto
-OPENTELEMETRY_PROTO_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-proto/archive/refs/tags/v1.0.0.tar.gz"
-OPENTELEMETRY_PROTO_NAME="opentelemetry-proto-v1.0.0.tar.gz"
-OPENTELEMETRY_PROTO_SOURCE=opentelemetry-proto-1.0.0
-OPENTELEMETRY_PROTO_MD5SUM="8c7495a0dceea7cfdbdbcd53b07436dc"
-
-# opentelemetry
-OPENTELEMETRY_DOWNLOAD="https://github.com/open-telemetry/opentelemetry-cpp/archive/refs/tags/v1.10.0.tar.gz"
-OPENTELEMETRY_NAME="opentelemetry-cpp-v1.10.0.tar.gz"
-OPENTELEMETRY_SOURCE=opentelemetry-cpp-1.10.0
-OPENTELEMETRY_MD5SUM="89169762241b2f5142b728c775173283"
-
 # libbacktrace
 LIBBACKTRACE_DOWNLOAD="https://codeload.github.com/ianlancetaylor/libbacktrace/zip/2446c66076480ce07a6bd868badcbceb3eeecc2e"
 LIBBACKTRACE_NAME=libbacktrace-2446c66076480ce07a6bd868badcbceb3eeecc2e.zip
@@ -489,6 +477,12 @@ AVX2NEON_DOWNLOAD="https://github.com/kunpengcompute/AvxToNeon/archive/refs/tags
 AVX2NEON_NAME=v1.0.0.tar.gz
 AVX2NEON_SOURCE=AvxToNeon-1.0.0
 AVX2NEON_MD5SUM="692d0e0f8b885a86ebc5172a9d8ee8db"
+
+# libdeflate
+LIBDEFLATE_DOWNLOAD="https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.19.tar.gz"
+LIBDEFLATE_NAME=libdeflate-1.19.tar.gz
+LIBDEFLATE_SOURCE=libdeflate-1.19
+LIBDEFLATE_MD5SUM="c69e9193d2975a729068ffa862c81fb6"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
@@ -552,8 +546,6 @@ export TP_ARCHIVES=(
     'XSIMD'
     'SIMDJSON'
     'NLOHMANN_JSON'
-    'OPENTELEMETRY_PROTO'
-    'OPENTELEMETRY'
     'LIBBACKTRACE'
     'SSE2NEON'
     'XXHASH'
@@ -562,6 +554,7 @@ export TP_ARCHIVES=(
     'HADOOP_LIBS'
     'DRAGONBOX'
     'AVX2NEON'
+    'LIBDEFLATE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

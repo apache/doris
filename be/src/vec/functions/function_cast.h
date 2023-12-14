@@ -22,11 +22,13 @@
 
 #include <cctz/time_zone.h>
 #include <fmt/format.h>
+#include <gen_cpp/FrontendService_types.h>
 #include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 
 #include <algorithm>
+#include <atomic>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstdint>
@@ -40,10 +42,10 @@
 #include <utility>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/runtime_state.h"
+#include "runtime/type_limit.h"
 #include "udf/udf.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_stream.h"
@@ -51,7 +53,9 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
@@ -80,6 +84,7 @@
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_object.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/data_types/data_type_time.h"
@@ -273,12 +278,46 @@ struct ConvertImpl {
         if (const ColVecFrom* col_from =
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
             typename ColVecTo::MutablePtr col_to = nullptr;
+            UInt32 from_precision = 0;
+            UInt32 from_scale = 0;
+
+            if constexpr (IsDataTypeDecimal<FromDataType>) {
+                const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
+                from_precision = from_decimal_type.get_precision();
+                from_scale = from_decimal_type.get_scale();
+            }
+            if constexpr (std::is_integral_v<FromFieldType>) {
+                from_precision = NumberTraits::max_ascii_len<FromFieldType>();
+            }
+
+            UInt32 to_max_digits = 0;
+            UInt32 to_precision = 0;
+            UInt32 to_scale = 0;
+
+            ToFieldType max_result {0};
+            ToFieldType min_result {0};
             if constexpr (IsDataTypeDecimal<ToDataType>) {
-                UInt32 scale = ((PrecisionScaleArg)additions).scale;
-                ToDataType::check_type_scale(scale);
-                col_to = ColVecTo::create(0, scale);
+                to_max_digits = NumberTraits::max_ascii_len<typename ToFieldType::NativeType>();
+
+                to_precision = ((PrecisionScaleArg)additions).precision;
+                ToDataType::check_type_precision(to_precision);
+
+                to_scale = ((PrecisionScaleArg)additions).scale;
+                ToDataType::check_type_scale(to_scale);
+                col_to = ColVecTo::create(0, to_scale);
+
+                max_result = ToDataType::get_max_digits_number(to_precision);
+                min_result = -max_result;
             } else {
                 col_to = ColVecTo::create();
+            }
+            if constexpr (IsDataTypeNumber<ToDataType>) {
+                max_result = type_limit<ToFieldType>::max();
+                min_result = type_limit<ToFieldType>::min();
+            }
+            if constexpr (std::is_integral_v<ToFieldType>) {
+                to_max_digits = NumberTraits::max_ascii_len<ToFieldType>();
+                to_precision = to_max_digits;
             }
 
             const auto& vec_from = col_from->get_data();
@@ -287,67 +326,73 @@ struct ConvertImpl {
             vec_to.resize(size);
 
             if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
-                ColumnUInt8::MutablePtr col_null_map_to = nullptr;
-                UInt8* vec_null_map_to = nullptr;
-                if (check_overflow) {
-                    col_null_map_to = ColumnUInt8::create(size, 0);
-                    vec_null_map_to = col_null_map_to->get_data().data();
-                }
-                if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>) {
-                    convert_decimal_cols<FromDataType, ToDataType>(
-                            vec_from.data(), vec_to.data(), vec_from.get_scale(),
-                            vec_to.get_scale(), vec_from.size(), vec_null_map_to);
-                } else {
-                    for (size_t i = 0; i < size; ++i) {
-                        if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                      IsDataTypeDecimal<ToDataType>) {
-                            vec_to[i] = convert_decimals<FromDataType, ToDataType>(
-                                    vec_from[i], vec_from.get_scale(), vec_to.get_scale(),
-                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                        } else if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                             IsDataTypeNumber<ToDataType>) {
-                            vec_to[i] = convert_from_decimal<FromDataType, ToDataType>(
-                                    vec_from[i], vec_from.get_scale());
-                        } else if constexpr (IsDataTypeNumber<FromDataType> &&
-                                             IsDataTypeDecimal<ToDataType>) {
-                            vec_to[i] = convert_to_decimal<FromDataType, ToDataType>(
-                                    vec_from[i], vec_to.get_scale(),
-                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                        } else if constexpr (IsTimeType<FromDataType> &&
-                                             IsDataTypeDecimal<ToDataType>) {
-                            vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType>(
-                                    reinterpret_cast<const VecDateTimeValue&>(vec_from[i])
-                                            .to_int64(),
-                                    vec_to.get_scale(),
-                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                        } else if constexpr (IsDateV2Type<FromDataType> &&
-                                             IsDataTypeDecimal<ToDataType>) {
-                            vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType>(
-                                    reinterpret_cast<const DateV2Value<DateV2ValueType>&>(
-                                            vec_from[i])
-                                            .to_date_int_val(),
-                                    vec_to.get_scale(),
-                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                        } else if constexpr (IsDateTimeV2Type<FromDataType> &&
-                                             IsDataTypeDecimal<ToDataType>) {
-                            // TODO: should we consider the scale of datetimev2?
-                            vec_to[i] = convert_to_decimal<DataTypeUInt64, ToDataType>(
-                                    reinterpret_cast<const DateV2Value<DateTimeV2ValueType>&>(
-                                            vec_from[i])
-                                            .to_date_int_val(),
-                                    vec_to.get_scale(),
-                                    vec_null_map_to ? &vec_null_map_to[i] : vec_null_map_to);
-                        }
-                    }
+                bool narrow_integral = (to_precision - to_scale) < (from_precision - from_scale);
+
+                bool multiply_may_overflow = false;
+                if (to_scale > from_scale) {
+                    multiply_may_overflow =
+                            (from_precision + to_scale - from_scale) > to_max_digits;
                 }
 
-                if (check_overflow) {
-                    block.replace_by_position(
-                            result,
-                            ColumnNullable::create(std::move(col_to), std::move(col_null_map_to)));
+                if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>) {
+                    convert_decimal_cols<FromDataType, ToDataType>(
+                            vec_from.data(), vec_to.data(), from_precision, vec_from.get_scale(),
+                            to_precision, vec_to.get_scale(), vec_from.size());
                 } else {
-                    block.replace_by_position(result, std::move(col_to));
+                    std::visit(
+                            [&](auto multiply_may_overflow, auto narrow_integral) {
+                                for (size_t i = 0; i < size; ++i) {
+                                    if constexpr (IsDataTypeDecimal<FromDataType> &&
+                                                  IsDataTypeNumber<ToDataType>) {
+                                        vec_to[i] = convert_from_decimal<FromDataType, ToDataType,
+                                                                         narrow_integral>(
+                                                vec_from[i], vec_from.get_scale(), min_result,
+                                                max_result);
+                                    } else if constexpr (IsDataTypeNumber<FromDataType> &&
+                                                         IsDataTypeDecimal<ToDataType>) {
+                                        vec_to[i] = convert_to_decimal<FromDataType, ToDataType,
+                                                                       multiply_may_overflow,
+                                                                       narrow_integral>(
+                                                vec_from[i], from_scale, to_scale, min_result,
+                                                max_result);
+                                    } else if constexpr (IsTimeType<FromDataType> &&
+                                                         IsDataTypeDecimal<ToDataType>) {
+                                        vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType,
+                                                                       multiply_may_overflow,
+                                                                       narrow_integral>(
+                                                reinterpret_cast<const VecDateTimeValue&>(
+                                                        vec_from[i])
+                                                        .to_int64(),
+                                                from_scale, to_scale, min_result, max_result);
+                                    } else if constexpr (IsDateV2Type<FromDataType> &&
+                                                         IsDataTypeDecimal<ToDataType>) {
+                                        vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType,
+                                                                       multiply_may_overflow,
+                                                                       narrow_integral>(
+                                                reinterpret_cast<
+                                                        const DateV2Value<DateV2ValueType>&>(
+                                                        vec_from[i])
+                                                        .to_date_int_val(),
+                                                from_scale, to_scale, min_result, max_result);
+                                    } else if constexpr (IsDateTimeV2Type<FromDataType> &&
+                                                         IsDataTypeDecimal<ToDataType>) {
+                                        // TODO: should we consider the scale of datetimev2?
+                                        vec_to[i] = convert_to_decimal<DataTypeUInt64, ToDataType,
+                                                                       multiply_may_overflow,
+                                                                       narrow_integral>(
+                                                reinterpret_cast<
+                                                        const DateV2Value<DateTimeV2ValueType>&>(
+                                                        vec_from[i])
+                                                        .to_date_int_val(),
+                                                from_scale, to_scale, min_result, max_result);
+                                    }
+                                }
+                            },
+                            make_bool_variant(multiply_may_overflow),
+                            make_bool_variant(narrow_integral));
                 }
+
+                block.replace_by_position(result, std::move(col_to));
 
                 return Status::OK();
             } else if constexpr (IsTimeType<FromDataType>) {
@@ -492,23 +537,40 @@ struct ConvertImplToTimeType {
             col_null_map_to = ColumnUInt8::create(size);
             auto& vec_null_map_to = col_null_map_to->get_data();
 
-            for (size_t i = 0; i < size; ++i) {
-                auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
-                if constexpr (IsDecimalNumber<FromFieldType>) {
-                    // TODO: should we consider the scale of datetimev2?
-                    vec_null_map_to[i] = !date_value.from_date_int64(
-                            convert_from_decimal<FromDataType, DataTypeInt64>(
-                                    vec_from[i], vec_from.get_scale()));
-                } else {
-                    vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
-                }
-                // DateType of VecDateTimeValue should cast to date
-                if constexpr (IsDateType<ToDataType>) {
-                    date_value.cast_to_date();
-                } else if constexpr (IsDateTimeType<ToDataType>) {
-                    date_value.to_datetime();
-                }
+            UInt32 from_precision = 0;
+            UInt32 from_scale = 0;
+            UInt32 to_precision = NumberTraits::max_ascii_len<Int64>();
+            if constexpr (IsDecimalNumber<FromFieldType>) {
+                const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
+                from_precision = from_decimal_type.get_precision();
+                from_scale = from_decimal_type.get_scale();
             }
+            bool narrow_integral = to_precision < (from_precision - from_scale);
+            auto max_result = type_limit<DataTypeInt64::FieldType>::max();
+            auto min_result = type_limit<DataTypeInt64::FieldType>::min();
+            std::visit(
+                    [&](auto narrow_integral) {
+                        for (size_t i = 0; i < size; ++i) {
+                            auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
+                            if constexpr (IsDecimalNumber<FromFieldType>) {
+                                // TODO: should we consider the scale of datetimev2?
+                                vec_null_map_to[i] = !date_value.from_date_int64(
+                                        convert_from_decimal<FromDataType, DataTypeInt64,
+                                                             narrow_integral>(
+                                                vec_from[i], vec_from.get_scale(), min_result,
+                                                max_result));
+                            } else {
+                                vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
+                            }
+                            // DateType of VecDateTimeValue should cast to date
+                            if constexpr (IsDateType<ToDataType>) {
+                                date_value.cast_to_date();
+                            } else if constexpr (IsDateTimeType<ToDataType>) {
+                                date_value.to_datetime();
+                            }
+                        }
+                    },
+                    make_bool_variant(narrow_integral));
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
         } else {
@@ -640,10 +702,104 @@ struct ConvertImplNumberToJsonb {
     }
 };
 
+struct ConvertImplStringToJsonbAsJsonbString {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+        auto data_type_to = block.get_by_position(result).type;
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        auto dst = ColumnString::create();
+        ColumnString* dst_str = assert_cast<ColumnString*>(dst.get());
+        const auto* from_string = assert_cast<const ColumnString*>(&col_from);
+        JsonbWriter writer;
+        for (size_t i = 0; i < input_rows_count; i++) {
+            auto str_ref = from_string->get_data_at(i);
+            writer.reset();
+            // write raw string to jsonb
+            writer.writeStartString();
+            writer.writeString(str_ref.data, str_ref.size);
+            writer.writeEndString();
+            dst_str->insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+        }
+        block.replace_by_position(result, std::move(dst));
+        return Status::OK();
+    }
+};
+
+struct ConvertImplGenericFromJsonb {
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          const size_t result, size_t input_rows_count) {
+        auto data_type_to = block.get_by_position(result).type;
+        const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+        const IColumn& col_from = *col_with_type_and_name.column;
+        if (const ColumnString* col_from_string = check_and_get_column<ColumnString>(&col_from)) {
+            auto col_to = data_type_to->create_column();
+
+            size_t size = col_from.size();
+            col_to->reserve(size);
+
+            ColumnUInt8::MutablePtr col_null_map_to = ColumnUInt8::create(size);
+            ColumnUInt8::Container* vec_null_map_to = &col_null_map_to->get_data();
+            const bool is_complex = is_complex_type(data_type_to);
+            const bool is_dst_string = is_string_or_fixed_string(data_type_to);
+            for (size_t i = 0; i < size; ++i) {
+                const auto& val = col_from_string->get_data_at(i);
+                JsonbDocument* doc = JsonbDocument::createDocument(val.data, val.size);
+                if (UNLIKELY(!doc || !doc->getValue())) {
+                    (*vec_null_map_to)[i] = 1;
+                    col_to->insert_default();
+                    continue;
+                }
+
+                // value is NOT necessary to be deleted since JsonbValue will not allocate memory
+                JsonbValue* value = doc->getValue();
+                if (UNLIKELY(!value)) {
+                    (*vec_null_map_to)[i] = 1;
+                    col_to->insert_default();
+                    continue;
+                }
+                // Note: here we should handle the null element
+                if (val.size == 0) {
+                    col_to->insert_default();
+                    // empty string('') is an invalid format for complex type, set null_map to 1
+                    if (is_complex) {
+                        (*vec_null_map_to)[i] = 1;
+                    }
+                    continue;
+                }
+                // add string to string column
+                if (context->jsonb_string_as_string() && is_dst_string && value->isString()) {
+                    auto blob = static_cast<const JsonbBlobVal*>(value);
+                    assert_cast<ColumnString&>(*col_to).insert_data(blob->getBlob(),
+                                                                    blob->getBlobLen());
+                    (*vec_null_map_to)[i] = 0;
+                    continue;
+                }
+                std::string json_str = JsonbToJson::jsonb_to_json_string(val.data, val.size);
+                ReadBuffer read_buffer((char*)(json_str.data()), json_str.size());
+                Status st = data_type_to->from_string(read_buffer, col_to);
+                // if parsing failed, will return null
+                (*vec_null_map_to)[i] = !st.ok();
+                if (!st.ok()) {
+                    col_to->insert_default();
+                }
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(col_to), std::move(col_null_map_to));
+        } else {
+            return Status::RuntimeError(
+                    "Illegal column {} of first argument of conversion function from string",
+                    col_from.get_name());
+        }
+        return Status::OK();
+    }
+};
+
 // Generic conversion of any type to jsonb.
 struct ConvertImplGenericToJsonb {
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           const size_t result, size_t input_rows_count) {
+        auto data_type_to = block.get_by_position(result).type;
         const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
         const IDataType& type = *col_with_type_and_name.type;
         const IColumn& col_from = *col_with_type_and_name.column;
@@ -658,14 +814,19 @@ struct ConvertImplGenericToJsonb {
             VectorBufferWriter write_buffer(*tmp_col.get());
             type.to_string(col_from, i, write_buffer);
             write_buffer.commit();
-            // write string to jsonb
             writer.reset();
-            writer.writeStartString();
             auto str_ref = tmp_col->get_data_at(0);
-            writer.writeString(str_ref.data, str_ref.size);
-            writer.writeEndString();
-            column_string->insert_data(writer.getOutput()->getBuffer(),
-                                       writer.getOutput()->getSize());
+            ReadBuffer read_buffer((char*)(str_ref.data), str_ref.size);
+            // first try to parse string
+            Status st = data_type_to->from_string(read_buffer, column_string.get());
+            if (!st.ok()) {
+                // write raw string to jsonb
+                writer.writeStartString();
+                writer.writeString(str_ref.data, str_ref.size);
+                writer.writeEndString();
+                column_string->insert_data(writer.getOutput()->getBuffer(),
+                                           writer.getOutput()->getSize());
+            }
         }
 
         block.replace_by_position(result, std::move(column_string));
@@ -1164,13 +1325,13 @@ public:
 
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            context, block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
+                            context, block, arguments, result, input_rows_count, false,
+                            scale_column.type->get_scale());
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            context, block, arguments, result, input_rows_count,
-                            context->check_overflow_for_decimal(), scale_column.type->get_scale());
+                            context, block, arguments, result, input_rows_count, false,
+                            scale_column.type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
                             context, block, arguments, result, input_rows_count);
@@ -1187,8 +1348,6 @@ public:
             return ret_status;
         }
     }
-
-    bool has_information_about_monotonicity() const override { return Monotonic::has(); }
 
     Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                             const Field& right) const override {
@@ -1596,10 +1755,6 @@ public:
     bool is_deterministic() const override { return true; }
     bool is_deterministic_in_scope_of_query() const override { return true; }
 
-    bool has_information_about_monotonicity() const override {
-        return static_cast<bool>(monotonicity_for_range);
-    }
-
     Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                             const Field& right) const override {
         return monotonicity_for_range(type, left, right);
@@ -1608,7 +1763,7 @@ public:
     bool is_use_default_implementation_for_constants() const override { return true; }
 
 private:
-    const char* name;
+    const char* name = nullptr;
     MonotonicityForRange monotonicity_for_range;
 
     DataTypes argument_types;
@@ -1683,8 +1838,7 @@ private:
                         using RightDataType = typename Types::RightType;
 
                         auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
-                                context, block, arguments, result, input_rows_count,
-                                context->check_overflow_for_decimal(),
+                                context, block, arguments, result, input_rows_count, false,
                                 PrecisionScaleArg {precision, scale});
                         if (!state) {
                             throw Exception(state.code(), state.to_string());
@@ -1843,13 +1997,8 @@ private:
     }
 
     // check jsonb value type and get to_type value
-    WrapperType create_jsonb_wrapper(const DataTypeJsonb& from_type,
-                                     const DataTypePtr& to_type) const {
-        // Conversion from String through parsing.
-        if (check_and_get_data_type<DataTypeString>(to_type.get())) {
-            return &ConvertImplGenericToString::execute2;
-        }
-
+    WrapperType create_jsonb_wrapper(const DataTypeJsonb& from_type, const DataTypePtr& to_type,
+                                     bool jsonb_string_as_string) const {
         switch (to_type->get_type_id()) {
         case TypeIndex::UInt8:
             return &ConvertImplFromJsonb<TypeIndex::UInt8, ColumnUInt8>::execute;
@@ -1865,17 +2014,22 @@ private:
             return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
         case TypeIndex::Float64:
             return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
+        case TypeIndex::String:
+            if (!jsonb_string_as_string) {
+                // Conversion from String through parsing.
+                return &ConvertImplGenericToString::execute2;
+            } else {
+                return ConvertImplGenericFromJsonb::execute;
+            }
         default:
-            return create_unsupport_wrapper(from_type.get_name(), to_type->get_name());
+            return ConvertImplGenericFromJsonb::execute;
         }
-
-        return nullptr;
     }
 
     // create cresponding jsonb value with type to_type
     // use jsonb writer to create jsonb value
-    WrapperType create_jsonb_wrapper(const DataTypePtr& from_type,
-                                     const DataTypeJsonb& to_type) const {
+    WrapperType create_jsonb_wrapper(const DataTypePtr& from_type, const DataTypeJsonb& to_type,
+                                     bool string_as_jsonb_string) const {
         switch (from_type->get_type_id()) {
         case TypeIndex::UInt8:
             return &ConvertImplNumberToJsonb<ColumnUInt8>::execute;
@@ -1892,20 +2046,177 @@ private:
         case TypeIndex::Float64:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
         case TypeIndex::String:
-            return &ConvertImplGenericFromString::execute;
+            if (string_as_jsonb_string) {
+                // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
+                // each line in original string column.
+                return &ConvertImplStringToJsonbAsJsonbString::execute;
+            } else {
+                return &ConvertImplGenericFromString::execute;
+            }
         default:
             return &ConvertImplGenericToJsonb::execute;
         }
     }
 
-    //TODO(Amory) . Need support more cast for key , value for map
-    WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
-        switch (from_type->get_type_id()) {
-        case TypeIndex::String:
-            return &ConvertImplGenericFromString::execute;
-        default:
-            return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
+    struct ConvertImplGenericFromVariant {
+        static Status execute(const FunctionCast* fn, FunctionContext* context, Block& block,
+                              const ColumnNumbers& arguments, const size_t result,
+                              size_t input_rows_count) {
+            auto& data_type_to = block.get_by_position(result).type;
+            const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+            auto& col_from = col_with_type_and_name.column;
+            auto& variant = assert_cast<const ColumnObject&>(*col_from);
+            ColumnPtr col_to = data_type_to->create_column();
+            if (!variant.is_finalized()) {
+                variant.assume_mutable()->finalize();
+            }
+            // It's important to convert as many elements as possible in this context. For instance,
+            // if the root of this variant column is a number column, converting it to a number column
+            // is acceptable. However, if the destination type is a string and root is none scalar root, then
+            // we should convert the entire tree to a string.
+            bool is_root_valuable =
+                    variant.is_scalar_variant() ||
+                    (!variant.is_null_root() &&
+                     !WhichDataType(remove_nullable(variant.get_root_type())).is_nothing() &&
+                     !WhichDataType(data_type_to).is_string());
+            if (is_root_valuable) {
+                ColumnPtr nested = variant.get_root();
+                auto nested_from_type = variant.get_root_type();
+                // DCHECK(nested_from_type->is_nullable());
+                DCHECK(!data_type_to->is_nullable());
+                auto new_context = context->clone();
+                new_context->set_jsonb_string_as_string(true);
+                // dst type nullable has been removed, so we should remove the inner nullable of root column
+                auto wrapper = fn->prepare_impl(
+                        new_context.get(), remove_nullable(nested_from_type), data_type_to, true);
+                Block tmp_block {{remove_nullable(nested), remove_nullable(nested_from_type), ""}};
+                tmp_block.insert({nullptr, data_type_to, ""});
+                /// Perform the requested conversion.
+                Status st = wrapper(new_context.get(), tmp_block, {0}, 1, input_rows_count);
+                if (!st.ok()) {
+                    // Fill with default values, which is null
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+                    col_to = make_nullable(col_to, true);
+                } else {
+                    col_to = tmp_block.get_by_position(1).column;
+                    // Note: here we should return the nullable result column
+                    col_to = wrap_in_nullable(
+                            col_to,
+                            Block({{nested, nested_from_type, ""}, {col_to, data_type_to, ""}}),
+                            {0}, 1, input_rows_count);
+                }
+            } else {
+                if (variant.empty()) {
+                    // TODO not found root cause, a tmp fix
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+                    col_to = make_nullable(col_to, true);
+                } else if (!data_type_to->is_nullable() &&
+                           !WhichDataType(data_type_to).is_string()) {
+                    col_to->assume_mutable()->insert_many_defaults(input_rows_count);
+                    col_to = make_nullable(col_to, true);
+                } else if (WhichDataType(data_type_to).is_string()) {
+                    return ConvertImplGenericToString::execute2(context, block, arguments, result,
+                                                                input_rows_count);
+                } else {
+                    assert_cast<ColumnNullable&>(*col_to->assume_mutable())
+                            .insert_many_defaults(input_rows_count);
+                }
+            }
+            if (col_to->size() != input_rows_count) {
+                return Status::InternalError("Unmatched row count {}, expected {}", col_to->size(),
+                                             input_rows_count);
+            }
+
+            block.replace_by_position(result, std::move(col_to));
+            return Status::OK();
         }
+    };
+
+    struct ConvertImplGenericToVariant {
+        static Status execute(FunctionContext* context, Block& block,
+                              const ColumnNumbers& arguments, const size_t result,
+                              size_t input_rows_count) {
+            // auto& data_type_to = block.get_by_position(result).type;
+            const auto& col_with_type_and_name = block.get_by_position(arguments[0]);
+            auto& from_type = col_with_type_and_name.type;
+            auto& col_from = col_with_type_and_name.column;
+
+            // set variant root column/type to from column/type
+            auto variant = ColumnObject::create(true /*always nullable*/);
+            variant->create_root(from_type, col_from->assume_mutable());
+            block.replace_by_position(result, std::move(variant));
+            return Status::OK();
+        }
+    };
+
+    // create cresponding variant value to wrap from_type
+    WrapperType create_variant_wrapper(const DataTypePtr& from_type,
+                                       const DataTypeObject& to_type) const {
+        return &ConvertImplGenericToVariant::execute;
+    }
+
+    // create cresponding type convert from variant
+    WrapperType create_variant_wrapper(const DataTypeObject& from_type,
+                                       const DataTypePtr& to_type) const {
+        return [this](FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                      const size_t result, size_t input_rows_count) -> Status {
+            return ConvertImplGenericFromVariant::execute(this, context, block, arguments, result,
+                                                          input_rows_count);
+        };
+    }
+
+    //TODO(Amory) . Need support more cast for key , value for map
+    WrapperType create_map_wrapper(FunctionContext* context, const DataTypePtr& from_type,
+                                   const DataTypeMap& to_type) const {
+        if (from_type->get_type_id() == TypeIndex::String) {
+            return &ConvertImplGenericFromString::execute;
+        }
+        auto from = check_and_get_data_type<DataTypeMap>(from_type.get());
+        if (!from) {
+            return create_unsupport_wrapper(
+                    fmt::format("CAST AS Map can only be performed between Map types or from "
+                                "String. from type: {}, to type: {}",
+                                from_type->get_name(), to_type.get_name()));
+        }
+        DataTypes from_kv_types;
+        DataTypes to_kv_types;
+        from_kv_types.reserve(2);
+        to_kv_types.reserve(2);
+        from_kv_types.push_back(from->get_key_type());
+        from_kv_types.push_back(from->get_value_type());
+        to_kv_types.push_back(to_type.get_key_type());
+        to_kv_types.push_back(to_type.get_value_type());
+
+        auto kv_wrappers = get_element_wrappers(context, from_kv_types, to_kv_types);
+        return [kv_wrappers, from_kv_types, to_kv_types](
+                       FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                       const size_t result, size_t /*input_rows_count*/) -> Status {
+            auto& from_column = block.get_by_position(arguments.front()).column;
+            auto from_col_map = check_and_get_column<ColumnMap>(from_column.get());
+            if (!from_col_map) {
+                return Status::RuntimeError("Illegal column {} for function CAST AS MAP",
+                                            from_column->get_name());
+            }
+
+            Columns converted_columns(2);
+            ColumnsWithTypeAndName columnsWithTypeAndName(2);
+            columnsWithTypeAndName[0] = {from_col_map->get_keys_ptr(), from_kv_types[0], ""};
+            columnsWithTypeAndName[1] = {from_col_map->get_values_ptr(), from_kv_types[1], ""};
+
+            for (size_t i = 0; i < 2; ++i) {
+                ColumnNumbers element_arguments {block.columns()};
+                block.insert(columnsWithTypeAndName[i]);
+                size_t element_result = block.columns();
+                block.insert({to_kv_types[i], ""});
+                RETURN_IF_ERROR(kv_wrappers[i](context, block, element_arguments, element_result,
+                                               columnsWithTypeAndName[i].column->size()));
+                converted_columns[i] = block.get_by_position(element_result).column;
+            }
+
+            block.get_by_position(result).column = ColumnMap::create(
+                    converted_columns[0], converted_columns[1], from_col_map->get_offsets_ptr());
+            return Status::OK();
+        };
     }
 
     ElementWrappers get_element_wrappers(FunctionContext* context,
@@ -2003,8 +2314,7 @@ private:
             };
         }
 
-        constexpr bool skip_not_null_check = false;
-
+        bool skip_not_null_check = false;
         auto wrapper =
                 prepare_remove_nullable(context, from_nested, to_nested, skip_not_null_check);
 
@@ -2103,11 +2413,22 @@ private:
         else if (WhichDataType(from_type).is_nothing())
             return create_nothing_wrapper(to_type.get());
 
+        if (to_type->get_type_id() == TypeIndex::VARIANT) {
+            return create_variant_wrapper(from_type, static_cast<const DataTypeObject&>(*to_type));
+        }
+        if (from_type->get_type_id() == TypeIndex::VARIANT) {
+            return create_variant_wrapper(static_cast<const DataTypeObject&>(*from_type), to_type);
+        }
+
         if (from_type->get_type_id() == TypeIndex::JSONB) {
-            return create_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type);
+            bool jsonb_string_as_string = context ? context->jsonb_string_as_string() : false;
+            return create_jsonb_wrapper(static_cast<const DataTypeJsonb&>(*from_type), to_type,
+                                        jsonb_string_as_string);
         }
         if (to_type->get_type_id() == TypeIndex::JSONB) {
-            return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type));
+            bool string_as_jsonb_string = context ? context->string_as_jsonb_string() : false;
+            return create_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
+                                        string_as_jsonb_string);
         }
 
         WrapperType ret;
@@ -2166,7 +2487,8 @@ private:
             return create_struct_wrapper(context, from_type,
                                          static_cast<const DataTypeStruct&>(*to_type));
         case TypeIndex::Map:
-            return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
+            return create_map_wrapper(context, from_type,
+                                      static_cast<const DataTypeMap&>(*to_type));
         case TypeIndex::HLL:
             return create_hll_wrapper(context, from_type,
                                       static_cast<const DataTypeHLL&>(*to_type));

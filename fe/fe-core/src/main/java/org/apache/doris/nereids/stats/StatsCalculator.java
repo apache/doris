@@ -19,8 +19,6 @@ package org.apache.doris.nereids.stats;
 
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -221,8 +219,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         Plan plan = groupExpression.getPlan();
         Statistics newStats = plan.accept(this, null);
         newStats.enforceValid();
+
         // We ensure that the rowCount remains unchanged in order to make the cost of each plan comparable.
         if (groupExpression.getOwnerGroup().getStatistics() == null) {
+            boolean isReliable = groupExpression.getPlan().getExpressions().stream()
+                    .noneMatch(e -> newStats.isInputSlotsUnknown(e.getInputSlots()));
+            groupExpression.getOwnerGroup().setStatsReliable(isReliable);
             groupExpression.getOwnerGroup().setStatistics(newStats);
             groupExpression.setEstOutputRowCount(newStats.getRowCount());
         } else {
@@ -565,6 +567,10 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+            return ColumnStatistic.UNKNOWN;
+        }
         long catalogId;
         long dbId;
         try {
@@ -590,31 +596,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         }
     }
 
-    private Histogram getColumnHistogram(TableIf table, String colName) {
-        // if (totalHistogramMap.get(table.getName() + colName) != null) {
-        //     return totalHistogramMap.get(table.getName() + colName);
-        // } else if (isPlayNereidsDump) {
-        //     return null;
-        // } else {
-        //     return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
-        // }
-        return null;
-    }
-
-    private ColumnStatistic setOlapPartitionInfo(TableIf tableIf, ColumnStatistic colStats) {
-        if (colStats.partitionIdToColStats.isEmpty()) {
-            return colStats;
-        }
-        if (!(tableIf instanceof OlapTable)) {
-            return colStats;
-        }
-        OlapTable table = (OlapTable) tableIf;
-        if (table.getPartitionInfo().getType() != PartitionType.UNPARTITIONED) {
-            colStats = new ColumnStatisticBuilder(colStats).setPartitionInfo(table.getPartitionInfo()).build();
-        }
-        return colStats;
-    }
-
     // TODO: 1. Subtract the pruned partition
     //       2. Consider the influence of runtime filter
     //       3. Get NDV and column data size from StatisticManger, StatisticManager doesn't support it now.
@@ -632,8 +613,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 throw new RuntimeException(String.format("Invalid slot: %s", slotReference.getExprId()));
             }
             ColumnStatistic cache;
-            if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().enableStats
-                    || !FeConstants.enableInternalSchemaDb
+            if (!FeConstants.enableInternalSchemaDb
                     || shouldIgnoreThisCol) {
                 cache = ColumnStatistic.UNKNOWN;
             } else {
@@ -646,18 +626,27 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count);
-                cache = setOlapPartitionInfo(table, cache);
-                Histogram histogram = getColumnHistogram(table, colName);
-                if (histogram != null) {
-                    ColumnStatisticBuilder columnStatisticBuilder =
-                            new ColumnStatisticBuilder(cache).setHistogram(histogram);
-                    columnStatisticMap.put(slotReference, columnStatisticBuilder.build());
-                    cache = columnStatisticBuilder.build();
-                }
             }
-            columnStatisticMap.put(slotReference, cache);
+            if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableStats) {
+                columnStatisticMap.put(slotReference, cache);
+            } else {
+                columnStatisticMap.put(slotReference, ColumnStatistic.UNKNOWN);
+            }
         }
-        return new Statistics(rowCount, columnStatisticMap);
+        Statistics stats = new Statistics(rowCount, columnStatisticMap);
+        stats = normalizeCatalogRelationColumnStatsRowCount(stats);
+        return stats;
+    }
+
+    private Statistics normalizeCatalogRelationColumnStatsRowCount(Statistics stats) {
+        for (Expression slot : stats.columnStatistics().keySet()) {
+            ColumnStatistic colStats = stats.findColumnStatistics(slot);
+            Preconditions.checkArgument(colStats != null,
+                    "can not find col stats for %s  in table", slot.toSql());
+            stats.addColumnStats(slot,
+                    new ColumnStatisticBuilder(colStats).setCount(stats.getRowCount()).build());
+        }
+        return stats;
     }
 
     private Statistics computeTopN(TopN topN) {

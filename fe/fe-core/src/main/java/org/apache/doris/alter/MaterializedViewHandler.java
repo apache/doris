@@ -23,7 +23,6 @@ import org.apache.doris.analysis.CancelAlterTableStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
-import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropRollupClause;
 import org.apache.doris.analysis.MVColumnItem;
@@ -44,7 +43,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
@@ -53,7 +51,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -491,14 +488,10 @@ public class MaterializedViewHandler extends AlterHandler {
                 // check b.1
                 throw new DdlException("The materialized view of unique table must not has grouping columns");
             }
-            addMVClause.setMVKeysType(olapTable.getKeysType());
 
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !mvColumnItem.isKey()) {
-                    mvColumnItem.setAggregationType(AggregateType.REPLACE, true);
-                }
-
                 if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+                    mvColumnItem.setIsKey(false);
                     for (String slotName : mvColumnItem.getBaseColumnNames()) {
                         if (!addMVClause.isReplay()
                                 && olapTable
@@ -507,6 +500,9 @@ public class MaterializedViewHandler extends AlterHandler {
                                         .isKey()) {
                             mvColumnItem.setIsKey(true);
                         }
+                    }
+                    if (!mvColumnItem.isKey()) {
+                        mvColumnItem.setAggregationType(AggregateType.REPLACE, true);
                     }
                 }
 
@@ -1291,16 +1287,5 @@ public class MaterializedViewHandler extends AlterHandler {
     // just for ut
     public Map<Long, Set<Long>> getTableRunningJobMap() {
         return tableRunningJobMap;
-    }
-
-    public void processCreateMultiTablesMaterializedView(CreateMultiTableMaterializedViewStmt addMVClause)
-            throws UserException {
-        Map<String, TableIf> olapTables = addMVClause.getTables();
-        try {
-            olapTables.values().forEach(TableIf::readLock);
-            Env.getCurrentEnv().createTable(addMVClause);
-        } finally {
-            olapTables.values().forEach(TableIf::readUnlock);
-        }
     }
 }

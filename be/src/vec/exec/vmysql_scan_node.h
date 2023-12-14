@@ -49,7 +49,8 @@ public:
     Status close(RuntimeState* state) override;
 
     // No use
-    Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    Status set_scan_ranges(RuntimeState* state,
+                           const std::vector<TScanRangeParams>& scan_ranges) override;
 
 private:
     // Write debug string of this into out.
@@ -69,7 +70,7 @@ private:
     std::vector<std::string> _filters;
 
     // Descriptor of tuples read from MySQL table.
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
     // Tuple index in tuple row.
     int _slot_num;
     // Jni helper for scanning an HBase table.

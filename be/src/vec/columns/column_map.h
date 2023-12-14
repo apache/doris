@@ -30,7 +30,6 @@
 #include <type_traits>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "vec/columns/column.h"
@@ -94,8 +93,6 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    bool can_be_inside_nullable() const override { return true; }
-
     Field operator[](size_t n) const override;
     void get(size_t n, Field& res) const override;
     StringRef get_data_at(size_t n) const override;
@@ -125,13 +122,15 @@ public:
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
+        __builtin_unreachable();
     }
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
         LOG(FATAL) << "get_permutation not implemented";
     }
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {

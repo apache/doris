@@ -397,7 +397,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         if (project != null) {
             argumentsOfAggregateFunction = Project.findProject(
-                        (List<SlotReference>) (List) argumentsOfAggregateFunction, project.getProjects())
+                        argumentsOfAggregateFunction, project.getProjects())
                     .stream()
                     .map(p -> p instanceof Alias ? p.child(0) : p)
                     .collect(ImmutableList.toImmutableList());
@@ -431,16 +431,13 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         Set<SlotReference> aggUsedSlots =
                 ExpressionUtils.collect(argumentsOfAggregateFunction, SlotReference.class::isInstance);
 
-        List<SlotReference> usedSlotInTable = (List<SlotReference>) (List) Project.findProject(aggUsedSlots,
-                (List<NamedExpression>) (List) logicalScan.getOutput());
+        List<SlotReference> usedSlotInTable = (List<SlotReference>) Project.findProject(aggUsedSlots,
+                logicalScan.getOutput());
 
         for (SlotReference slot : usedSlotInTable) {
             Column column = slot.getColumn().get();
-            if (logicalScan instanceof LogicalOlapScan) {
-                KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
-                if (keysType == KeysType.AGG_KEYS && !column.isKey()) {
-                    return canNotPush;
-                }
+            if (column.isAggregated()) {
+                return canNotPush;
             }
             // The zone map max length of CharFamily is 512, do not
             // over the length: https://github.com/apache/doris/pull/6293

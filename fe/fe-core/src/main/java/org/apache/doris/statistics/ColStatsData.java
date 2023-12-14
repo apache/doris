@@ -19,6 +19,10 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.statistics.util.StatisticsUtil;
 
+import com.google.common.annotations.VisibleForTesting;
+
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.StringJoiner;
 
 /**
@@ -52,6 +56,29 @@ public class ColStatsData {
 
     public final String updateTime;
 
+    @VisibleForTesting
+    public ColStatsData() {
+        statsId = new StatsId();
+        count = 0;
+        ndv = 0;
+        nullCount = 0;
+        minLit = null;
+        maxLit = null;
+        dataSizeInBytes = 0;
+        updateTime = null;
+    }
+
+    public ColStatsData(StatsId statsId) {
+        this.statsId = statsId;
+        count = 0;
+        ndv = 0;
+        nullCount = 0;
+        minLit = null;
+        maxLit = null;
+        dataSizeInBytes = 0;
+        updateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
     public ColStatsData(ResultRow row) {
         this.statsId = new StatsId(row);
         this.count = (long) Double.parseDouble(row.get(7));
@@ -73,8 +100,8 @@ public class ColStatsData {
         sj.add(String.valueOf(count));
         sj.add(String.valueOf(ndv));
         sj.add(String.valueOf(nullCount));
-        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(minLit)));
-        sj.add(StatisticsUtil.quote(StatisticsUtil.escapeSQL(maxLit)));
+        sj.add(minLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(minLit) + "'");
+        sj.add(maxLit == null ? "NULL" : "'" + StatisticsUtil.escapeSQL(maxLit) + "'");
         sj.add(String.valueOf(dataSizeInBytes));
         sj.add(StatisticsUtil.quote(updateTime));
         return sj.toString();

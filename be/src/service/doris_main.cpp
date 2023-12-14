@@ -72,7 +72,6 @@
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"
-#include "util/telemetry/telemetry.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/thrift_server.h"
 #include "util/uid_util.h"
@@ -399,7 +398,7 @@ int main(int argc, char** argv) {
     std::vector<doris::StorePath> paths;
     auto olap_res = doris::parse_conf_store_paths(doris::config::storage_root_path, &paths);
     if (!olap_res) {
-        LOG(FATAL) << "parse config storage path failed, path=" << doris::config::storage_root_path;
+        LOG(ERROR) << "parse config storage path failed, path=" << doris::config::storage_root_path;
         exit(-1);
     }
     std::set<std::string> broken_paths;
@@ -412,7 +411,7 @@ int main(int argc, char** argv) {
                 LOG(WARNING) << "ignore broken disk, path = " << it->path;
                 it = paths.erase(it);
             } else {
-                LOG(FATAL) << "a broken disk is found " << it->path;
+                LOG(ERROR) << "a broken disk is found " << it->path;
                 exit(-1);
             }
         } else if (!doris::check_datapath_rw(it->path)) {
@@ -420,7 +419,7 @@ int main(int argc, char** argv) {
                 LOG(WARNING) << "read write test file failed, path=" << it->path;
                 it = paths.erase(it);
             } else {
-                LOG(FATAL) << "read write test file failed, path=" << it->path;
+                LOG(ERROR) << "read write test file failed, path=" << it->path;
                 exit(-1);
             }
         } else {
@@ -429,14 +428,14 @@ int main(int argc, char** argv) {
     }
 
     if (paths.empty()) {
-        LOG(FATAL) << "All disks are broken, exit.";
+        LOG(ERROR) << "All disks are broken, exit.";
         exit(-1);
     }
 
     // initialize libcurl here to avoid concurrent initialization
     auto curl_ret = curl_global_init(CURL_GLOBAL_ALL);
     if (curl_ret != 0) {
-        LOG(FATAL) << "fail to initialize libcurl, curl_ret=" << curl_ret;
+        LOG(ERROR) << "fail to initialize libcurl, curl_ret=" << curl_ret;
         exit(-1);
     }
     // add logger for thrift internal
@@ -480,15 +479,15 @@ int main(int argc, char** argv) {
         exit(-1);
     }
 
+    doris::ThreadLocalHandle::create_thread_local_if_not_exits();
+
     // init exec env
     auto exec_env(doris::ExecEnv::GetInstance());
     status = doris::ExecEnv::init(doris::ExecEnv::GetInstance(), paths, broken_paths);
     if (status != Status::OK()) {
-        LOG(FATAL) << "failed to init doris storage engine, res=" << status;
+        LOG(ERROR) << "failed to init doris storage engine, res=" << status;
         exit(-1);
     }
-
-    doris::telemetry::init_tracer();
 
     // begin to start services
     doris::ThriftRpcHelper::setup(exec_env);
@@ -583,6 +582,7 @@ int main(int argc, char** argv) {
     brpc_service.reset(nullptr);
     LOG(INFO) << "Brpc service stopped";
     exec_env->destroy();
+    doris::ThreadLocalHandle::del_thread_local_if_count_is_zero();
     LOG(INFO) << "Doris main exited.";
     return 0;
 }

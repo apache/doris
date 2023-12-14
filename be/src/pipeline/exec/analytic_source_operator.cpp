@@ -20,13 +20,14 @@
 #include <string>
 
 #include "pipeline/exec/operator.h"
+#include "vec/columns/column_nullable.h"
 
 namespace doris::pipeline {
 
 OPERATOR_CODE_GENERATOR(AnalyticSourceOperator, SourceOperator)
 
 AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<AnalyticDependency>(state, parent),
+        : PipelineXLocalState<AnalyticSourceDependency>(state, parent),
           _output_block_index(0),
           _window_end_position(0),
           _next_partition(false),
@@ -36,9 +37,130 @@ AnalyticLocalState::AnalyticLocalState(RuntimeState* state, OperatorXBase* paren
           _agg_functions_size(0),
           _agg_functions_created(false) {}
 
+//_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
+vectorized::BlockRowPos AnalyticLocalState::_compare_row_to_find_end(int idx,
+                                                                     vectorized::BlockRowPos start,
+                                                                     vectorized::BlockRowPos end,
+                                                                     bool need_check_first) {
+    auto& shared_state = *_shared_state;
+    int64_t start_init_row_num = start.row_num;
+    vectorized::ColumnPtr start_column =
+            shared_state.input_blocks[start.block_num].get_by_position(idx).column;
+    vectorized::ColumnPtr start_next_block_column = start_column;
+
+    DCHECK_LE(start.block_num, end.block_num);
+    DCHECK_LE(start.block_num, shared_state.input_blocks.size() - 1);
+    int64_t start_block_num = start.block_num;
+    int64_t end_block_num = end.block_num;
+    int64_t mid_blcok_num = end.block_num;
+    // To fix this problem: https://github.com/apache/doris/issues/15951
+    // in this case, the partition by column is last row of block, so it's pointed to a new block at row = 0, range is: [left, right)
+    // From the perspective of order by column, the two values are exactly equal.
+    // so the range will be get wrong because it's compare_at == 0 with next block at row = 0
+    if (need_check_first && end.block_num > 0 && end.row_num == 0) {
+        end.block_num--;
+        end_block_num--;
+        end.row_num = shared_state.input_blocks[end_block_num].rows();
+    }
+    //binary search find in which block
+    while (start_block_num < end_block_num) {
+        mid_blcok_num = (start_block_num + end_block_num + 1) >> 1;
+        start_next_block_column =
+                shared_state.input_blocks[mid_blcok_num].get_by_position(idx).column;
+        //Compares (*this)[n] and rhs[m], this: start[init_row]  rhs: mid[0]
+        if (start_column->compare_at(start_init_row_num, 0, *start_next_block_column, 1) == 0) {
+            start_block_num = mid_blcok_num;
+        } else {
+            end_block_num = mid_blcok_num - 1;
+        }
+    }
+
+    // have check the start.block_num:  start_column[start_init_row_num] with mid_blcok_num start_next_block_column[0]
+    // now next block must not be result, so need check with end_block_num: start_next_block_column[last_row]
+    if (end_block_num == mid_blcok_num - 1) {
+        start_next_block_column =
+                shared_state.input_blocks[end_block_num].get_by_position(idx).column;
+        int64_t block_size = shared_state.input_blocks[end_block_num].rows();
+        if ((start_column->compare_at(start_init_row_num, block_size - 1, *start_next_block_column,
+                                      1) == 0)) {
+            start.block_num = end_block_num + 1;
+            start.row_num = 0;
+            return start;
+        }
+    }
+
+    //check whether need get column again, maybe same as first init
+    // if the start_block_num have move to forword, so need update start block num and compare it from row_num=0
+    if (start_block_num != start.block_num) {
+        start_init_row_num = 0;
+        start.block_num = start_block_num;
+        start_column = shared_state.input_blocks[start.block_num].get_by_position(idx).column;
+    }
+    //binary search, set start and end pos
+    int64_t start_pos = start_init_row_num;
+    int64_t end_pos = shared_state.input_blocks[start.block_num].rows();
+    //if end_block_num haven't moved, only start_block_num go to the end block
+    //so could use the end.row_num for binary search
+    if (start.block_num == end.block_num) {
+        end_pos = end.row_num;
+    }
+    while (start_pos < end_pos) {
+        int64_t mid_pos = (start_pos + end_pos) >> 1;
+        if (start_column->compare_at(start_init_row_num, mid_pos, *start_column, 1)) {
+            end_pos = mid_pos;
+        } else {
+            start_pos = mid_pos + 1;
+        }
+    }
+    start.row_num = start_pos; //update row num, return the find end
+    return start;
+}
+
+vectorized::BlockRowPos AnalyticLocalState::_get_partition_by_end() {
+    auto& shared_state = *_shared_state;
+    if (shared_state.current_row_position <
+        shared_state.partition_by_end.pos) { //still have data, return partition_by_end directly
+        return shared_state.partition_by_end;
+    }
+
+    if (shared_state.partition_by_eq_expr_ctxs.empty() ||
+        (shared_state.input_total_rows == 0)) { //no partition_by, the all block is end
+        return shared_state.all_block_end;
+    }
+
+    vectorized::BlockRowPos cal_end = shared_state.all_block_end;
+    for (size_t i = 0; i < shared_state.partition_by_eq_expr_ctxs.size();
+         ++i) { //have partition_by, binary search the partiton end
+        cal_end = _compare_row_to_find_end(shared_state.partition_by_column_idxs[i],
+                                           shared_state.partition_by_end, cal_end);
+    }
+    cal_end.pos = shared_state.input_block_first_row_positions[cal_end.block_num] + cal_end.row_num;
+    return cal_end;
+}
+
+bool AnalyticLocalState::_whether_need_next_partition(
+        vectorized::BlockRowPos& found_partition_end) {
+    auto& shared_state = *_shared_state;
+    if (shared_state.input_eos ||
+        (shared_state.current_row_position <
+         shared_state.partition_by_end.pos)) { //now still have partition data
+        return false;
+    }
+    if ((shared_state.partition_by_eq_expr_ctxs.empty() && !shared_state.input_eos) ||
+        (found_partition_end.pos == 0)) { //no partition, get until fetch to EOS
+        return true;
+    }
+    if (!shared_state.partition_by_eq_expr_ctxs.empty() &&
+        found_partition_end.pos == shared_state.all_block_end.pos &&
+        !shared_state.input_eos) { //current partition data calculate done
+        return true;
+    }
+    return false;
+}
+
 Status AnalyticLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<AnalyticDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    RETURN_IF_ERROR(PipelineXLocalState<AnalyticSourceDependency>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
 
@@ -173,6 +295,10 @@ void AnalyticLocalState::_execute_for_win_func(int64_t partition_start, int64_t 
                 _fn_place_ptr +
                         _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states[i],
                 agg_columns.data(), nullptr);
+
+        // If the end is not greater than the start, the current window should be empty.
+        _current_window_empty =
+                std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
     }
 }
 
@@ -198,12 +324,26 @@ void AnalyticLocalState::_insert_result_info(int64_t current_block_rows) {
         _shared_state->current_row_position++;
     }
 
+    const auto& offsets_of_aggregate_states =
+            _parent->cast<AnalyticSourceOperatorX>()._offsets_of_aggregate_states;
     for (int i = 0; i < _agg_functions_size; ++i) {
         for (int j = get_result_start; j < _window_end_position; ++j) {
-            _agg_functions[i]->insert_result_info(
-                    _fn_place_ptr + _parent->cast<AnalyticSourceOperatorX>()
-                                            ._offsets_of_aggregate_states[i],
-                    _result_window_columns[i].get());
+            if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
+                _result_window_columns[i]->is_nullable()) {
+                if (_current_window_empty) {
+                    _result_window_columns[i]->insert_default();
+                } else {
+                    auto* dst = assert_cast<vectorized::ColumnNullable*>(
+                            _result_window_columns[i].get());
+                    dst->get_null_map_data().push_back(0);
+                    _agg_functions[i]->insert_result_info(
+                            _fn_place_ptr + offsets_of_aggregate_states[i],
+                            &dst->get_nested_column());
+                }
+                continue;
+            }
+            _agg_functions[i]->insert_result_info(_fn_place_ptr + offsets_of_aggregate_states[i],
+                                                  _result_window_columns[i].get());
         }
     }
 }
@@ -263,8 +403,8 @@ void AnalyticLocalState::_update_order_by_range() {
     _order_by_start = _order_by_end;
     _order_by_end = _shared_state->partition_by_end;
     for (size_t i = 0; i < _shared_state->order_by_eq_expr_ctxs.size(); ++i) {
-        _order_by_end = _dependency->compare_row_to_find_end(_shared_state->ordey_by_column_idxs[i],
-                                                             _order_by_start, _order_by_end, true);
+        _order_by_end = _compare_row_to_find_end(_shared_state->ordey_by_column_idxs[i],
+                                                 _order_by_start, _order_by_end, true);
     }
     _order_by_start.pos =
             _shared_state->input_block_first_row_positions[_order_by_start.block_num] +
@@ -379,7 +519,7 @@ Status AnalyticSourceOperatorX::init(const TPlanNode& tnode, RuntimeState* state
 Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                           SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._shared_state->input_eos &&
         (local_state._output_block_index == local_state._shared_state->input_blocks.size() ||
          local_state._shared_state->input_total_rows == 0)) {
@@ -391,10 +531,9 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
            local_state._output_block_index < local_state._shared_state->input_blocks.size()) {
         {
             SCOPED_TIMER(local_state._evaluation_timer);
-            local_state._shared_state->found_partition_end =
-                    local_state._dependency->get_partition_by_end();
+            local_state._shared_state->found_partition_end = local_state._get_partition_by_end();
         }
-        if (local_state._dependency->refresh_need_more_input()) {
+        if (local_state._refresh_need_more_input()) {
             return Status::OK();
         }
         local_state._next_partition =
@@ -415,7 +554,7 @@ Status AnalyticSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
 }
 
 Status AnalyticLocalState::close(RuntimeState* state) {
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     if (_closed) {
         return Status::OK();
@@ -429,7 +568,7 @@ Status AnalyticLocalState::close(RuntimeState* state) {
 
     std::vector<vectorized::MutableColumnPtr> tmp_result_window_columns;
     _result_window_columns.swap(tmp_result_window_columns);
-    return PipelineXLocalState<AnalyticDependency>::close(state);
+    return PipelineXLocalState<AnalyticSourceDependency>::close(state);
 }
 
 Status AnalyticSourceOperatorX::prepare(RuntimeState* state) {

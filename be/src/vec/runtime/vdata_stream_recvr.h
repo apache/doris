@@ -59,7 +59,8 @@ class RuntimeState;
 
 namespace pipeline {
 struct ExchangeDataDependency;
-class ChannelDependency;
+class LocalExchangeChannelDependency;
+class ExchangeLocalState;
 } // namespace pipeline
 
 namespace vectorized {
@@ -125,7 +126,8 @@ public:
 
     bool is_closed() const { return _is_closed; }
 
-    void set_dependency(std::shared_ptr<pipeline::ChannelDependency> dependency);
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency(
+            int sender_id);
 
 private:
     void update_blocks_memory_usage(int64_t size);
@@ -134,10 +136,10 @@ private:
     friend struct BlockSupplierSortCursorImpl;
 
     // DataStreamMgr instance used to create this recvr. (Not owned)
-    VDataStreamMgr* _mgr;
+    VDataStreamMgr* _mgr = nullptr;
 
 #ifdef USE_MEM_TRACKER
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
     TUniqueId _query_id;
 #endif
 
@@ -160,30 +162,33 @@ private:
     std::unique_ptr<VSortedRunMerger> _merger;
 
     ObjectPool _sender_queue_pool;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
 
-    RuntimeProfile::Counter* _bytes_received_counter;
-    RuntimeProfile::Counter* _local_bytes_received_counter;
-    RuntimeProfile::Counter* _deserialize_row_batch_timer;
-    RuntimeProfile::Counter* _first_batch_wait_total_timer;
-    RuntimeProfile::Counter* _buffer_full_total_timer;
-    RuntimeProfile::Counter* _data_arrival_timer;
-    RuntimeProfile::Counter* _decompress_timer;
-    RuntimeProfile::Counter* _decompress_bytes;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _bytes_received_counter = nullptr;
+    RuntimeProfile::Counter* _local_bytes_received_counter = nullptr;
+    RuntimeProfile::Counter* _deserialize_row_batch_timer = nullptr;
+    RuntimeProfile::Counter* _first_batch_wait_total_timer = nullptr;
+    RuntimeProfile::Counter* _buffer_full_total_timer = nullptr;
+    RuntimeProfile::Counter* _data_arrival_timer = nullptr;
+    RuntimeProfile::Counter* _decompress_timer = nullptr;
+    RuntimeProfile::Counter* _decompress_bytes = nullptr;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
     std::atomic<int64_t> _blocks_memory_usage_current_value = 0;
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     // Number of rows received
-    RuntimeProfile::Counter* _rows_produced_counter;
+    RuntimeProfile::Counter* _rows_produced_counter = nullptr;
     // Number of blocks received
-    RuntimeProfile::Counter* _blocks_produced_counter;
+    RuntimeProfile::Counter* _blocks_produced_counter = nullptr;
 
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 
     bool _enable_pipeline;
-    std::shared_ptr<pipeline::ChannelDependency> _dependency;
+    std::vector<std::shared_ptr<pipeline::LocalExchangeChannelDependency>>
+            _sender_to_local_channel_dependency;
+
+    std::shared_ptr<bool> _mem_available;
 };
 
 class ThreadClosure : public google::protobuf::Closure {
@@ -200,6 +205,11 @@ public:
     SenderQueue(VDataStreamRecvr* parent_recvr, int num_senders, RuntimeProfile* profile);
 
     virtual ~SenderQueue();
+
+    void set_local_channel_dependency(
+            std::shared_ptr<pipeline::LocalExchangeChannelDependency> local_channel_dependency) {
+        _local_channel_dependency = local_channel_dependency;
+    }
 
     virtual bool should_wait();
 
@@ -225,15 +235,13 @@ public:
         _dependency = dependency;
     }
 
-    void set_channel_dependency(std::shared_ptr<pipeline::ChannelDependency> channel_dependency) {
-        _channel_dependency = channel_dependency;
-    }
-
 protected:
+    friend class pipeline::ExchangeLocalState;
+    friend struct pipeline::ExchangeDataDependency;
     Status _inner_get_batch_without_lock(Block* block, bool* eos);
 
     // Not managed by this class
-    VDataStreamRecvr* _recvr;
+    VDataStreamRecvr* _recvr = nullptr;
     std::mutex _lock;
     bool _is_cancelled;
     Status _cancel_status;
@@ -250,8 +258,8 @@ protected:
     std::deque<std::pair<google::protobuf::Closure*, MonotonicStopWatch>> _pending_closures;
     std::unordered_map<std::thread::id, std::unique_ptr<ThreadClosure>> _local_closure;
 
-    std::shared_ptr<pipeline::ExchangeDataDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::ChannelDependency> _channel_dependency = nullptr;
+    std::shared_ptr<pipeline::ExchangeDataDependency> _dependency;
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> _local_channel_dependency;
 };
 
 class VDataStreamRecvr::PipSenderQueue : public SenderQueue {
@@ -270,5 +278,6 @@ public:
 
     void add_block(Block* block, bool use_move) override;
 };
+
 } // namespace vectorized
 } // namespace doris

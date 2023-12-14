@@ -128,13 +128,12 @@ public class PartitionDesc {
                                     + expr.toSql());
                 }
             } else if (expr instanceof SlotRef) {
-                if (colNames.isEmpty()) {
-                    colNames.add(((SlotRef) expr).getColumnName());
-                } else {
+                if (!colNames.isEmpty() && !isListPartition) {
                     throw new AnalysisException(
-                            "auto create partition only support one slotRef in expr. "
+                            "auto create partition only support one slotRef in expr of RANGE partition. "
                                     + expr.toSql());
                 }
+                colNames.add(((SlotRef) expr).getColumnName());
             } else {
                 if (!isListPartition) {
                     throw new AnalysisException(

@@ -72,12 +72,6 @@ hive -f /mnt/scripts/create_tpch1_orc.hql
 echo "hive -f /mnt/scripts/create_tpch1_parquet.hql"
 hive -f /mnt/scripts/create_tpch1_parquet.hql
 
-echo "hive -f /mnt/scripts/create_tpcds100_orc.hql"
-hive -f /mnt/scripts/create_tpcds100_orc.hql
-
-echo "hive -f /mnt/scripts/create_tpcds100_parquet.hql"
-hive -f /mnt/scripts/create_tpcds100_parquet.hql
-
 echo "hive -f /mnt/scripts/create_preinstalled_table.hql"
 hive -f /mnt/scripts/create_preinstalled_table.hql
 

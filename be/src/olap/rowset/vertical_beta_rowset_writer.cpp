@@ -27,7 +27,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "io/fs/file_system.h"
@@ -41,6 +40,9 @@
 
 namespace doris {
 using namespace ErrorCode;
+
+VerticalBetaRowsetWriter::VerticalBetaRowsetWriter(StorageEngine& engine)
+        : BetaRowsetWriter(engine) {}
 
 VerticalBetaRowsetWriter::~VerticalBetaRowsetWriter() {
     if (!_already_built) {

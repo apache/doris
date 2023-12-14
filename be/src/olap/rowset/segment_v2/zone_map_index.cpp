@@ -56,9 +56,7 @@ void TypedZoneMapIndexWriter<Type>::add_values(const void* values, size_t count)
     if (count > 0) {
         _page_zone_map.has_not_null = true;
     }
-    using ValType =
-            std::conditional_t<Type == TYPE_DATE, uint24_t,
-                               typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType>;
+    using ValType = PrimitiveTypeTraits<Type>::StorageFieldType;
     const ValType* vals = reinterpret_cast<const ValType*>(values);
     auto [min, max] = std::minmax_element(vals, vals + count);
     if (unaligned_load<ValType>(min) < unaligned_load<ValType>(_page_zone_map.min_value)) {
@@ -80,11 +78,6 @@ void TypedZoneMapIndexWriter<Type>::moidfy_index_before_flush(
 template <PrimitiveType Type>
 void TypedZoneMapIndexWriter<Type>::reset_page_zone_map() {
     _page_zone_map.pass_all = true;
-}
-
-template <PrimitiveType Type>
-void TypedZoneMapIndexWriter<Type>::reset_segment_zone_map() {
-    _segment_zone_map.pass_all = true;
 }
 
 template <PrimitiveType Type>

@@ -85,8 +85,11 @@ public abstract class SubqueryExpr extends Expression implements LeafExpression 
     }
 
     @Override
-    protected String getExpressionName() {
-        return "subquery";
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of("subquery");
+        }
+        return this.exprName.get();
     }
 
     @Override
@@ -134,4 +137,6 @@ public abstract class SubqueryExpr extends Expression implements LeafExpression 
     }
 
     public abstract Expression withTypeCoercion(DataType dataType);
+
+    public abstract SubqueryExpr withSubquery(LogicalPlan subquery);
 }

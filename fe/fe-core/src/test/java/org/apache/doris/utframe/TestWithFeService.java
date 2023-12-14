@@ -69,6 +69,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
@@ -84,9 +85,12 @@ import org.apache.doris.utframe.MockedFrontend.NotInitException;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeAll;
@@ -125,8 +129,16 @@ public abstract class TestWithFeService {
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
     protected boolean needCleanDir = true;
+    protected int lastFeRpcPort = 0;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
+
+    private static final MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
+        @Mock
+        public Set<Integer> getEnableNereidsRules() {
+            return ImmutableSet.of();
+        }
+    };
 
     @BeforeAll
     public final void beforeAll() throws Exception {
@@ -260,6 +272,7 @@ public abstract class TestWithFeService {
         ctx.setRemoteIP(host);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setThreadLocalInfo();
+        ctx.setStatementContext(new StatementContext());
         return ctx;
     }
 
@@ -379,6 +392,7 @@ public abstract class TestWithFeService {
         MockedFrontend frontend = new MockedFrontend();
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
+        lastFeRpcPort = feRpcPort;
         return feRpcPort;
     }
 
@@ -433,6 +447,10 @@ public abstract class TestWithFeService {
             bes.add(createBackend(host, feRpcPort));
         }
         checkBEHeartbeat(bes);
+    }
+
+    protected Backend addNewBackend() throws IOException, InterruptedException {
+        return createBackend("127.0.0.1", lastFeRpcPort);
     }
 
     protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
@@ -492,7 +510,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected int findValidPort() {
+    public static int findValidPort() {
         int port = 0;
         while (true) {
             try (ServerSocket socket = new ServerSocket(0)) {
@@ -528,7 +546,7 @@ public abstract class TestWithFeService {
         stmtExecutor.execute();
         if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
-            return planner.getExplainString(new ExplainOptions(isVerbose, false));
+            return planner.getExplainString(new ExplainOptions(isVerbose, false, false));
         } else {
             return ctx.getState().getErrorMessage();
         }
@@ -608,7 +626,7 @@ public abstract class TestWithFeService {
 
     public void createTable(String sql, boolean enableNerieds) throws Exception {
         try {
-            Config.enable_odbc_table = true;
+            Config.enable_odbc_mysql_broker_table = true;
             createTables(enableNerieds, sql);
         } catch (Exception e) {
             e.printStackTrace();
@@ -707,7 +725,7 @@ public abstract class TestWithFeService {
 
     protected void useUser(String userName) throws AnalysisException {
         UserIdentity user = new UserIdentity(userName, "%");
-        user.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        user.analyze();
         connectContext.setCurrentUserIdentity(user);
         connectContext.setQualifiedUser(SystemInfoService.DEFAULT_CLUSTER + ":" + userName);
     }
@@ -746,6 +764,9 @@ public abstract class TestWithFeService {
             }
             Replica replica = cell.getValue();
             TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
+            if (tabletMeta == null) {
+                continue;
+            }
             ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
             for (DiskInfo diskInfo : diskMap.values()) {
                 if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {

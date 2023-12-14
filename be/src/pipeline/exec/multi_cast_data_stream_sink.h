@@ -41,18 +41,26 @@ public:
     bool can_write() override { return _sink->can_write(); }
 };
 
+class MultiCastSinkDependency final : public Dependency {
+public:
+    using SharedState = MultiCastSharedState;
+    MultiCastSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "MultiCastSinkDependency", true, query_ctx) {}
+    ~MultiCastSinkDependency() override = default;
+};
+
 class MultiCastDataStreamSinkOperatorX;
 class MultiCastDataStreamSinkLocalState final
-        : public PipelineXSinkLocalState<MultiCastDependency> {
+        : public PipelineXSinkLocalState<MultiCastSinkDependency> {
     ENABLE_FACTORY_CREATOR(MultiCastDataStreamSinkLocalState);
     MultiCastDataStreamSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : Base(parent, state) {}
     friend class MultiCastDataStreamSinkOperatorX;
     friend class DataSinkOperatorX<MultiCastDataStreamSinkLocalState>;
-    using Base = PipelineXSinkLocalState<MultiCastDependency>;
+    using Base = PipelineXSinkLocalState<MultiCastSinkDependency>;
     using Parent = MultiCastDataStreamSinkOperatorX;
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    std::string id_name() override;
+    std::string name_suffix() override;
 
 private:
     std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;
@@ -77,7 +85,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         auto& local_state = get_local_state(state);
-        SCOPED_TIMER(local_state.profile()->total_time_counter());
+        SCOPED_TIMER(local_state.exec_time_counter());
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
         if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
             COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());

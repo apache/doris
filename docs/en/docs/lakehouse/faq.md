@@ -87,6 +87,8 @@ under the License.
 
    Add `-Djava.security.krb5.conf=/your-path` to the `JAVA_OPTS` of the broker startup script `start_broker.sh`.
 
+8. When using Kerberos configuration in the Catalog, the `hadoop.username` property cannot be appeared in Catalog properties.
+
 ## JDBC Catalog
 
 1. An error is reported when connecting to SQLServer through JDBC Catalog: `unable to find valid certification path to requested target`
@@ -267,4 +269,16 @@ under the License.
 
      Note that the value here is the cumulative value of a single HDFS Client, not the value of a single query. The same HDFS Client will be reused by multiple queries.
 
+3. `Couldn't create proxy provider class org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`
 
+    In the start scripts of FE and BE, the environment variable `HADOOP_CONF_DIR` will be added to CLASSPATH. If `HADOOP_CONF_DIR` is set incorrectly, such as pointing to a non-existent path or an incorrect path, the wrong xxx-site.xml file may be loaded and incorrect information may be read.
+
+    You need to check whether `HADOOP_CONF_DIR` is configured correctly, or unset this environment variable.
+
+## DLF Catalog
+
+1. When using DLF Catalog, BE reads `Invalid address` when fetching JindoFS data and needs to add the domain name to IP mapping that appears in the log in `/ets/hosts`.
+
+2. When reading data is not authorized, use the `hadoop.username` property to specify the authorized user.
+
+3. The metadata in the DLF Catalog is consistent with the DLF. When DLF is used to manage metadata, newly imported Hive partitions may not be synchronized by DLF, resulting in inconsistency between the DLF and Hive metadata. In this case, ensure firstly that the Hive metadata is fully synchronized by DLF.

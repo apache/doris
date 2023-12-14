@@ -28,7 +28,6 @@
 #include <ostream>
 #include <shared_mutex>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -48,6 +47,7 @@
 #include "olap/schema.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
+#include "olap/tablet_schema.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/runtime_state.h"
@@ -256,8 +256,19 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.remaining_conjunct_roots = read_params.remaining_conjunct_roots;
     _reader_context.common_expr_ctxs_push_down = read_params.common_expr_ctxs_push_down;
     _reader_context.output_columns = &read_params.output_columns;
+    _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
 
     return Status::OK();
+}
+
+TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
+    if (!orig.is_variant_type()) {
+        return orig;
+    }
+    TabletColumn column_with_cast_type = orig;
+    auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
+    column_with_cast_type.set_type(TabletColumn::get_field_type_by_type(cast_type));
+    return column_with_cast_type;
 }
 
 Status TabletReader::_init_params(const ReaderParams& read_params) {
@@ -269,6 +280,7 @@ Status TabletReader::_init_params(const ReaderParams& read_params) {
     _tablet = read_params.tablet;
     _tablet_schema = read_params.tablet_schema;
     _reader_context.runtime_state = read_params.runtime_state;
+    _reader_context.target_cast_type_for_variants = read_params.target_cast_type_for_variants;
 
     RETURN_IF_ERROR(_init_conditions_param(read_params));
     _init_conditions_param_except_leafnode_of_andnode(read_params);
@@ -472,7 +484,7 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         RETURN_IF_ERROR(_tablet_schema->have_column(tmp_cond.column_name));
         // The "column" parameter might represent a column resulting from the decomposition of a variant column.
         // Instead of using a "unique_id" for identification, we are utilizing a "path" to denote this column.
-        const auto& column = _tablet_schema->column(tmp_cond.column_name);
+        const auto& column = materialize_column(_tablet_schema->column(tmp_cond.column_name));
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
                 parse_to_predicate(column, index, tmp_cond, _predicate_arena.get());
@@ -511,20 +523,16 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
 
     // Function filter push down to storage engine
     auto is_like_predicate = [](ColumnPredicate* _pred) {
-        if (dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
-            dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr) {
-            return true;
-        }
-
-        return false;
+        return dynamic_cast<LikeColumnPredicate<TYPE_CHAR>*>(_pred) != nullptr ||
+               dynamic_cast<LikeColumnPredicate<TYPE_STRING>*>(_pred) != nullptr;
     };
 
     for (const auto& filter : read_params.function_filters) {
         _col_predicates.emplace_back(_parse_to_predicate(filter));
         auto* pred = _col_predicates.back();
-        const auto& col = _tablet->tablet_schema()->column(pred->column_id());
+        const auto& col = _tablet_schema->column(pred->column_id());
         auto is_like = is_like_predicate(pred);
-        auto* tablet_index = _tablet->tablet_schema()->get_ngram_bf_index(col.unique_id());
+        auto* tablet_index = _tablet_schema->get_ngram_bf_index(col.unique_id());
 
         if (is_like && tablet_index && config::enable_query_like_bloom_filter) {
             std::unique_ptr<segment_v2::BloomFilter> ng_bf;
@@ -532,8 +540,8 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             auto gram_bf_size = tablet_index->get_gram_bf_size();
             auto gram_size = tablet_index->get_gram_size();
 
-            static_cast<void>(segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER,
-                                                              &ng_bf, gram_bf_size));
+            RETURN_IF_ERROR(segment_v2::BloomFilter::create(segment_v2::NGRAM_BLOOM_FILTER, &ng_bf,
+                                                            gram_bf_size));
             NgramTokenExtractor _token_extractor(gram_size);
 
             if (_token_extractor.string_like_to_bloom_filter(pattern.data(), pattern.length(),
@@ -549,7 +557,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
         const ReaderParams& read_params) {
     for (const auto& condition : read_params.conditions_except_leafnode_of_andnode) {
         TCondition tmp_cond = condition;
-        const auto& column = _tablet_schema->column(tmp_cond.column_name);
+        const auto& column = materialize_column(_tablet_schema->column(tmp_cond.column_name));
         uint32_t index = _tablet_schema->field_index(tmp_cond.column_name);
         ColumnPredicate* predicate =
                 parse_to_predicate(column, index, tmp_cond, _predicate_arena.get());
@@ -574,7 +582,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, bloom_filter.second, column.type(),
                                    _reader_context.runtime_state->be_exec_version(), &column);
 }
@@ -585,7 +593,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, in_filter.second, column.type(),
                                    _reader_context.runtime_state->be_exec_version(), &column);
 }
@@ -596,7 +604,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, bitmap_filter.second, column.type(),
                                    _reader_context.runtime_state->be_exec_version(), &column);
 }
@@ -606,7 +614,7 @@ ColumnPredicate* TabletReader::_parse_to_predicate(const FunctionFilter& functio
     if (index < 0) {
         return nullptr;
     }
-    const TabletColumn& column = _tablet_schema->column(index);
+    const TabletColumn& column = materialize_column(_tablet_schema->column(index));
     return create_column_predicate(index, std::make_shared<FunctionFilter>(function_filter),
                                    column.type(), _reader_context.runtime_state->be_exec_version(),
                                    &column);
@@ -662,7 +670,7 @@ Status TabletReader::init_reader_params_and_create_block(
     std::transform(input_rowsets.begin(), input_rowsets.end(), rowset_metas.begin(),
                    [](const RowsetSharedPtr& rowset) { return rowset->rowset_meta(); });
     TabletSchemaSPtr read_tablet_schema =
-            tablet->rowset_meta_with_max_schema_version(rowset_metas)->tablet_schema();
+            tablet->tablet_schema_with_merged_max_schema_version(rowset_metas);
     TabletSchemaSPtr merge_tablet_schema = std::make_shared<TabletSchema>();
     merge_tablet_schema->copy_from(*read_tablet_schema);
 

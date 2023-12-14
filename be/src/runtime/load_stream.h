@@ -17,24 +17,27 @@
 
 #pragma once
 
+#include <bthread/mutex.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <stdint.h>
 
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
 #include <utility>
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
-#include <runtime/load_stream_writer.h>
 
 #include "brpc/stream.h"
 #include "butil/iobuf.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/load_stream_writer.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
+
+class LoadStreamMgr;
+class ThreadPoolToken;
+class OlapTableSchemaParam;
 
 // origin_segid(index) -> new_segid(value in vector)
 using SegIdMapping = std::vector<uint32_t>;
@@ -48,7 +51,7 @@ public:
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
     Status close();
-    int64_t id() { return _id; }
+    int64_t id() const { return _id; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream);
 
@@ -62,7 +65,7 @@ private:
     std::shared_ptr<Status> _failed_st;
     PUniqueId _load_id;
     int64_t _txn_id;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
@@ -93,7 +96,7 @@ private:
     int64_t _txn_id;
     std::shared_ptr<OlapTableSchemaParam> _schema;
     std::unordered_map<int64_t, int64_t> _tablet_partitions;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
     LoadStreamMgr* _load_stream_mgr = nullptr;
@@ -104,17 +107,14 @@ using StreamId = brpc::StreamId;
 class LoadStream : public brpc::StreamInputHandler {
 public:
     LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile);
-    ~LoadStream();
+    ~LoadStream() override;
 
-    Status init(const POpenStreamSinkRequest* request);
+    Status init(const POpenLoadStreamRequest* request);
 
     void add_source(int64_t src_id) {
         std::lock_guard lock_guard(_lock);
         _open_streams[src_id]++;
     }
-
-    uint32_t add_rpc_stream() { return ++_num_rpc_streams; }
-    uint32_t remove_rpc_stream() { return --_num_rpc_streams; }
 
     Status close(int64_t src_id, const std::vector<PTabletID>& tablets_to_commit,
                  std::vector<int64_t>* success_tablet_ids, std::vector<int64_t>* failed_tablet_ids);
@@ -130,16 +130,32 @@ private:
     void _parse_header(butil::IOBuf* const message, PStreamHeader& hdr);
     void _dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data);
     Status _append_data(const PStreamHeader& header, butil::IOBuf* data);
-    void _report_result(StreamId stream, Status& st, std::vector<int64_t>* success_tablet_ids,
-                        std::vector<int64_t>* failed_tablet_ids);
+
+    void _report_result(StreamId stream, const Status& st,
+                        const std::vector<int64_t>& success_tablet_ids,
+                        const std::vector<int64_t>& failed_tablet_ids);
+    void _report_schema(StreamId stream, const PStreamHeader& hdr);
+
+    // report failure for one message
+    void _report_failure(StreamId stream, const Status& status, const PStreamHeader& header) {
+        std::vector<int64_t> success; // empty
+        std::vector<int64_t> failure;
+        if (header.has_tablet_id()) {
+            failure.push_back(header.tablet_id());
+        }
+        _report_result(stream, status, success, failure);
+    }
 
 private:
     PUniqueId _load_id;
     std::unordered_map<int64_t, IndexStreamSharedPtr> _index_streams_map;
-    std::atomic<uint32_t> _num_rpc_streams;
+    int32_t _total_streams = 0;
+    int32_t _close_load_cnt = 0;
+    std::atomic<int32_t> _close_rpc_cnt = 0;
+    std::vector<PTabletID> _tablets_to_commit;
     bthread::Mutex _lock;
     std::unordered_map<int64_t, int32_t> _open_streams;
-    int64_t _txn_id;
+    int64_t _txn_id = 0;
     std::shared_ptr<OlapTableSchemaParam> _schema;
     bool _enable_profile = false;
     std::unique_ptr<RuntimeProfile> _profile;

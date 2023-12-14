@@ -98,14 +98,17 @@ public class DropTableTest {
 
     @Test
     public void testForceDropTable() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
-        OlapTable table = (OlapTable) db.getTableOrMetaException("tbl2");
-        Partition partition = table.getAllPartitions().iterator().next();
-        long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
         String dropTableSql = "drop table test.tbl2 force";
         dropTable(dropTableSql);
-        List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
-        Assert.assertTrue(replicaList.isEmpty());
+        // After unify force and non-force drop table, the replicas will be recycled eventually.
+        //
+        // Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        // OlapTable table = (OlapTable) db.getTableOrMetaException("tbl2");
+        // Partition partition = table.getAllPartitions().iterator().next();
+        // long tabletId = partition.getBaseIndex().getTablets().get(0).getId();
+        // ...
+        // List<Replica> replicaList = Env.getCurrentEnv().getTabletInvertedIndex().getReplicasByTabletId(tabletId);
+        // Assert.assertTrue(replicaList.isEmpty());
         String recoverDbSql = "recover table test.tbl2";
         RecoverTableStmt recoverTableStmt = (RecoverTableStmt) UtFrameUtils.parseAndAnalyzeStmt(recoverDbSql, connectContext);
         ExceptionChecker.expectThrowsWithMsg(DdlException.class,

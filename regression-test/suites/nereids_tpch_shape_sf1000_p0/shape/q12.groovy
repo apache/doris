@@ -27,6 +27,7 @@ suite("q12") {
     sql 'set exec_mem_limit=21G'
     sql 'SET enable_pipeline_engine = true'
 sql 'set be_number_for_test=3'
+sql 'set enable_runtime_filter_prune=false'
     qt_select """
     explain shape plan
     select 

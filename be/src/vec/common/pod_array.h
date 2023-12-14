@@ -33,7 +33,6 @@
 #include <initializer_list>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "vec/common/allocator.h" // IWYU pragma: keep
 #include "vec/common/memcpy_small.h"

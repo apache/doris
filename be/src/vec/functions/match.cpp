@@ -46,7 +46,12 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
         const auto* values = check_and_get_column<ColumnString>(source_col.get());
         const ColumnArray* array_col = nullptr;
         if (source_col->is_column_array()) {
-            array_col = check_and_get_column<ColumnArray>(source_col.get());
+            if (source_col->is_nullable()) {
+                auto* nullable = check_and_get_column<ColumnNullable>(source_col.get());
+                array_col = check_and_get_column<ColumnArray>(*nullable->get_nested_column_ptr());
+            } else {
+                array_col = check_and_get_column<ColumnArray>(source_col.get());
+            }
             if (array_col && !array_col->get_data().is_column_string()) {
                 return Status::NotSupported(
                         fmt::format("unsupported nested array of type {} for function {}",
@@ -62,10 +67,19 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                 values = check_and_get_column<ColumnString>(
                         *(array_nested_null_column.get_nested_column_ptr()));
             } else {
+                // array column element is always set Nullable for now.
                 values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
             }
         } else if (auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
-            values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            // match null
+            if (type_ptr->is_nullable()) {
+                if (column_ptr->only_null()) {
+                    block.get_by_position(result).column = nullable->get_null_map_column_ptr();
+                    return Status::OK();
+                }
+            } else {
+                values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            }
         }
 
         if (!values) {
@@ -300,6 +314,7 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchAny>();
     factory.register_function<FunctionMatchAll>();
     factory.register_function<FunctionMatchPhrase>();
+    factory.register_function<FunctionMatchPhrasePrefix>();
     factory.register_function<FunctionMatchElementEQ>();
     factory.register_function<FunctionMatchElementLT>();
     factory.register_function<FunctionMatchElementGT>();

@@ -61,9 +61,6 @@ import org.apache.doris.qe.ResultSetMetaData;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
-import io.opentelemetry.api.trace.Span;
-import io.opentelemetry.context.Context;
-import io.opentelemetry.context.Scope;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -71,7 +68,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -92,6 +88,7 @@ public class NereidsPlanner extends Planner {
     private PhysicalPlan physicalPlan;
     // The cost of optimized plan
     private double cost = 0;
+    private List<PlannerHook> hooks = new ArrayList<>();
 
     public NereidsPlanner(StatementContext statementContext) {
         this.statementContext = statementContext;
@@ -101,6 +98,8 @@ public class NereidsPlanner extends Planner {
     public void plan(StatementBase queryStmt, org.apache.doris.thrift.TQueryOptions queryOptions) {
         if (statementContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
             NereidsTracer.init();
+        } else {
+            NereidsTracer.disable();
         }
         if (!(queryStmt instanceof LogicalPlanAdapter)) {
             throw new RuntimeException("Wrong type of queryStmt, expected: <? extends LogicalPlanAdapter>");
@@ -125,6 +124,9 @@ public class NereidsPlanner extends Planner {
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
+        if (statementContext.getConnectContext().getExecutor() != null) {
+            statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsTranslateTime();
+        }
         if (cascadesContext.getConnectContext().getSessionVariable().isEnableNereidsTrace()) {
             CounterEvent.clearCounter();
         }
@@ -183,19 +185,8 @@ public class NereidsPlanner extends Planner {
 
         try (Lock lock = new Lock(plan, cascadesContext)) {
             // resolve column, table and function
-            Span queryAnalysisSpan =
-                    statementContext.getConnectContext().getTracer()
-                            .spanBuilder("query analysis").setParent(Context.current()).startSpan();
-            try (Scope scope = queryAnalysisSpan.makeCurrent()) {
-                // analyze this query
-                analyze();
-            } catch (Exception e) {
-                queryAnalysisSpan.recordException(e);
-                throw e;
-            } finally {
-                queryAnalysisSpan.end();
-            }
-
+            // analyze this query
+            analyze();
             // minidump of input must be serialized first, this process ensure minidump string not null
             try {
                 MinidumpUtils.serializeInputsToDumpFile(plan, cascadesContext.getTables());
@@ -205,6 +196,7 @@ public class NereidsPlanner extends Planner {
 
             if (statementContext.getConnectContext().getExecutor() != null) {
                 statementContext.getConnectContext().getExecutor().getSummaryProfile().setQueryAnalysisFinishTime();
+                statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsAnalysisTime();
             }
 
             if (explainLevel == ExplainLevel.ANALYZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -223,7 +215,15 @@ public class NereidsPlanner extends Planner {
                 }
             }
 
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsRewriteTime();
+            }
+
             optimize();
+            if (statementContext.getConnectContext().getExecutor() != null) {
+                statementContext.getConnectContext().getExecutor().getSummaryProfile().setNereidsOptimizeTime();
+            }
+
             // print memo before choose plan.
             // if chooseNthPlan failed, we could get memo to debug
             if (cascadesContext.getConnectContext().getSessionVariable().dumpNereidsMemo) {
@@ -264,22 +264,29 @@ public class NereidsPlanner extends Planner {
     }
 
     private void analyze() {
+        LOG.debug("Start analyze plan");
         cascadesContext.newAnalyzer().analyze();
+        getHooks().forEach(hook -> hook.afterAnalyze(this));
         NereidsTracer.logImportantTime("EndAnalyzePlan");
+        LOG.debug("End analyze plan");
     }
 
     /**
      * Logical plan rewrite based on a series of heuristic rules.
      */
     private void rewrite() {
+        LOG.debug("Start rewrite plan");
         Rewriter.getWholeTreeRewriter(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndRewritePlan");
+        LOG.debug("End rewrite plan");
     }
 
     // DependsRules: EnsureProjectOnTopJoin.class
     private void optimize() {
+        LOG.debug("Start optimize plan");
         new Optimizer(cascadesContext).execute();
         NereidsTracer.logImportantTime("EndOptimizePlan");
+        LOG.debug("End optimize plan");
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
@@ -343,30 +350,30 @@ public class NereidsPlanner extends Planner {
 
     /**
      * getting hints explain string, which specified by enumerate and show in lists
-     * @param hintMap hint map recorded in statement context
+     * @param hints hint map recorded in statement context
      * @return explain string shows using of hint
      */
-    public String getHintExplainString(Map<String, Hint> hintMap) {
+    public String getHintExplainString(List<Hint> hints) {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
-        for (Map.Entry<String, Hint> entry : hintMap.entrySet()) {
-            switch (entry.getValue().getStatus()) {
+        for (Hint hint : hints) {
+            switch (hint.getStatus()) {
                 case UNUSED:
-                    unUsed = unUsed + " " + entry.getValue().getExplainString();
+                    unUsed = unUsed + " " + hint.getExplainString();
                     break;
                 case SYNTAX_ERROR:
-                    syntaxError = syntaxError + " " + entry.getValue().getExplainString()
-                        + " Msg:" + entry.getValue().getErrorMessage();
+                    syntaxError = syntaxError + " " + hint.getExplainString()
+                        + " Msg:" + hint.getErrorMessage();
                     break;
                 case SUCCESS:
-                    used = used + " " + entry.getValue().getExplainString();
+                    used = used + " " + hint.getExplainString();
                     break;
                 default:
                     break;
             }
         }
-        return "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
+        return "\nHint log:" + "\nUsed:" + used + "\nUnUsed:" + unUsed + "\nSyntaxError:" + syntaxError;
     }
 
     @Override
@@ -407,8 +414,8 @@ public class NereidsPlanner extends Planner {
             default:
                 plan = super.getExplainString(explainOptions);
         }
-        if (!statementContext.getHintMap().isEmpty()) {
-            String hint = getHintExplainString(cascadesContext.getStatementContext().getHintMap());
+        if (statementContext != null && !statementContext.getHints().isEmpty()) {
+            String hint = getHintExplainString(statementContext.getHints());
             return plan + hint;
         }
         return plan;
@@ -456,7 +463,7 @@ public class NereidsPlanner extends Planner {
             if (expr instanceof Literal) {
                 LiteralExpr legacyExpr = ((Literal) expr).toLegacyLiteral();
                 columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
-                super.handleLiteralInFe(legacyExpr, data);
+                data.add(legacyExpr.getStringValueInFe());
             } else {
                 return Optional.empty();
             }
@@ -515,5 +522,13 @@ public class NereidsPlanner extends Planner {
 
     public PhysicalPlan getPhysicalPlan() {
         return physicalPlan;
+    }
+
+    public List<PlannerHook> getHooks() {
+        return hooks;
+    }
+
+    public void addHook(PlannerHook hook) {
+        this.hooks.add(hook);
     }
 }

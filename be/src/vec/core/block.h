@@ -22,9 +22,9 @@
 
 #include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
-#include <stddef.h>
-#include <stdint.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <initializer_list>
 #include <list>
 #include <memory>
@@ -85,11 +85,11 @@ private:
 public:
     Block() = default;
     Block(std::initializer_list<ColumnWithTypeAndName> il);
-    Block(const ColumnsWithTypeAndName& data_);
+    Block(ColumnsWithTypeAndName data_);
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
-    virtual ~Block() = default;
+    ~Block() = default;
     Block(const Block& block) = default;
     Block& operator=(const Block& p) = default;
     Block(Block&& block) = default;
@@ -135,35 +135,6 @@ public:
         return data[position];
     }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
-
-    // need exception safety
-    Status copy_column_data_to_block(doris::vectorized::IColumn* input_col_ptr,
-                                     uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid,
-                                     size_t batch_size) {
-        // Only the additional deleted filter condition need to materialize column be at the end of the block
-        // We should not to materialize the column of query engine do not need. So here just return OK.
-        // Eg:
-        //      `delete from table where a = 10;`
-        //      `select b from table;`
-        // a column only effective in segment iterator, the block from query engine only contain the b column.
-        // so the `block_cid >= data.size()` is true
-        if (block_cid >= data.size()) {
-            return Status::OK();
-        }
-
-        MutableColumnPtr raw_res_ptr = this->get_by_position(block_cid).column->assume_mutable();
-        raw_res_ptr->reserve(batch_size);
-
-        // adapt for outer join change column to nullable
-        if (raw_res_ptr->is_nullable() && !input_col_ptr->is_nullable()) {
-            auto col_ptr_nullable =
-                    reinterpret_cast<vectorized::ColumnNullable*>(raw_res_ptr.get());
-            col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
-            raw_res_ptr = col_ptr_nullable->get_nested_column_ptr();
-        }
-
-        return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
-    }
 
     void replace_by_position(size_t position, ColumnPtr&& res) {
         this->get_by_position(position).column = std::move(res);
@@ -462,7 +433,7 @@ public:
 
     MutableColumns& mutable_columns() { return _columns; }
 
-    void set_muatable_columns(MutableColumns&& columns) { _columns = std::move(columns); }
+    void set_mutable_columns(MutableColumns&& columns) { _columns = std::move(columns); }
 
     DataTypes& data_types() { return _data_types; }
 
@@ -583,8 +554,8 @@ public:
         return Status::OK();
     }
 
+    // move to columns' data to a Block. this will invalidate
     Block to_block(int start_column = 0);
-
     Block to_block(int start_column, int end_column);
 
     void swap(MutableBlock& other) noexcept;
@@ -592,8 +563,9 @@ public:
     void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
-    void add_rows(const Block* block, const int* row_begin, const int* row_end);
+    void add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
+    void add_rows(const Block* block, std::vector<int64_t> rows);
 
     /// remove the column with the specified name
     void erase(const String& name);
@@ -606,7 +578,10 @@ public:
         _names.clear();
     }
 
+    // columns resist. columns' inner data removed.
     void clear_column_data() noexcept;
+    // reset columns by types and names.
+    void reset_column_data() noexcept;
 
     size_t allocated_bytes() const;
 

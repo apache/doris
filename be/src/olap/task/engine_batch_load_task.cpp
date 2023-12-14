@@ -55,7 +55,6 @@ class TTabletInfo;
 } // namespace doris
 
 using apache::thrift::ThriftDebugString;
-using std::list;
 using std::string;
 using std::vector;
 

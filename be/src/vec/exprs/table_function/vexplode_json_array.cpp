@@ -124,19 +124,19 @@ int ParsedData::set_output(ExplodeJsonArrayType type, rapidjson::Document& docum
                 // change each time `emplace_back()` is called.
                 break;
             case rapidjson::Type::kFalseType:
-                _data_string.emplace_back(true_value);
+                _backup_string.emplace_back(true_value);
                 _string_nulls.push_back(false);
                 break;
             case rapidjson::Type::kTrueType:
-                _data_string.emplace_back(false_value);
+                _backup_string.emplace_back(false_value);
                 _string_nulls.push_back(false);
                 break;
             case rapidjson::Type::kNullType:
-                _data_string.push_back({});
+                _backup_string.emplace_back();
                 _string_nulls.push_back(true);
                 break;
             default:
-                _data_string.push_back({});
+                _backup_string.emplace_back();
                 _string_nulls.push_back(true);
                 break;
             }
@@ -195,8 +195,8 @@ Status VExplodeJsonArrayTableFunction::process_init(Block* block, RuntimeState* 
     return Status::OK();
 }
 
-Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+void VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
+    TableFunction::process_row(row_idx);
 
     StringRef text = _text_column->get_data_at(row_idx);
     if (text.data != nullptr) {
@@ -206,12 +206,10 @@ Status VExplodeJsonArrayTableFunction::process_row(size_t row_idx) {
             _cur_size = _parsed_data.set_output(_type, document);
         }
     }
-    return Status::OK();
 }
 
-Status VExplodeJsonArrayTableFunction::process_close() {
+void VExplodeJsonArrayTableFunction::process_close() {
     _text_column = nullptr;
-    return Status::OK();
 }
 
 void VExplodeJsonArrayTableFunction::get_value(MutableColumnPtr& column) {

@@ -28,7 +28,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -64,28 +63,27 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status DeltaWriterV2::open(WriteRequest* req,
-                           const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                           DeltaWriterV2** writer, RuntimeProfile* profile) {
-    *writer = new DeltaWriterV2(req, streams, StorageEngine::instance(), profile);
-    return Status::OK();
+std::unique_ptr<DeltaWriterV2> DeltaWriterV2::open(
+        WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams) {
+    std::unique_ptr<DeltaWriterV2> writer(
+            new DeltaWriterV2(req, streams, StorageEngine::instance()));
+    return writer;
 }
 
 DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
                              const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                             StorageEngine* storage_engine, RuntimeProfile* profile)
+                             StorageEngine* storage_engine)
         : _req(*req),
           _tablet_schema(new TabletSchema),
-          _profile(profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true,
-                                         true)),
           _memtable_writer(new MemTableWriter(*req)),
-          _streams(streams) {
-    _init_profile(profile);
-}
+          _streams(streams) {}
 
-void DeltaWriterV2::_init_profile(RuntimeProfile* profile) {
-    _write_memtable_timer = ADD_TIMER(_profile, "WriteMemTableTime");
-    _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+void DeltaWriterV2::_update_profile(RuntimeProfile* profile) {
+    auto child = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
+    auto write_memtable_timer = ADD_TIMER(child, "WriteMemTableTime");
+    auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
+    COUNTER_SET(write_memtable_timer, _write_memtable_time);
+    COUNTER_SET(close_wait_timer, _close_wait_time);
 }
 
 DeltaWriterV2::~DeltaWriterV2() {
@@ -102,6 +100,9 @@ Status DeltaWriterV2::init() {
         return Status::OK();
     }
     // build tablet schema in request level
+    if (_streams.size() == 0 || _streams[0]->tablet_schema(_req.index_id) == nullptr) {
+        return Status::InternalError("failed to find tablet schema for {}", _req.index_id);
+    }
     _build_current_tablet_schema(_req.index_id, _req.table_schema_param,
                                  *_streams[0]->tablet_schema(_req.index_id));
     RowsetWriterContext context;
@@ -112,6 +113,7 @@ Status DeltaWriterV2::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
+    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet = nullptr;
     context.write_type = DataWriteType::TYPE_DIRECT;
@@ -138,8 +140,9 @@ Status DeltaWriterV2::append(const vectorized::Block* block) {
     return write(block, {}, true);
 }
 
-Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                             bool is_append) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
@@ -149,7 +152,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    SCOPED_TIMER(_write_memtable_timer);
+    SCOPED_RAW_TIMER(&_write_memtable_time);
     return _memtable_writer->write(block, row_idxs, is_append);
 }
 
@@ -168,13 +171,16 @@ Status DeltaWriterV2::close() {
     return _memtable_writer->close();
 }
 
-Status DeltaWriterV2::close_wait() {
-    SCOPED_TIMER(_close_wait_timer);
+Status DeltaWriterV2::close_wait(RuntimeProfile* profile) {
+    SCOPED_RAW_TIMER(&_close_wait_time);
     std::lock_guard<std::mutex> l(_lock);
     DCHECK(_is_init)
             << "delta writer is supposed be to initialized before close_wait() being called";
 
-    RETURN_IF_ERROR(_memtable_writer->close_wait(_profile));
+    if (profile != nullptr) {
+        _update_profile(profile);
+    }
+    RETURN_IF_ERROR(_memtable_writer->close_wait(profile));
 
     _delta_written_success = true;
     return Status::OK();

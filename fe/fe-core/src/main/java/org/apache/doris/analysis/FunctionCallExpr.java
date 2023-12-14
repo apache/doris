@@ -28,7 +28,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -40,6 +42,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
@@ -311,8 +314,11 @@ public class FunctionCallExpr extends Expr {
     }
 
     @Override
-    protected String getExprName() {
-        return Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME);
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(this.getFnName().getFunction(), DEFAULT_EXPR_NAME));
+        }
+        return this.exprName.get();
     }
 
     public FunctionCallExpr(String functionName, List<Expr> params) {
@@ -1237,6 +1243,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     private void analyzeArrayFunction(Analyzer analyzer) throws AnalysisException {
+        boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
         if (fnName.getFunction().equalsIgnoreCase("array_distinct")
                 || fnName.getFunction().equalsIgnoreCase("array_max")
                 || fnName.getFunction().equalsIgnoreCase("array_min")
@@ -1253,7 +1260,8 @@ public class FunctionCallExpr extends Expr {
             Type[] childTypes = collectChildReturnTypes();
             Type compatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; ++i) {
-                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true,
+                        enableDecimal256);
                 if (compatibleType == Type.INVALID) {
                     throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
                 }
@@ -1290,7 +1298,8 @@ public class FunctionCallExpr extends Expr {
             }
             Type compatibleType = ((ArrayType) childTypes[0]).getItemType();
             for (int i = 1; i < childTypes.length; ++i) {
-                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true);
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, childTypes[i], true,
+                        enableDecimal256);
                 if (compatibleType == Type.INVALID) {
                     throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
                 }
@@ -1390,6 +1399,7 @@ public class FunctionCallExpr extends Expr {
 
         analyzeArrayFunction(analyzer);
 
+        boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             if (this.children.isEmpty()) {
                 throw new AnalysisException("The " + fnName + " function must has one input param");
@@ -1402,7 +1412,7 @@ public class FunctionCallExpr extends Expr {
             Type compatibleType = this.children.get(0).getType();
             for (int i = 1; i < this.children.size(); ++i) {
                 Type type = this.children.get(i).getType();
-                compatibleType = Type.getAssignmentCompatibleType(compatibleType, type, true);
+                compatibleType = Type.getAssignmentCompatibleType(compatibleType, type, true, enableDecimal256);
                 if (compatibleType.isInvalid()) {
                     compatibleType = Type.VARCHAR;
                     break;
@@ -1494,7 +1504,8 @@ public class FunctionCallExpr extends Expr {
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
-            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
+            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true,
+                    enableDecimal256);
             if (assignmentCompatibleType.isDecimalV3()) {
                 if (assignmentCompatibleType.isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 1);
@@ -1520,7 +1531,8 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
                 || fnName.getFunction().equalsIgnoreCase("nvl")) {
             Type[] childTypes = collectChildReturnTypes();
-            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true);
+            Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true,
+                    enableDecimal256);
             if (assignmentCompatibleType != Type.INVALID) {
                 if (assignmentCompatibleType.isDecimalV3()) {
                     if (assignmentCompatibleType.isDecimalV3() && !childTypes[0].equals(assignmentCompatibleType)) {
@@ -1547,7 +1559,7 @@ public class FunctionCallExpr extends Expr {
             Type assignmentCompatibleType = childTypes[0];
             for (int i = 1; i < childTypes.length; i++) {
                 assignmentCompatibleType = ScalarType
-                        .getAssignmentCompatibleType(assignmentCompatibleType, childTypes[i], true);
+                        .getAssignmentCompatibleType(assignmentCompatibleType, childTypes[i], true, enableDecimal256);
             }
             if (assignmentCompatibleType.isDecimalV3()) {
                 for (int i = 0; i < childTypes.length; i++) {
@@ -1581,6 +1593,27 @@ public class FunctionCallExpr extends Expr {
             args[0] = Type.DOUBLE;
             System.arraycopy(childrenTypes, 1, args, 1, childrenTypes.length - 1);
             fn = getBuiltinFunction(fnName.getFunction(), args, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("bitand")
+                || fnName.getFunction().equalsIgnoreCase("bitor")
+                || fnName.getFunction().equalsIgnoreCase("bitxor")) {
+            Type[] childTypes = collectChildReturnTypes();
+            if (Arrays.stream(childTypes).anyMatch(child -> child.isDecimalV2()
+                    || child.isDecimalV3() || child.isFloatingPointType())) {
+                uncheckedCastChild(Type.BIGINT, 0);
+                uncheckedCastChild(Type.BIGINT, 1);
+                argTypes[0] = Type.BIGINT;
+                argTypes[1] = Type.BIGINT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("bitnot")) {
+            if (children.get(0).type.isDecimalV2() || children.get(0).type.isDecimalV3()
+                    || children.get(0).type.isFloatingPointType()) {
+                uncheckedCastChild(Type.BIGINT, 0);
+                argTypes[0] = Type.BIGINT;
+            }
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {
@@ -1607,6 +1640,9 @@ public class FunctionCallExpr extends Expr {
                     fn = findUdf(fnName, analyzer);
                     if (analyzer.isReAnalyze() && fn instanceof AliasFunction) {
                         throw new AnalysisException("a UDF in the original function of a alias function");
+                    }
+                    if (fn != null) {
+                        FunctionUtil.checkEnableJavaUdf();
                     }
                 }
             }
@@ -1644,6 +1680,25 @@ public class FunctionCallExpr extends Expr {
                     children.set(1, new StringLiteral("%Y-%m-%d"));
                 } else if (fmtLiteral.getStringValue().equals("yyyy-MM-dd HH:mm:ss")) {
                     children.set(1, new StringLiteral("%Y-%m-%d %H:%i:%s"));
+                }
+            }
+
+            if (fnName.getFunction().equalsIgnoreCase("unix_timestamp") && children.size() == 1) {
+                if (getChild(0).type.isDatetimeV2()) {
+                    ScalarType type = (ScalarType) getChild(0).type;
+                    Preconditions.checkArgument(type.getScalarScale() <= 6,
+                            "DatetimeV2's scale shouldn't exceed 6 but meet " + type.getScalarScale());
+                    fn.setReturnType(
+                            ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + type.getScalarScale(),
+                                    type.getScalarScale()));
+                } else if (getChild(0).type.isStringType()) {
+                    // use DATETIME to make scale adaptive
+                    ScalarType type = ((ScalarType) (getChild(0).uncheckedCastTo(ScalarType.DATETIME).type));
+                    if (type.isDatetimeV2()) {
+                        int scale = type.getScalarScale();
+                        fn.setReturnType(
+                                ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + scale, scale));
+                    }
                 }
             }
         }
@@ -1844,6 +1899,9 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_shuffle")
                         || fnName.getFunction().equalsIgnoreCase("shuffle")
                         || fnName.getFunction().equalsIgnoreCase("array_except")
+                        || fnName.getFunction().equalsIgnoreCase("array_apply")
+                        || fnName.getFunction().equalsIgnoreCase("array_position")
+                        || fnName.getFunction().equalsIgnoreCase("array_contains")
                         || fnName.getFunction().equalsIgnoreCase("width_bucket"))
                         && (args[ix].isDecimalV3() || (children.get(0).getType().isArrayType()
                         && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())

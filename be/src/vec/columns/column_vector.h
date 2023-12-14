@@ -34,7 +34,6 @@
 #include <typeinfo>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "gutil/integral_types.h"
@@ -145,7 +144,7 @@ public:
     using Container = PaddedPODArray<value_type>;
 
 private:
-    ColumnVector() {}
+    ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
     ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
@@ -178,7 +177,7 @@ public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
-        return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
+        return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
     }
 
     void insert_from(const IColumn& src, size_t n) override {
@@ -196,12 +195,26 @@ public:
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
     }
 
+    void insert_raw_integers(T val, size_t n) {
+        auto old_size = data.size();
+        data.resize(old_size + n);
+        std::fill(data.data() + old_size, data.data() + old_size + n, val);
+    }
+
+    void insert_range_of_integer(T begin, T end) {
+        auto old_size = data.size();
+        data.resize(old_size + (end - begin));
+        for (int i = 0; i < end - begin; i++) {
+            data[old_size + i] = begin + i;
+        }
+    }
+
     void insert_date_column(const char* data_ptr, size_t num) {
         data.reserve(data.size() + num);
-        size_t input_value_size = sizeof(uint24_t);
+        constexpr size_t input_value_size = sizeof(uint24_t);
 
         for (int i = 0; i < num; i++) {
-            uint64_t val = 0;
+            uint24_t val = 0;
             memcpy((char*)(&val), data_ptr, input_value_size);
             data_ptr += input_value_size;
 
@@ -379,8 +392,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     void fill(const value_type& element, size_t num) {
         auto old_size = data.size();
@@ -412,6 +425,10 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
+    double get_ratio_of_default_rows(double sample_ratio) const override {
+        return this->template get_ratio_of_default_rows_impl<Self>(sample_ratio);
+    }
+
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override;
@@ -427,8 +444,6 @@ public:
     }
 
     //    void gather(ColumnGathererStream & gatherer_stream) override;
-
-    bool can_be_inside_nullable() const override { return true; }
 
     bool is_fixed_and_contiguous() const override { return true; }
     size_t size_of_value_if_fixed() const override { return sizeof(T); }

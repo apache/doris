@@ -32,7 +32,7 @@ namespace doris {
 template <PrimitiveType Type, PredicateType PT>
 class ComparisonPredicateBase : public ColumnPredicate {
 public:
-    using T = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
+    using T = typename PrimitiveTypeTraits<Type>::CppType;
     ComparisonPredicateBase(uint32_t column_id, const T& value, bool opposite = false)
             : ColumnPredicate(column_id, opposite),
               _cached_code(_InvalidateCodeValue),
@@ -45,6 +45,10 @@ public:
         cloned->predicate_params()->marked_by_runtime_filter =
                 _predicate_params->marked_by_runtime_filter;
         *to = cloned;
+    }
+
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
     }
 
     bool need_to_clone() const override { return true; }
@@ -67,20 +71,22 @@ public:
 
         roaring::Roaring roaring;
         bool exact_match = false;
-        Status status = iterator->seek_dictionary(&_value, &exact_match);
+
+        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
+        Status status = iterator->seek_dictionary(&value, &exact_match);
         rowid_t seeked_ordinal = iterator->current_ordinal();
 
         return _bitmap_compare(status, exact_match, ordinal_limit, seeked_ordinal, iterator,
                                bitmap);
     }
 
-    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+                    InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
             return Status::OK();
         }
-        auto column_desc = schema.column(_column_id);
-        std::string column_name = column_desc->name();
+        std::string column_name = name_with_type.first;
 
         InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
@@ -107,17 +113,21 @@ public:
         }
 
         roaring::Roaring roaring;
-        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &_value, query_type,
+
+        auto&& value = PrimitiveTypeConvertor<Type>::to_storage_field_type(_value);
+        RETURN_IF_ERROR(iterator->read_from_inverted_index(column_name, &value, query_type,
                                                            num_rows, &roaring));
 
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
         // keep it after query, since query will try to read null_bitmap and put it to cache
-        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        if (null_bitmap) {
-            *bitmap -= *null_bitmap;
+        if (iterator->has_null()) {
+            InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            if (null_bitmap) {
+                *bitmap -= *null_bitmap;
+            }
         }
 
         if constexpr (PT == PredicateType::NE) {
@@ -150,17 +160,13 @@ public:
         _evaluate_bit<true>(column, sel, size, flags);
     }
 
-    using WarpperFieldType = std::conditional_t<Type == TYPE_DATE, uint24_t, T>;
-
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override {
         if (statistic.first->is_null()) {
             return true;
         }
 
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
             return _operator(tmp_min_value <= _value && tmp_max_value >= _value, true);
@@ -179,12 +185,8 @@ public:
             return false;
         }
 
-        DCHECK_LE(sizeof(T), statistic.first->size());
-
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::LT) {
             return _value > tmp_max_value;
@@ -204,10 +206,8 @@ public:
             return false;
         }
 
-        T tmp_min_value {};
-        T tmp_max_value {};
-        memcpy((char*)(&tmp_min_value), statistic.first->cell_ptr(), sizeof(WarpperFieldType));
-        memcpy((char*)(&tmp_max_value), statistic.second->cell_ptr(), sizeof(WarpperFieldType));
+        T tmp_min_value = get_zone_map_value<Type, T>(statistic.first->cell_ptr());
+        T tmp_max_value = get_zone_map_value<Type, T>(statistic.second->cell_ptr());
 
         if constexpr (PT == PredicateType::EQ) {
             return tmp_min_value == _value && tmp_max_value == _value;
@@ -230,8 +230,17 @@ public:
             if constexpr (std::is_same_v<T, StringRef>) {
                 return bf->test_bytes(_value.data, _value.size);
             } else {
-                return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
-                                      sizeof(WarpperFieldType));
+                // DecimalV2 using decimal12_t in bloom filter, should convert value to decimal12_t
+                // Datev1/DatetimeV1 using VecDatetimeValue in bloom filter, NO need to convert.
+                if constexpr (Type == PrimitiveType::TYPE_DECIMALV2) {
+                    decimal12_t decimal12_t_val(_value.int_value(), _value.frac_value());
+                    return bf->test_bytes(
+                            const_cast<char*>(reinterpret_cast<const char*>(&decimal12_t_val)),
+                            sizeof(decimal12_t));
+                } else {
+                    return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
+                                          sizeof(T));
+                }
             }
         } else {
             LOG(FATAL) << "Bloom filter is not supported by predicate type.";
@@ -295,10 +304,12 @@ public:
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 }
             } else {
-                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<
-                        PredicateEvaluateType<Type>>&>(nested_column)
-                                           .get_data()
-                                           .data();
+                auto* data_array =
+                        vectorized::check_and_get_column<
+                                const vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(
+                                nested_column)
+                                ->get_data()
+                                .data();
 
                 _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }

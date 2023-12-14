@@ -26,7 +26,7 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSourceOperator, SourceOperator)
 
 SortLocalState::SortLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<SortDependency>(state, parent) {}
+        : PipelineXLocalState<SortSourceDependency>(state, parent) {}
 
 SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
@@ -35,7 +35,7 @@ SortSourceOperatorX::SortSourceOperatorX(ObjectPool* pool, const TPlanNode& tnod
 Status SortSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     bool eos = false;
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
             local_state._shared_state->sorter->get_next(state, block, &eos));

@@ -22,6 +22,7 @@ suite("test_ingest_binlog") {
         logger.info("fe enable_feature_binlog is false, skip case test_ingest_binlog")
         return
     }
+
     def tableName = "tbl_ingest_binlog"
     def insert_num = 5
     def test_num = 0
@@ -102,6 +103,7 @@ suite("test_ingest_binlog") {
     logger.info("=== Test 2.2: Wrong binlog version case ===")
     // -1 means use the number of syncer.context
     // Boolean ingestBinlog(long fakePartitionId = -1, long fakeVersion = -1)
+    // use fakeVersion = 1, 1 is doris be talet first version, so no binlog, only http error
     assertTrue(syncer.ingestBinlog(-1, 1) == false)
 
 

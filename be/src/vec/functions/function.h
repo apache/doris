@@ -238,13 +238,6 @@ public:
 
     virtual bool is_deterministic_in_scope_of_query() const = 0;
 
-    /** Lets you know if the function is monotonic in a range of values.
-      * This is used to work with the index in a sorted chunk of data.
-      * And allows to use the index not only when it is written, for example `date >= const`, but also, for example, `toMonth(date) >= 11`.
-      * All this is considered only for functions of one argument.
-      */
-    virtual bool has_information_about_monotonicity() const { return false; }
-
     virtual bool is_use_default_implementation_for_constants() const = 0;
 
     /// The property of monotonicity for a certain range.
@@ -583,10 +576,6 @@ public:
         return function->is_deterministic_in_scope_of_query();
     }
 
-    bool has_information_about_monotonicity() const override {
-        return function->has_information_about_monotonicity();
-    }
-
     IFunctionBase::Monotonicity get_monotonicity_for_range(const IDataType& type, const Field& left,
                                                            const Field& right) const override {
         return function->get_monotonicity_for_range(type, left, right);
@@ -707,6 +696,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Array, ColumnArray)              \
     M(Map, ColumnMap)                  \
     M(Struct, ColumnStruct)            \
+    M(VARIANT, ColumnObject)           \
     M(BitMap, ColumnBitmap)            \
     M(HLL, ColumnHLL)
 

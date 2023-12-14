@@ -20,7 +20,6 @@
 #pragma once
 
 #include "vec/common/hash_table/hash_table.h"
-#include "vec/common/hash_table/hash_table_utils.h"
 
 /** Partitioned hash table.
   * Represents 16 (or 1ULL << BITS_FOR_SUB_TABLE) small hash tables (sub table count of the first level).
@@ -539,26 +538,17 @@ private:
 
         auto it = level0_sub_table.begin();
 
-        if constexpr (HashTableTraits<Impl>::is_phmap) {
-            for (; it != level0_sub_table.end(); ++it) {
-                size_t hash_value = level0_sub_table.hash(it.get_first());
-                size_t sub_table_idx = get_sub_table_from_hash(hash_value);
-                level1_sub_tables[sub_table_idx].insert(it.get_first(), hash_value,
-                                                        it.get_second());
-            }
-        } else {
-            /// It is assumed that the zero key (stored separately) is first in iteration order.
-            if (it != level0_sub_table.end() && it.get_ptr()->is_zero(level0_sub_table)) {
-                insert(it->get_value());
-                ++it;
-            }
+        /// It is assumed that the zero key (stored separately) is first in iteration order.
+        if (it != level0_sub_table.end() && it.get_ptr()->is_zero(level0_sub_table)) {
+            insert(it->get_value());
+            ++it;
+        }
 
-            for (; it != level0_sub_table.end(); ++it) {
-                const auto* cell = it.get_ptr();
-                size_t hash_value = cell->get_hash(level0_sub_table);
-                size_t sub_table_idx = get_sub_table_from_hash(hash_value);
-                level1_sub_tables[sub_table_idx].insert_unique_non_zero(cell, hash_value);
-            }
+        for (; it != level0_sub_table.end(); ++it) {
+            const auto* cell = it.get_ptr();
+            size_t hash_value = cell->get_hash(level0_sub_table);
+            size_t sub_table_idx = get_sub_table_from_hash(hash_value);
+            level1_sub_tables[sub_table_idx].insert_unique_non_zero(cell, hash_value);
         }
 
         level0_sub_table.clear_and_shrink();

@@ -185,14 +185,10 @@ void ColumnMap::insert_from(const IColumn& src_, size_t n) {
     get_offsets().push_back(get_offsets().back() + size);
 }
 
-void ColumnMap::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                    const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnMap::insert_default();
-        } else {
-            ColumnMap::insert_from(src, *x);
-        }
+void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                    const uint32_t* indices_end) {
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        ColumnMap::insert_from(src, *x);
     }
 }
 
@@ -433,14 +429,24 @@ ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return res;
 }
 
-void ColumnMap::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+void ColumnMap::replicate(const uint32_t* indices, size_t target_size, IColumn& column) const {
     auto& res = reinterpret_cast<ColumnMap&>(column);
 
-    // Make a temp column array for reusing its replicate function
-    ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable())
-            ->replicate(indexs, target_size, res.keys_column->assume_mutable_ref());
-    ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable())
-            ->replicate(indexs, target_size, res.values_column->assume_mutable_ref());
+    auto keys_array =
+            ColumnArray::create(keys_column->assume_mutable(), offsets_column->assume_mutable());
+
+    auto result_array = ColumnArray::create(res.keys_column->assume_mutable(),
+                                            res.offsets_column->assume_mutable());
+    keys_array->replicate(indices, target_size, result_array->assume_mutable_ref());
+
+    result_array = ColumnArray::create(res.values_column->assume_mutable(),
+                                       res.offsets_column->clone_empty());
+
+    auto values_array =
+            ColumnArray::create(values_column->assume_mutable(), offsets_column->assume_mutable());
+
+    /// FIXME: To reuse the replicate of ColumnArray, the offsets column was replicated twice
+    values_array->replicate(indices, target_size, result_array->assume_mutable_ref());
 }
 
 MutableColumnPtr ColumnMap::get_shrinked_column() {

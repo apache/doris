@@ -69,6 +69,9 @@ suite("test_delete_where_in", "delete_p0") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+
+        sql """ sync; """
+
         def loadRowCount = sql "select count(*) from ${tb_name};"
         logger.info("select count(*) from ${loadRowCount};")
         

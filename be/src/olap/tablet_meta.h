@@ -91,10 +91,10 @@ class TBinlogConfig;
 // The concurrency control is handled in Tablet Class, not in this class.
 class TabletMeta {
 public:
-    static Status create(const TCreateTabletReq& request, const TabletUid& tablet_uid,
-                         uint64_t shard_id, uint32_t next_unique_id,
-                         const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id,
-                         TabletMetaSharedPtr* tablet_meta);
+    static TabletMetaSharedPtr create(
+            const TCreateTabletReq& request, const TabletUid& tablet_uid, uint64_t shard_id,
+            uint32_t next_unique_id,
+            const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id);
 
     TabletMeta();
     TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id, int64_t replica_id,
@@ -131,7 +131,11 @@ public:
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
-    uint32_t mem_size() const;
+    // Don't use.
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
+    // In some places, temporarily use num_columns() as TabletSchema size.
+    int64_t mem_size() const;
+    size_t tablet_columns_num() const { return _schema->num_columns(); }
 
     TabletTypePB tablet_type() const { return _tablet_type; }
     TabletUid tablet_uid() const;
@@ -336,7 +340,6 @@ public:
     // tablet's delete bitmap we can use arbitary version number in BitmapKey. Here we define some version numbers
     // for specific usage during this periods to avoid conflicts
     constexpr static inline uint64_t TEMP_VERSION_COMMON = 0;
-    constexpr static inline uint64_t TEMP_VERSION_FOR_DELETE_SIGN = 1;
 
     /**
      * 
@@ -632,6 +635,8 @@ inline bool TabletMeta::all_beta() const {
     }
     return true;
 }
+
+std::string tablet_state_name(TabletState state);
 
 // Only for unit test now.
 bool operator==(const TabletMeta& a, const TabletMeta& b);

@@ -29,8 +29,8 @@ namespace doris::pipeline {
 OPERATOR_CODE_GENERATOR(SortSinkOperator, StreamingOperator)
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SortDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SortSinkDependency>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<SortSinkOperatorX>();
 
@@ -61,7 +61,6 @@ Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
 
     _shared_state->sorter->init_profile(_profile);
 
-    SCOPED_TIMER(_profile->total_time_counter());
     _profile->add_info_string("TOP-N", p._limit == -1 ? "false" : "true");
 
     _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
@@ -77,7 +76,8 @@ SortSinkOperatorX::SortSinkOperatorX(ObjectPool* pool, int operator_id, const TP
           _limit(tnode.limit),
           _use_topn_opt(tnode.sort_node.use_topn_opt),
           _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples),
-          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read) {}
+          _use_two_phase_read(tnode.sort_node.sort_info.use_two_phase_read),
+          _merge_by_exchange(tnode.sort_node.merge_by_exchange) {}
 
 Status SortSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX::init(tnode, state));
@@ -139,7 +139,7 @@ Status SortSinkOperatorX::open(RuntimeState* state) {
 Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block,
                                SourceState source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
         RETURN_IF_ERROR(local_state._shared_state->sorter->append_block(in_block));
@@ -166,7 +166,7 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
 
     if (source_state == SourceState::FINISHED) {
         RETURN_IF_ERROR(local_state._shared_state->sorter->prepare_for_read());
-        local_state._dependency->set_ready_for_read();
+        local_state._dependency->set_ready_to_read();
     }
     return Status::OK();
 }

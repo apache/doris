@@ -329,11 +329,7 @@ public:
         return ExecEnv::GetInstance()->get_s3_file_buffer_pool();
     }
 
-    void reclaim(Slice buf) {
-        std::unique_lock<std::mutex> lck {_lock};
-        _free_raw_buffers.emplace_front(buf);
-        _cv.notify_all();
-    }
+    void reclaim(Slice buf);
 
     /**
     *

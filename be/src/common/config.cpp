@@ -61,6 +61,8 @@ DEFINE_Int32(brpc_port, "8060");
 
 DEFINE_Int32(arrow_flight_sql_port, "-1");
 
+DEFINE_mString(public_access_ip, "");
+
 // the number of bthreads for brpc, the default value is set to -1,
 // which means the number of bthreads is #cpu-cores
 DEFINE_Int32(brpc_num_threads, "256");
@@ -81,7 +83,7 @@ DEFINE_String(memory_mode, "moderate");
 // defaults to bytes if no unit is given"
 // must larger than 0. and if larger than physical memory size,
 // it will be set to physical memory size.
-DEFINE_String(mem_limit, "80%");
+DEFINE_String(mem_limit, "90%");
 
 // Soft memory limit as a fraction of hard memory limit.
 DEFINE_Double(soft_mem_limit_frac, "0.9");
@@ -201,7 +203,7 @@ DEFINE_Int32(sleep_one_second, "1");
 DEFINE_String(sys_log_dir, "${DORIS_HOME}/log");
 DEFINE_String(user_function_dir, "${DORIS_HOME}/lib/udf");
 // INFO, WARNING, ERROR, FATAL
-DEFINE_String(sys_log_level, "INFO");
+DEFINE_mString(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn
 DEFINE_String(sys_log_roll_mode, "SIZE-MB-1024");
 // log roll num
@@ -319,7 +321,7 @@ DEFINE_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 DEFINE_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
-DEFINE_Bool(disable_storage_row_cache, "true");
+DEFINE_mBool(disable_storage_row_cache, "true");
 // whether to disable pk page cache feature in storage
 DEFINE_Bool(disable_pk_storage_page_cache, "false");
 
@@ -349,7 +351,10 @@ DEFINE_mInt32(vertical_compaction_num_columns_per_group, "5");
 // In vertical compaction, max memory usage for row_source_buffer
 DEFINE_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 // In vertical compaction, max dest segment file size
-DEFINE_mInt64(vertical_compaction_max_segment_size, "268435456");
+DEFINE_mInt64(vertical_compaction_max_segment_size, "1073741824");
+
+// If enabled, segments will be flushed column by column
+DEFINE_mBool(enable_vertical_segment_writer, "true");
 
 // In ordered data compaction, min segment size for input rowset
 DEFINE_mInt32(ordered_data_compaction_min_segment_size, "10485760");
@@ -457,7 +462,7 @@ DEFINE_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
 DEFINE_mInt32(periodic_counter_update_period_ms, "500");
 
-DEFINE_Bool(enable_single_replica_load, "false");
+DEFINE_Bool(enable_single_replica_load, "true");
 // Number of download workers for single replica load
 DEFINE_Int32(single_replica_load_download_num_workers, "64");
 
@@ -502,7 +507,8 @@ DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
-DEFINE_mInt32(olap_table_sink_send_interval_ms, "1");
+DEFINE_mInt32(olap_table_sink_send_interval_microseconds, "1000");
+DEFINE_mDouble(olap_table_sink_send_interval_auto_partition_factor, "0.001");
 
 // Fragment thread pool
 DEFINE_Int32(fragment_pool_thread_num_min, "64");
@@ -564,7 +570,13 @@ DEFINE_mInt32(memory_maintenance_sleep_time_ms, "100");
 DEFINE_mInt32(memory_gc_sleep_time_ms, "1000");
 
 // Sleep time in milliseconds between memtbale flush mgr refresh iterations
-DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "100");
+DEFINE_mInt64(memtable_mem_tracker_refresh_interval_ms, "5");
+
+// percent of (active memtables size / all memtables size) when reach hard limit
+DEFINE_mInt32(memtable_hard_limit_active_percent, "50");
+
+// percent of (active memtables size / all memtables size) when reach soft limit
+DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
 
 // Alignment
 DEFINE_Int32(memory_max_alignment, "16");
@@ -635,8 +647,6 @@ DEFINE_Bool(path_gc_check, "true");
 DEFINE_mInt32(path_gc_check_interval_second, "86400");
 DEFINE_mInt32(path_gc_check_step, "1000");
 DEFINE_mInt32(path_gc_check_step_interval_ms, "10");
-DEFINE_mInt32(path_scan_interval_second, "86400");
-DEFINE_mInt32(path_scan_step_interval_ms, "70");
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.
@@ -742,10 +752,19 @@ DEFINE_mDouble(tablet_version_graph_orphan_vertex_ratio, "0.1");
 
 // share delta writers when memtable_on_sink_node = true
 DEFINE_Bool(share_delta_writers, "true");
-// number of brpc stream per load
-DEFINE_Int32(num_streams_per_load, "5");
-// timeout for open stream sink rpc in ms
-DEFINE_Int64(open_stream_sink_timeout_ms, "500");
+// timeout for open load stream rpc in ms
+DEFINE_Int64(open_load_stream_timeout_ms, "60000"); // 60s
+// timeout for load stream close wait in ms
+DEFINE_Int64(close_load_stream_timeout_ms, "600000"); // 10 min
+
+// idle timeout for load stream in ms
+DEFINE_Int64(load_stream_idle_timeout_ms, "600000");
+// brpc streaming max_buf_size in bytes
+DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
+// brpc streaming messages_in_batch
+DEFINE_Int32(load_stream_messages_in_batch, "128");
+// brpc streaming StreamWait seconds on EAGAIN
+DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -817,27 +836,6 @@ DEFINE_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 DEFINE_String(rpc_load_balancer, "rr");
 
-// Enable tracing
-// If this configuration is enabled, you should also specify the trace_export_url.
-DEFINE_Bool(enable_tracing, "false");
-
-// Enable opentelemtry collector
-DEFINE_Bool(enable_otel_collector, "false");
-
-// Current support for exporting traces:
-// zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-// collector: The collector can be used to receive and process traces and support export to a variety of
-//   third-party systems.
-DEFINE_mString(trace_exporter, "zipkin");
-DEFINE_Validator(trace_exporter, [](const std::string& config) -> bool {
-    return config == "zipkin" || config == "collector";
-});
-
-// The endpoint to export spans to.
-// export to zipkin like: http://127.0.0.1:9411/api/v2/spans
-// export to collector like: http://127.0.0.1:4318/v1/traces
-DEFINE_String(trace_export_url, "http://127.0.0.1:9411/api/v2/spans");
-
 // The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
 // An export will be triggered when the number of spans in the queue reaches half of the maximum.
 DEFINE_Int32(max_span_queue_size, "2048");
@@ -905,7 +903,7 @@ DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
 
 DEFINE_Bool(enable_time_lut, "true");
-DEFINE_Bool(enable_simdjson_reader, "true");
+DEFINE_mBool(enable_simdjson_reader, "true");
 
 DEFINE_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
@@ -964,10 +962,16 @@ DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
+// 128 MB
+DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
+
+DEFINE_mBool(variant_enable_flatten_nested, "false");
+DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "0.95");
+DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");
@@ -1003,7 +1007,6 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
-DEFINE_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
@@ -1013,8 +1016,6 @@ DEFINE_Int32(max_depth_in_bkd_tree, "32");
 DEFINE_Bool(inverted_index_compaction_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
-// semi-structure configs
-DEFINE_Bool(enable_parse_multi_dimession_array, "false");
 
 // max depth of expression tree allowed.
 DEFINE_Int32(max_depth_of_expr_tree, "600");
@@ -1034,10 +1035,12 @@ DEFINE_mInt32(s3_write_buffer_size, "5242880");
 // can at most buffer 50MB data. And the num of multi part upload task is
 // s3_write_buffer_whole_size / s3_write_buffer_size
 DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
+// The timeout config for S3 buffer allocation
+DEFINE_mInt32(s3_writer_buffer_allocation_timeout, "300");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 
 //disable shrink memory by default
-DEFINE_Bool(enable_shrink_memory, "false");
+DEFINE_mBool(enable_shrink_memory, "false");
 DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
@@ -1079,6 +1082,11 @@ DEFINE_mInt64(lookup_connection_cache_bytes_limit, "4294967296");
 DEFINE_mInt64(LZ4_HC_compression_level, "9");
 
 DEFINE_mBool(enable_merge_on_write_correctness_check, "true");
+// rowid conversion correctness check when compaction for mow table
+DEFINE_mBool(enable_rowid_conversion_correctness_check, "false");
+// When the number of missing versions is more than this value, do not directly
+// retry the publish and handle it through async publish.
+DEFINE_mInt32(mow_publish_max_discontinuous_version_num, "20");
 
 // The secure path with user files, used in the `local` table function.
 DEFINE_mString(user_files_secure_path, "${DORIS_HOME}");
@@ -1095,11 +1103,11 @@ DEFINE_Int16(bitmap_serialize_version, "1");
 DEFINE_String(group_commit_replay_wal_dir, "./wal");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
-DEFINE_Int32(group_commit_sync_wal_batch, "10");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
-DEFINE_mInt32(group_commit_interval_ms, "10000");
+DEFINE_Int32(group_commit_memory_rows_for_max_filter_ratio, "10000");
+DEFINE_Bool(wait_internal_group_commit_finish, "false");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
@@ -1109,12 +1117,31 @@ DEFINE_Bool(exit_on_exception, "false");
 DEFINE_Bool(enable_flush_file_cache_async, "true");
 
 // cgroup
-DEFINE_String(doris_cgroup_cpu_path, "");
+DEFINE_mString(doris_cgroup_cpu_path, "");
+DEFINE_mBool(enable_cgroup_cpu_soft_limit, "false");
 
 DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
+
+// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
+DEFINE_Int32(group_commit_max_queue_size, "67108864");
+
+// Max size(bytes) of wal disk using, used for disk space back pressure, default 64M.
+DEFINE_Int32(wal_max_disk_size, "67108864");
+
+// Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
+DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
+
+// Download binlog rate limit, unit is KB/s, 0 means no limit
+DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
+
+DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
+
+DEFINE_Bool(enable_snapshot_action, "false");
+
+DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1479,6 +1506,7 @@ bool init(const char* conf_file, bool fill_conf_map, bool must_exist, bool set_t
         if (PERSIST) {                                                                             \
             RETURN_IF_ERROR(persist_config(std::string((FIELD).name), VALUE));                     \
         }                                                                                          \
+        update_config(std::string((FIELD).name), VALUE);                                           \
         return Status::OK();                                                                       \
     }
 
@@ -1526,6 +1554,13 @@ Status set_config(const std::string& field, const std::string& value, bool need_
     // The other types are not thread safe to change dynamically.
     return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR, false>(
             "'{}' is type of '{}' which is not support to modify", field, it->second.type);
+}
+
+void update_config(const std::string& field, const std::string& value) {
+    if ("sys_log_level" == field) {
+        // update log level
+        update_logging(field, value);
+    }
 }
 
 Status set_fuzzy_config(const std::string& field, const std::string& value) {

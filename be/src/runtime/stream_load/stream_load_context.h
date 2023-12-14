@@ -161,6 +161,7 @@ public:
     // only used to check if we receive whole body
     size_t body_bytes = 0;
     size_t receive_bytes = 0;
+    bool is_chunked_transfer = false;
 
     int64_t txn_id = default_txn_id;
 
@@ -234,7 +235,7 @@ public:
     ExecEnv* exec_env() { return _exec_env; }
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 };
 
 } // namespace doris

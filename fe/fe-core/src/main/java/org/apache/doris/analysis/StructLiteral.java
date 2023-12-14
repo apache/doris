@@ -32,6 +32,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class StructLiteral extends LiteralExpr {
     // only for persist
@@ -44,8 +45,8 @@ public class StructLiteral extends LiteralExpr {
         type = new StructType();
         children = new ArrayList<>();
         for (LiteralExpr expr : exprs) {
-            if (!expr.getType().isNull() && !type.supportSubType(expr.getType())) {
-                throw new AnalysisException("Invalid element type in STRUCT.");
+            if (!StructType.STRUCT.supportSubType(expr.getType())) {
+                throw new AnalysisException("Invalid element type in STRUCT: " + expr.getType());
             }
             ((StructType) type).addField(new StructField(expr.getType()));
             children.add(expr);
@@ -79,7 +80,16 @@ public class StructLiteral extends LiteralExpr {
 
     @Override
     public String getStringValueForArray() {
-        return null;
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(v.getStringValueForArray()));
+        return "{" + StringUtils.join(list, ", ") + "}";
+    }
+
+    @Override
+    public String getStringValueInFe() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(getStringLiteralForComplexType(v)));
+        return "{" + StringUtils.join(list, ", ") + "}";
     }
 
     @Override
@@ -163,5 +173,22 @@ public class StructLiteral extends LiteralExpr {
         for (Expr e : children) {
             e.checkValueValid();
         }
+    }
+
+    public int hashCode() {
+        return Objects.hashCode(children);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof StructLiteral)) {
+            return false;
+        }
+        if (this == o) {
+            return true;
+        }
+
+        StructLiteral that = (StructLiteral) o;
+        return Objects.equals(children, that.children);
     }
 }

@@ -27,6 +27,8 @@ import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import lombok.Setter;
@@ -47,9 +49,12 @@ import java.util.stream.Collectors;
 public class JdbcTable extends Table {
     private static final Logger LOG = LogManager.getLogger(JdbcTable.class);
 
+    private static final ObjectMapper objectMapper = new ObjectMapper();
+
     private static final String TABLE = "table";
     private static final String REAL_DATABASE = "real_database";
     private static final String REAL_TABLE = "real_table";
+    private static final String REAL_COLUMNS = "real_columns";
     private static final String RESOURCE = "resource";
     private static final String TABLE_TYPE = "table_type";
     private static final String URL = "jdbc_url";
@@ -65,6 +70,7 @@ public class JdbcTable extends Table {
     // real name only for jdbc catalog
     private String realDatabaseName;
     private String realTableName;
+    private Map<String, String> realColumnNames;
 
     private String jdbcTypeName;
 
@@ -110,7 +116,7 @@ public class JdbcTable extends Table {
         sb.append(getProperRealFullTableName(TABLE_TYPE_MAP.get(getTableTypeName())));
         sb.append("(");
         List<String> transformedInsertCols = insertCols.stream()
-                .map(col -> databaseProperName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
+                .map(col -> getProperRealColumnName(TABLE_TYPE_MAP.get(getTableTypeName()), col))
                 .collect(Collectors.toList());
         sb.append(String.join(",", transformedInsertCols));
         sb.append(")");
@@ -200,6 +206,7 @@ public class JdbcTable extends Table {
         serializeMap.put(CHECK_SUM, checkSum);
         serializeMap.put(REAL_DATABASE, realDatabaseName);
         serializeMap.put(REAL_TABLE, realTableName);
+        serializeMap.put(REAL_COLUMNS, objectMapper.writeValueAsString(realColumnNames));
 
         int size = (int) serializeMap.values().stream().filter(v -> {
             return v != null;
@@ -236,6 +243,13 @@ public class JdbcTable extends Table {
         checkSum = serializeMap.get(CHECK_SUM);
         realDatabaseName = serializeMap.get(REAL_DATABASE);
         realTableName = serializeMap.get(REAL_TABLE);
+        String realColumnNamesJson = serializeMap.get(REAL_COLUMNS);
+        if (realColumnNamesJson != null) {
+            realColumnNames = objectMapper.readValue(realColumnNamesJson, new TypeReference<Map<String, String>>() {
+            });
+        } else {
+            realColumnNames = Maps.newHashMap();
+        }
     }
 
     public String getResourceName() {
@@ -260,6 +274,14 @@ public class JdbcTable extends Table {
         } else {
             return properNameWithRealName(tableType, realDatabaseName) + "." + properNameWithRealName(tableType,
                     realTableName);
+        }
+    }
+
+    public String getProperRealColumnName(TOdbcTableType tableType, String columnName) {
+        if (realColumnNames == null || realColumnNames.isEmpty() || !realColumnNames.containsKey(columnName)) {
+            return databaseProperName(tableType, columnName);
+        } else {
+            return properNameWithRealName(tableType, realColumnNames.get(columnName));
         }
     }
 
@@ -358,14 +380,13 @@ public class JdbcTable extends Table {
      * @param wrapEnd The character(s) to be added at the end of each name component.
      * @param toUpperCase If true, convert the name to upper case.
      * @param toLowerCase If true, convert the name to lower case.
-     * <p>
-     * Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
-     * <p>
-     * The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
-     * the function will treat the entire string as one name component.
-     * If there is a '.', the function will treat the string before the first '.' as the schema name
-     * and the string after the '.' as the table name.
-     *
+     *         <p>
+     *         Note: If both toUpperCase and toLowerCase are true, the name will ultimately be converted to lower case.
+     *         <p>
+     *         The name is expected to be in the format of 'schemaName.tableName'. If there is no '.',
+     *         the function will treat the entire string as one name component.
+     *         If there is a '.', the function will treat the string before the first '.' as the schema name
+     *         and the string after the '.' as the table name.
      * @return The formatted name.
      */
     public static String formatName(String name, String wrapStart, String wrapEnd, boolean toUpperCase,
@@ -386,18 +407,18 @@ public class JdbcTable extends Table {
 
     /**
      * Formats a database name according to the database type.
-     *
+     * <p>
      * Rules:
      * - MYSQL, OCEANBASE: Wrap with backticks (`), case unchanged. Example: mySchema.myTable -> `mySchema.myTable`
      * - SQLSERVER: Wrap with square brackets ([]), case unchanged. Example: mySchema.myTable -> [mySchema].[myTable]
      * - POSTGRESQL, CLICKHOUSE, TRINO, OCEANBASE_ORACLE, SAP_HANA: Wrap with double quotes ("), case unchanged.
-     *   Example: mySchema.myTable -> "mySchema"."myTable"
+     * Example: mySchema.myTable -> "mySchema"."myTable"
      * - ORACLE: Wrap with double quotes ("), convert to upper case. Example: mySchema.myTable -> "MYSCHEMA"."MYTABLE"
      * For other types, the name is returned as is.
      *
      * @param tableType The database type.
      * @param name The name to be formatted, expected in 'schemaName.tableName' format. If no '.', treats entire string
-     *   as one name component. If '.', treats string before first '.' as schema name and after as table name.
+     *         as one name component. If '.', treats string before first '.' as schema name and after as table name.
      * @return The formatted name.
      */
     public static String databaseProperName(TOdbcTableType tableType, String name) {

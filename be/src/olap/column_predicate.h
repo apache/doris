@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/schema.h"
 #include "olap/selection_vector.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 
 using namespace doris::segment_v2;
@@ -53,6 +54,27 @@ enum class PredicateType {
     BITMAP_FILTER = 12, // BitmapFilter
     MATCH = 13,         // fulltext match
 };
+
+template <PrimitiveType primitive_type, typename ResultType>
+ResultType get_zone_map_value(void* data_ptr) {
+    ResultType res;
+    // DecimalV2's storage value is different from predicate or compute value type
+    // need convert it to DecimalV2Value
+    if constexpr (primitive_type == PrimitiveType::TYPE_DECIMALV2) {
+        decimal12_t decimal_12_t_value;
+        memcpy((char*)(&decimal_12_t_value), data_ptr, sizeof(decimal12_t));
+        res.from_olap_decimal(decimal_12_t_value.integer, decimal_12_t_value.fraction);
+    } else if constexpr (primitive_type == PrimitiveType::TYPE_DATE) {
+        static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
+        res.from_olap_date(*reinterpret_cast<uint24_t*>(data_ptr));
+    } else if constexpr (primitive_type == PrimitiveType::TYPE_DATETIME) {
+        static_assert(std::is_same_v<ResultType, VecDateTimeValue>);
+        res.from_olap_datetime(*reinterpret_cast<uint64_t*>(data_ptr));
+    } else {
+        memcpy(reinterpret_cast<void*>(&res), data_ptr, sizeof(ResultType));
+    }
+    return res;
+}
 
 inline std::string type_to_string(PredicateType type) {
     switch (type) {
@@ -152,8 +174,9 @@ public:
                             roaring::Roaring* roaring) const = 0;
 
     //evaluate predicate on inverted
-    virtual Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                            uint32_t num_rows, roaring::Roaring* bitmap) const {
+    virtual Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+                            InvertedIndexIterator* iterator, uint32_t num_rows,
+                            roaring::Roaring* bitmap) const {
         return Status::NotSupported(
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
@@ -188,6 +211,11 @@ public:
     }
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
+
+    // Check input type could apply safely.
+    // Note: Currenly ColumnPredicate is not include complex type, so use PrimitiveType
+    // is simple and intuitive
+    virtual bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const = 0;
 
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float
@@ -264,14 +292,6 @@ public:
     }
 
 protected:
-    // Just prevent access not align memory address coredump
-    template <class T>
-    T _get_zone_map_value(void* data_ptr) const {
-        T res;
-        memcpy(&res, data_ptr, sizeof(T));
-        return res;
-    }
-
     virtual std::string _debug_string() const = 0;
 
     uint32_t _column_id;

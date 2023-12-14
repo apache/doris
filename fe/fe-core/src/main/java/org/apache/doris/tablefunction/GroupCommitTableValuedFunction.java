@@ -66,13 +66,9 @@ public class GroupCommitTableValuedFunction extends ExternalFileTableValuedFunct
             throw new AnalysisException("Only support OLAP table, but table type of table_id "
                     + tableId + " is " + table.getType());
         }
-        Column deleteSignColumn = ((OlapTable) table).getDeleteSignColumn();
-        List<Column> tableColumns = table.getBaseSchema(false);
+        List<Column> tableColumns = table.getBaseSchema(true);
         for (int i = 1; i <= tableColumns.size(); i++) {
             fileColumns.add(new Column("c" + i, tableColumns.get(i - 1).getType(), true));
-        }
-        if (deleteSignColumn != null) {
-            fileColumns.add(new Column("c" + (tableColumns.size() + 1), deleteSignColumn.getType(), true));
         }
         return fileColumns;
     }

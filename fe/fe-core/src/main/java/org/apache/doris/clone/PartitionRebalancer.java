@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -64,8 +65,6 @@ public class PartitionRebalancer extends Rebalancer {
 
     private final AtomicLong counterBalanceMoveCreated = new AtomicLong(0);
     private final AtomicLong counterBalanceMoveSucceeded = new AtomicLong(0);
-
-    private long cacheEmptyTimestamp = -1L;
 
     public PartitionRebalancer(SystemInfoService infoService, TabletInvertedIndex invertedIndex,
             Map<Long, PathSlot> backendsWorkingSlots) {
@@ -233,11 +232,6 @@ public class PartitionRebalancer extends Rebalancer {
         return !bes.contains(move.fromBe) && bes.contains(move.toBe);
     }
 
-    // cache empty for 10 min
-    public boolean checkCacheEmptyForLong() {
-        return cacheEmptyTimestamp > 0 && System.currentTimeMillis() > cacheEmptyTimestamp + 10 * 60 * 1000L;
-    }
-
     @Override
     protected void completeSchedCtx(TabletSchedCtx tabletCtx)
             throws SchedException {
@@ -261,7 +255,7 @@ public class PartitionRebalancer extends Rebalancer {
             if (slot.takeBalanceSlot(srcReplica.getPathHash()) != -1) {
                 tabletCtx.setSrc(srcReplica);
             } else {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                         "no slot for src replica " + srcReplica + ", pathHash " + srcReplica.getPathHash());
             }
 
@@ -279,7 +273,7 @@ public class PartitionRebalancer extends Rebalancer {
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toSet());
             long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath);
             if (pathHash == -1) {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                         "paths has no available balance slot: " + availPath);
             }
 
@@ -330,11 +324,6 @@ public class PartitionRebalancer extends Rebalancer {
         movesCacheMap.updateMapping(statisticMap, Config.partition_rebalance_move_expire_after_access);
         // Perform cache maintenance
         movesCacheMap.maintain();
-        if (movesCacheMap.size() > 0) {
-            cacheEmptyTimestamp = -1;
-        } else if (cacheEmptyTimestamp < 0) {
-            cacheEmptyTimestamp = System.currentTimeMillis();
-        }
         LOG.debug("Move succeeded/total :{}/{}, current {}",
                 counterBalanceMoveSucceeded.get(), counterBalanceMoveCreated.get(), movesCacheMap);
     }

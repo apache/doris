@@ -72,6 +72,7 @@ template class SetProbeSinkOperator<false>;
 
 template <bool is_intersect>
 Status SetProbeSinkOperatorX<is_intersect>::init(const TPlanNode& tnode, RuntimeState* state) {
+    DataSinkOperatorX<SetProbeSinkLocalState<is_intersect>>::_name = "SET_PROBE_SINK_OPERATOR";
     const std::vector<std::vector<TExpr>>* result_texpr_lists;
 
     // Create result_expr_ctx_lists_ from thrift exprs.
@@ -106,13 +107,8 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
                                                  SourceState source_state) {
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
-
-    if (_cur_child_id > 1) {
-        CHECK(local_state._shared_state->probe_finished_children_index[_cur_child_id - 1])
-                << fmt::format("child with id: {} should be probed first", _cur_child_id);
-    }
 
     auto probe_rows = in_block->rows();
     if (probe_rows > 0) {
@@ -140,11 +136,11 @@ Status SetProbeSinkOperatorX<is_intersect>::sink(RuntimeState* state, vectorized
 
 template <bool is_intersect>
 Status SetProbeSinkLocalState<is_intersect>::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<SetDependency>::init(state, info));
-    SCOPED_TIMER(profile()->total_time_counter());
+    RETURN_IF_ERROR(PipelineXSinkLocalState<SetProbeSinkDependency>::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     Parent& parent = _parent->cast<Parent>();
-    static_cast<SetDependency*>(_dependency)->set_cur_child_id(parent._cur_child_id);
+    _dependency->set_cur_child_id(parent._cur_child_id);
     _child_exprs.resize(parent._child_exprs.size());
     for (size_t i = 0; i < _child_exprs.size(); i++) {
         RETURN_IF_ERROR(parent._child_exprs[i]->clone(state, _child_exprs[i]));
@@ -202,7 +198,6 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
         SetProbeSinkLocalState<is_intersect>& local_state) {
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
     auto& hash_table_variants = local_state._shared_state->hash_table_variants;
-    auto& probe_finished_children_index = local_state._shared_state->probe_finished_children_index;
 
     if (_cur_child_id != (local_state._shared_state->child_quantity - 1)) {
         _refresh_hash_table(local_state);
@@ -220,10 +215,11 @@ void SetProbeSinkOperatorX<is_intersect>::_finalize_probe(
         }
         local_state._probe_columns.resize(
                 local_state._shared_state->child_exprs_lists[_cur_child_id + 1].size());
+        local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
+                ->set_ready();
     } else {
-        local_state._dependency->set_ready_for_read();
+        local_state._shared_state->source_dep->set_ready();
     }
-    probe_finished_children_index[_cur_child_id] = true;
 }
 
 template <bool is_intersect>

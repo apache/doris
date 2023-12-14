@@ -150,7 +150,9 @@
                     "type": "category",
                     "label": "Data Cache",
                     "items": [
-                        "advanced/cache/partition-cache"
+                        "advanced/cache/partition-cache-manual",
+                        "advanced/cache/query-cache",
+                        "advanced/cache/sql-cache-manual"
                     ]
                 },
                 "advanced/autobucket",
@@ -608,7 +610,8 @@
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-intersect-count",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate",
                                 "sql-manual/sql-functions/bitmap-functions/orthogonal-bitmap-expr-calculate-count",
-                                "sql-manual/sql-functions/bitmap-functions/bitmap-hash64"
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-hash64",
+                                "sql-manual/sql-functions/bitmap-functions/bitmap-remove"
                             ]
                         },
                         {
@@ -748,7 +751,8 @@
                                 "sql-manual/sql-functions/table-functions/frontends",
                                 "sql-manual/sql-functions/table-functions/workload-group",
                                 "sql-manual/sql-functions/table-functions/catalogs",
-                                "sql-manual/sql-functions/table-functions/frontends_disks"
+                                "sql-manual/sql-functions/table-functions/frontends_disks",
+                                "sql-manual/sql-functions/table-functions/queries"
                             ]
                         },
                         {
@@ -777,7 +781,13 @@
                             "label": "IP Functions",
                             "items": [
                                 "sql-manual/sql-functions/ip-functions/ipv4-num-to-string",
-                                "sql-manual/sql-functions/ip-functions/inet-ntoa"
+                                "sql-manual/sql-functions/ip-functions/inet-ntoa",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num",
+                                "sql-manual/sql-functions/ip-functions/inet-aton",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-default",
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null",
+                                "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
+                                "sql-manual/sql-functions/ip-functions/inet6-ntoa"
                             ]
                         },
                         {
@@ -857,7 +867,8 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
                                 "sql-manual/sql-reference/Database-Administration-Statements/KILL",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK",
+                                "sql-manual/sql-reference/Database-Administration-Statements/UNSET-VARIABLE"
                             ]
                         },
                         {
@@ -901,9 +912,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-JOB",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
@@ -935,10 +944,7 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-COLOCATE-GROUP",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-WORKLOAD-GROUP",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/PAUSE-JOB",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/RESUME-JOB",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/STOP-JOB"
+                                        "sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-SQL-BLOCK-RULE"
                                     ]
                                 },
                                 {
@@ -1050,8 +1056,6 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TYPECAST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-FILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-GRANTS",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB",
-                                "sql-manual/sql-reference/Show-Statements/SHOW-JOB-TASK",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LAST-INSERT",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-PROFILE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-LOAD-WARNINGS",
@@ -1065,6 +1069,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS-BELONG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",
@@ -1149,7 +1154,6 @@
                 },
                 "admin-manual/sql-interception",
                 "admin-manual/query-profile",
-                "admin-manual/tracing",
                 "admin-manual/certificate",
                 "admin-manual/fe-certificate",
                 {

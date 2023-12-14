@@ -137,7 +137,7 @@ private:
     char* _variable_buf = nullptr;
     size_t _variable_len;
     size_t _string_field_count;
-    char** _long_text_buf;
+    char** _long_text_buf = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(RowCursor);
 };

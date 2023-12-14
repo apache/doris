@@ -92,7 +92,7 @@ DistinctStreamingAggSourceOperatorX::DistinctStreamingAggSourceOperatorX(ObjectP
                                                                          const TPlanNode& tnode,
                                                                          int operator_id,
                                                                          const DescriptorTbl& descs)
-        : Base(pool, tnode, operator_id, descs) {
+        : Base(pool, tnode, operator_id, descs, true) {
     if (tnode.agg_node.__isset.use_streaming_preaggregation) {
         _is_streaming_preagg = tnode.agg_node.use_streaming_preaggregation;
         if (_is_streaming_preagg) {
@@ -107,7 +107,7 @@ DistinctStreamingAggSourceOperatorX::DistinctStreamingAggSourceOperatorX(ObjectP
 Status DistinctStreamingAggSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                                       SourceState& source_state) {
     auto& local_state = get_local_state(state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    SCOPED_TIMER(local_state.exec_time_counter());
     std::unique_ptr<vectorized::Block> agg_block;
     RETURN_IF_ERROR(local_state._shared_state->data_queue->get_block_from_queue(&agg_block));
     if (agg_block != nullptr) {
@@ -116,7 +116,7 @@ Status DistinctStreamingAggSourceOperatorX::get_block(RuntimeState* state, vecto
         local_state._shared_state->data_queue->push_free_block(std::move(agg_block));
     }
 
-    local_state._dependency->_make_nullable_output_key(block);
+    local_state._make_nullable_output_key(block);
     if (_is_streaming_preagg == false) {
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(
