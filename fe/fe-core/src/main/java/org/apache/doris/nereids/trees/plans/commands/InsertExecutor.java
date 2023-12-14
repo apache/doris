@@ -507,19 +507,21 @@ public class InsertExecutor {
                 throw new AnalysisException("Partial update is only allowed on "
                         + "unique table with merge-on-write enabled.");
             }
-            if (unboundTableSink.getColNames().isEmpty()
-                    && unboundTableSink.getDMLCommandType() == DMLCommandType.INSERT) {
-                throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                        + "updating partial columns using the INSERT statement.");
-            }
-            for (Column col : olapTable.getFullSchema()) {
-                Optional<String> insertCol = unboundTableSink.getColNames().stream()
-                        .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
-                if (col.isKey() && !insertCol.isPresent()) {
-                    throw new AnalysisException("Partial update should include all key columns, missing: "
-                            + col.getName());
+            if (unboundTableSink.getDMLCommandType() == DMLCommandType.INSERT) {
+                if (unboundTableSink.getColNames().isEmpty()) {
+                    throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                            + "updating partial columns using the INSERT statement.");
+                }
+                for (Column col : olapTable.getFullSchema()) {
+                    Optional<String> insertCol = unboundTableSink.getColNames().stream()
+                            .filter(c -> c.equalsIgnoreCase(col.getName())).findFirst();
+                    if (col.isKey() && !insertCol.isPresent()) {
+                        throw new AnalysisException("Partial update should include all key columns, missing: "
+                                + col.getName());
+                    }
                 }
             }
+            
         }
 
         Plan query = unboundTableSink.child();
