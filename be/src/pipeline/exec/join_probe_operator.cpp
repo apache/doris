@@ -104,6 +104,7 @@ Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
         }
     };
     if (rows != 0) {
+        auto old_output_rows = output_block->rows();
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
             DCHECK(mutable_columns.size() == p.row_desc().num_materialized_slots());
@@ -134,9 +135,9 @@ Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
             }
         }
 
-        output_block->set_columns(std::move(mutable_block.mutable_columns()));
+        output_block->swap(mutable_block.to_block());
 
-        DCHECK(output_block->rows() == rows);
+        DCHECK(output_block->rows() == old_output_rows + rows);
     }
 
     return Status::OK();
