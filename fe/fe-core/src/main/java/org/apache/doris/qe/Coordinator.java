@@ -2163,7 +2163,7 @@ public class Coordinator implements CoordInterface {
     private void computeColocateJoinInstanceParam(PlanFragmentId fragmentId,
             int parallelExecInstanceNum, FragmentExecParams params) {
         assignScanRanges(fragmentId, parallelExecInstanceNum, params, fragmentIdTobucketSeqToScanRangeMap,
-                fragmentIdToSeqToAddressMap, fragmentIdToScanNodeIds);
+                fragmentIdToSeqToAddressMap, fragmentIdToScanNodeIds, false);
     }
 
     private Map<TNetworkAddress, Long> getReplicaNumPerHostForOlapTable() {
@@ -2823,21 +2823,21 @@ public class Coordinator implements CoordInterface {
         private void computeInstanceParam(PlanFragmentId fragmentId,
                 int parallelExecInstanceNum, FragmentExecParams params) {
             assignScanRanges(fragmentId, parallelExecInstanceNum, params, fragmentIdBucketSeqToScanRangeMap,
-                    fragmentIdToSeqToAddressMap, fragmentIdToScanNodeIds);
+                    fragmentIdToSeqToAddressMap, fragmentIdToScanNodeIds, true);
         }
     }
 
     private void assignScanRanges(PlanFragmentId fragmentId, int parallelExecInstanceNum, FragmentExecParams params,
             Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdBucketSeqToScanRangeMap,
             Map<PlanFragmentId, Map<Integer, TNetworkAddress>> curFragmentIdToSeqToAddressMap,
-            Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds) {
+            Map<PlanFragmentId, Set<Integer>> fragmentIdToScanNodeIds, boolean isBucketShuffle) {
         Map<Integer, TNetworkAddress> bucketSeqToAddress = curFragmentIdToSeqToAddressMap.get(fragmentId);
         BucketSeqToScanRange bucketSeqToScanRange = fragmentIdBucketSeqToScanRangeMap.get(fragmentId);
         Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.get(fragmentId);
 
         boolean ignoreScanDistribution = scanNodes.stream().filter(scanNode -> {
             return scanNodeIds.contains(scanNode.getId().asInt());
-        }).allMatch(node -> node.ignoreScanDistribution(context)) && useNereids;
+        }).allMatch(node -> node.ignoreScanDistribution(context)) && useNereids && !isBucketShuffle;
 
         // 1. count each node in one fragment should scan how many tablet, gather them in one list
         Map<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressToScanRanges
