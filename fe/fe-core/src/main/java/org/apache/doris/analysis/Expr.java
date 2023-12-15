@@ -1558,10 +1558,6 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             return this;
         }
 
-        if (this.type.isStringType() && targetType.isStringType()) {
-            return this;
-        }
-
         // Preconditions.checkState(PrimitiveType.isImplicitCast(type, targetType),
         // "cast %s to %s", this.type, targetType);
         // TODO(zc): use implicit cast
