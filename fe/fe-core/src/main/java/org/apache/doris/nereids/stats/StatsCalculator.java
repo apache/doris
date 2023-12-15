@@ -64,6 +64,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPartitionTopN;
@@ -95,6 +96,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -323,6 +325,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalOdbcScan(LogicalOdbcScan odbcScan, Void context) {
+        odbcScan.getExpressions();
+        return computeCatalogRelation(odbcScan);
+    }
+
+    @Override
     public Statistics visitLogicalEsScan(LogicalEsScan esScan, Void context) {
         esScan.getExpressions();
         return computeCatalogRelation(esScan);
@@ -462,6 +470,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, Void context) {
         return computeCatalogRelation(jdbcScan);
+    }
+
+    @Override
+    public Statistics visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, Void context) {
+        return computeCatalogRelation(odbcScan);
     }
 
     @Override

@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -227,6 +228,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
             case JDBC_EXTERNAL_TABLE:
             case JDBC:
                 return new LogicalJdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
+            case ODBC:
+                return new LogicalOdbcScan(unboundRelation.getRelationId(), table, tableQualifier);
             case ES_EXTERNAL_TABLE:
                 return new LogicalEsScan(unboundRelation.getRelationId(), (EsExternalTable) table, tableQualifier);
             default:

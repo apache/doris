@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
@@ -35,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
@@ -90,6 +92,10 @@ public interface RelationVisitor<R, C> {
         return visitLogicalRelation(jdbcScan, context);
     }
 
+    default R visitLogicalOdbcScan(LogicalOdbcScan odbcScan, C context) {
+        return visitLogicalRelation(odbcScan, context);
+    }
+
     default R visitLogicalOlapScan(LogicalOlapScan olapScan, C context) {
         return visitLogicalRelation(olapScan, context);
     }
@@ -129,6 +135,10 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, C context) {
         return visitPhysicalRelation(jdbcScan, context);
+    }
+
+    default R visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, C context) {
+        return visitPhysicalRelation(odbcScan, context);
     }
 
     default R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
