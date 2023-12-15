@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -229,6 +230,15 @@ public class OneRangePartitionEvaluator
         }
         // assumption: for func(A), if A accept range (n, m), then func(A) accept range (n, m).
         return result;
+    }
+
+    @Override
+    public EvaluateRangeResult visitNullLiteral(NullLiteral nullLiteral, EvaluateRangeInput context) {
+        Map<Slot, ColumnRange> emptyRanges = Maps.newHashMap();
+        for (Slot key : context.defaultColumnRanges.keySet()) {
+            emptyRanges.put(key, new ColumnRange());
+        }
+        return new EvaluateRangeResult(nullLiteral, emptyRanges, ImmutableList.of());
     }
 
     @Override
