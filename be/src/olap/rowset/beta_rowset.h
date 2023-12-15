@@ -76,7 +76,8 @@ public:
 
     Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override;
 
-    Status upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) override;
+    Status upload_to(const io::RemoteFileSystemSPtr& dest_fs,
+                     const RowsetId& new_rowset_id) override;
 
     // only applicable to alpha rowset, no op here
     Status remove_old_files(std::vector<std::string>* files_to_remove) override {

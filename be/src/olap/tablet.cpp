@@ -2151,7 +2151,7 @@ Status Tablet::_cooldown_data() {
         }
     }};
     auto start = std::chrono::steady_clock::now();
-    if (st = old_rowset->upload_to(dest_fs.get(), new_rowset_id); !st.ok()) {
+    if (st = old_rowset->upload_to(dest_fs, new_rowset_id); !st.ok()) {
         return st;
     }
 

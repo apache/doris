@@ -211,7 +211,8 @@ public:
     // copy all files to `dir`
     virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) = 0;
 
-    virtual Status upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) {
+    virtual Status upload_to(const io::RemoteFileSystemSPtr& dest_fs,
+                             const RowsetId& new_rowset_id) {
         return Status::OK();
     }
 
