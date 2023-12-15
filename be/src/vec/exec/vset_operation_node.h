@@ -109,7 +109,7 @@ private:
     DataTypes _left_table_data_types;
     //first:column_id, could point to origin column or cast column
     //second:idx mapped to column types
-    std::unordered_map<int, int> _build_col_idx;
+    std::unordered_multimap<int, int> _build_col_idx;
     //record memory during running
     int64_t _mem_used;
     //record insert column id during probe
