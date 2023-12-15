@@ -1499,31 +1499,27 @@ build_jemalloc() {
     check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
     cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
     cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
-    # When compiling Doris, the default page size used by Jemalloc is 4K. If used in a system with a page size of 64K,
-    # an error message of `unsupported system page size` will be reported. It needs to be compiled with `PAGE_SIZE=64K ./build.sh`
+    # Build jemalloc --with-lg-page=16 in order to make the wheel work on both 4k and 64k page arm64 systems.
     # Jemalloc compiled on a system with page size 4K can only run on a system with the same page size 4K.
-    # If it is run on a system with page size > 4K, an error will be reported. But Jemalloc compiled on a system with
-    # page size 64K can run on a system with page size < 64K, but this will waste more memory.
-    # Jemalloc does not support dynamic adaptation to the page size of the system. The reason is that jemalloc will
-    # perform some optimizations based on the page size when compiling.
-    mkdir -p "${BUILD_DIR}_4K"
-    cd "${BUILD_DIR}_4K"
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_4K" --with-lg-page=12 \
+    # If it is run on a system with page size > 4K, an error `unsupported system page size`.
+    # Jemalloc compiled on a system with page size 64K can run on a system with page size < 64K,
+    # but this will waste more memory. Jemalloc does not support dynamic adaptation to the page size of the system.
+    # The reason is that jemalloc will perform some optimizations based on the page size when compiling.
+    if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
+        WITH_LG_PAGE='--with-lg-page=16'
+    else
+        WITH_LG_PAGE=''
+    fi
+
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_doris" "${WITH_LG_PAGE}" \
         --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
+
     make -j "${PARALLEL}"
     make install
-
-    cd ..
-    mkdir -p "${BUILD_DIR}_64K"
-    cd "${BUILD_DIR}_64K"
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_64K" --with-lg-page=16 \
-        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
-    make -j "${PARALLEL}"
-    make install
-
-    cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_4K.a" "${TP_INSTALL_DIR}/lib64/libjemalloc_doris.a" # TODO delete
-    cp -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc_4K.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"       # TODO delete
 }
 
 # libunwind
