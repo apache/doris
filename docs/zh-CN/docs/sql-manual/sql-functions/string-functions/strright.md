@@ -31,8 +31,8 @@ under the License.
 `VARCHAR strright(VARCHAR str, INT len)`
 
 
-它返回具有指定长度的字符串的右边部分, 长度的单位为utf8字符。此函数的另一个别名为[right](./right.md)。
-如果参数中含有NULL值，那么函数始终返回NULL，如果整型参数为负数，那么会得到字符串左到右第 abs(len) 开始向右的部分。
+它返回具有指定长度的字符串的右边部分, 长度的单位为utf8字符。此函数的另一个别名为 `right`。
+如果参数中含有NULL值，那么函数始终返回NULL，如果整型参数为负数，那么会得到字符串从第 abs(len) 个字符开始向右的部分。
 
 ### example
 
@@ -64,3 +64,4 @@ mysql> select strright(NULL,5);
 ```
 ### keywords
     STRRIGHT
+    RIGHT
