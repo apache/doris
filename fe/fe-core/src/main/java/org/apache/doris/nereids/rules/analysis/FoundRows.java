@@ -71,7 +71,6 @@ public class FoundRows extends OneRewriteRuleFactory {
                     LogicalPlan currentPlan = (LogicalPlan) subQueryAlias.child();
                     LogicalPlan foundRowsPlan = ctx.cascadesContext.getConnectContext().getFoundRowsPlan();
                     if (checkPlanTreeEquals(currentPlan, foundRowsPlan)) {
-                        // reset saved foundRowsPlan
                         ctx.cascadesContext.getConnectContext().setFoundRowsPlan(null);
                         long foundRows = ctx.cascadesContext.getConnectContext().getFoundRows();
                         List<NamedExpression> newProjects = new ArrayList<>();
@@ -84,8 +83,10 @@ public class FoundRows extends OneRewriteRuleFactory {
                         LogicalProject newProject = new LogicalProject(relation.getProjects(), relation);
 
                         return new LogicalResultSink<>(newProject.getOutputs(), newProject);
+                    } else {
+                        ctx.cascadesContext.getConnectContext().setFoundRowsPlan(null);
+                        return null;
                     }
-                    return null;
                 }).toRule(RuleType.FOUND_ROWS);
     }
 
