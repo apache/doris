@@ -329,21 +329,29 @@ public class JdbcScanNode extends ExternalScanNode {
             StringBuilder result = new StringBuilder();
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
 
+            // If the operator is 'NOT', prepend 'NOT' to the start of the string
             if ("NOT".equals(compoundPredicate.getOp().toString())) {
-                result.append(compoundPredicate.getOp().toString()).append(" ");
+                result.append("NOT ");
             }
 
+            // Iterate through all children of the CompoundPredicate
             for (Expr child : compoundPredicate.getChildren()) {
+                // Recursively call conjunctExprToString for each child and append to the result
                 result.append(conjunctExprToString(tableType, child, tbl));
+
+                // If the operator is not 'NOT', append the operator after each child expression
                 if (!"NOT".equals(compoundPredicate.getOp().toString())) {
                     result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
                 }
             }
 
+            // For operators other than 'NOT', remove the extra appended operator at the end
+            // This is necessary for operators like 'AND' or 'OR' that appear between child expressions
             if (!"NOT".equals(compoundPredicate.getOp().toString())) {
                 result.setLength(result.length() - compoundPredicate.getOp().toString().length() - 2);
             }
 
+            // Return the processed string trimmed of any extra spaces
             return result.toString().trim();
         }
 

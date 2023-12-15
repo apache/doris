@@ -57,6 +57,10 @@
 2	alice	19
 3	bob	20
 
+-- !filter4_old --
+2	alice	19
+3	bob	20
+
 -- !id --
 2
 
