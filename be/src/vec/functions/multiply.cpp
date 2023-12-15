@@ -85,7 +85,6 @@ struct MultiplyImpl {
                 c[i] = (DecimalV2Value(a[i]).value() * DecimalV2Value(b[i]).value() - sgn[i]) /
                                DecimalV2Value::ONE_BILLION +
                        sgn[i];
-
             }
         }
     }

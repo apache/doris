@@ -368,7 +368,8 @@ public:
             return column_result;
         } else if constexpr (is_to_null_type) {
             auto null_map = ColumnUInt8::create(1, 0);
-            column_result->get_element(0) = constant_constant(a, b, null_map->get_element(0), max_result_number);
+            column_result->get_element(0) =
+                    constant_constant(a, b, null_map->get_element(0), max_result_number);
             return ColumnNullable::create(std::move(column_result), std::move(null_map));
         } else {
             column_result->get_element(0) =
