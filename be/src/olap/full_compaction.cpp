@@ -118,7 +118,8 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
     }
     std::vector<RowsetSharedPtr> output_rowsets(1, _output_rowset);
     {
-        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+        std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
         _tablet->save_meta();
     }
