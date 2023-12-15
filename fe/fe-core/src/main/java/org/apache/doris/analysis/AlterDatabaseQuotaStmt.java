@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -71,7 +70,6 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
-        dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         if (quotaType == QuotaType.DATA) {
             quota = ParseUtil.analyzeDataVolumn(quotaValue);
         } else if (quotaType == QuotaType.REPLICA) {

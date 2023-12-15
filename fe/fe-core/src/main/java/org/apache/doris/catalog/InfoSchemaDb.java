@@ -17,8 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.cluster.ClusterNamespace;
-
 // Information schema used for MySQL compatible.
 public class InfoSchemaDb extends MysqlCompatibleDatabase {
     public static final String DATABASE_NAME = "information_schema";
@@ -26,10 +24,6 @@ public class InfoSchemaDb extends MysqlCompatibleDatabase {
 
     public InfoSchemaDb() {
         super(DATABASE_ID, DATABASE_NAME);
-    }
-
-    public InfoSchemaDb(String cluster) {
-        super(DATABASE_ID, ClusterNamespace.getFullName(cluster, DATABASE_NAME));
     }
 
     @Override

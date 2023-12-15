@@ -38,14 +38,14 @@ public class ShowExportStmtTest {
     public void testNormal() throws UserException {
         ShowExportStmt stmt = new ShowExportStmt(null, null, null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW EXPORT FROM `testCluster:testDb`", stmt.toString());
+        Assert.assertEquals("SHOW EXPORT FROM `testDb`", stmt.toString());
     }
 
     @Test
     public void testWhere() throws UserException {
         ShowExportStmt stmt = new ShowExportStmt(null, null, null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW EXPORT FROM `testCluster:testDb`", stmt.toString());
+        Assert.assertEquals("SHOW EXPORT FROM `testDb`", stmt.toString());
 
         SlotRef slotRef = new SlotRef(null, "label");
         StringLiteral stringLiteral = new StringLiteral("abc");
@@ -53,7 +53,7 @@ public class ShowExportStmtTest {
 
         stmt = new ShowExportStmt(null, binaryPredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW EXPORT FROM `testCluster:testDb` WHERE `label` = 'abc' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE `label` = 'abc' LIMIT 10", stmt.toString());
         Assert.assertFalse(stmt.isLabelUseLike());
 
         StringLiteral stringLiteralLike = new StringLiteral("ab%");
@@ -61,13 +61,13 @@ public class ShowExportStmtTest {
 
         stmt = new ShowExportStmt(null, likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW EXPORT FROM `testCluster:testDb` WHERE `label` LIKE 'ab%' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE `label` LIKE 'ab%' LIMIT 10", stmt.toString());
         Assert.assertTrue(stmt.isLabelUseLike());
 
         BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
         stmt = new ShowExportStmt(null, statePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW EXPORT FROM `testCluster:testDb` WHERE `state` = 'PENDING' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE `state` = 'PENDING' LIMIT 10", stmt.toString());
     }
 
     @Test
