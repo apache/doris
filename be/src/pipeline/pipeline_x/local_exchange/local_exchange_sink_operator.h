@@ -55,6 +55,7 @@ private:
     friend class BucketShuffleExchanger;
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
+    friend class AdaptivePassthroughExchanger;
 
     Exchanger* _exchanger = nullptr;
 
