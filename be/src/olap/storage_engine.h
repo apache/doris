@@ -30,6 +30,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -333,7 +334,13 @@ private:
 
     void _async_publish_callback();
 
+    void _process_async_publish();
+
     Status _persist_broken_paths();
+
+    bool _increase_low_priority_task_nums(DataDir* dir);
+
+    void _decrease_low_priority_task_nums(DataDir* dir);
 
 private:
     struct CompactionCandidate {
@@ -392,6 +399,9 @@ private:
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
     // The memory consumed by querying is tracked in segment iterator.
+    // TODO: Segment::_meta_mem_usage Unknown value overflow, causes the value of SegmentMeta mem tracker
+    // is similar to `-2912341218700198079`. So, temporarily put it in experimental type tracker.
+    // maybe have to use ColumnReader count as segment meta size.
     std::shared_ptr<MemTracker> _segment_meta_mem_tracker;
 
     CountDownLatch _stop_background_threads_latch;
@@ -453,6 +463,9 @@ private:
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_cumu_compaction;
     std::map<DataDir*, std::unordered_set<TTabletId>> _tablet_submitted_base_compaction;
 
+    std::mutex _low_priority_task_nums_mutex;
+    std::unordered_map<DataDir*, int32_t> _low_priority_task_nums;
+
     std::mutex _peer_replica_infos_mutex;
     // key: tabletId
     std::unordered_map<int64_t, TReplicaInfo> _peer_replica_infos;
@@ -484,7 +497,7 @@ private:
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
-    std::mutex _async_publish_mutex;
+    std::shared_mutex _async_publish_lock;
 
     bool _clear_segment_cache = false;
 

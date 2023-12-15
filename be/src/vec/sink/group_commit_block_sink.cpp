@@ -49,6 +49,7 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _base_schema_version = table_sink.base_schema_version;
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
+    _max_filter_ratio = table_sink.max_filter_ratio;
     return Status::OK();
 }
 
@@ -84,18 +85,28 @@ Status GroupCommitBlockSink::open(RuntimeState* state) {
 }
 
 Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
+    RETURN_IF_ERROR(DataSink::close(state, close_status));
+    RETURN_IF_ERROR(close_status);
+    int64_t total_rows = state->num_rows_load_total();
+    int64_t loaded_rows = state->num_rows_load_total();
+    state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
+                                   state->num_rows_load_filtered());
+    state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() + total_rows -
+                                         loaded_rows);
+    if (!_is_block_appended) {
+        // if not meet the max_filter_ratio, we should return error status directly
+        int64_t num_selected_rows =
+                state->num_rows_load_total() - state->num_rows_load_unselected();
+        if (num_selected_rows > 0 &&
+            (double)state->num_rows_load_filtered() / num_selected_rows > _max_filter_ratio) {
+            return Status::DataQualityError("too many filtered rows");
+        }
+        RETURN_IF_ERROR(_add_blocks());
+    }
     if (_load_block_queue) {
         _load_block_queue->remove_load_id(_load_id);
     }
-    RETURN_IF_ERROR(DataSink::close(state, close_status));
-    RETURN_IF_ERROR(close_status);
     // wait to wal
-    int64_t total_rows = state->num_rows_load_total();
-    int64_t loaded_rows = state->num_rows_load_total();
-    state->update_num_rows_load_filtered(_block_convertor->num_filtered_rows() + total_rows -
-                                         loaded_rows);
-    state->set_num_rows_load_total(loaded_rows + state->num_rows_load_unselected() +
-                                   state->num_rows_load_filtered());
     auto st = Status::OK();
     if (_load_block_queue && (_load_block_queue->wait_internal_group_commit_finish ||
                               _group_commit_mode == TGroupCommitMode::SYNC_MODE)) {
@@ -148,6 +159,8 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
     if (block->rows() == 0) {
         return Status::OK();
     }
+    // the insert group commit tvf always accept nullable columns, so we should convert
+    // the non-nullable columns to nullable columns
     for (int i = 0; i < block->columns(); ++i) {
         if (block->get_by_position(i).type->is_nullable()) {
             continue;
@@ -166,22 +179,42 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
     }
     std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
     output_block->swap(cur_mutable_block->to_block());
+    if (!_is_block_appended && state->num_rows_load_total() + state->num_rows_load_unselected() +
+                                               state->num_rows_load_filtered() <=
+                                       config::group_commit_memory_rows_for_max_filter_ratio) {
+        _blocks.emplace_back(output_block);
+    } else {
+        if (!_is_block_appended) {
+            RETURN_IF_ERROR(_add_blocks());
+        }
+        RETURN_IF_ERROR(_load_block_queue->add_block(
+                output_block, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
+    }
+    return Status::OK();
+}
+
+Status GroupCommitBlockSink::_add_blocks() {
+    DCHECK(_is_block_appended == false);
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
     load_id.__set_lo(_load_id.lo);
     if (_load_block_queue == nullptr) {
-        if (state->exec_env()->wal_mgr()->is_running()) {
-            RETURN_IF_ERROR(state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
-                    _db_id, _table_id, _base_schema_version, load_id, block, _load_block_queue,
-                    state->be_exec_version()));
-            state->set_import_label(_load_block_queue->label);
-            state->set_wal_id(_load_block_queue->txn_id);
+        if (_state->exec_env()->wal_mgr()->is_running()) {
+            RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
+                    _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
+                    _state->be_exec_version()));
+            _state->set_import_label(_load_block_queue->label);
+            _state->set_wal_id(_load_block_queue->txn_id);
         } else {
             return Status::InternalError("be is stopping");
         }
     }
-    RETURN_IF_ERROR(_load_block_queue->add_block(
-            output_block, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
+    for (auto it = _blocks.begin(); it != _blocks.end(); ++it) {
+        RETURN_IF_ERROR(_load_block_queue->add_block(
+                *it, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
+    }
+    _is_block_appended = true;
+    _blocks.clear();
     return Status::OK();
 }
 

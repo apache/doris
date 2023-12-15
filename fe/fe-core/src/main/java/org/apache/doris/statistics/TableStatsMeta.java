@@ -141,6 +141,7 @@ public class TableStatsMeta implements Writable {
                 colStatsMeta.updatedTime = updatedTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
+                colStatsMeta.jobType = analyzedJob.jobType;
             }
         }
         jobType = analyzedJob.jobType;

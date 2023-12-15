@@ -40,6 +40,8 @@ import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughInn
 import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
@@ -223,6 +225,8 @@ public class RuleSet {
 
     public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
             .add(MaterializedViewProjectJoinRule.INSTANCE)
+            .add(MaterializedViewAggregateRule.INSTANCE)
+            .add(MaterializedViewProjectAggregateRule.INSTANCE)
             .build();
 
     public List<Rule> getDPHypReorderRules() {

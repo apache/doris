@@ -30,9 +30,9 @@ RuntimeFilterConsumer::RuntimeFilterConsumer(const int32_t filter_id,
     _blocked_by_rf = std::make_shared<std::atomic_bool>(false);
 }
 
-Status RuntimeFilterConsumer::init(RuntimeState* state) {
+Status RuntimeFilterConsumer::init(RuntimeState* state, int parallel_tasks) {
     _state = state;
-    RETURN_IF_ERROR(_register_runtime_filter());
+    RETURN_IF_ERROR(_register_runtime_filter(parallel_tasks));
     return Status::OK();
 }
 
@@ -45,7 +45,7 @@ void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
     profile->add_info_string("RuntimeFilters: ", ss.str());
 }
 
-Status RuntimeFilterConsumer::_register_runtime_filter() {
+Status RuntimeFilterConsumer::_register_runtime_filter(int parallel_tasks) {
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);
     _runtime_filter_ready_flag.reserve(filter_size);

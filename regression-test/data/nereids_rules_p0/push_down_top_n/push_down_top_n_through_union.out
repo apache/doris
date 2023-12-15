@@ -9,12 +9,14 @@ PhysicalResultSink
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_with_conditions --
 PhysicalResultSink
@@ -26,20 +28,23 @@ PhysicalResultSink
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t1.score > 10))
---------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------filter((t1.score > 10))
+----------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t2.name = 'Test'))
---------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------filter((t2.name = 'Test'))
+----------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t3.id < 5))
---------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------filter((t3.id < 5))
+----------------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_with_order_by --
 PhysicalResultSink
@@ -51,17 +56,20 @@ PhysicalResultSink
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_nested_union --
 PhysicalResultSink
@@ -73,22 +81,26 @@ PhysicalResultSink
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_after_join --
 PhysicalResultSink
@@ -183,12 +195,14 @@ PhysicalResultSink
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t1.name = 'Test') and (t1.score > 10))
---------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------filter((t1.name = 'Test') and (t1.score > 10))
+----------------------PhysicalOlapScan[table1]
 ----------PhysicalDistribute
 ------------PhysicalTopN[MERGE_SORT]
 --------------PhysicalDistribute
 ----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t2.id < 5) and (t2.score < 20))
---------------------PhysicalOlapScan[table1]
+------------------PhysicalProject
+--------------------filter((t2.id < 5) and (t2.score < 20))
+----------------------PhysicalOlapScan[table1]
 

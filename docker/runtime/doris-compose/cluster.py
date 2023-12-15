@@ -78,6 +78,19 @@ def gen_subnet_prefix16():
     raise Exception("Failed to gen subnet")
 
 
+def get_master_fe_endpoint(cluster_name):
+    master_fe_ip_file = get_cluster_path(cluster_name) + "/status/master_fe_ip"
+    if os.path.exists(master_fe_ip_file):
+        with open(master_fe_ip_file, "r") as f:
+            return "{}:{}".format(f.read().strip(), FE_QUERY_PORT)
+    try:
+        cluster = Cluster.load(cluster_name)
+        return "{}:{}".format(
+            cluster.get_node(Node.TYPE_FE, 1).get_ip(), FE_QUERY_PORT)
+    except:
+        return ""
+
+
 class NodeMeta(object):
 
     def __init__(self, image):

@@ -997,9 +997,10 @@ public class Env {
             }
 
             Thread.sleep(100);
-            if (counter++ % 20 == 0) {
-                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}, counter: {}", feType, isReady.get(),
-                        counter);
+            if (counter++ % 100 == 0) {
+                String reason = editLog == null ? "editlog is null" : editLog.getNotReadyReason();
+                LOG.info("wait catalog to be ready. feType:{} isReady:{}, counter:{} reason: {}",
+                        feType, isReady.get(), counter, reason);
             }
         }
     }
@@ -2460,8 +2461,8 @@ public class Env {
         if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
             // we still need this log to observe this situation
             // but service may be continued when there is no log being replayed.
-            LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
-                    currentTimeMs, synchronizedTimeMs, hasLog, feType);
+            LOG.warn("meta out of date. current time: {}, sync time: {}, delta: {} ms, hasLog: {}, feType: {}",
+                    currentTimeMs, synchronizedTimeMs, (currentTimeMs - synchronizedTimeMs), hasLog, feType);
             if (hasLog || feType == FrontendNodeType.UNKNOWN) {
                 // 1. if we read log from BDB, which means master is still alive.
                 // So we need to set meta out of date.
@@ -2471,6 +2472,13 @@ public class Env {
                 metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
                 canRead.set(false);
                 isReady.set(false);
+
+                if (editLog != null) {
+                    String reason = editLog.getNotReadyReason();
+                    if (!Strings.isNullOrEmpty(reason)) {
+                        LOG.warn("Not ready reason:{}", reason);
+                    }
+                }
             }
 
             // sleep 5s to avoid numerous 'meta out of date' log
@@ -3243,8 +3251,8 @@ public class Env {
                 sb.append(olapTable.getEstimatePartitionSize()).append("\"");
             }
 
-            // unique key table with merge on write
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            // unique key table with merge on write, always print this property for unique table
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
                 sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
             }
@@ -5891,10 +5899,10 @@ public class Env {
             sb.append(frontend.toString()).append("\n");
         }
 
-        long diskUsagePercent = editLog.getEnvDiskUsagePercent();
-        sb.append("Disk usage: ")
-                .append(diskUsagePercent != -1 ? String.valueOf(diskUsagePercent) : "<unknown>")
-                .append("%\n");
+        String reason = editLog.getNotReadyReason();
+        if (!Strings.isNullOrEmpty(reason)) {
+            sb.append("Reason: ").append(reason).append("%\n");
+        }
 
         if (haProtocol instanceof BDBHA) {
             try {
@@ -5915,7 +5923,7 @@ public class Env {
                 }
 
             } catch (Exception e) {
-                // pass
+                LOG.warn("checkReadyOrThrow:", e);
             }
         }
 

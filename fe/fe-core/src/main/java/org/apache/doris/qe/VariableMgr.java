@@ -162,8 +162,11 @@ public class VariableMgr {
             Preconditions.checkArgument(obj instanceof SessionVariable);
             try {
                 SessionVariable.class.getDeclaredMethod(attr.checker(), String.class).invoke(obj, value);
+            } catch (InvocationTargetException e) {
+                // Exception thrown from reflect method will always be InvocationTargetException
+                ErrorReport.reportDdlException(((InvocationTargetException) e).getTargetException().getMessage());
             } catch (Exception e) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value, attr.name(), e.getMessage());
             }
         }
         // If the session variable has specified the setter, then not use reflect
@@ -174,7 +177,7 @@ public class VariableMgr {
             } catch (InvocationTargetException e) {
                 ErrorReport.reportDdlException(((InvocationTargetException) e).getTargetException().getMessage());
             } catch (Exception e) {
-                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, attr.name(), value, e.getMessage());
+                ErrorReport.reportDdlException(ErrorCode.ERR_INVALID_VALUE, value, attr.name(), e.getMessage());
             }
         } else  {
             try {

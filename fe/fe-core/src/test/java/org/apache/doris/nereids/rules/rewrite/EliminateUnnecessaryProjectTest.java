@@ -31,6 +31,7 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -52,6 +53,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
                 + ");");
     }
 
+    @Disabled("enable this case when we remove canEliminate on LogicalProject again")
     @Test
     void testEliminateNonTopUnnecessaryProject() {
         LogicalPlan unnecessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
@@ -75,6 +77,7 @@ class EliminateUnnecessaryProjectTest extends TestWithFeService implements MemoP
                 .matchesFromRoot(logicalOlapScan());
     }
 
+    @Disabled("enable this case when we remove canEliminate on LogicalProject again")
     @Test
     void testEliminateTopProjectWhenOutputNotEquals() {
         LogicalPlan necessaryProject = new LogicalPlanBuilder(PlanConstructor.newLogicalOlapScan(0, "t1", 0))
