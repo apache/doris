@@ -858,6 +858,8 @@ DEFINE_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
 DEFINE_Validator(jsonb_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
 
+// truncating the debug string of a too long expr.
+DEFINE_Int32(expr_debug_string_limit_length, "4096");
 // used for olap scanner to save memory, when the size of unused_object_pool
 // is greater than object_pool_buffer_size, release the object in the unused_object_pool.
 DEFINE_Int32(object_pool_buffer_size, "100");
