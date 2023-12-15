@@ -317,16 +317,12 @@ Status WalManager::replay() {
             }
         }
         for (const auto& table_id : replay_tables) {
-//            RETURN_IF_ERROR(_thread_pool->submit_func([table_id, this] {
-//                auto st = this->_table_map[table_id]->replay_wals();
-//                if (!st.ok()) {
-//                    LOG(WARNING) << "Failed add replay wal on table " << table_id;
-//                }
-//            }));
-            auto st = _table_map[table_id]->replay_wals();
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed add replay wal on table " << table_id;
-            }
+            RETURN_IF_ERROR(_thread_pool->submit_func([table_id, this] {
+                auto st = this->_table_map[table_id]->replay_wals();
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed add replay wal on table " << table_id;
+                }
+            }));
         }
     } while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::group_commit_replay_wal_retry_interval_seconds)));
