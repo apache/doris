@@ -546,17 +546,19 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalUnion
 ----------------PhysicalDistribute
-------------------PhysicalWindow
---------------------PhysicalQuickSort[MERGE_SORT]
-----------------------PhysicalDistribute
-------------------------PhysicalQuickSort[LOCAL_SORT]
---------------------------PhysicalOlapScan[t1]
+------------------PhysicalProject
+--------------------PhysicalWindow
+----------------------PhysicalQuickSort[MERGE_SORT]
+------------------------PhysicalDistribute
+--------------------------PhysicalQuickSort[LOCAL_SORT]
+----------------------------PhysicalOlapScan[t1]
 ----------------PhysicalDistribute
-------------------PhysicalWindow
---------------------PhysicalQuickSort[MERGE_SORT]
-----------------------PhysicalDistribute
-------------------------PhysicalQuickSort[LOCAL_SORT]
---------------------------PhysicalOlapScan[t2]
+------------------PhysicalProject
+--------------------PhysicalWindow
+----------------------PhysicalQuickSort[MERGE_SORT]
+------------------------PhysicalDistribute
+--------------------------PhysicalQuickSort[LOCAL_SORT]
+----------------------------PhysicalOlapScan[t2]
 
 -- !limit_subquery_join_filter --
 PhysicalResultSink
@@ -644,9 +646,11 @@ PhysicalResultSink
 ------------------hashAgg[LOCAL]
 --------------------PhysicalUnion
 ----------------------PhysicalDistribute
-------------------------PhysicalOlapScan[t1]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[t1]
 ----------------------PhysicalDistribute
-------------------------PhysicalOlapScan[t2]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[t2]
 
 -- !limit_correlated_subquery --
 PhysicalResultSink
@@ -804,15 +808,16 @@ PhysicalResultSink
 
 -- !limit_subquery_window --
 PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalTopN[LOCAL_SORT]
-------PhysicalProject
---------PhysicalWindow
-----------PhysicalQuickSort[MERGE_SORT]
-------------PhysicalDistribute
---------------PhysicalQuickSort[LOCAL_SORT]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t1]
+--PhysicalProject
+----PhysicalTopN[MERGE_SORT]
+------PhysicalTopN[LOCAL_SORT]
+--------PhysicalProject
+----------PhysicalWindow
+------------PhysicalQuickSort[MERGE_SORT]
+--------------PhysicalDistribute
+----------------PhysicalQuickSort[LOCAL_SORT]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[t1]
 
 -- !limit_nested_subquery --
 PhysicalResultSink
