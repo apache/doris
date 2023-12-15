@@ -24,27 +24,27 @@
 #include <cstring>
 #include <string>
 
-namespace detail {
+namespace doris::vectorized::detail {
 bool starts_with(const std::string& s, const char* prefix, size_t prefix_size);
 bool ends_with(const std::string& s, const char* suffix, size_t suffix_size);
-} // namespace detail
+} // namespace doris::vectorized::detail
 
 inline bool starts_with(const std::string& s, const std::string& prefix) {
-    return detail::starts_with(s, prefix.data(), prefix.size());
+    return doris::vectorized::detail::starts_with(s, prefix.data(), prefix.size());
 }
 
 inline bool ends_with(const std::string& s, const std::string& suffix) {
-    return detail::ends_with(s, suffix.data(), suffix.size());
+    return doris::vectorized::detail::ends_with(s, suffix.data(), suffix.size());
 }
 
 /// With GCC, strlen is evaluated compile time if we pass it a constant
 /// string that is known at compile time.
 inline bool starts_with(const std::string& s, const char* prefix) {
-    return detail::starts_with(s, prefix, strlen(prefix));
+    return doris::vectorized::detail::starts_with(s, prefix, strlen(prefix));
 }
 
 inline bool ends_with(const std::string& s, const char* suffix) {
-    return detail::ends_with(s, suffix, strlen(suffix));
+    return doris::vectorized::detail::ends_with(s, suffix, strlen(suffix));
 }
 
 /// Given an integer, return the adequate suffix for
