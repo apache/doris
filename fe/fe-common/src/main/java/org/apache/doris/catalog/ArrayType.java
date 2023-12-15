@@ -88,14 +88,11 @@ public class ArrayType extends Type {
             return false;
         }
 
-        if (!((ArrayType) t).getContainsNull() == getContainsNull()) {
+        if (((ArrayType) t).getContainsNull() != getContainsNull()) {
             return false;
         }
 
-        if (!itemType.matchesType(((ArrayType) t).itemType)) {
-            return false;
-        }
-        return true;
+        return itemType.matchesType(((ArrayType) t).itemType);
     }
 
     @Override
