@@ -328,13 +328,23 @@ public class JdbcScanNode extends ExternalScanNode {
         if (expr instanceof CompoundPredicate) {
             StringBuilder result = new StringBuilder();
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+
+            if ("NOT".equals(compoundPredicate.getOp().toString())) {
+                result.append(compoundPredicate.getOp().toString()).append(" ");
+            }
+
             for (Expr child : compoundPredicate.getChildren()) {
                 result.append(conjunctExprToString(tableType, child, tbl));
-                result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
+                if (!"NOT".equals(compoundPredicate.getOp().toString())) {
+                    result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
+                }
             }
-            // Remove the last operator
-            result.setLength(result.length() - compoundPredicate.getOp().toString().length() - 2);
-            return result.toString();
+
+            if (!"NOT".equals(compoundPredicate.getOp().toString())) {
+                result.setLength(result.length() - compoundPredicate.getOp().toString().length() - 2);
+            }
+
+            return result.toString().trim();
         }
 
         if (expr.contains(DateLiteral.class) && expr instanceof BinaryPredicate) {

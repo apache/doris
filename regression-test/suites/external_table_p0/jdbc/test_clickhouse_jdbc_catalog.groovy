@@ -78,6 +78,7 @@ suite("test_clickhouse_jdbc_catalog", "p0,external,clickhouse,external_docker,ex
             order_qt_filter  """ select k1,k2 from type where 1 = 1 order by 1 ; """
             order_qt_filter2  """ select k1,k2 from type where 1 = 1 and  k1 = true order by 1 ; """
             order_qt_filter3  """ select k1,k2 from type where k1 = true order by 1 ; """
+            order_qt_filter4  """ select k24 from type where k24 not like '%world%' order by 1 ; """
             sql "set jdbc_clickhouse_query_final = true;"
             order_qt_final1 """select * from final_test"""
             sql "set jdbc_clickhouse_query_final = false;"

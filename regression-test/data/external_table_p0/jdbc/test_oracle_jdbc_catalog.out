@@ -78,6 +78,27 @@
 -- !filter3 --
 1	1	china 	beijing	alice	abcdefghrjkmnopq
 
+-- !filter4 --
+1	alice	20	99.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !filter5 --
+1	alice	20	99.5
+2	bob	21	90.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !filter6 --
+1	alice	20	99.5
+4	andy	21	93.0
+
+-- !filter7 --
+3	jerry	23	88.0
+
+-- !filter8 --
+4	andy	21	93.0
+
 -- !date1 --
 1	2022-01-21T05:23:01	\N	\N
 2	2022-11-12T20:32:56	\N	\N
