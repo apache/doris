@@ -67,7 +67,7 @@ exit_flag=0
     shopt -s inherit_errexit
 
     echo "#### 1. Restart doris"
-    # if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
+    if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
     echo "#### 2. check if need to load data"
     SF=${SF:-"100"}                                                                      # SCALE FACTOR
@@ -121,7 +121,7 @@ exit_flag=0
     if ! check_tpcds_result "${teamcity_build_checkoutDir}"/run-tpcds-queries.log; then exit 1; fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)
     line_begin=$((line_end - 23))
-    comment_body="Tpch sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
+    comment_body="TPC-DS sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
 run tpcds-sf${SF} query with default conf and session variables
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)"
@@ -133,12 +133,12 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-
 exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
-# if [[ ${exit_flag} != "0" ]]; then
-#     print_doris_fe_log
-#     print_doris_be_log
-#     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
-#         upload_doris_log_to_oss "${file_name}"
-#     fi
-# fi
+if [[ ${exit_flag} != "0" ]]; then
+    print_doris_fe_log
+    print_doris_be_log
+    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+        upload_doris_log_to_oss "${file_name}"
+    fi
+fi
 
 exit "${exit_flag}"

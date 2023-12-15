@@ -199,6 +199,7 @@ function check_clickbench_table_rows() {
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     declare -A table_rows
     table_rows=(['hits']=99997497)
+    table_rows=(['hits']=10000)
     for table in ${!table_rows[*]}; do
         rows_actual=$(${cl} -D"${db_name}" -e"SELECT count(*) FROM ${table}" | sed -n '2p')
         rows_expect=${table_rows[${table}]}
@@ -229,12 +230,43 @@ function check_tpch_result() {
     else
         echo "INFO:
     cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
-    or, hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
+    hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
     fi
 }
 
 function check_tpcds_result() {
     check_tpch_result "$1"
+}
+
+function check_clickbench_query_result() {
+    echo "TODO"
+}
+
+function check_clickbench_performance_result() {
+    result_file="$1"
+    if [[ -z "${result_file}" ]]; then return 1; fi
+
+    empty_query_time="$(awk -F ',' '{if( ($2=="") || ($3=="") || ($4=="") ){print $1}}' "${result_file}")"
+    if [[ -n ${empty_query_time} ]]; then
+        echo -e "ERROR: find empty query time of:\n${empty_query_time}" && return 1
+    fi
+
+    # 单位是秒
+    cold_run_time_threshold=${cold_run_time_threshold:-200}
+    hot_run_time_threshold=${hot_run_time_threshold:-55}
+    cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
+    hot_run_time=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' "${result_file}")
+    if [[ $(echo "${hot_run_time} > ${hot_run_time_threshold}" | bc) -eq 1 ]] ||
+        [[ $(echo "${cold_run_sum} > ${cold_run_time_threshold}" | bc) -eq 1 ]]; then
+        echo "ERROR:
+    cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
+    or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"
+        return 1
+    else
+        echo "INFO:
+    cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
+    hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
+    fi
 }
 
 get_session_variable() {

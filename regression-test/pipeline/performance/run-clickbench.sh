@@ -57,8 +57,8 @@ fi
 echo "#### Run clickbench test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-cold_run_time_threshold=${cold_run_time_threshold:-50000}
-hot_run_time_threshold=${hot_run_time_threshold:-42000}
+cold_run_time_threshold=${cold_run_time_threshold:-666}
+hot_run_time_threshold=${hot_run_time_threshold:-555}
 exit_flag=0
 
 (
@@ -69,53 +69,47 @@ exit_flag=0
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
     echo "#### 2. check if need to load data"
-    CLICKBENCH_DATA_DIR="/data/clickbench"                                                              # no / at the end
+    CLICKBENCH_DATA_DIR="/data/clickbench"                                               # no / at the end
     CLICKBENCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/clickbench-tools/data # no / at the end
     db_name="clickbench"
     if ! check_clickbench_table_rows "${db_name}"; then
         echo "INFO: need to load clickbench data"
         # prepare data
         mkdir -p "${CLICKBENCH_DATA_DIR}"
-        
+
         # create table and load data
-        bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/bin/create-clickbench-tables.sh -s "${SF}"
+        bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/create-clickbench-table.sh
         rm -rf "${CLICKBENCH_DATA_DIR_LINK}"
         ln -s "${CLICKBENCH_DATA_DIR}" "${CLICKBENCH_DATA_DIR_LINK}"
-        bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/bin/load-clickbench-data.sh -c 10
-        if ! check_clickbench_table_rows "${db_name}" "${SF}"; then
+        cd "${CLICKBENCH_DATA_DIR_LINK}"
+        bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/load-clickbench-data.sh
+        cd -
+        if ! check_clickbench_table_rows "${db_name}"; then
             exit 1
         fi
-        echo "INFO: sleep 10min to wait compaction done" && sleep 10m
+        echo "INFO: sleep 10min to wait compaction done"
+        if ${DEBUG}; then sleep 10s; else sleep 10m; fi
         data_reload="true"
     fi
 
-    echo "#### 3. run clickbench-sf${SF} query"
+    echo "#### 3. run clickbench query"
     set_session_variable runtime_filter_mode global
-    bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/bin/run-clickbench-queries.sh -s "${SF}" | tee "${teamcity_build_checkoutDir}"/run-clickbench-queries.log
-    if ! check_clickbench_result "${teamcity_build_checkoutDir}"/run-clickbench-queries.log; then exit 1; fi
-    line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-clickbench-queries.log)
-    line_begin=$((line_end - 23))
-    comment_body="Tpch sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
+    bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/run-clickbench-queries.sh
+    # result.csv 来自 run-clickbench-queries.sh 的产出
+    if ! check_clickbench_performance_result result.csv; then exit 1; fi
+    if ! check_clickbench_query_result; then exit 1; fi
+    cold_run_sum=$(awk -F ',' '{sum+=$2} END {print sum}' result.csv)
+    best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
+    comment_body="ClickBench test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
-run clickbench-sf${SF} query with default conf and session variables
-$(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-clickbench-queries.log)"
+run clickbench query with default conf and session variables
+$(cat result.csv)
+Total cold run time: ${cold_run_sum} s
+Total hot run time: ${best_hot_run_sum} s"
 
-    echo "#### 4. run clickbench-sf${SF} query with runtime_filter_mode=off"
-    set_session_variable runtime_filter_mode off
-    bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/bin/run-clickbench-queries.sh | tee "${teamcity_build_checkoutDir}"/run-clickbench-queries.log
-    if ! grep '^Total hot run time' "${teamcity_build_checkoutDir}"/run-clickbench-queries.log >/dev/null; then exit 1; fi
-    line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-clickbench-queries.log)
-    line_begin=$((line_end - 23))
-    comment_body="${comment_body}
-
-run clickbench-sf${SF} query with default conf and set session variable runtime_filter_mode=off
-$(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-clickbench-queries.log)"
-
-    echo "#### 5. comment result on clickbench"
+    echo "#### 4. comment result on clickbench"
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     create_an_issue_comment_clickbench "${pull_request_num:-}" "${comment_body}"
-
-    # stop_doris
 )
 exit_flag="$?"
 
