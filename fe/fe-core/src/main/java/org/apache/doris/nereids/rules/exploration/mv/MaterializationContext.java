@@ -23,7 +23,6 @@ import org.apache.doris.mtmv.MVCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -32,7 +31,6 @@ import com.google.common.collect.ImmutableList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Maintain the context for query rewrite by materialized view
@@ -47,7 +45,7 @@ public class MaterializationContext {
     // Group ids that are rewritten by this mv to reduce rewrite times
     private final Set<GroupId> matchedGroups = new HashSet<>();
     // generate form mv scan plan
-    private ExpressionMapping viewExpressionMapping;
+    private ExpressionMapping mvExprToMvScanExprMapping;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -67,14 +65,11 @@ public class MaterializationContext {
             mvCache = MVCache.from(mtmv, cascadesContext.getConnectContext());
             mtmv.setMvCache(mvCache);
         }
-        List<NamedExpression> mvOutputExpressions = mvCache.getMvOutputExpressions();
         // mv output expression shuttle, this will be used to expression rewrite
-        mvOutputExpressions =
-                ExpressionUtils.shuttleExpressionWithLineage(mvOutputExpressions, mvCache.getLogicalPlan()).stream()
-                        .map(NamedExpression.class::cast)
-                        .collect(Collectors.toList());
-        this.viewExpressionMapping = ExpressionMapping.generate(
-                mvOutputExpressions,
+        this.mvExprToMvScanExprMapping = ExpressionMapping.generate(
+                ExpressionUtils.shuttleExpressionWithLineage(
+                        mvCache.getMvOutputExpressions(),
+                        mvCache.getLogicalPlan()),
                 mvScanPlan.getExpressions());
     }
 
@@ -106,8 +101,8 @@ public class MaterializationContext {
         return baseViews;
     }
 
-    public ExpressionMapping getViewExpressionIndexMapping() {
-        return viewExpressionMapping;
+    public ExpressionMapping getMvExprToMvScanExprMapping() {
+        return mvExprToMvScanExprMapping;
     }
 
     /**
