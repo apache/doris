@@ -221,23 +221,6 @@ public class ExprRewriter {
         return inputExpr;
     }
 
-    public void rewriteElementAtToSlot(Map<String, Expr> exprMap, Analyzer analyzer)
-            throws AnalysisException {
-        if (exprMap.isEmpty()) {
-            return;
-        }
-        boolean changed = false;
-        // rewrite constant expr
-        for (ExprRewriteRule rule : rules) {
-            if (rule instanceof ElementAtToSlotRefRule) {
-                changed = ((ElementAtToSlotRefRule) rule).apply(exprMap, analyzer);
-            }
-        }
-        if (changed) {
-            ++numChanges;
-        }
-    }
-
     /**
      * Applies 'rule' on the Expr tree rooted at 'expr' until there are no more
      * changes.

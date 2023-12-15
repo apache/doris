@@ -29,8 +29,6 @@ import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 import com.google.common.collect.Lists;
 
 import java.util.List;
-import java.util.Map;
-import java.util.Map.Entry;
 import java.util.stream.Collectors;
 
 /**
@@ -110,25 +108,6 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
             }
         }
         return newExpr != null ? newExpr : inputExpr;
-    }
-
-    public boolean apply(Map<String, Expr> exprMap, Analyzer analyzer)
-            throws AnalysisException {
-        boolean changed = false;
-        for (Entry<String, Expr> entry : exprMap.entrySet()) {
-            List<Expr> originalFunctionElementAtExprs = Lists.newArrayList();
-            getElementAtFunction(entry.getValue(), originalFunctionElementAtExprs);
-            Expr originalExpr = entry.getValue();
-            for (Expr expr : originalFunctionElementAtExprs) {
-                Expr rewriteExpr = apply(expr, analyzer, null);
-                if (rewriteExpr != expr) {
-                    Expr newExpr = replaceExpr(originalExpr, expr.getId().toString(), rewriteExpr);
-                    exprMap.put(entry.getKey(), newExpr);
-                    changed = true;
-                }
-            }
-        }
-        return changed;
     }
 
     private Expr replaceExpr(Expr expr, String key, Expr replacExpr) {
