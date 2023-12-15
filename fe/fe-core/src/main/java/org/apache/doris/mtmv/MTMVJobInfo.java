@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 
 import com.google.common.collect.Lists;
@@ -43,8 +44,11 @@ public class MTMVJobInfo {
     }
 
     public void addHistoryTask(MTMVTask task) {
+        if (Config.max_persistence_task_count < 1) {
+            return;
+        }
         historyTasks.add(task);
-        if (historyTasks.size() > MTMVTask.MAX_HISTORY_TASKS_NUM) {
+        if (historyTasks.size() > Config.max_persistence_task_count) {
             historyTasks.removeFirst();
         }
     }
