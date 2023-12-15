@@ -20,8 +20,6 @@
 : <<EOF
 #!/bin/bash
 export DEBUG=true
-export OSS_accessKeyID='LTAI5tMJ8betwXWK7Cwo8tJ3'
-export OSS_accessKeySecret='8yAa3kG9Wbpi7uu6uZo2UjLBmGoFFs'
 export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/deploy.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance
