@@ -129,15 +129,31 @@ public:
             std::vector<vectorized::AggregateDataPtr> agg_places;
 
             for (int i = key_number; i < columns; i++) {
-                vectorized::AggregateFunctionPtr function =
-                        tablet_schema->column(i).get_aggregate_function(
-                                {finalized_block.get_data_type(i)}, vectorized::AGG_LOAD_SUFFIX);
-                agg_functions.push_back(function);
-                // create aggregate data
-                vectorized::AggregateDataPtr place = new char[function->size_of_data()];
-                function->create(place);
-                agg_places.push_back(place);
+                try {
+                    vectorized::AggregateFunctionPtr function =
+                            tablet_schema->column(i).get_aggregate_function(
+                                    {finalized_block.get_data_type(i)},
+                                    vectorized::AGG_LOAD_SUFFIX);
+                    agg_functions.push_back(function);
+                    // create aggregate data
+                    vectorized::AggregateDataPtr place = new char[function->size_of_data()];
+                    function->create(place);
+                    agg_places.push_back(place);
+                } catch (...) {
+                    for (int j = 0; j < i - key_number; ++j) {
+                        agg_functions[j]->destroy(agg_places[j]);
+                        delete[] agg_places[j];
+                    }
+                    throw;
+                }
             }
+
+            DEFER({
+                for (int i = 0; i < columns - key_number; i++) {
+                    agg_functions[i]->destroy(agg_places[i]);
+                    delete[] agg_places[i];
+                }
+            });
 
             for (int i = 0; i < rows; i++) {
                 auto row_ref = row_refs[i];
@@ -169,11 +185,6 @@ public:
                         finalized_block.clear_column_data();
                     }
                 }
-            }
-
-            for (int i = 0; i < columns - key_number; i++) {
-                agg_functions[i]->destroy(agg_places[i]);
-                delete[] agg_places[i];
             }
         } else {
             std::vector<RowRef> pushed_row_refs;

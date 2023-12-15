@@ -137,6 +137,7 @@ private:
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
     size_t _agg_functions_size = 0;
+    bool _agg_functions_created = false;
     std::unique_ptr<MemPool> _mem_pool;
 
     /// The offset of the n-th functions.
