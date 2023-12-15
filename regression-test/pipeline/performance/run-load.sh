@@ -59,11 +59,13 @@ DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 data_home="/data/load/"
 query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+http_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf http_port)
 clt="mysql -h127.0.0.1 -P${query_port} -uroot "
-${clt} -e "DROP DATABASE IF EXISTS streamload" && sleep 1
-${clt} -e "CREATE DATABASE IF NOT EXISTS streamload" && sleep 5
-cold_run_time_threshold=${cold_run_time_threshold:-50000}
-hot_run_time_threshold=${hot_run_time_threshold:-42000}
+DB="load_test_db"
+stream_load_json_speed_threshold=${stream_load_json_speed_threshold:-100}      # 单位 MB/s
+stream_load_orc_speed_threshold=${stream_load_orc_speed_threshold:-10}         # 单位 MB/s
+stream_load_parquet_speed_threshold=${stream_load_parquet_speed_threshold:-10} # 单位 MB/s
+insert_into_select_speed_threshold=${insert_into_select_speed_threshold:-310}  # 单位 Krows/s
 exit_flag=0
 
 (
@@ -184,7 +186,7 @@ exit_flag=0
             DISTRIBUTED BY HASH(UserID) BUCKETS 16
             PROPERTIES (\"replication_num\"=\"1\");
         "
-        ${clt} -Dload_test_db -e"${ddl}"
+        ${clt} -D"${DB}" -e"${ddl}"
         echo "#### load data"
         if [[ ! -d "${data_home}" ]]; then mkdir -p "${data_home}"; fi
         if [[ ! -f "${data_home}"/hits.json.1000000 ]] || [[ $(wc -c "${data_home}"/hits.json.1000000 | awk '{print $1}') != '2358488459' ]]; then
@@ -201,10 +203,10 @@ exit_flag=0
                 -H "read_json_by_line:true" \
                 -H 'jsonpaths:["$.WatchID","$.JavaEnable","$.Title","$.GoodEvent","$.EventTime","$.EventDate","$.CounterID","$.ClientIP","$.RegionID","$.UserID","$.CounterClass","$.OS","$.UserAgent","$.URL","$.Referer","$.IsRefresh","$.RefererCategoryID","$.RefererRegionID","$.URLCategoryID","$.URLRegionID","$.ResolutionWidth","$.ResolutionHeight","$.ResolutionDepth","$.FlashMajor","$.FlashMinor","$.FlashMinor2","$.NetMajor","$.NetMinor","$.UserAgentMajor","$.UserAgentMinor","$.CookieEnable","$.JavascriptEnable","$.IsMobile","$.MobilePhone","$.MobilePhoneModel","$.Params","$.IPNetworkID","$.TraficSourceID","$.SearchEngineID","$.SearchPhrase","$.AdvEngineID","$.IsArtifical","$.WindowClientWidth","$.WindowClientHeight","$.ClientTimeZone","$.ClientEventTime","$.SilverlightVersion1","$.SilverlightVersion2","$.SilverlightVersion3","$.SilverlightVersion4","$.PageCharset","$.CodeVersion","$.IsLink","$.IsDownload","$.IsNotBounce","$.FUniqID","$.OriginalURL","$.HID","$.IsOldCounter","$.IsEvent","$.IsParameter","$.DontCountHits","$.WithHash","$.HitColor","$.LocalEventTime","$.Age","$.Sex","$.Income","$.Interests","$.Robotness","$.RemoteIP","$.WindowName","$.OpenerName","$.HistoryLength","$.BrowserLanguage","$.BrowserCountry","$.SocialNetwork","$.SocialAction","$.HTTPError","$.SendTiming","$.DNSTiming","$.ConnectTiming","$.ResponseStartTiming","$.ResponseEndTiming","$.FetchTiming","$.SocialSourceNetworkID","$.SocialSourcePage","$.ParamPrice","$.ParamOrderID","$.ParamCurrency","$.ParamCurrencyID","$.OpenstatServiceName","$.OpenstatCampaignID","$.OpenstatAdID","$.OpenstatSourceID","$.UTMSource","$.UTMMedium","$.UTMCampaign","$.UTMContent","$.UTMTerm","$.FromTag","$.HasGCLID","$.RefererHash","$.URLHash","$.CLID"]' \
                 -H "columns: WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
-                http://"${FE_HOST:-127.0.0.1}":8030/api/load_test_db/hits_json/_stream_load
+                "http://${FE_HOST:-127.0.0.1}:${http_port}/api/${DB}/hits_json/_stream_load"
         )
         sleep 5
-        if [[ $(${clt} -Dload_test_db -e"select count(*) from hits_json" | sed -n '2p') != 1000000 ]]; then echo "check load fail..." && return 1; fi
+        if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_json" | sed -n '2p') != 1000000 ]]; then echo "check load fail..." && return 1; fi
 
         echo "#### record load test result"
         stream_load_json_size=$(echo "${ret}" | jq '.LoadBytes')
@@ -329,7 +331,7 @@ exit_flag=0
         DISTRIBUTED BY HASH(UserID) BUCKETS 16
         PROPERTIES (\"replication_num\"=\"1\");
         "
-        ${clt} -Dload_test_db -e"${ddl}"
+        ${clt} -D"${DB}" -e"${ddl}"
         echo "#### load data"
         if [[ ! -d "${data_home}" ]]; then mkdir -p "${data_home}"; fi
         if [[ ! -f "${data_home}"/hits_0.orc ]] || [[ $(wc -c "${data_home}"/hits_0.orc | awk '{print $1}') != '1101869774' ]]; then
@@ -344,10 +346,10 @@ exit_flag=0
                 -H "format:orc" \
                 -H "label:hits_0_orc" \
                 -H "columns: watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid" \
-                http://"${FE_HOST:-127.0.0.1}":8030/api/load_test_db/hits_orc/_stream_load
+                "http://${FE_HOST:-127.0.0.1}:${http_port}/api/${DB}/hits_orc/_stream_load"
         )
         sleep 5
-        if [[ $(${clt} -Dload_test_db -e"select count(*) from hits_orc" | sed -n '2p') != 8800160 ]]; then echo "check load fail..." && return 1; fi
+        if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_orc" | sed -n '2p') != 8800160 ]]; then echo "check load fail..." && return 1; fi
 
         echo "#### record load test result"
         stream_load_orc_size=$(echo "${ret}" | jq '.LoadBytes')
@@ -472,7 +474,7 @@ exit_flag=0
         DISTRIBUTED BY HASH(UserID) BUCKETS 16
         PROPERTIES (\"replication_num\"=\"1\");
         "
-        ${clt} -Dload_test_db -e"${ddl}"
+        ${clt} -D"${DB}" -e"${ddl}"
         echo "#### load data"
         stream_load_parquet_size=0
         stream_load_parquet_time=0
@@ -490,7 +492,7 @@ exit_flag=0
                     -H "format:parquet" \
                     -H "label:${file_name//./_}" \
                     -H "columns: watchid,javaenable,title,goodevent,eventtime,eventdate,counterid,clientip,regionid,userid,counterclass,os,useragent,url,referer,isrefresh,referercategoryid,refererregionid,urlcategoryid,urlregionid,resolutionwidth,resolutionheight,resolutiondepth,flashmajor,flashminor,flashminor2,netmajor,netminor,useragentmajor,useragentminor,cookieenable,javascriptenable,ismobile,mobilephone,mobilephonemodel,params,ipnetworkid,traficsourceid,searchengineid,searchphrase,advengineid,isartifical,windowclientwidth,windowclientheight,clienttimezone,clienteventtime,silverlightversion1,silverlightversion2,silverlightversion3,silverlightversion4,pagecharset,codeversion,islink,isdownload,isnotbounce,funiqid,originalurl,hid,isoldcounter,isevent,isparameter,dontcounthits,withhash,hitcolor,localeventtime,age,sex,income,interests,robotness,remoteip,windowname,openername,historylength,browserlanguage,browsercountry,socialnetwork,socialaction,httperror,sendtiming,dnstiming,connecttiming,responsestarttiming,responseendtiming,fetchtiming,socialsourcenetworkid,socialsourcepage,paramprice,paramorderid,paramcurrency,paramcurrencyid,openstatservicename,openstatcampaignid,openstatadid,openstatsourceid,utmsource,utmmedium,utmcampaign,utmcontent,utmterm,fromtag,hasgclid,refererhash,urlhash,clid" \
-                    http://"${FE_HOST:-127.0.0.1}:${FE_HTTP_PORT:-8030}"/api/load_test_db/hits_parquet/_stream_load
+                    "http://${FE_HOST:-127.0.0.1}:${http_port}/api/${DB}/hits_parquet/_stream_load"
             ); then
                 _stream_load_parquet_size=$(echo "${ret}" | jq '.LoadBytes')
                 _stream_load_parquet_time=$(printf "%.0f" "$(echo "scale=1;$(echo "${ret}" | jq '.LoadTimeMs')/1000" | bc)")
@@ -499,7 +501,7 @@ exit_flag=0
             fi
         done
         sleep 5
-        if [[ $(${clt} -Dload_test_db -e"select count(*) from hits_parquet" | sed -n '2p') != 5000000 ]]; then echo "check load fail..." && return 1; fi
+        if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_parquet" | sed -n '2p') != 5000000 ]]; then echo "check load fail..." && return 1; fi
 
         echo "#### record load test result"
         stream_load_parquet_speed=$(echo "${stream_load_parquet_size} / 1024 / 1024/ ${stream_load_parquet_time}" | bc)
@@ -622,22 +624,22 @@ exit_flag=0
         DISTRIBUTED BY HASH(UserID) BUCKETS 16
         PROPERTIES (\"replication_num\"=\"1\");
         "
-        ${clt} -Dload_test_db -e"${ddl}"
+        ${clt} -D"${DB}" -e"${ddl}"
 
         echo "#### load data by INSERT INTO SELECT"
         insert_into_select_time=0
         insert_into_select_rows=10000000
         # use %% as %, because teamcity
         start=$(date +%%s%%3N)
-        if ${clt} -e"insert into load_test_db.hits_insert_into_select select * from hits.hits limit ${insert_into_select_rows};"; then
+        if ${clt} -e"insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"; then
             end=$(date +%%s%%3N)
             insert_into_select_time=$(echo "scale=1; (${end} - ${start})/1000" | bc)
         else
-            echo "ERROR: failed to insert into load_test_db.hits_insert_into_select select * from hits.hits limit ${insert_into_select_rows};"
+            echo "ERROR: failed to insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"
             return 1
         fi
         sleep 5
-        if [[ $(${clt} -Dload_test_db -e"select count(*) from hits_insert_into_select" | sed -n '2p') != "${insert_into_select_rows}" ]]; then echo "check load fail..." && return 1; fi
+        if [[ $(${clt} -D"${DB}" -e"select count(*) from hits_insert_into_select" | sed -n '2p') != "${insert_into_select_rows}" ]]; then echo "check load fail..." && return 1; fi
 
         echo "#### record load test result"
         insert_into_select_speed=$(echo "${insert_into_select_rows} / 1000 / ${insert_into_select_time}" | bc)
@@ -651,8 +653,8 @@ exit_flag=0
 
     echo "#### 3. run streamload test"
     set_session_variable runtime_filter_mode global
-    ${clt} -e "DROP DATABASE IF EXISTS streamload" && sleep 1
-    ${clt} -e "CREATE DATABASE IF NOT EXISTS streamload" && sleep 5
+    ${clt} -e "DROP DATABASE IF EXISTS ${DB}" && sleep 1
+    ${clt} -e "CREATE DATABASE IF NOT EXISTS ${DB}" && sleep 5
     if ! stream_load_json; then exit 1; fi
     if ! stream_load_orc; then exit 1; fi
     if ! stream_load_parquet; then exit 1; fi
