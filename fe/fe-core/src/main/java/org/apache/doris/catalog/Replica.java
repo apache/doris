@@ -21,6 +21,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugPointUtil;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
@@ -597,8 +598,16 @@ public class Replica implements Writable {
         strBuffer.append(", backendId=");
         strBuffer.append(backendId);
         if (checkBeAlive) {
-            strBuffer.append(", backendAlive=");
-            strBuffer.append(Env.getCurrentSystemInfo().checkBackendAlive(backendId));
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend == null) {
+                strBuffer.append(", backend=null");
+            } else {
+                strBuffer.append(", backendAlive=");
+                strBuffer.append(backend.isAlive());
+                if (backend.isDecommissioned()) {
+                    strBuffer.append(", backendDecommission=true");
+                }
+            }
         }
         strBuffer.append(", version=");
         strBuffer.append(version);
