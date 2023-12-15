@@ -93,6 +93,7 @@ import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoEsScan;
 import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoJdbcScan;
+import org.apache.doris.nereids.rules.rewrite.PushConjunctsIntoOdbcScan;
 import org.apache.doris.nereids.rules.rewrite.PushDownCountThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownCountThroughJoinOneSide;
 import org.apache.doris.nereids.rules.rewrite.PushDownDistinctThroughJoin;
@@ -332,6 +333,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new PruneEmptyPartition(),
                             new PruneFileScanPartition(),
                             new PushConjunctsIntoJdbcScan(),
+                            new PushConjunctsIntoOdbcScan(),
                             new PushConjunctsIntoEsScan()
                     )
             ),
