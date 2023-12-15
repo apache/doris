@@ -40,7 +40,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
-import java.util.Set;
 
 /**
  * syntax:
@@ -86,15 +85,11 @@ public class CreateJobStmt extends DdlStmt {
     private JobExecuteType executeType;
 
     // exclude job name prefix, which is used by inner job
-    private final Set<String> excludeJobNamePrefix = new HashSet<>();
-
-    {
-        excludeJobNamePrefix.add("inner_mtmv_");
-    }
+    private final String excludeJobNamePrefix = "inner_";
 
     private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
             = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
-            .add(UpdateStmt.class).build();
+            .build();
 
     private static final HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
 
@@ -164,16 +159,15 @@ public class CreateJobStmt extends DdlStmt {
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt);
         job.setExecuteSql(executeSql);
-
-        //job.checkJobParams();
         jobInstance = job;
     }
 
     private void checkJobName(String jobName) throws AnalysisException {
-        for (String prefix : excludeJobNamePrefix) {
-            if (jobName.startsWith(prefix)) {
-                throw new AnalysisException("job name can not start with " + prefix);
-            }
+        if (StringUtils.isBlank(jobName)) {
+            throw new AnalysisException("job name can not be null");
+        }
+        if (jobName.startsWith(excludeJobNamePrefix)) {
+            throw new AnalysisException("job name can not start with " + excludeJobNamePrefix);
         }
     }
 
@@ -193,7 +187,7 @@ public class CreateJobStmt extends DdlStmt {
                 return;
             }
         }
-        throw new AnalysisException("Not support this stmt type");
+        throw new AnalysisException("Not support " + doStmt.getClass().getSimpleName() + " type in job");
     }
 
     private void analyzerSqlStmt() throws UserException {
