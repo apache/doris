@@ -260,6 +260,8 @@ Status PipelineXFragmentContext::_plan_local_exchange(
             for (auto& child : _pipelines[pip_idx]->children()) {
                 if (child->sink_x()->node_id() ==
                     _pipelines[pip_idx]->operator_xs().front()->node_id()) {
+                    RETURN_IF_ERROR(_pipelines[pip_idx]->operator_xs().front()->set_child(
+                            child->operator_xs().back()));
                     _pipelines[pip_idx]->set_need_to_local_shuffle(
                             _pipelines[pip_idx]->need_to_local_shuffle() &&
                             child->need_to_local_shuffle());
@@ -854,6 +856,9 @@ Status PipelineXFragmentContext::_add_local_exchange(
 
     // 7. Inherit properties from current pipeline.
     _inherit_pipeline_properties(exchange_type, cur_pipe, new_pip);
+
+    LOG(WARNING) << "=======1 " << cur_pipe->debug_string();
+    LOG(WARNING) << "=======2 " << new_pip->debug_string();
 
     CHECK(total_op_num + 1 == cur_pipe->operator_xs().size() + new_pip->operator_xs().size())
             << "total_op_num: " << total_op_num
