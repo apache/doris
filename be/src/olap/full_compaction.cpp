@@ -117,8 +117,11 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
                 _full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
     }
     std::vector<RowsetSharedPtr> output_rowsets(1, _output_rowset);
-    RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-    _tablet->save_meta();
+    {
+        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+        RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+        _tablet->save_meta();
+    }
     return Status::OK();
 }
 
