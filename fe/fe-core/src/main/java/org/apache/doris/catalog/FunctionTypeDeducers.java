@@ -31,6 +31,7 @@ public class FunctionTypeDeducers {
             .put("named_struct", new NamedStructDeducer())
             .put("struct_element", new StructElementDeducer())
             .put("array_contains", new ArrayElemFuncDeducer())
+            .put("array_pushback", new ArrayElemFuncDeducer())
             .put("element_at", new ArrayElemFuncDeducer())
             .build();
 

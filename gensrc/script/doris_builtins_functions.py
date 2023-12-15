@@ -723,6 +723,7 @@ visible_functions = {
         [['array_pushfront'], 'ARRAY_VARCHAR',    ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['array_pushfront'], 'ARRAY_STRING',     ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['array_pushback'], 'ARRAY<T>',    ['ARRAY<T>', 'T'], 'ALWAYS_NULLABLE', ['T']],
         [['array_pushback'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_SMALLINT',   ['ARRAY_SMALLINT', 'SMALLINT'], 'ALWAYS_NULLABLE'],
@@ -1412,6 +1413,9 @@ visible_functions = {
         # The priority of varchar should be lower than decimal in IS_SUPERTYPE_OF mode.
         [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['nullif'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
+
+        [['is_null_pred'], "BOOLEAN", ['T', '...'], 'ALWAYS_NULLABLE', ['T']],
+        [['is_not_null_pred'], "BOOLEAN", ['T', '...'], 'ALWAYS_NULLABLE', ['T']],
 
         [['ifnull', 'nvl'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], 'CUSTOM'],
         [['ifnull', 'nvl'], 'TINYINT', ['TINYINT', 'TINYINT'], 'CUSTOM'],

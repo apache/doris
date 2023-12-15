@@ -385,27 +385,41 @@ public class FunctionSet<T> {
                 throw new TypeException(templateFunction
                                 + " is not support for template since it's not a ScalarFunction");
             }
-            Type[] args = specializedFunction.getArgs();
+            ArrayList<Type> args = new ArrayList<>();
+            Collections.addAll(args, specializedFunction.getArgs());
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
-            for (int i = 0; i < args.length; i++) {
-                if (args[i].hasTemplateType()) {
+            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
+            int i = 0;
+            for (; i < args.size(); i++) {
+                if (args.get(i).hasTemplateType()) {
                     hasTemplateType = true;
                     // if args[i] is template type, and requestFunction.getArgs()[i] NULL_TYPE, we need call function
                     // deduce to get the specific type
                     Type deduceType = requestFunction.getArgs()[i];
                     if (requestFunction.getArgs()[i].isNull()
                             || (requestFunction.getArgs()[i] instanceof ArrayType
-                            && ((ArrayType) requestFunction.getArgs()[i]).getItemType().isNull()
-                            && FunctionTypeDeducers.DEDUCERS.containsKey(specializedFunction.functionName()))) {
+                            && ((ArrayType) requestFunction.getArgs()[i]).getItemType().isNull())
+                            && FunctionTypeDeducers.DEDUCERS.containsKey(specializedFunction.functionName())) {
                         deduceType = FunctionTypeDeducers.deduce(specializedFunction.functionName(), i, requestFunction.getArgs());
-                        args[i] = args[i].specializeTemplateType(deduceType == null ? requestFunction.getArgs()[i]
-                            : deduceType, specializedTypeMap, false, enableDecimal256);
+                        args.set(i, args.get(i).specializeTemplateType(deduceType == null ? requestFunction.getArgs()[i]
+                                : deduceType, specializedTypeMap, false, enableDecimal256));
                     } else {
-                        args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i],
-                                specializedTypeMap, false, enableDecimal256);
+                        args.set(i, args.get(i).specializeTemplateType(requestFunction.getArgs()[i],
+                                specializedTypeMap, false, enableDecimal256));
                     }
                 }
             }
+            // here need to support varArgs template according to request data
+            if (specializedFunction.hasVarArgs() && i < requestFunction.getNumArgs()) {
+                for (; i < requestFunction.getNumArgs(); i++) {
+                    if (requestFunction.getArgs()[i].isNull()) {
+                        args.add(args.get(i - 1));
+                    } else {
+                        args.add(requestFunction.getArgs()[i]);
+                    }
+                }
+            }
+            specializedFunction.setArgs(args);
             if (specializedFunction.getReturnType().hasTemplateType()) {
                 hasTemplateType = true;
                 specializedFunction.setReturnType(
