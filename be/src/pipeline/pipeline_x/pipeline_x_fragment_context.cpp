@@ -857,9 +857,6 @@ Status PipelineXFragmentContext::_add_local_exchange(
     // 7. Inherit properties from current pipeline.
     _inherit_pipeline_properties(exchange_type, cur_pipe, new_pip);
 
-    LOG(WARNING) << "=======1 " << cur_pipe->debug_string();
-    LOG(WARNING) << "=======2 " << new_pip->debug_string();
-
     CHECK(total_op_num + 1 == cur_pipe->operator_xs().size() + new_pip->operator_xs().size())
             << "total_op_num: " << total_op_num
             << " cur_pipe->operator_xs().size(): " << cur_pipe->operator_xs().size()
