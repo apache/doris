@@ -337,7 +337,7 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (6, '{"j" : 1}'), (1, '{"a" : 1}')"""
         sql """insert into ${table_name} values (6, '{"k" : 1}'), (1, '{"a" : 1}')"""
         sql "select * from ${table_name}"
-        qt_sql_36_1 "select v:a, v:b, v:c from ${table_name} order by k limit 10"
+        qt_sql_36_1 "select cast(v:a as int), cast(v:b as int), cast(v:c as int) from ${table_name} order by k limit 10"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
         qt_sql_36_2 "select * from ${table_name} where k > 3 order by k desc limit 10"
