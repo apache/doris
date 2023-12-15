@@ -19,11 +19,10 @@ package org.apache.doris.nereids.trees.plans.visitor;
 
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.ArrayItemReference.ArrayItemSlot;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -74,7 +73,8 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
     }
 
     /**
-     * The Collector for target named expressions
+     * The Collector for target named expressions in the whole plan, and will be used to
+     * replace the target expression later
      * TODO Collect named expression by targetTypes, tableIdentifiers
      */
     public static class NamedExpressionCollector
@@ -83,15 +83,9 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
         public static final NamedExpressionCollector INSTANCE = new NamedExpressionCollector();
 
         @Override
-        public Void visitSlotReference(SlotReference slotReference, ExpressionReplaceContext context) {
-            context.getExprIdExpressionMap().put(slotReference.getExprId(), slotReference);
-            return super.visitSlotReference(slotReference, context);
-        }
-
-        @Override
-        public Void visitArrayItemSlot(ArrayItemSlot arrayItemSlot, ExpressionReplaceContext context) {
-            context.getExprIdExpressionMap().put(arrayItemSlot.getExprId(), arrayItemSlot);
-            return super.visitArrayItemSlot(arrayItemSlot, context);
+        public Void visitSlot(Slot slot, ExpressionReplaceContext context) {
+            context.getExprIdExpressionMap().put(slot.getExprId(), slot);
+            return super.visit(slot, context);
         }
 
         @Override
@@ -121,7 +115,7 @@ public class ExpressionLineageReplacer extends DefaultPlanVisitor<Expression, Ex
             this.targetExpressions = targetExpressions;
             this.targetTypes = targetTypes;
             this.tableIdentifiers = tableIdentifiers;
-            // collect only named expressions and replace them with linage identifier later
+            // collect the named expressions used in target expression and will be replaced later
             this.exprIdExpressionMap = targetExpressions.stream()
                     .map(each -> each.collectToList(NamedExpression.class::isInstance))
                     .flatMap(Collection::stream)

@@ -1135,9 +1135,11 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                     continue;
                 }
                 tablet_to_compact.emplace_back(t, score);
-                std::sort(tablet_to_compact.begin(), tablet_to_compact.end(),
-                          [](auto& a, auto& b) { return a.second > b.second; });
-                if (tablet_to_compact.size() > n) tablet_to_compact.pop_back();
+                if (tablet_to_compact.size() > n) {
+                    std::sort(tablet_to_compact.begin(), tablet_to_compact.end(),
+                              [](auto& a, auto& b) { return a.second > b.second; });
+                    tablet_to_compact.pop_back();
+                }
                 continue;
             }
             // else, need to follow
@@ -1151,9 +1153,12 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
             // TODO(plat1ko): some avoidance strategy if failed to follow
             auto score = t->calc_cold_data_compaction_score();
             tablet_to_follow.emplace_back(t, score);
-            std::sort(tablet_to_follow.begin(), tablet_to_follow.end(),
-                      [](auto& a, auto& b) { return a.second > b.second; });
-            if (tablet_to_follow.size() > n) tablet_to_follow.pop_back();
+
+            if (tablet_to_follow.size() > n) {
+                std::sort(tablet_to_follow.begin(), tablet_to_follow.end(),
+                          [](auto& a, auto& b) { return a.second > b.second; });
+                tablet_to_follow.pop_back();
+            }
         }
 
         for (auto& [tablet, score] : tablet_to_compact) {

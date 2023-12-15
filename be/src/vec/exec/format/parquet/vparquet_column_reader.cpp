@@ -482,7 +482,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                                             ColumnSelectVector& select_vector, size_t batch_size,
                                             size_t* read_rows, bool* eof, bool is_dict_filter) {
     bool need_convert = false;
-    auto& parquet_physical_type = _chunk_meta.meta_data.type;
+    auto parquet_physical_type =
+            !is_dict_filter ? _chunk_meta.meta_data.type : tparquet::Type::INT32;
     auto& show_type = _field_schema->type.type;
 
     ColumnPtr src_column = ParquetConvert::get_column(parquet_physical_type, show_type,
