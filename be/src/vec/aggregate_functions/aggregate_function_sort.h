@@ -159,7 +159,7 @@ public:
 
     void create(AggregateDataPtr __restrict place) const override {
         new (place) Data(_sort_desc, _block);
-        _nested_func->create(get_nested_place(place));
+        SAFE_CREATE(_nested_func->create(get_nested_place(place)), this->data(place).~Data());
     }
 
     void destroy(AggregateDataPtr __restrict place) const noexcept override {
