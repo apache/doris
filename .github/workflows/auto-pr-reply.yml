@@ -20,21 +20,17 @@ name: Auto Reply to PR
 on:
   pull_request:
     types: [opened]
-
 jobs:
-  comment:
+  pr_commented:
+    # This job only runs for pull request comments
+    name: PR comment
+    if: ${{ github.event.issue.pull_request }}
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
-        with:
-          persist-credentials: false
-          submodules: recursive
-      - name: Comment on PR
-        uses: ./.github/actions/create-or-update-comment
-        with:
-          issue-number: ${{ github.event.pull_request.number }}
-          body: |
-              Thank you for your contribution to Apache Doris.
-  
-              Don't know what should be done next? See [How to process your PR](https://cwiki.apache.org/confluence/display/DORIS/How+to+process+your+PR)
+      - run: |
+          echo Thank you for your contribution to Apache Doris.
+          
+          echo Don't know what should be done next? See [How to process your PR](https://cwiki.apache.org/confluence/display/DORIS/How+to+process+your+PR)
+
+        env:
+          NUMBER: ${{ github.event.issue.number }}
