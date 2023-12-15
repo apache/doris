@@ -326,6 +326,8 @@ public:
 private:
     void _expand() {
         _index_in_sub_container = 0;
+        _current_keys = nullptr;
+        _current_agg_data = nullptr;
         try {
             _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
             _key_containers.emplace_back(_current_keys);
