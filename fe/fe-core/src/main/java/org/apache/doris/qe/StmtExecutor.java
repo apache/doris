@@ -1151,12 +1151,18 @@ public class StmtExecutor {
             if (context.getSessionVariable().isEnableRewriteElementAtToSlot()) {
                 parsedStmt.rewriteElementAtToSlot(rewriter, tQueryOptions);
             }
+
             // Apply expr and subquery rewrites.
             ExplainOptions explainOptions = parsedStmt.getExplainOptions();
             boolean reAnalyze = false;
 
             parsedStmt.rewriteExprs(rewriter);
             reAnalyze = rewriter.changed();
+            if (context.getSessionVariable().isEnableFoldConstantByBe()) {
+                // fold constant expr
+                parsedStmt.foldConstant(rewriter, tQueryOptions);
+
+            }
             if (analyzer.containSubquery()) {
                 parsedStmt = setParsedStmt(StmtRewriter.rewrite(analyzer, parsedStmt));
                 reAnalyze = true;
