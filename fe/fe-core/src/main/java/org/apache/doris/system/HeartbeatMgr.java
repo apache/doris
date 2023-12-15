@@ -27,6 +27,7 @@ import org.apache.doris.common.Version;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeDiskInfo;
 import org.apache.doris.service.FrontendOptions;
@@ -106,7 +107,12 @@ public class HeartbeatMgr extends MasterDaemon {
         List<TFrontendInfo> feInfos = Env.getCurrentEnv().getFrontendInfos();
         List<Future<HeartbeatResponse>> hbResponses = Lists.newArrayList();
         // send backend heartbeat
+        BackendServiceProxy proxy = BackendServiceProxy.getInstance();
         for (Backend backend : nodeMgr.getIdToBackend().values()) {
+            String ip = proxy.checkProxyIP(new TNetworkAddress(backend.getHost(), backend.getBrpcPort()));
+            if (ip != null) {
+                backend.setIP(ip);
+            }
             BackendHeartbeatHandler handler = new BackendHeartbeatHandler(backend, feInfos);
             hbResponses.add(executor.submit(handler));
         }
@@ -219,7 +225,8 @@ public class HeartbeatMgr extends MasterDaemon {
             long backendId = backend.getId();
             HeartbeatService.Client client = null;
 
-            TNetworkAddress beAddr = new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort());
+            TNetworkAddress beAddr = new TNetworkAddress(
+                    backend.getIP().equals("") ? backend.getHost() : backend.getIP(), backend.getHeartbeatPort());
             boolean ok = false;
             try {
                 TMasterInfo copiedMasterInfo = new TMasterInfo(masterInfo.get());

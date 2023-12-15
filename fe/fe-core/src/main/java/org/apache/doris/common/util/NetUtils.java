@@ -95,9 +95,19 @@ public class NetUtils {
         return hostName;
     }
 
-    public static String getIpByHost(String host) throws UnknownHostException {
-        InetAddress inetAddress = InetAddress.getByName(host);
-        return inetAddress.getHostAddress();
+    public static String getIpByHost(String host, int retryTimes) throws UnknownHostException {
+        InetAddress inetAddress;
+        while (true) {
+            try {
+                inetAddress = InetAddress.getByName(host);
+                return inetAddress.getHostAddress();
+            } catch (UnknownHostException e) {
+                LOG.warn("NetUtils.getIpByHost failed, hostanme: {}, remaining retryTimes: {}", host, retryTimes);
+                if (retryTimes-- <= 0) {
+                    throw e;
+                }
+            }
+        }
     }
 
     // This is the implementation is inspired by Apache camel project:

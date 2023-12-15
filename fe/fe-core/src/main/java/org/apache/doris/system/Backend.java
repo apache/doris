@@ -64,6 +64,8 @@ public class Backend implements Writable {
     private long id;
     @SerializedName("host")
     private volatile String host;
+    @SerializedName("ip")
+    private volatile String ip;
     private String version;
 
     @SerializedName("heartbeatPort")
@@ -145,6 +147,7 @@ public class Backend implements Writable {
 
     public Backend() {
         this.host = "";
+        this.ip = "";
         this.version = "";
         this.lastUpdateMs = 0;
         this.lastStartTime = 0;
@@ -162,6 +165,7 @@ public class Backend implements Writable {
     public Backend(long id, String host, int heartbeatPort) {
         this.id = id;
         this.host = host;
+        this.ip = "";
         this.version = "";
         this.heartbeatPort = heartbeatPort;
         this.bePort = -1;
@@ -219,6 +223,10 @@ public class Backend implements Writable {
 
     public String getHost() {
         return host;
+    }
+
+    public String getIP() {
+        return ip;
     }
 
     public String getVersion() {
@@ -324,6 +332,10 @@ public class Backend implements Writable {
 
     public void setHost(String host) {
         this.host = host;
+    }
+
+    public void setIP(String ip) {
+        this.ip = ip;
     }
 
     public void setAlive(boolean isAlive) {
@@ -715,9 +727,9 @@ public class Backend implements Writable {
 
     @Override
     public String toString() {
-        return "Backend [id=" + id + ", host=" + host + ", heartbeatPort=" + heartbeatPort + ", alive=" + isAlive.get()
-                + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch=" + lastStartTime
-                + ", tags: " + tagMap + "]";
+        return "Backend [id=" + id + ", host=" + host + ", ip=" + ip + ", heartbeatPort=" + heartbeatPort + ", alive="
+                + isAlive.get() + ", lastStartTime=" + TimeUtils.longToTimeString(lastStartTime) + ", process epoch="
+                + lastStartTime + ", tags: " + tagMap + "]";
     }
 
     public String getHealthyStatus() {
