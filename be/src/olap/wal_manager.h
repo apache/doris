@@ -95,11 +95,11 @@ private:
     std::shared_ptr<std::atomic_size_t> _all_wal_disk_bytes;
     std::unordered_map<int64_t, std::unordered_map<int64_t, WAL_STATUS>> _wal_status_queues;
     std::atomic<bool> _stop;
+    std::shared_mutex _wal_column_id_map_lock;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
     std::shared_mutex _wal_cv_lock;
     std::unordered_map<int64_t, std::shared_ptr<std::mutex>> _wal_lock_map;
     std::unordered_map<int64_t, std::shared_ptr<std::condition_variable>> _wal_cv_map;
-    std::unordered_map<int64_t, bool> _wal_relay_map;
     std::shared_ptr<std::condition_variable> _cv;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
 };

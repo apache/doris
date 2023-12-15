@@ -395,10 +395,13 @@ void WalManager::stop_relay_wal() {
 }
 
 void WalManager::add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_column_id_map_lock);
     _wal_column_id_map.emplace(wal_id, column_index);
+    LOG(INFO) << "add " << wal_id << " to wal_column_id_map";
 }
 
 void WalManager::erase_wal_column_index(int64_t wal_id) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_column_id_map_lock);
     if (_wal_column_id_map.erase(wal_id)) {
         LOG(INFO) << "erase " << wal_id << " from wal_column_id_map";
     } else {
@@ -407,6 +410,7 @@ void WalManager::erase_wal_column_index(int64_t wal_id) {
 }
 
 Status WalManager::get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_column_id_map_lock);
     auto it = _wal_column_id_map.find(wal_id);
     if (it != _wal_column_id_map.end()) {
         column_index = it->second;
