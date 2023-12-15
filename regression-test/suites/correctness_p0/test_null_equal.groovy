@@ -70,5 +70,7 @@ suite("test_null_equal") {
 
     qt_test6 "select * from test_eq_for_null_nullable a, test_eq_for_null_nullable2 b where a.k1 <=> b.k1 order by 1;"
 
+    qt_test7 "select * from test_eq_for_null_nullable2 where k1 <=> 1 order by 1;"
+
 
 }
