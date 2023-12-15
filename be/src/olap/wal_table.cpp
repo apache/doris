@@ -316,7 +316,8 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
                 ss_name << "`" << it->second << "`,";
                 ss_id << "c" << std::to_string(_column_id_index_map[column_id]) << ",";
                 index_vector.emplace_back(index_raw);
-                //_column_id_name_map.erase(column_id);
+                _column_id_name_map.erase(column_id);
+                _column_id_index_map.erase(column_id);
             }
             index_raw++;
         } catch (const std::invalid_argument& e) {
@@ -441,8 +442,8 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
             try {
                 auto column_name = column.substr(0, pos);
                 int64_t column_id = std::strtoll(column.substr(pos + 1).c_str(), NULL, 10);
-                _column_id_name_map[column_id] = column_name;
-                _column_id_index_map[column_id] = column_index;
+                _column_id_name_map.emplace(column_id, column_name);
+                _column_id_index_map.emplace(column_id, column_index);
                 column_index++;
             } catch (const std::invalid_argument& e) {
                 return Status::InvalidArgument("Invalid format, {}", e.what());

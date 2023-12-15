@@ -3399,7 +3399,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
         StringBuilder sb = new StringBuilder();
-        for (Column column : table.getFullSchema()) {
+        for (Column column : table.getBaseSchema(true)) {
             sb.append(column.getName() + ":" + column.getUniqueId() + ",");
         }
         String columnInfo = sb.toString();
