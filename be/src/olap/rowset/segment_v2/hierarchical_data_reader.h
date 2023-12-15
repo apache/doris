@@ -140,7 +140,7 @@ private:
 
         // copy container variant to dst variant, todo avoid copy
         variant.insert_range_from(container_variant, 0, nrows);
-        variant.set_num_rows(nrows);
+        // variant.set_num_rows(nrows);
         _rows_read += nrows;
         variant.finalize();
 #ifndef NDEBUG
@@ -180,7 +180,7 @@ public:
 private:
     Status extract_to(vectorized::MutableColumnPtr& dst, size_t nrows);
 
-    const TabletColumn& _col;
+    TabletColumn _col;
     // may shared among different column iterators
     std::unique_ptr<StreamReader> _root_reader;
 };

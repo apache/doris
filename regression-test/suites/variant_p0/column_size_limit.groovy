@@ -14,8 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+import groovy.json.JsonBuilder
 
-suite("regression_test_variant_column_limit"){
+suite("regression_test_variant_column_limit", "nonConcurrent"){
     def set_be_config = { key, value ->
         String backend_id;
         def backendId_to_backendIP = [:]
@@ -27,7 +28,6 @@ suite("regression_test_variant_column_limit"){
         logger.info("update config: code=" + code + ", out=" + out + ", err=" + err)
     }
     def table_name = "var_column_limit"
-    set_be_config.call("variant_max_merged_tablet_schema_size", "5")
     sql "DROP TABLE IF EXISTS ${table_name}"
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -39,11 +39,21 @@ suite("regression_test_variant_column_limit"){
         properties("replication_num" = "1", "disable_auto_compaction" = "false");
     """
     try {
-        sql """insert into ${table_name} values (1, '{"a" : 1, "b" : 2, "c" : 3, "d" : 4, "e" : 5}')"""
+        def jsonBuilder = new JsonBuilder()
+        def root = jsonBuilder {
+            // Generate 2049 fields
+            (1..2049).each { fieldNumber ->
+                "field$fieldNumber" fieldNumber
+            }
+        }
+
+        String jsonString = jsonBuilder.toPrettyString()
+        sql """insert into ${table_name} values (1, '$jsonString')"""
     } catch(Exception ex) {
         logger.info("""INSERT INTO ${table_name} failed: """ + ex)
+        assertTrue(ex.toString().contains("Reached max column"));
+    } finally {
     }
     sql """insert into ${table_name} values (1, '{"a" : 1, "b" : 2, "c" : 3}')"""
 
-    set_be_config.call("variant_max_merged_tablet_schema_size", "1024")
 }
