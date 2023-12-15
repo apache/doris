@@ -727,8 +727,7 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
                 slot->col_unique_id());
         if (iterator_hint == nullptr) {
-            RETURN_IF_ERROR(
-                    new_column_iterator_with_path(column, &iterator_hint, &storage_read_opt));
+            RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_opt));
             RETURN_IF_ERROR(iterator_hint->init(opt));
         }
         RETURN_IF_ERROR(
@@ -739,12 +738,8 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         file_storage_column->get(0, field);
         result->insert(field);
     } else {
-        int index = -1;
-        if (slot->col_unique_id() >= 0) {
-            index = schema.field_index(slot->col_name());
-        } else {
-            index = schema.field_index(slot->col_name());
-        }
+        int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
+                                                 : schema.field_index(slot->col_name());
         if (index < 0) {
             std::stringstream ss;
             ss << "field name is invalid. field=" << slot->col_name()
