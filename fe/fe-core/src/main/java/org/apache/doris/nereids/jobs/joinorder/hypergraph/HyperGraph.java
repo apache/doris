@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.FilterEdge;
@@ -230,7 +231,8 @@ public class HyperGraph {
         for (Map.Entry<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> entry : conjuncts
                 .entrySet()) {
             LogicalJoin<?, ?> singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
-                    entry.getValue().second, JoinHint.NONE, join.getMarkJoinSlotReference(),
+                    entry.getValue().second,
+                    new DistributeHint("Distribute", JoinHint.NONE), join.getMarkJoinSlotReference(),
                     Lists.newArrayList(join.left(), join.right()));
             Pair<Long, Long> ends = entry.getKey();
             JoinEdge edge = new JoinEdge(singleJoin, joinEdges.size(), leftEdgeNodes.first, rightEdgeNodes.first,

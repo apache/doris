@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans;
 
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
@@ -233,20 +234,20 @@ class PlanEqualsTest {
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, left, right);
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties, left, right);
 
         PhysicalHashJoin<Plan, Plan> expected = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(0), "a", BigIntType.INSTANCE, true, Lists.newArrayList()),
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, left, right);
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties, left, right);
         Assertions.assertEquals(expected, actual);
 
         PhysicalHashJoin<Plan, Plan> unexpected = new PhysicalHashJoin<>(JoinType.INNER_JOIN,
                 Lists.newArrayList(new EqualTo(
                         new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, false, Lists.newArrayList()),
                         new SlotReference(new ExprId(3), "b", BigIntType.INSTANCE, true, Lists.newArrayList()))),
-                ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(), logicalProperties, left, right);
+                ExpressionUtils.EMPTY_CONDITION, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), logicalProperties, left, right);
         Assertions.assertNotEquals(unexpected, actual);
     }
 

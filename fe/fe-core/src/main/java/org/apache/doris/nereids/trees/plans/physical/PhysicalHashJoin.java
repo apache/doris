@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.physical;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.processor.post.RuntimeFilterGenerator;
@@ -31,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -64,7 +64,7 @@ public class PhysicalHashJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             LogicalProperties logicalProperties,
             LEFT_CHILD_TYPE leftChild,
@@ -83,7 +83,7 @@ public class PhysicalHashJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,
@@ -96,7 +96,7 @@ public class PhysicalHashJoin<
             JoinType joinType,
             List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjuncts,
-            JoinHint hint,
+            DistributeHint hint,
             Optional<MarkJoinSlotReference> markJoinSlotReference,
             Optional<GroupExpression> groupExpression,
             LogicalProperties logicalProperties,

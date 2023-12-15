@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.DependsRules;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -282,7 +283,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             return PlanUtils.filterOrSelf(ImmutableSet.copyOf(remainingFilter), new LogicalJoin<>(
                     multiJoinHandleChildren.getJoinType(),
                     ExpressionUtils.EMPTY_CONDITION, multiJoinHandleChildren.getNotInnerJoinConditions(),
-                    JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
+                    new DistributeHint("Distribute",
+                                JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE))),
                     Optional.empty(),
                     left, right));
         }
@@ -357,7 +359,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 usedPlansIndex.add(i);
                 return new LogicalJoin<>(JoinType.INNER_JOIN,
                         hashJoinConditions, otherJoinConditions,
-                        JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(candidate, JoinHintType.NONE)),
+                        new DistributeHint("Distribute", JoinHint.fromRightPlanHintType(
+                                planToHintType.getOrDefault(candidate, JoinHintType.NONE))),
                         Optional.empty(),
                         left, candidate);
             }
@@ -369,7 +372,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 otherJoinConditions,
-                JoinHint.fromRightPlanHintType(planToHintType.getOrDefault(right, JoinHintType.NONE)),
+                new DistributeHint("Distribute", JoinHint.fromRightPlanHintType(
+                        planToHintType.getOrDefault(right, JoinHintType.NONE))),
                 Optional.empty(),
                 left, right);
     }

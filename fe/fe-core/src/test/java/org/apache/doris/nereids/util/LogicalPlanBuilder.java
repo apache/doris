@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -121,7 +122,7 @@ public class LogicalPlanBuilder {
     public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjucts) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
-                JoinHint.NONE, Optional.empty(), this.plan, right);
+                new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), this.plan, right);
         return from(join);
     }
 

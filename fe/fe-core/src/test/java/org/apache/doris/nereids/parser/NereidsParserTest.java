@@ -383,20 +383,20 @@ public class NereidsParserTest extends ParserTestBase {
     public void testJoinHint() {
         // no hint
         parsePlan("select * from t1 join t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.NONE));
+                .matches(logicalJoin().when(j -> j.getHint().joinHint == JoinHint.NONE));
 
         // valid hint
         parsePlan("select * from t1 join [shuffle] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+                .matches(logicalJoin().when(j -> j.getHint().joinHint == JoinHint.SHUFFLE_RIGHT));
 
         parsePlan("select * from t1 join [  shuffle ] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.SHUFFLE_RIGHT));
+                .matches(logicalJoin().when(j -> j.getHint().joinHint == JoinHint.SHUFFLE_RIGHT));
 
         parsePlan("select * from t1 join [broadcast] t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+                .matches(logicalJoin().when(j -> j.getHint().joinHint == JoinHint.BROADCAST_RIGHT));
 
         parsePlan("select * from t1 join /*+ broadcast   */ t2 on t1.keyy=t2.keyy")
-                .matches(logicalJoin().when(j -> j.getHint() == JoinHint.BROADCAST_RIGHT));
+                .matches(logicalJoin().when(j -> j.getHint().joinHint == JoinHint.BROADCAST_RIGHT));
 
         // invalid hint position
         parsePlan("select * from [shuffle] t1 join t2 on t1.keyy=t2.keyy")

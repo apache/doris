@@ -20,6 +20,7 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -289,7 +290,7 @@ public class HyperGraphBuilder {
             int randomIndex = random.nextInt(values.length);
             JoinHint hint = values[randomIndex];
             Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);
-            ((LogicalJoin) hintJoin).setHint(hint);
+            ((LogicalJoin) hintJoin).setHint(new DistributeHint("Distribute", hint));
             return hintJoin;
         }
         return ((LogicalJoin) join.withChildren(left, right)).withJoinType(joinType);

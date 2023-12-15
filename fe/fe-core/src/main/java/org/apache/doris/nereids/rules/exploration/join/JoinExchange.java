@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
@@ -85,11 +86,14 @@ public class JoinExchange extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts, JoinHint.NONE, a, c);
+                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
+                            new DistributeHint("Distribute", JoinHint.NONE), a, c);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts, JoinHint.NONE, b, d);
+                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
+                            new DistributeHint("Distribute", JoinHint.NONE), b, d);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
+                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
+                            new DistributeHint("Distribute", JoinHint.NONE),
                             newLeftJoin, newRightJoin);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 

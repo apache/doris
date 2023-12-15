@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.exploration.join;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.CBOUtils;
@@ -90,16 +91,19 @@ public class JoinExchangeRightProject extends OneExplorationRuleFactory {
                     }
 
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts, JoinHint.NONE, a, c);
+                            newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts,
+                            new DistributeHint("Distribute", JoinHint.NONE), a, c);
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts, JoinHint.NONE, b, d);
+                            newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts,
+                            new DistributeHint("Distribute", JoinHint.NONE), b, d);
                     Set<ExprId> topUsedExprIds = new HashSet<>(topJoin.getOutputExprIdSet());
                     newTopJoinHashJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     newTopJoinOtherJoinConjuncts.forEach(expr -> topUsedExprIds.addAll(expr.getInputSlotExprIds()));
                     Plan left = CBOUtils.newProject(topUsedExprIds, newLeftJoin);
                     Plan right = CBOUtils.newProject(topUsedExprIds, newRightJoin);
                     LogicalJoin newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
+                            newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts,
+                            new DistributeHint("Distribute", JoinHint.NONE),
                             left, right);
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 

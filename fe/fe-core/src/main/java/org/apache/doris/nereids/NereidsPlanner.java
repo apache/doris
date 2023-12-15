@@ -29,6 +29,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.executor.Optimizer;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
@@ -357,17 +358,25 @@ public class NereidsPlanner extends Planner {
         String used = "";
         String unUsed = "";
         String syntaxError = "";
+        int distributeHintIndex = 1;
         for (Hint hint : hints) {
+            String distributeIndex = "";
+            if (hint instanceof DistributeHint) {
+                distributeHintIndex++;
+                if (!hint.getExplainString().equals("")) {
+                    distributeIndex = "_" + String.valueOf(distributeHintIndex);
+                }
+            }
             switch (hint.getStatus()) {
                 case UNUSED:
-                    unUsed = unUsed + " " + hint.getExplainString();
+                    unUsed = unUsed + " " + hint.getExplainString() + distributeIndex;
                     break;
                 case SYNTAX_ERROR:
-                    syntaxError = syntaxError + " " + hint.getExplainString()
+                    syntaxError = syntaxError + " " + hint.getExplainString() + distributeIndex
                         + " Msg:" + hint.getErrorMessage();
                     break;
                 case SUCCESS:
-                    used = used + " " + hint.getExplainString();
+                    used = used + " " + hint.getExplainString() + distributeIndex;
                     break;
                 default:
                     break;

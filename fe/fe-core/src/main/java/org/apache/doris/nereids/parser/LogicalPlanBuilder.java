@@ -201,6 +201,7 @@ import org.apache.doris.nereids.analyzer.UnboundVariable.VariableType;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.exceptions.ParseException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.SelectHint;
 import org.apache.doris.nereids.properties.SelectHintLeading;
@@ -2736,6 +2737,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Invalid join hint: " + hint, hintCtx);
                 }
             }).orElse(JoinHint.NONE);
+            DistributeHint distributeHint = new DistributeHint("Distribute", joinHint);
             // TODO: natural join, lateral join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Optional<Expression> condition = Optional.empty();
@@ -2761,14 +2763,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 last = new LogicalJoin<>(joinType, ExpressionUtils.EMPTY_CONDITION,
                         condition.map(ExpressionUtils::extractConjunction)
                                 .orElse(ExpressionUtils.EMPTY_CONDITION),
-                        joinHint,
+                        distributeHint,
                         Optional.empty(),
                         last,
                         plan(join.relationPrimary()));
             } else {
                 last = new UsingJoin<>(joinType, last,
-                        plan(join.relationPrimary()), ImmutableList.of(), ids, joinHint);
+                        plan(join.relationPrimary()), ImmutableList.of(), ids, distributeHint);
 
+            }
+            if (distributeHint.joinHint != JoinHint.NONE
+                    && !ConnectContext.get().getStatementContext().getHints().contains(distributeHint)) {
+                ConnectContext.get().getStatementContext().addHint(distributeHint);
             }
         }
         return last;
@@ -2874,7 +2880,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             JoinType.CROSS_JOIN,
                             ExpressionUtils.EMPTY_CONDITION,
                             ExpressionUtils.EMPTY_CONDITION,
-                            JoinHint.NONE,
+                            new DistributeHint("Distribute", JoinHint.NONE),
                             Optional.empty(),
                             left,
                             right);

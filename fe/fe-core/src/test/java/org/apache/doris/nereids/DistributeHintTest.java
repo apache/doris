@@ -38,7 +38,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-class JoinHintTest extends TestWithFeService implements MemoPatternMatchSupported {
+class DistributeHintTest extends TestWithFeService implements MemoPatternMatchSupported {
 
     @Override
     protected void runBeforeAll() throws Exception {
@@ -127,7 +127,7 @@ class JoinHintTest extends TestWithFeService implements MemoPatternMatchSupporte
                                                         return true;
                                                     }), physicalDistribute()),
                                                     physicalDistribute()
-                                            ).when(join -> join.getHint() == JoinHint.SHUFFLE_RIGHT)
+                                            ).when(join -> join.getHint().joinHint == JoinHint.SHUFFLE_RIGHT)
                                     )
                             )
                     ));

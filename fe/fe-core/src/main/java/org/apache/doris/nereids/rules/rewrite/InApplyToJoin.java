@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -88,7 +89,7 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 }
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         Lists.newArrayList(expr),
-                        JoinHint.NONE,
+                        new DistributeHint("Distribute", JoinHint.NONE),
                         apply.left(), agg);
             }
 
@@ -118,12 +119,12 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                         predicate.nullable() && !apply.isCorrelated()
                                 ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN
                                 : JoinType.LEFT_ANTI_JOIN,
-                        Lists.newArrayList(), conjuncts, JoinHint.NONE,
+                        Lists.newArrayList(), conjuncts, new DistributeHint("Distribute", JoinHint.NONE),
                         apply.getMarkJoinSlotReference(), apply.children());
             } else {
                 return new LogicalJoin<>(JoinType.LEFT_SEMI_JOIN, Lists.newArrayList(),
                         conjuncts,
-                        JoinHint.NONE, apply.getMarkJoinSlotReference(),
+                        new DistributeHint("Distribute", JoinHint.NONE), apply.getMarkJoinSlotReference(),
                         apply.children());
             }
         }).toRule(RuleType.IN_APPLY_TO_JOIN);

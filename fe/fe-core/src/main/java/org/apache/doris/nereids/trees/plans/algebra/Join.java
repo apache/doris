@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.MarkJoinSlotReference;
@@ -45,12 +46,12 @@ public interface Join {
 
     Optional<Expression> getOnClauseCondition();
 
-    JoinHint getHint();
+    DistributeHint getHint();
 
     boolean isMarkJoin();
 
     default boolean hasJoinHint() {
-        return getHint() != JoinHint.NONE;
+        return getHint().joinHint != JoinHint.NONE;
     }
 
     /**
@@ -68,7 +69,7 @@ public interface Join {
      * Get the hint type of join's right child.
      */
     default JoinHintType getRightHint() {
-        switch (getHint()) {
+        switch (getHint().joinHint) {
             case SHUFFLE_RIGHT:
                 return JoinHintType.SHUFFLE;
             case BROADCAST_RIGHT:

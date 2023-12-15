@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -83,7 +84,7 @@ public class PhysicalNestedLoopJoin<
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
                 // nested loop join ignores join hints.
-                JoinHint.NONE, markJoinSlotReference,
+                new DistributeHint("Distribute", JoinHint.NONE), markJoinSlotReference,
                 groupExpression, logicalProperties, leftChild, rightChild);
     }
 
@@ -106,7 +107,7 @@ public class PhysicalNestedLoopJoin<
             RIGHT_CHILD_TYPE rightChild) {
         super(PlanType.PHYSICAL_NESTED_LOOP_JOIN, joinType, hashJoinConjuncts, otherJoinConjuncts,
                 // nested loop join ignores join hints.
-                JoinHint.NONE, markJoinSlotReference,
+                new DistributeHint("Distribute", JoinHint.NONE), markJoinSlotReference,
                 groupExpression, logicalProperties, physicalProperties, statistics, leftChild, rightChild);
     }
 

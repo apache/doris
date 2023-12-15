@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
@@ -62,7 +63,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
         return new LogicalJoin<>(JoinType.CROSS_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.EMPTY_CONDITION,
-                JoinHint.NONE,
+                new DistributeHint("Distribute", JoinHint.NONE),
                 apply.getMarkJoinSlotReference(),
                 (LogicalPlan) apply.left(), assertNumRows);
     }
@@ -85,7 +86,7 @@ public class ScalarApplyToJoin extends OneRewriteRuleFactory {
                 apply.isNeedAddSubOutputToProjects() ? JoinType.LEFT_OUTER_JOIN : JoinType.LEFT_SEMI_JOIN,
                 ExpressionUtils.EMPTY_CONDITION,
                 ExpressionUtils.extractConjunction(correlationFilter.get()),
-                JoinHint.NONE,
+                new DistributeHint("Distribute", JoinHint.NONE),
                 apply.getMarkJoinSlotReference(),
                 apply.children());
     }

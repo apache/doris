@@ -19,6 +19,8 @@ package org.apache.doris.nereids.properties;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.PlanContext;
+import org.apache.doris.nereids.hint.DistributeHint;
+import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
@@ -160,13 +162,15 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin, PlanContext context) {
-        JoinHint hint = hashJoin.getHint();
-        if (hint == JoinHint.BROADCAST_RIGHT && JoinUtils.couldBroadcast(hashJoin)) {
+        DistributeHint hint = hashJoin.getHint();
+        if (hint.joinHint == JoinHint.BROADCAST_RIGHT && JoinUtils.couldBroadcast(hashJoin)) {
             addBroadcastJoinRequestProperty();
+            hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
-        if (hint == JoinHint.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
+        if (hint.joinHint == JoinHint.SHUFFLE_RIGHT && JoinUtils.couldShuffle(hashJoin)) {
             addShuffleJoinRequestProperty(hashJoin);
+            hint.setStatus(Hint.HintStatus.SUCCESS);
             return null;
         }
         // for shuffle join

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -86,7 +87,7 @@ class FindHashConditionForJoinTest implements MemoPatternMatchSupported {
         Expression eq5 = new EqualTo(studentId, new Add(studentId, cid));
         List<Expression> expr = ImmutableList.of(eq1, eq2, eq3, or, less, eq4, eq5);
         LogicalJoin join = new LogicalJoin<>(JoinType.INNER_JOIN, new ArrayList<>(),
-                expr, JoinHint.NONE, Optional.empty(), studentScan, scoreScan);
+                expr, new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), studentScan, scoreScan);
 
         PlanChecker.from(new ConnectContext(), join)
                 .applyTopDown(new FindHashConditionForJoin())
@@ -105,7 +106,7 @@ class FindHashConditionForJoinTest implements MemoPatternMatchSupported {
         Expression eq2 = new EqualTo(studentId, new IntegerLiteral(1)); // a=1
 
         LogicalJoin join = new LogicalJoin<>(JoinType.CROSS_JOIN, new ArrayList<>(),
-                ImmutableList.of(eq1, eq2), JoinHint.NONE, Optional.empty(), studentScan, scoreScan);
+                ImmutableList.of(eq1, eq2), new DistributeHint("Distribute", JoinHint.NONE), Optional.empty(), studentScan, scoreScan);
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)
                 .applyTopDown(new FindHashConditionForJoin())
