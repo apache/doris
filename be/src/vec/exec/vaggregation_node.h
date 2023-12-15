@@ -331,7 +331,7 @@ private:
             _key_containers.emplace_back(_current_keys);
 
             _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
-                                                                SUB_CONTAINER_CAPACITY);
+                                                                    SUB_CONTAINER_CAPACITY);
             _value_containers.emplace_back(_current_agg_data);
         } catch (...) {
             if (!_current_keys) {
