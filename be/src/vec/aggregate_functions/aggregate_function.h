@@ -322,7 +322,7 @@ public:
         char place[size_of_data()];
         for (size_t i = 0; i != num_rows; ++i) {
             static_cast<const Derived*>(this)->create(place);
-	    DEFER({ static_cast<const Derived*>(this)->destroy(place); });
+            DEFER({ static_cast<const Derived*>(this)->destroy(place); });
             static_cast<const Derived*>(this)->add(place, columns, i, arena);
             static_cast<const Derived*>(this)->serialize(place, buf);
             buf.commit();
@@ -346,7 +346,7 @@ public:
                          size_t num_rows) const override {
         const auto size_of_data = static_cast<const Derived*>(this)->size_of_data();
         for (size_t i = 0; i != num_rows; ++i) {
-	    try {
+            try {
                 auto place = places + size_of_data * i;
                 VectorBufferReader buffer_reader(column->get_data_at(i));
                 static_cast<const Derived*>(this)->create(place);
@@ -426,7 +426,7 @@ public:
 
         auto derived = static_cast<const Derived*>(this);
         derived->create(deserialized_place);
-	DEFER({ derived->destroy(deserialized_place); });
+        DEFER({ derived->destroy(deserialized_place); });
         derived->deserialize(deserialized_place, buf, arena);
         derived->merge(place, deserialized_place, arena);
     }

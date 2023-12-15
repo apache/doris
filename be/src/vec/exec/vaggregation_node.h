@@ -986,7 +986,7 @@ private:
                                 _agg_arena_pool.get(), rows);
                     }
 
-		    DEFER({
+                    DEFER({
                         _aggregate_evaluators[i]->function()->destroy_vec(
                                 _deserialize_buffer.data(), rows);
                     });
@@ -1029,7 +1029,7 @@ private:
                                 _agg_arena_pool.get(), rows);
                     }
 
-		    DEFER({
+                    DEFER({
                         _aggregate_evaluators[i]->function()->destroy_vec(
                                 _deserialize_buffer.data(), rows);
                     });

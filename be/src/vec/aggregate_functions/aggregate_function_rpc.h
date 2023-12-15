@@ -361,7 +361,7 @@ public:
         new (place) Data(argument_types.size());
         Status status = Status::OK();
         SAFE_CREATE(RETURN_IF_STATUS_ERROR(status, data(place).init(_fn)),
-                     this->data(place).~Data());
+                    this->data(place).~Data());
     }
 
     String get_name() const override { return _fn.name.function_name; }
