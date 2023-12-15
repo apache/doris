@@ -957,8 +957,8 @@ public class NativeInsertStmt extends InsertStmt {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(Load.getExprFromDesc(analyzer, slotToIndex.get(slot.getColumnName()), slot));
                 }
-                targetExpr = Expr.substituteList(Lists.newArrayList(col.getDefineExpr().clone()), smap, analyzer, false)
-                        .get(0);
+                targetExpr = targetExpr.clone(smap);
+                targetExpr.analyze(analyzer);
             }
             resultExprByName.add(Pair.of(col.getName(), targetExpr));
             slotToIndex.put(col.getName(), targetExpr);
