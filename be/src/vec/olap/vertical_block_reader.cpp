@@ -246,8 +246,7 @@ void VerticalBlockReader::_update_agg_value(MutableColumns& columns, int begin, 
         if (is_close) {
             function->insert_result_into(place, *columns[idx]);
             // reset aggregate data
-            function->destroy(place);
-            function->create(place);
+            function->reset(place);
         }
     }
 }

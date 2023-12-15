@@ -435,8 +435,7 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
         if (is_close) {
             function->insert_result_into(place, *columns[_return_columns_loc[idx]]);
             // reset aggregate data
-            function->destroy(place);
-            function->create(place);
+            function->reset(place);
         }
     }
 }
