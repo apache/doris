@@ -80,7 +80,7 @@ public class UserProperty implements Writable {
 
     private static final String PROP_WORKLOAD_GROUP = "default_workload_group";
 
-    private static final String PROP_IS_ENABLE_FOUND_ROWS = "is_enable_found_rows";
+    private static final String PROP_ENABLE_FOUND_ROWS = "enable_found_rows";
 
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
@@ -122,7 +122,7 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
-        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_IS_ENABLE_FOUND_ROWS + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_ENABLE_FOUND_ROWS + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -331,9 +331,9 @@ public class UserProperty implements Writable {
                     throw new DdlException("workload group " + value + " not exists");
                 }
                 workloadGroup = value;
-            } else if (keyArr[0].equalsIgnoreCase(PROP_IS_ENABLE_FOUND_ROWS)) {
+            } else if (keyArr[0].equalsIgnoreCase(PROP_ENABLE_FOUND_ROWS)) {
                 if (keyArr.length != 1) {
-                    throw new DdlException(PROP_IS_ENABLE_FOUND_ROWS + " format error");
+                    throw new DdlException(PROP_ENABLE_FOUND_ROWS + " format error");
                 }
                 isEnableFoundRows = Boolean.parseBoolean(value);
             } else {
@@ -492,7 +492,7 @@ public class UserProperty implements Writable {
         result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
 
         // enable found rows
-        result.add(Lists.newArrayList(PROP_IS_ENABLE_FOUND_ROWS, String.valueOf(commonProperties.isEnableFoundRows())));
+        result.add(Lists.newArrayList(PROP_ENABLE_FOUND_ROWS, String.valueOf(commonProperties.isEnableFoundRows())));
 
         // load cluster
         if (defaultLoadCluster != null) {

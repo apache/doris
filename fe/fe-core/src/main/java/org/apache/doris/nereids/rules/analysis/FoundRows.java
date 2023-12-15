@@ -49,7 +49,7 @@ public class FoundRows extends OneRewriteRuleFactory {
         return logicalResultSink(logicalProject(logicalAggregate(logicalSubQueryAlias())))
                 .thenApply(ctx -> {
                     String user = ctx.cascadesContext.getConnectContext().getQualifiedUser();
-                    if (user == null || Env.getCurrentEnv().getAuth().isEnableFoundRows(user)
+                    if (user == null || !Env.getCurrentEnv().getAuth().isEnableFoundRows(user)
                             || ctx.cascadesContext.getConnectContext().getFoundRowsPlan() == null) {
                         return null;
                     }

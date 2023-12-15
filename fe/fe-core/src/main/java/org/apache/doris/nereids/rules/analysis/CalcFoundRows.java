@@ -35,7 +35,7 @@ public class CalcFoundRows extends OneRewriteRuleFactory {
         return logicalResultSink(logicalLimit())
                 .thenApply(ctx -> {
                     String user = ctx.cascadesContext.getConnectContext().getQualifiedUser();
-                    if (user == null || Env.getCurrentEnv().getAuth().isEnableFoundRows(user)) {
+                    if (user == null || !Env.getCurrentEnv().getAuth().isEnableFoundRows(user)) {
                         return null;
                     }
                     LogicalResultSink<LogicalLimit<Plan>> rs = ctx.root;
