@@ -1520,6 +1520,7 @@ build_jemalloc() {
 
     make -j "${PARALLEL}"
     make install
+    mv "${TP_INCLUDE_DIR}/jemalloc/jemalloc_doris.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"
 }
 
 # libunwind
