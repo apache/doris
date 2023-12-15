@@ -77,7 +77,7 @@ public class FoundRows extends OneRewriteRuleFactory {
                         List<NamedExpression> newProjects = new ArrayList<>();
                         RelationId id = StatementScopeIdGenerator.newRelationId();
                         BigIntLiteral literal = new BigIntLiteral(foundRows);
-                        Alias aliasExpr = new Alias(literal, literal.toString());
+                        Alias aliasExpr = new Alias(literal, "count(*)");
                         newProjects.add(aliasExpr);
 
                         LogicalOneRowRelation relation = new LogicalOneRowRelation(id, newProjects);
