@@ -89,6 +89,7 @@ public class AuditLogHelper {
             }
         } else {
             ctx.getAuditEventBuilder().setIsQuery(false);
+            ctx.setFoundRowsPlan(null);
         }
         ctx.getAuditEventBuilder().setIsNereids(ctx.getState().isNereids);
 

@@ -579,6 +579,8 @@ public class StmtExecutor {
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
                         new AnalysisException(e.getMessage(), e));
             }
+            // reset found rows plan to avoid matching unexpectedly
+            context.setFoundRowsPlan(null);
         } else {
             context.getState().setIsQuery(true);
             if (context.getSessionVariable().enableProfile) {
@@ -676,6 +678,8 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
+        // reset found rows plan to avoid matching unexpectedly
+        context.setFoundRowsPlan(null);
 
         // set isQuery first otherwise this state will be lost if some error occurs
         if (parsedStmt instanceof QueryStmt) {
@@ -2698,11 +2702,13 @@ public class StmtExecutor {
                         parsedStmt = null;
                         planner = null;
                         context.getState().setNereids(false);
+                        context.setFoundRowsPlan(null);
                         analyzer = new Analyzer(context.getEnv(), context);
                         analyze(context.getSessionVariable().toThrift());
                     }
                 } else {
                     analyzer = new Analyzer(context.getEnv(), context);
+                    context.setFoundRowsPlan(null);
                     analyze(context.getSessionVariable().toThrift());
                 }
             } catch (Exception e) {
