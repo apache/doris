@@ -67,11 +67,12 @@ public class FoundRows extends OneRewriteRuleFactory {
                     if (!(function instanceof Count) || !((Count) function).isCountStar() || function.isDistinct()) {
                         return null;
                     }
+
                     LogicalSubQueryAlias<Plan> subQueryAlias = aggr.child();
                     LogicalPlan currentPlan = (LogicalPlan) subQueryAlias.child();
                     LogicalPlan foundRowsPlan = ctx.cascadesContext.getConnectContext().getFoundRowsPlan();
+                    ctx.cascadesContext.getConnectContext().setFoundRowsPlan(null);
                     if (checkPlanTreeEquals(currentPlan, foundRowsPlan)) {
-                        ctx.cascadesContext.getConnectContext().setFoundRowsPlan(null);
                         long foundRows = ctx.cascadesContext.getConnectContext().getFoundRows();
                         List<NamedExpression> newProjects = new ArrayList<>();
                         RelationId id = StatementScopeIdGenerator.newRelationId();
@@ -84,7 +85,6 @@ public class FoundRows extends OneRewriteRuleFactory {
 
                         return new LogicalResultSink<>(newProject.getOutputs(), newProject);
                     } else {
-                        ctx.cascadesContext.getConnectContext().setFoundRowsPlan(null);
                         return null;
                     }
                 }).toRule(RuleType.FOUND_ROWS);
