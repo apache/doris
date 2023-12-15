@@ -193,6 +193,15 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getWorkloadGroup();
     }
 
+    public boolean isEnableFoundRows(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return false;
+        }
+        return existProperty.isEnableFoundRows();
+    }
+
     public Pair<Boolean, String> isWorkloadGroupInUse(String groupName) {
         for (Entry<String, UserProperty> entry : propertyMap.entrySet()) {
             if (entry.getValue().getWorkloadGroup().equals(groupName)) {

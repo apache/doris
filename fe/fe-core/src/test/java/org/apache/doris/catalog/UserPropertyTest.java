@@ -107,6 +107,7 @@ public class UserPropertyTest {
         properties.add(Pair.of("sql_block_rules", "rule1,rule2"));
         properties.add(Pair.of("cpu_resource_limit", "2"));
         properties.add(Pair.of("query_timeout", "500"));
+        properties.add(Pair.of("enable_found_rows", "true"));
 
         UserProperty userProperty = new UserProperty();
         userProperty.update(properties);
@@ -117,6 +118,7 @@ public class UserPropertyTest {
         Assert.assertEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
         Assert.assertEquals(2, userProperty.getCpuResourceLimit());
         Assert.assertEquals(500, userProperty.getQueryTimeout());
+        Assert.assertEquals(true, userProperty.isEnableFoundRows());
         Assert.assertEquals(Sets.newHashSet(), userProperty.getCopiedResourceTags());
 
         // fetch property

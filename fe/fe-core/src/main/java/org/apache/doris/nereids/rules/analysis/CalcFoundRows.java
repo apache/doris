@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
@@ -33,7 +34,8 @@ public class CalcFoundRows extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalResultSink(logicalLimit())
                 .thenApply(ctx -> {
-                    if (!ctx.cascadesContext.getConnectContext().getSessionVariable().isEnableFoundRows()) {
+                    String user = ctx.cascadesContext.getConnectContext().getQualifiedUser();
+                    if (user == null || Env.getCurrentEnv().getAuth().isEnableFoundRows(user)) {
                         return null;
                     }
                     LogicalResultSink<LogicalLimit<Plan>> rs = ctx.root;

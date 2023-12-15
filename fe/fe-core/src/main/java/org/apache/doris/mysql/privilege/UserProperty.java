@@ -31,6 +31,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.resource.Tag;
 
+import com.amazonaws.services.inspector2.model.transform.PackageAggregationJsonUnmarshaller;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -79,6 +80,8 @@ public class UserProperty implements Writable {
 
     private static final String PROP_WORKLOAD_GROUP = "default_workload_group";
 
+    private static final String PROP_IS_ENABLE_FOUND_ROWS = "is_enable_found_rows";
+
     // for system user
     public static final Set<Pattern> ADVANCED_PROPERTIES = Sets.newHashSet();
     // for normal user
@@ -119,6 +122,7 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_EXEC_MEM_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_QUERY_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_USER_INSERT_TIMEOUT + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_IS_ENABLE_FOUND_ROWS + "$", Pattern.CASE_INSENSITIVE));
 
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_QUOTA + ".", Pattern.CASE_INSENSITIVE));
         COMMON_PROPERTIES.add(Pattern.compile("^" + PROP_DEFAULT_LOAD_CLUSTER + "$", Pattern.CASE_INSENSITIVE));
@@ -166,6 +170,10 @@ public class UserProperty implements Writable {
         return commonProperties.getWorkloadGroup();
     }
 
+    public boolean isEnableFoundRows() {
+        return commonProperties.isEnableFoundRows();
+    }
+
     @Deprecated
     public WhiteList getWhiteList() {
         return whiteList;
@@ -194,6 +202,7 @@ public class UserProperty implements Writable {
         int queryTimeout = this.commonProperties.getQueryTimeout();
         int insertTimeout = this.commonProperties.getInsertTimeout();
         String workloadGroup = this.commonProperties.getWorkloadGroup();
+        boolean isEnableFoundRows = this.commonProperties.isEnableFoundRows();
 
         String newDefaultLoadCluster = defaultLoadCluster;
         Map<String, DppConfig> newDppConfigs = Maps.newHashMap(clusterToDppConfig);
@@ -322,6 +331,11 @@ public class UserProperty implements Writable {
                     throw new DdlException("workload group " + value + " not exists");
                 }
                 workloadGroup = value;
+            } else if (keyArr[0].equalsIgnoreCase(PROP_IS_ENABLE_FOUND_ROWS)) {
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_IS_ENABLE_FOUND_ROWS + " format error");
+                }
+                isEnableFoundRows = Boolean.parseBoolean(value);
             } else {
                 if (isReplay) {
                     // After using SET PROPERTY to modify the user property, if FE rolls back to a version without
@@ -344,6 +358,7 @@ public class UserProperty implements Writable {
         this.commonProperties.setQueryTimeout(queryTimeout);
         this.commonProperties.setInsertTimeout(insertTimeout);
         this.commonProperties.setWorkloadGroup(workloadGroup);
+        this.commonProperties.setEnableFoundRows(isEnableFoundRows);
         if (newDppConfigs.containsKey(newDefaultLoadCluster)) {
             defaultLoadCluster = newDefaultLoadCluster;
         } else {
@@ -475,6 +490,9 @@ public class UserProperty implements Writable {
         result.add(Lists.newArrayList(PROP_RESOURCE_TAGS, Joiner.on(", ").join(commonProperties.getResourceTags())));
 
         result.add(Lists.newArrayList(PROP_WORKLOAD_GROUP, String.valueOf(commonProperties.getWorkloadGroup())));
+
+        // enable found rows
+        result.add(Lists.newArrayList(PROP_IS_ENABLE_FOUND_ROWS, String.valueOf(commonProperties.isEnableFoundRows())));
 
         // load cluster
         if (defaultLoadCluster != null) {
