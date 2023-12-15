@@ -1779,6 +1779,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, response, done, this]() {
+        signal::set_signal_task_id(request->query_id());
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
