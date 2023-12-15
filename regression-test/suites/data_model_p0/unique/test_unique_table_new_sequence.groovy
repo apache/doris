@@ -181,6 +181,8 @@ suite("test_unique_table_new_sequence") {
 
         qt_3 "select * from ${tableName} order by k1"
 
+        qt_desc "desc ${tableName}"
+
         sql "SET show_hidden_columns=false"
 
         sql "DROP TABLE ${tableName}"
