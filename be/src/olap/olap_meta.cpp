@@ -57,9 +57,9 @@ using namespace ErrorCode;
 const std::string META_POSTFIX = "/meta";
 const size_t PREFIX_LENGTH = 4;
 
-bvar::LatencyRecorder g_meta_put_latency("meta_put_latency");
-bvar::LatencyRecorder g_meta_get_latency("meta_get_latency");
-bvar::LatencyRecorder g_meta_remove_latency("meta_remove_latency");
+bvar::LatencyRecorder g_meta_put_latency("meta_put");
+bvar::LatencyRecorder g_meta_get_latency("meta_get");
+bvar::LatencyRecorder g_meta_remove_latency("meta_remove");
 
 OlapMeta::OlapMeta(const std::string& root_path) : _root_path(root_path) {}
 
