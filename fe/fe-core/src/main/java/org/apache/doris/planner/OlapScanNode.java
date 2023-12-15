@@ -1628,6 +1628,8 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
+        // NOTICE: must call here to get selected tablet row count to let block rules work well.
+        mockRowCountInStatistic();
         if (!SessionVariable.enablePipelineEngineX()) {
             // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
             distributionColumnIds.clear();
