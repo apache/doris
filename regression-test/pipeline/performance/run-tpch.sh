@@ -20,21 +20,19 @@
 : <<EOF
 #!/bin/bash
 export DEBUG=true
-export OSS_accessKeyID='LTAI5tMJ8betwXWK7Cwo8tJ3'
-export OSS_accessKeySecret='8yAa3kG9Wbpi7uu6uZo2UjLBmGoFFs'
 export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'}
-if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-tpch-sf100.sh ]]; then
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-tpch.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
-    bash -x run-tpch-sf100.sh
+    bash -x run-tpch.sh
 else
-    echo "Build Step file missing: regression-test/pipeline/performance/run-tpch-sf100.sh" && exit 1
+    echo "Build Step file missing: regression-test/pipeline/performance/run-tpch.sh" && exit 1
 fi
 EOF
 
 ## run.sh content ##
 
 # shellcheck source=/dev/null
-# check_tpch_table_rows, stop_doris, set_session_variable, check_tpch_result
+# check_tpch_table_rows, restart_doris, set_session_variable, check_tpch_result
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh
 # shellcheck source=/dev/null
 # create_an_issue_comment
@@ -57,7 +55,7 @@ if [[ -z "${teamcity_build_checkoutDir}" ||
     exit 1
 fi
 
-echo "#### Run tpch-sf100 test on Doris ####"
+echo "#### Run tpch test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
 cold_run_time_threshold=${cold_run_time_threshold:-50000}
@@ -68,7 +66,10 @@ exit_flag=0
     set -e
     shopt -s inherit_errexit
 
-    echo "#### 1. check if need to load data"
+    echo "#### 1. Restart doris"
+    if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
+
+    echo "#### 2. check if need to load data"
     SF=${SF:-"100"}                                                                   # SCALE FACTOR
     TPCH_DATA_DIR="/data/tpch/sf_${SF}"                                               # no / at the end
     TPCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/tpch-data # no / at the end
@@ -99,8 +100,7 @@ exit_flag=0
             done
         )
         # create table and load data
-        sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
-        bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
+        bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh -s "${SF}"
         rm -rf "${TPCH_DATA_DIR_LINK}"
         ln -s "${TPCH_DATA_DIR}" "${TPCH_DATA_DIR_LINK}"
         bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh -c 10
@@ -111,10 +111,9 @@ exit_flag=0
         data_reload="true"
     fi
 
-    echo "#### 2. run tpch-sf${SF} query"
+    echo "#### 3. run tpch-sf${SF} query"
     set_session_variable runtime_filter_mode global
-    sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh
-    bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
+    bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh -s "${SF}" | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
     if ! check_tpch_result "${teamcity_build_checkoutDir}"/run-tpch-queries.log; then exit 1; fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
     line_begin=$((line_end - 23))
@@ -123,7 +122,7 @@ exit_flag=0
 run tpch-sf${SF} query with default conf and session variables
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
-    echo "#### 3. run tpch-sf${SF} query with runtime_filter_mode=off"
+    echo "#### 4. run tpch-sf${SF} query with runtime_filter_mode=off"
     set_session_variable runtime_filter_mode off
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
     if ! grep '^Total hot run time' "${teamcity_build_checkoutDir}"/run-tpch-queries.log >/dev/null; then exit 1; fi
@@ -134,11 +133,9 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-q
 run tpch-sf${SF} query with default conf and set session variable runtime_filter_mode=off
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
-    echo "#### 4. comment result on tpch"
+    echo "#### 5. comment result on tpch"
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     create_an_issue_comment_tpch "${pull_request_num:-}" "${comment_body}"
-
-    stop_doris
 )
 exit_flag="$?"
 

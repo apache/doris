@@ -71,7 +71,6 @@ function start_doris_fe() {
         fi
     done
     if [[ ${i} -ge 60 ]]; then echo "ERROR: Start Doris Frontend Failed after 2 mins wait..." && return 1; fi
-
 }
 
 function start_doris_be() {
@@ -129,6 +128,15 @@ function stop_doris() {
     fi
 }
 
+function restart_doris() {
+    if stop_doris; then echo; fi
+    start_doris_fe
+    start_doris_be
+    # wait 10s for doris totally started, otherwize may encounter the error below,
+    # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
+    sleep 10s
+}
+
 function check_tpch_table_rows() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     db_name="$1"
@@ -138,16 +146,64 @@ function check_tpch_table_rows() {
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     declare -A table_rows
-    if [[ "${scale_factor}" == "100" ]]; then
+    if [[ "${scale_factor}" == "1" ]]; then
+        table_rows=(['region']=5 ['nation']=25 ['supplier']=10000 ['customer']=150000 ['part']=200000 ['partsupp']=800000 ['orders']=1500000 ['lineitem']=6001215)
+    elif [[ "${scale_factor}" == "100" ]]; then
         table_rows=(['region']=5 ['nation']=25 ['supplier']=1000000 ['customer']=15000000 ['part']=20000000 ['partsupp']=80000000 ['orders']=150000000 ['lineitem']=600037902)
     else
-        table_rows=(['region']=5 ['nation']=25 ['supplier']=10000 ['customer']=150000 ['part']=200000 ['partsupp']=800000 ['orders']=1500000 ['lineitem']=6001215)
+        echo "ERROR: unsupported scale_factor ${scale_factor} for tpch" && return 1
     fi
     for table in ${!table_rows[*]}; do
         rows_actual=$(${cl} -D"${db_name}" -e"SELECT count(*) FROM ${table}" | sed -n '2p')
         rows_expect=${table_rows[${table}]}
         if [[ ${rows_actual} -ne ${rows_expect} ]]; then
-            echo "WARNING: ${table} actual rows: ${rows_actual}, expect rows: ${rows_expect}" && return 1
+            echo "ERROR: ${table} actual rows: ${rows_actual}, expect rows: ${rows_expect}" && return 1
+        fi
+    done
+}
+
+function check_tpcds_table_rows() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    db_name="$1"
+    scale_factor="$2"
+    if [[ -z "${scale_factor}" ]]; then return 1; fi
+
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
+    declare -A table_rows
+    if [[ "${scale_factor}" == "1" ]]; then
+        table_rows=(['income_band']=20 ['ship_mode']=20 ['warehouse']=5 ['reason']=35 ['web_site']=30 ['call_center']=6 ['store']=12 ['promotion']=300 ['household_demographics']=7200 ['web_page']=60 ['catalog_page']=11718 ['time_dim']=86400 ['date_dim']=73049 ['item']=18000 ['customer_demographics']=1920800 ['customer_address']=50000 ['customer']=100000 ['web_returns']=71763 ['catalog_returns']=144067 ['store_returns']=287514 ['inventory']=11745000 ['web_sales']=719384 ['catalog_sales']=1441548 ['store_sales']=2880404)
+    elif [[ "${scale_factor}" == "100" ]]; then
+        table_rows=(['income_band']=20 ['ship_mode']=20 ['warehouse']=15 ['reason']=55 ['web_site']=24 ['call_center']=30 ['store']=402 ['promotion']=1000 ['household_demographics']=7200 ['web_page']=2040 ['catalog_page']=20400 ['time_dim']=86400 ['date_dim']=73049 ['item']=204000 ['customer_demographics']=1920800 ['customer_address']=1000000 ['customer']=2000000 ['web_returns']=7197670 ['catalog_returns']=14404374 ['store_returns']=28795080 ['inventory']=399330000 ['web_sales']=72001237 ['catalog_sales']=143997065 ['store_sales']=287997024)
+    elif [[ "${scale_factor}" == "1000" ]]; then
+        table_rows=(['income_band']=20 ['ship_mode']=20 ['warehouse']=20 ['reason']=65 ['web_site']=54 ['call_center']=42 ['store']=1002 ['promotion']=1500 ['household_demographics']=7200 ['web_page']=3000 ['catalog_page']=30000 ['time_dim']=86400 ['date_dim']=73049 ['item']=300000 ['customer_demographics']=1920800 ['customer_address']=6000000 ['customer']=12000000 ['web_returns']=71997522 ['catalog_returns']=143996756 ['store_returns']=287999764 ['inventory']=783000000 ['web_sales']=720000376 ['catalog_sales']=1439980416 ['store_sales']=2879987999)
+    elif [[ "${scale_factor}" == "3000" ]]; then
+        table_rows=(['income_band']=20 ['ship_mode']=20 ['warehouse']=22 ['reason']=67 ['web_site']=66 ['call_center']=48 ['store']=1350 ['promotion']=1800 ['household_demographics']=7200 ['web_page']=3600 ['catalog_page']=36000 ['time_dim']=86400 ['date_dim']=73049 ['item']=360000 ['customer_demographics']=1920800 ['customer_address']=15000000 ['customer']=30000000 ['web_returns']=216003761 ['catalog_returns']=432018033 ['store_returns']=863989652 ['inventory']=1033560000 ['web_sales']=2159968881 ['catalog_sales']=4320078880 ['store_sales']=8639936081)
+    else
+        echo "ERROR: unsupported scale_factor ${scale_factor} for tpcds" && return 1
+    fi
+    for table in ${!table_rows[*]}; do
+        rows_actual=$(${cl} -D"${db_name}" -e"SELECT count(*) FROM ${table}" | sed -n '2p')
+        rows_expect=${table_rows[${table}]}
+        if [[ ${rows_actual} -ne ${rows_expect} ]]; then
+            echo "ERROR: ${table} actual rows: ${rows_actual}, expect rows: ${rows_expect}" && return 1
+        fi
+    done
+}
+
+function check_clickbench_table_rows() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    db_name="$1"
+    if [[ -z "${db_name}" ]]; then return 1; fi
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
+    cl="mysql -h127.0.0.1 -P${query_port} -uroot "
+    declare -A table_rows
+    table_rows=(['hits']=99997497)
+    for table in ${!table_rows[*]}; do
+        rows_actual=$(${cl} -D"${db_name}" -e"SELECT count(*) FROM ${table}" | sed -n '2p')
+        rows_expect=${table_rows[${table}]}
+        if [[ ${rows_actual} -ne ${rows_expect} ]]; then
+            echo "ERROR: ${table} actual rows: ${rows_actual}, expect rows: ${rows_expect}" && return 1
         fi
     done
 }
@@ -175,6 +231,10 @@ function check_tpch_result() {
     cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
     or, hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
     fi
+}
+
+function check_tpcds_result() {
+    check_tpch_result "$1"
 }
 
 get_session_variable() {
