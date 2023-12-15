@@ -1878,8 +1878,6 @@ public class FunctionCallExpr extends Expr {
                         || (children.get(0).getType().isDecimalV2()
                         && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
                     continue;
-                } else if (fnName.getFunction().equalsIgnoreCase("array_zip")) {
-                    continue;
                 } else if ((fnName.getFunction().equalsIgnoreCase("array")
                         || fnName.getFunction().equalsIgnoreCase("array_distinct")
                         || fnName.getFunction().equalsIgnoreCase("array_remove")
