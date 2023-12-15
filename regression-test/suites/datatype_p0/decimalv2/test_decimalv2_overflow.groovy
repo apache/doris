@@ -358,6 +358,24 @@ suite("test_decimalv2_overflow", "nonConcurrent") {
         exception "Arithmetic overflow"
     }
 
+    // mod
+    prepare_decimalv2_overflow_test()
+    sql """
+        insert into decimalv2_overflow_test values(99999999999999999.999999999, 0.1);
+    """
+    qt_mod1 """
+        select k1, k2, k1 % k2 from decimalv2_overflow_test order by 1, 2;
+    """
+    qt_mod2 """
+        select cast(99999999999999999.999999999 as decimalv2(27,9)) % cast(0.1 as decimalv2(27,9));
+    """
+    qt_mod3 """
+        select k1, 0.1, k1 % 0.1 from decimalv2_overflow_test order by 1, 2, 3;
+    """
+    qt_mod4 """
+        select cast(99999999999999999.999999999 as decimalv2(27,9)) % k2 from decimalv2_overflow_test order by 1;
+    """
+
     // TODO
     // decimalv2 +-*/ integer
     // integer +-*/ decimalv2
