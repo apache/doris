@@ -336,11 +336,11 @@ private:
                                                                     SUB_CONTAINER_CAPACITY);
             _value_containers.emplace_back(_current_agg_data);
         } catch (...) {
-            if (!_current_keys) {
+            if (_current_keys) {
                 _key_containers.pop_back();
                 _current_keys = nullptr;
             }
-            if (!_current_agg_data) {
+            if (_current_agg_data) {
                 _value_containers.pop_back();
                 _current_agg_data = nullptr;
             }
