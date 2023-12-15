@@ -579,7 +579,6 @@ public class StmtExecutor {
                 throw new NereidsException("Command (" + originStmt.originStmt + ") process failed.",
                         new AnalysisException(e.getMessage(), e));
             }
-            // reset found rows plan to avoid matching unexpectedly
             context.setFoundRowsPlan(null);
         } else {
             context.getState().setIsQuery(true);
@@ -678,7 +677,6 @@ public class StmtExecutor {
         profile.getSummaryProfile().setQueryBeginTime();
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
-        // reset found rows plan to avoid matching unexpectedly
         context.setFoundRowsPlan(null);
 
         // set isQuery first otherwise this state will be lost if some error occurs
@@ -1424,6 +1422,7 @@ public class StmtExecutor {
             Optional<ResultSet> resultSet = planner.handleQueryInFe(parsedStmt);
             if (resultSet.isPresent()) {
                 sendResultSet(resultSet.get());
+                context.setFoundRowsPlan(null);
                 LOG.info("Query {} finished", DebugUtil.printId(context.queryId));
                 return;
             }
