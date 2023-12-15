@@ -287,7 +287,7 @@ public class Tablet extends MetaObject implements Writable {
     public String getDetailsStatusForQuery(long visibleVersion) {
         StringBuilder sb = new StringBuilder("Visible Replicas:");
         sb.append("Visible version: ").append(visibleVersion);
-        sb.append(", Replicas:  ");
+        sb.append(", Replicas: ");
         sb.append(Joiner.on(", ").join(replicas.stream().map(replica -> replica.toStringSimple(true))
                 .collect(Collectors.toList())));
         sb.append(".");
