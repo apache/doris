@@ -63,5 +63,4 @@ mysql> select strright(NULL,5);
 +----------------+
 ```
 ### keywords
-    STRRIGHT
-    RIGHT
+    STRRIGHT, RIGHT

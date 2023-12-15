@@ -63,5 +63,4 @@ mysql> select strleft(NULL,3);
 +------------------+
 ```
 ### keywords
-    STRLEFT
-    LEFT
+    STRLEFT, LEFT
