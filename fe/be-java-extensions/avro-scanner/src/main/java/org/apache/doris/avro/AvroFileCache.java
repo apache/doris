@@ -27,7 +27,7 @@ import java.util.Set;
 
 public class AvroFileCache {
     private static final Logger LOG = LoggerFactory.getLogger(AvroFileCache.class);
-    private static final Map<AvroFileCacheKey, AvroFileMeta> fileCache = Maps.newHashMap();
+    private static final Map<AvroFileCacheKey, AvroFileMeta> fileCache = Maps.newConcurrentMap();
 
     public static void addFileMeta(AvroFileCacheKey avroFileCacheKey, AvroFileMeta avroFileMeta) {
         fileCache.put(avroFileCacheKey, avroFileMeta);
