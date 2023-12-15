@@ -1500,8 +1500,6 @@ build_jemalloc() {
     cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
     cflags='-O3 -fno-omit-frame-pointer -fPIC -g'
-    JEMALLOC_CONFIG='--with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared'
-
     # When compiling Doris, the default page size used by Jemalloc is 4K. If used in a system with a page size of 64K,
     # an error message of `unsupported system page size` will be reported. It needs to be compiled with `PAGE_SIZE=64K ./build.sh`
     # Jemalloc compiled on a system with page size 4K can only run on a system with the same page size 4K.
@@ -1511,19 +1509,21 @@ build_jemalloc() {
     # perform some optimizations based on the page size when compiling.
     mkdir -p "${BUILD_DIR}_4K"
     cd "${BUILD_DIR}_4K"
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_4K" "${JEMALLOC_CONFIG}" --with-lg-page=12
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_4K" --with-lg-page=12 \
+        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
     make -j "${PARALLEL}"
     make install
 
     cd ..
     mkdir -p "${BUILD_DIR}_64K"
     cd "${BUILD_DIR}_64K"
-    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_64K" "${JEMALLOC_CONFIG}" --with-lg-page=16
+    CFLAGS="${cflags}" ../configure --prefix="${TP_INSTALL_DIR}" --with-install-suffix="_64K" --with-lg-page=16 \
+        --with-jemalloc-prefix=je --enable-prof --disable-cxx --disable-libdl --disable-shared
     make -j "${PARALLEL}"
     make install
 
     cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_4K.a" "${TP_INSTALL_DIR}/lib64/libjemalloc_doris.a" # TODO delete
-    cp -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc_4K.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h" # TODO delete
+    cp -rf "${TP_INCLUDE_DIR}/jemalloc/jemalloc_4K.h" "${TP_INCLUDE_DIR}/jemalloc/jemalloc.h"       # TODO delete
 }
 
 # libunwind
