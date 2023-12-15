@@ -51,7 +51,6 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.atomic.AtomicReference;
 
 public class PublishVersionDaemon extends MasterDaemon {
 
@@ -158,12 +157,10 @@ public class PublishVersionDaemon extends MasterDaemon {
         Map<Long, Long> tableIdToTotalDeltaNumRows = Maps.newHashMap();
         // try to finish the transaction, if failed just retry in next loop
         for (TransactionState transactionState : readyTransactionStates) {
-            AtomicReference<Long> finishNum = new AtomicReference<>(0L);
             AtomicBoolean hasBackendAliveAndUnfinishedTask = new AtomicBoolean(false);
             Set<Long> notFinishTaskBe = Sets.newHashSet();
             transactionState.getPublishVersionTasks().forEach((beId, task) -> {
                 if (task.isFinished()) {
-                    finishNum.set(finishNum.get() + 1);
                     if (CollectionUtils.isEmpty(task.getErrorTablets())) {
                         Map<Long, Long> tableIdToDeltaNumRows = task.getTableIdToDeltaNumRows();
                         tableIdToDeltaNumRows.forEach((tableId, numRows) -> {
@@ -183,20 +180,21 @@ public class PublishVersionDaemon extends MasterDaemon {
             transactionState.setTableIdToTotalNumDeltaRows(tableIdToTotalDeltaNumRows);
             LOG.debug("notFinishTaskBe {}, trans {}", notFinishTaskBe, transactionState);
             boolean isPublishSlow = false;
-            if (finishNum.get() > transactionState.getPublishVersionTasks().keySet().size() / 2
-                    && notFinishTaskBe.stream()
-                        .allMatch(beId -> infoService.getBackend(beId).getPublishTaskLastTimeAccumulated())) {
-                LOG.debug(" finishNum {}, txn publish tasks {}, notFinishTaskBe {}",
-                        finishNum, transactionState.getPublishVersionTasks().keySet(), notFinishTaskBe);
+            long totalNum = transactionState.getPublishVersionTasks().keySet().size();
+            boolean allUnFinishTaskIsSlow = notFinishTaskBe.stream().allMatch(beId -> infoService.getBackend(beId)
+                    .getPublishTaskLastTimeAccumulated() > Config.publish_version_queued_limit_number);
+            if (totalNum - notFinishTaskBe.size() > totalNum / 2 && allUnFinishTaskIsSlow) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(" finishNum {}, txn publish tasks {}, notFinishTaskBe {}",
+                            totalNum - notFinishTaskBe.size(), transactionState.getPublishVersionTasks().keySet(),
+                            notFinishTaskBe);
+                }
                 isPublishSlow = true;
             }
 
             boolean shouldFinishTxn = !hasBackendAliveAndUnfinishedTask.get() || transactionState.isPublishTimeout()
                     || isPublishSlow
                     || DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks");
-            LOG.debug("hasBackendAliveAndUnfinishedTask {}, txn isPublishTimeout {}, DebugPoint enable {}, slow {}",
-                    hasBackendAliveAndUnfinishedTask, transactionState.isPublishTimeout(),
-                    DebugPointUtil.isEnable("PublishVersionDaemon.not_wait_unfinished_tasks"), isPublishSlow);
             if (shouldFinishTxn) {
                 try {
                     // one transaction exception should not affect other transaction

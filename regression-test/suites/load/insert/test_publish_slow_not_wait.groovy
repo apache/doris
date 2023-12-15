@@ -45,7 +45,7 @@ suite('test_publish_slow_not_wait') {
         // be1 dp publish duration 10mins
         be1.enableDebugPoint('EnginePublishVersionTask.finish.wait', ['duration': 10*60*1000])
 
-        sql 'SET GLOBAL insert_visible_timeout_ms = 3000'
+        sql 'SET GLOBAL insert_visible_timeout_ms = 10000'
         def begin = System.currentTimeMillis();
         def result
         for (def i = 1; i <= 2; i++) {
@@ -54,14 +54,14 @@ suite('test_publish_slow_not_wait') {
         def cost = System.currentTimeMillis() - begin;
         log.info("insert1 time cost : {}, result: {}", cost, result)
         // be1's replica publish slow, so wait, and txn's status: COMMITTED
-        assertTrue(cost > 2 * 3000 && cost < 100000)
+        assertTrue(cost > 2 * 10000 && cost < 100000)
         qt_sql """select * from ${tbl}"""
 
         begin = System.currentTimeMillis();
         result = sql """INSERT INTO ${tbl} (k1, k2) VALUES (3, 30)""" 
         cost = System.currentTimeMillis() - begin;
         log.info("insert2 time cost: {}", cost)
-        assertTrue(cost < 3000)
+        assertTrue(cost < 10000)
 
         qt_sql """select * from ${tbl}"""
 

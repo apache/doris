@@ -537,8 +537,6 @@ public class ReportHandler extends Daemon {
         if (!runningTasks.containsKey(TTaskType.PUBLISH_VERSION)) {
             return;
         }
-        LOG.debug("current beId {} - {} - {}",
-                backendId, runningTasks, runningTasks.get(TTaskType.PUBLISH_VERSION).size());
         Env.getCurrentSystemInfo().getBackend(backendId)
                 .setPublishTaskLastTimeAccumulated((long) runningTasks.get(TTaskType.PUBLISH_VERSION).size());
     }
@@ -590,8 +588,13 @@ public class ReportHandler extends Daemon {
         if (batchTask.getTaskNum() > 0) {
             AgentTaskExecutor.submit(batchTask);
         }
-        LOG.info("finished to handle task report from backend {}, diff task num: {}. cost: {} ms",
-                backendId, batchTask.getTaskNum(), (System.currentTimeMillis() - start));
+
+        String publishTaskSize = runningTasks.get(TTaskType.PUBLISH_VERSION) != null
+                ? String.valueOf(runningTasks.get(TTaskType.PUBLISH_VERSION).size()) : "0";
+        LOG.info("finished to handle task report from backend {}, "
+                + "diff task num: {}, runningTasks size {}, publishSize: {}, cost: {} ms.",
+                backendId, batchTask.getTaskNum(), runningTasks.values().stream().mapToLong(Set::size).sum(),
+                publishTaskSize, (System.currentTimeMillis() - start));
     }
 
     private static void diskReport(long backendId, Map<String, TDisk> backendDisks) {
