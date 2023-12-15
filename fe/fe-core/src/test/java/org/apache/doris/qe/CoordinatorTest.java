@@ -19,14 +19,20 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.catalog.ColocateTableIndex;
+import org.apache.doris.catalog.ColocateTableIndex.GroupId;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.planner.DataPartition;
@@ -38,6 +44,7 @@ import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
+import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -49,6 +56,8 @@ import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMap.Builder;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import mockit.Mocked;
@@ -57,11 +66,14 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 public class CoordinatorTest extends Coordinator {
     @Mocked
@@ -285,6 +297,354 @@ public class CoordinatorTest extends Coordinator {
                 .filter(count -> count == 22).count();
         Assert.assertEquals(targetBeCount, 3);
     }
+
+    @Test
+    public void testComputeScanRangeAssignmentByColocate()  {
+        Coordinator coordinator = new Coordinator(context, analyzer, originalPlanner);
+        int bucketNum = 5;
+        int replicaNum = 3;
+        int backendNum = 10;
+
+        // init left scan node
+        TupleDescriptor leftTuple = new TupleDescriptor(new TupleId(-1));
+        OlapTable leftTable = new OlapTable();
+        HashDistributionInfo distributionInfoLeft = new HashDistributionInfo(bucketNum, Lists.newArrayList(new Column("k1", PrimitiveType.INT)));
+        Deencapsulation.setField(leftTable, "defaultDistributionInfo", distributionInfoLeft);
+        leftTuple.setTable(leftTable);
+        OlapScanNode leftScanNode = new OlapScanNode(new PlanNodeId(1), leftTuple, "left");
+
+        // init right scan node
+        TupleDescriptor rightTuple = new TupleDescriptor(new TupleId(-2));
+        OlapTable rightTable = new OlapTable();
+        HashDistributionInfo distributionInfoRight = new HashDistributionInfo(bucketNum, Lists.newArrayList(new Column("k1", PrimitiveType.INT)));
+        Deencapsulation.setField(rightTable, "defaultDistributionInfo", distributionInfoRight);
+        rightTuple.setTable(rightTable);
+        OlapScanNode rightScanNode = new OlapScanNode(new PlanNodeId(2), rightTuple, "right");
+
+        // init hash join node
+        BinaryPredicate predicate = new BinaryPredicate(Operator.EQ, new BoolLiteral(true), new BoolLiteral(true));
+        List<Expr> joinExpr = Lists.newArrayList(predicate);
+        HashJoinNode hashJoinNode = new HashJoinNode(new PlanNodeId(0), leftScanNode, rightScanNode, new TableRef(), joinExpr, new ArrayList<>());
+        PlanFragment root = new PlanFragment(new PlanFragmentId(0), hashJoinNode, new DataPartition(TPartitionType.HASH_PARTITIONED, joinExpr));
+        root.setPlanRoot(hashJoinNode);
+
+        // init colocate group
+        ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
+        GroupId groupId = new GroupId(1000, 1);
+        colocateTableIndex.addTableToGroup(1000, leftTable, "abc", groupId);
+        colocateTableIndex.addTableToGroup(1000, rightTable, "abc", groupId);
+        List<List<Long>> backendsPerBucketSeq = generateBackendsPerBucketSeq(bucketNum, replicaNum, backendNum);
+        colocateTableIndex.addBackendsPerBucketSeqByTag(groupId, Tag.DEFAULT_BACKEND_TAG, backendsPerBucketSeq, ReplicaAllocation.DEFAULT_ALLOCATION);
+
+        Deencapsulation.setField(coordinator, "idToBackend", generateBackends(backendNum));
+
+        ArrayListMultimap<Integer, TScanRangeLocations> bucketseq2localtions
+                = generateBucketSeq2locations(backendsPerBucketSeq, 2, bucketNum, replicaNum);
+
+        // case 1 complete match
+        Deencapsulation.setField(leftScanNode, "bucketSeq2locations", bucketseq2localtions);
+        Deencapsulation.setField(rightScanNode, "bucketSeq2locations", bucketseq2localtions);
+
+        Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
+        Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHostForOlapTable(bucketseq2localtions.values());
+
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", leftScanNode, assignedBytesPerHost, replicaNumPerHost);
+
+        Map<PlanFragmentId, Map<Integer, TScanRangeLocations>> fragmentIdToSeqToLocationsMap = Deencapsulation.getField(coordinator, "fragmentIdToSeqToLocationsMap");
+        Map<Integer, TScanRangeLocations> locationsMap = fragmentIdToSeqToLocationsMap.get(new PlanFragmentId(0));
+
+        Assert.assertEquals(locationsMap.size(), backendsPerBucketSeq.size());
+
+        for (Map.Entry<Integer, TScanRangeLocations> entry : locationsMap.entrySet()) {
+            Integer seq = entry.getKey();
+            Set<Long> backends = entry.getValue().locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            Set<Long> backends1 = Sets.newHashSet(backendsPerBucketSeq.get(seq));
+            System.out.println(seq + ":" + backends + "|" + backends1);
+            Assert.assertTrue(backends.containsAll(backends1));
+        }
+
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", rightScanNode, assignedBytesPerHost, replicaNumPerHost);
+        fragmentIdToSeqToLocationsMap = Deencapsulation.getField(coordinator, "fragmentIdToSeqToLocationsMap");
+        locationsMap = fragmentIdToSeqToLocationsMap.get(new PlanFragmentId(0));
+        Assert.assertEquals(locationsMap.size(), backendsPerBucketSeq.size());
+        for (Map.Entry<Integer, TScanRangeLocations> entry : locationsMap.entrySet()) {
+            Integer seq = entry.getKey();
+            Set<Long> backends = entry.getValue().locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            Set<Long> backends1 = Sets.newHashSet(backendsPerBucketSeq.get(seq));
+            System.out.println(seq + ":" + backends + "|" + backends1);
+            Assert.assertTrue(backends.containsAll(backends1));
+        }
+
+
+        // case 2 partial match
+        coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Deencapsulation.setField(coordinator, "idToBackend", generateBackends(backendNum));
+
+        ArrayListMultimap<Integer, TScanRangeLocations> b1 = generateBucketSeq2locations(backendsPerBucketSeq, 2, bucketNum, replicaNum);
+        shuffleLocations(b1, 0, 0, 1);
+        ArrayListMultimap<Integer, TScanRangeLocations> b2 = generateBucketSeq2locations(backendsPerBucketSeq, 2, bucketNum, replicaNum);
+
+        Deencapsulation.setField(leftScanNode, "bucketSeq2locations", b1);
+        Deencapsulation.setField(rightScanNode, "bucketSeq2locations", b2);
+
+        assignedBytesPerHost = Maps.newHashMap();
+        ArrayList<TScanRangeLocations> locations = Lists.newArrayList(b1.values());
+        locations.addAll(b2.values());
+        replicaNumPerHost = getReplicaNumPerHostForOlapTable(locations);
+
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", leftScanNode, assignedBytesPerHost, replicaNumPerHost);
+        fragmentIdToSeqToLocationsMap = Deencapsulation.getField(coordinator, "fragmentIdToSeqToLocationsMap");
+        locationsMap = fragmentIdToSeqToLocationsMap.get(new PlanFragmentId(0));
+
+        Assert.assertEquals(locationsMap.size(), backendsPerBucketSeq.size());
+
+        for (Map.Entry<Integer, TScanRangeLocations> entry : locationsMap.entrySet()) {
+            Integer seq = entry.getKey();
+            Set<Long> match = entry.getValue().locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            Set<Long> original = Sets.newHashSet(backendsPerBucketSeq.get(seq));
+            System.out.println(seq + ":" + match + "|" + original);
+            if (seq != 0) {
+                Assert.assertEquals(match.size(), replicaNum);
+                Assert.assertTrue(match.containsAll(original));
+            } else {
+                Assert.assertEquals(2, match.size());
+                Assert.assertTrue(original.containsAll(match));
+            }
+        }
+
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", rightScanNode, assignedBytesPerHost, replicaNumPerHost);
+        fragmentIdToSeqToLocationsMap = Deencapsulation.getField(coordinator, "fragmentIdToSeqToLocationsMap");
+        locationsMap = fragmentIdToSeqToLocationsMap.get(new PlanFragmentId(0));
+
+        Assert.assertEquals(locationsMap.size(), backendsPerBucketSeq.size());
+
+        for (Map.Entry<Integer, TScanRangeLocations> entry : locationsMap.entrySet()) {
+            Integer seq = entry.getKey();
+            Set<Long> match = entry.getValue().locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            Set<Long> original = Sets.newHashSet(backendsPerBucketSeq.get(seq));
+            System.out.println(seq + ":" + match + "|" + original);
+            if (seq != 0) {
+                Assert.assertEquals(match.size(), replicaNum);
+                Assert.assertTrue(match.containsAll(original));
+            } else {
+                Assert.assertEquals(2, match.size());
+                Assert.assertTrue(original.containsAll(match));
+            }
+        }
+
+        // case 2.1 partial match
+        coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Deencapsulation.setField(coordinator, "idToBackend", generateBackends(backendNum));
+
+        b1 = generateBucketSeq2locations(backendsPerBucketSeq, 2, bucketNum, replicaNum);
+        shuffleLocations(b1, 0, 0, 2);
+        b2 = generateBucketSeq2locations(backendsPerBucketSeq, 2, bucketNum, replicaNum);
+
+        Deencapsulation.setField(leftScanNode, "bucketSeq2locations", b1);
+        Deencapsulation.setField(rightScanNode, "bucketSeq2locations", b2);
+
+        assignedBytesPerHost = Maps.newHashMap();
+        locations = Lists.newArrayList(b1.values());
+        locations.addAll(b2.values());
+        replicaNumPerHost = getReplicaNumPerHostForOlapTable(locations);
+
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", leftScanNode, assignedBytesPerHost, replicaNumPerHost);
+        fragmentIdToSeqToLocationsMap = Deencapsulation.getField(coordinator, "fragmentIdToSeqToLocationsMap");
+        locationsMap = fragmentIdToSeqToLocationsMap.get(new PlanFragmentId(0));
+
+        Assert.assertEquals(locationsMap.size(), backendsPerBucketSeq.size());
+
+        for (Map.Entry<Integer, TScanRangeLocations> entry : locationsMap.entrySet()) {
+            Integer seq = entry.getKey();
+            Set<Long> match = entry.getValue().locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            Set<Long> original = Sets.newHashSet(backendsPerBucketSeq.get(seq));
+            System.out.println(seq + ":" + match + "|" + original);
+            if (seq != 0) {
+                Assert.assertEquals(match.size(), replicaNum);
+                Assert.assertTrue(match.containsAll(original));
+            } else {
+                Assert.assertEquals(1, match.size());
+                Assert.assertTrue(original.containsAll(match));
+            }
+        }
+
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", rightScanNode, assignedBytesPerHost, replicaNumPerHost);
+        fragmentIdToSeqToLocationsMap = Deencapsulation.getField(coordinator, "fragmentIdToSeqToLocationsMap");
+        locationsMap = fragmentIdToSeqToLocationsMap.get(new PlanFragmentId(0));
+
+        Assert.assertEquals(locationsMap.size(), backendsPerBucketSeq.size());
+
+        for (Map.Entry<Integer, TScanRangeLocations> entry : locationsMap.entrySet()) {
+            Integer seq = entry.getKey();
+            Set<Long> match = entry.getValue().locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            Set<Long> original = Sets.newHashSet(backendsPerBucketSeq.get(seq));
+            System.out.println(seq + ":" + match + "|" + original);
+            if (seq != 0) {
+                Assert.assertEquals(match.size(), replicaNum);
+                Assert.assertTrue(match.containsAll(original));
+            } else {
+                Assert.assertEquals(1, match.size());
+                Assert.assertTrue(original.containsAll(match));
+            }
+        }
+
+        // case 2.2 partial match
+        coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Deencapsulation.setField(coordinator, "idToBackend", generateBackends(backendNum));
+
+        coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Deencapsulation.setField(coordinator, "idToBackend", generateBackends(backendNum));
+
+        b1 = generateBucketSeq2locations(backendsPerBucketSeq, 1, bucketNum, replicaNum);
+        shuffleLocations(b1, 0, 0, 2);
+        b2 = generateBucketSeq2locations(backendsPerBucketSeq, 2, bucketNum, replicaNum);
+        shuffleLocations(b2, 1, 1, 1);
+
+        Deencapsulation.setField(leftScanNode, "bucketSeq2locations", b1);
+        Deencapsulation.setField(rightScanNode, "bucketSeq2locations", b2);
+
+        assignedBytesPerHost = Maps.newHashMap();
+        locations = Lists.newArrayList(b1.values());
+        locations.addAll(b2.values());
+        replicaNumPerHost = getReplicaNumPerHostForOlapTable(locations);
+
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", leftScanNode, assignedBytesPerHost, replicaNumPerHost);
+        fragmentIdToSeqToLocationsMap = Deencapsulation.getField(coordinator, "fragmentIdToSeqToLocationsMap");
+        locationsMap = fragmentIdToSeqToLocationsMap.get(new PlanFragmentId(0));
+
+        Assert.assertEquals(locationsMap.size(), backendsPerBucketSeq.size());
+
+        for (Map.Entry<Integer, TScanRangeLocations> entry : locationsMap.entrySet()) {
+            Integer seq = entry.getKey();
+            Set<Long> match = entry.getValue().locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            Set<Long> original = Sets.newHashSet(backendsPerBucketSeq.get(seq));
+            System.out.println(seq + ":" + match + "|" + original);
+            if (seq != 0) {
+                Assert.assertEquals(match.size(), replicaNum);
+                Assert.assertTrue(match.containsAll(original));
+            } else {
+                Assert.assertEquals(1, match.size());
+                Assert.assertTrue(original.containsAll(match));
+            }
+        }
+
+        Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", rightScanNode, assignedBytesPerHost, replicaNumPerHost);
+        fragmentIdToSeqToLocationsMap = Deencapsulation.getField(coordinator, "fragmentIdToSeqToLocationsMap");
+        locationsMap = fragmentIdToSeqToLocationsMap.get(new PlanFragmentId(0));
+
+        Assert.assertEquals(locationsMap.size(), backendsPerBucketSeq.size());
+
+        for (Map.Entry<Integer, TScanRangeLocations> entry : locationsMap.entrySet()) {
+            Integer seq = entry.getKey();
+            Set<Long> match = entry.getValue().locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            Set<Long> original = Sets.newHashSet(backendsPerBucketSeq.get(seq));
+            System.out.println(seq + ":" + match + "|" + original);
+            if (seq != 0) {
+                if (seq == 1) {
+                    Assert.assertEquals(match.size(), 2);
+                    Assert.assertTrue(original.containsAll(match));
+                } else {
+                    Assert.assertEquals(match.size(), replicaNum);
+                    Assert.assertTrue(match.containsAll(original));
+                }
+            } else {
+                Assert.assertEquals(1, match.size());
+                Assert.assertTrue(original.containsAll(match));
+            }
+        }
+
+        // case 2.3 partial match
+        coordinator = new Coordinator(context, analyzer, originalPlanner);
+        Deencapsulation.setField(coordinator, "idToBackend", generateBackends(backendNum));
+
+        b1 = generateBucketSeq2locations(backendsPerBucketSeq, 1, bucketNum, replicaNum);
+        shuffleLocations(b1, 0, 0, 3);
+        b2 = generateBucketSeq2locations(backendsPerBucketSeq, 2, bucketNum, replicaNum);
+
+        Deencapsulation.setField(leftScanNode, "bucketSeq2locations", b1);
+        Deencapsulation.setField(rightScanNode, "bucketSeq2locations", b2);
+
+        assignedBytesPerHost = Maps.newHashMap();
+        locations = Lists.newArrayList(b1.values());
+        locations.addAll(b2.values());
+        replicaNumPerHost = getReplicaNumPerHostForOlapTable(locations);
+
+        try {
+            Deencapsulation.invoke(coordinator, "computeScanRangeAssignmentByColocate", leftScanNode, assignedBytesPerHost, replicaNumPerHost);
+        } catch (Exception e) {
+            Assert.assertEquals(e.getMessage(), "errCode = 2, detailMessage = there is no scanNode Backend for Colocate");
+        }
+    }
+
+    private Map<TNetworkAddress, Long> getReplicaNumPerHostForOlapTable(Collection<TScanRangeLocations> locationsSet) {
+        Map<TNetworkAddress, Long> replicaNumPerHost = Maps.newHashMap();
+        for (TScanRangeLocations locations : locationsSet) {
+            for (TScanRangeLocation location : locations.locations) {
+                if (replicaNumPerHost.containsKey(location.server)) {
+                    replicaNumPerHost.put(location.server, replicaNumPerHost.get(location.server) + 1L);
+                } else {
+                    replicaNumPerHost.put(location.server, 1L);
+                }
+            }
+
+        }
+        return replicaNumPerHost;
+    }
+
+    private void shuffleLocations(ArrayListMultimap<Integer, TScanRangeLocations> bucketseq2localtions, int bucketSeq, int partition, int replica) {
+        List<TScanRangeLocations> locationsList = bucketseq2localtions.get(bucketSeq);
+        TScanRangeLocations locations = locationsList.get(partition);
+        for (int i = 0; i < replica; i++) {
+            Set<Long> backends = locations.locations.stream().map(b -> b.backend_id).collect(Collectors.toSet());
+            TScanRangeLocation location = locations.getLocations().get(i);
+            long beId;
+            do {
+                beId = new Random().nextInt(10);
+            } while (backends.contains(beId));
+            location.setBackendId(beId);
+            location.setServer(new TNetworkAddress("0.0.0." + beId, 9060));
+        }
+    }
+
+    private List<List<Long>> generateBackendsPerBucketSeq(int bucketNum, int replicaNum, int backendNum) {
+        List<List<Long>> seqs = new ArrayList<>();
+        for (int i = 0; i < bucketNum; i++) {
+            Set<Long> backends = new HashSet<>();
+            do {
+                backends.add((long) new Random().nextInt(backendNum));
+            } while (backends.size() != replicaNum);
+            seqs.add(Lists.newArrayList(backends));
+        }
+        return seqs;
+    }
+
+    private ArrayListMultimap<Integer, TScanRangeLocations> generateBucketSeq2locations(List<List<Long>> backendsPerBucketSeq, int partitionsNum, int bucketNum, int replicaNum) {
+        ArrayListMultimap<Integer, TScanRangeLocations> bucketseq2localtions = ArrayListMultimap.create();
+        for (int i = 0; i < partitionsNum; i++) {
+            for (int k = 0; k < bucketNum; k++) {
+                TScanRangeLocations locations = new TScanRangeLocations();
+                for (int j = 0; j < replicaNum; j++) {
+                    long beId = backendsPerBucketSeq.get(k).get(j);
+                    TScanRangeLocation location = new TScanRangeLocation(new TNetworkAddress("0.0.0." + beId, 9050));
+                    location.backend_id = beId;
+                    locations.addToLocations(location);
+                }
+                bucketseq2localtions.put(k, locations);
+            }
+        }
+        return bucketseq2localtions;
+    }
+
+    private ImmutableMap<Long, Backend> generateBackends(int backendNum) {
+        Builder<Long, Backend> builder = ImmutableMap.builder();
+        for (long i = 0; i < backendNum; i++) {
+            Backend backend = new Backend(i, "0.0.0." + i, 9060);
+            backend.setAlive(true);
+            builder.put(i, backend);
+        }
+        return builder.build();
+    }
+
 
     @Test
     public void testColocateJoinAssignment()  {

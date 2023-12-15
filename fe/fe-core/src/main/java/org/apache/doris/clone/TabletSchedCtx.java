@@ -213,6 +213,8 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     private SubCode schedFailedCode;
 
+    private boolean isColocate = false;
+
     public TabletSchedCtx(Type type, long dbId, long tblId, long partId,
             long idxId, long tabletId, ReplicaAllocation replicaAlloc, long createTime) {
         this.type = type;
@@ -334,6 +336,14 @@ public class TabletSchedCtx implements Comparable<TabletSchedCtx> {
 
     public void setDecommissionTime(long decommissionTime) {
         this.decommissionTime = decommissionTime;
+    }
+
+    public boolean isColocate() {
+        return isColocate;
+    }
+
+    public void setColocate(boolean colocate) {
+        isColocate = colocate;
     }
 
     public State getState() {

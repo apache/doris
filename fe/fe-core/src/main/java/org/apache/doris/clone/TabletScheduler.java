@@ -147,6 +147,7 @@ public class TabletScheduler extends MasterDaemon {
         ADDED, // success to add
         ALREADY_IN, // already added, skip
         LIMIT_EXCEED, // number of pending tablets exceed the limit
+        COLOCATE_LIMIT_EXCEED, // number of pending colocate tablets exceed the limit
         DISABLED // scheduler has been disabled.
     }
 
@@ -255,6 +256,15 @@ public class TabletScheduler extends MasterDaemon {
             return AddResult.ALREADY_IN;
         }
 
+        if (tablet.isColocate()) {
+            long colocateTabletsNumber = getColocateTabletsNumber();
+            int maxSchedulingColocateTablets = Config.max_scheduling_colocate_tablets;
+            if (!force && colocateTabletsNumber > maxSchedulingColocateTablets) {
+                return AddResult.COLOCATE_LIMIT_EXCEED;
+            }
+        }
+
+
         // if this is not a force add,
         // and number of scheduling tablets exceed the limit,
         // refuse to add.
@@ -276,6 +286,10 @@ public class TabletScheduler extends MasterDaemon {
     }
 
 
+    public synchronized long getColocateTabletsNumber() {
+        return pendingTablets.stream().filter(TabletSchedCtx::isColocate).count()
+                + runningTablets.values().stream().filter(TabletSchedCtx::isColocate).count();
+    }
 
     public synchronized boolean containsTablet(long tabletId) {
         return allTabletTypes.containsKey(tabletId);

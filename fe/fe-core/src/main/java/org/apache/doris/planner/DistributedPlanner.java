@@ -41,10 +41,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TPartitionType;
+import org.apache.doris.thrift.TScanRangeLocations;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -483,8 +485,29 @@ public class DistributedPlanner {
             predicateList.add(eqJoinPredicate);
         }
 
+        List<OlapScanNode> allScanNodes = leftChildFragment.getPlanRoot().getChildrenOlapScanNodes();
+        allScanNodes.addAll(rightChildFragment.getPlanRoot().getChildrenOlapScanNodes());
+
         // Condition5
-        return dataDistributionMatchEqPredicate(scanNodeWithJoinConjuncts, cannotReason);
+        return dataDistributionMatchEqPredicate(scanNodeWithJoinConjuncts, cannotReason)
+                && haveSameDataDistribution(allScanNodes, cannotReason);
+    }
+
+    private boolean haveSameDataDistribution(List<OlapScanNode> scanNodes, List<String> cannotReason) {
+        Preconditions.checkState(scanNodes.size() >= 2);
+        OlapScanNode first = scanNodes.get(0);
+        for (Integer bucketSeq : first.bucketSeq2locations.keySet()) {
+            List<TScanRangeLocations> locations = Lists.newLinkedList();
+            for (OlapScanNode scanNode : scanNodes) {
+                locations.addAll(scanNode.bucketSeq2locations.get(bucketSeq));
+            }
+            TScanRangeLocations sameLocations = first.getSameLocations(locations, bucketSeq);
+            if (CollectionUtils.isEmpty(sameLocations.getLocations())) {
+                cannotReason.add(DistributedPlanColocateRule.COLOCATE_GROUP_IS_STABLE_BUT_NO_CROSS_DATA);
+                return false;
+            }
+        }
+        return true;
     }
 
     private OlapScanNode genSrcScanNode(Expr expr, PlanFragment planFragment, List<String> cannotReason) {

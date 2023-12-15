@@ -1207,4 +1207,16 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
         return false;
     }
+
+    public List<OlapScanNode> getChildrenOlapScanNodes() {
+        List<OlapScanNode> res = Lists.newArrayList();
+        if (this instanceof OlapScanNode) {
+            res.add((OlapScanNode) this);
+        } else if (!(this instanceof ExchangeNode)) {
+            for (PlanNode child : children) {
+                res.addAll(child.getChildrenOlapScanNodes());
+            }
+        }
+        return res;
+    }
 }
