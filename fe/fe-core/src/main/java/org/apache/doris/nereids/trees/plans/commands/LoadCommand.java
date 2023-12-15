@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -235,7 +236,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
         return new UnboundTableSink<>(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                dataDesc.getPartitionNames(), isPartialUpdate, tvfLogicalPlan);
+                false, dataDesc.getPartitionNames(), isPartialUpdate, DMLCommandType.LOAD, tvfLogicalPlan);
     }
 
     private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,

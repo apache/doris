@@ -105,7 +105,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, Map> {
 
     public MTMVJob(long dbId, String dbName, long mtmvId, String jobName, String comment,
                    UserIdentity createUser, JobStatus status, JobExecutionConfiguration jobConfiguration) {
-        super(Env.getCurrentEnv().getNextId(), jobName, status, dbName, comment, createUser, jobConfiguration);
+        super(getNextJobId(), jobName, status, dbName, comment, createUser, jobConfiguration);
         this.dbId = dbId;
         this.mtmvId = mtmvId;
         super.setCreateTimeMs(System.currentTimeMillis());
@@ -122,7 +122,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, Map> {
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
         tasks.add(task);
-        super.initTasks(tasks);
+        super.initTasks(tasks, taskType);
         return tasks;
     }
 

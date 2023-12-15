@@ -54,6 +54,7 @@ import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.external.jdbc.JdbcTableSink;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TQueryOptions;
@@ -157,6 +158,8 @@ public class NativeInsertStmt extends InsertStmt {
     private boolean isFromDeleteOrUpdateStmt = false;
 
     private InsertType insertType = InsertType.NATIVE_INSERT;
+
+    boolean hasEmptyTargetColumns = false;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -545,11 +548,7 @@ public class NativeInsertStmt extends InsertStmt {
         Set<String> mentionedColumns = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         List<String> realTargetColumnNames;
         if (targetColumnNames == null) {
-            if (!isFromDeleteOrUpdateStmt
-                    && analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
-                throw new AnalysisException("You must explicitly specify the columns to be updated when "
-                        + "updating partial columns using the INSERT statement.");
-            }
+            hasEmptyTargetColumns = true;
             // the mentioned columns are columns which are visible to user, so here we use
             // getBaseSchema(), not getFullSchema()
             for (Column col : targetTable.getBaseSchema(false)) {
@@ -651,13 +650,13 @@ public class NativeInsertStmt extends InsertStmt {
             }
         }
 
+        if (analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
+            trySetPartialUpdate();
+        }
+
         // check if size of select item equal with columns mentioned in statement
         if (mentionedColumns.size() != queryStmt.getResultExprs().size()) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_VALUE_COUNT);
-        }
-
-        if (analyzer.getContext().getSessionVariable().isEnableUniqueKeyPartialUpdate()) {
-            trySetPartialUpdate();
         }
 
         // Check if all columns mentioned is enough
@@ -970,7 +969,7 @@ public class NativeInsertStmt extends InsertStmt {
             if (isGroupCommitStreamLoadSql) {
                 sink = new GroupCommitBlockSink((OlapTable) targetTable, olapTuple,
                         targetPartitionIds, analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert(),
-                        ConnectContext.get().getSessionVariable().getGroupCommit());
+                        ConnectContext.get().getSessionVariable().getGroupCommit(), 0);
             } else {
                 sink = new OlapTableSink((OlapTable) targetTable, olapTuple, targetPartitionIds,
                         analyzer.getContext().getSessionVariable().isEnableSingleReplicaInsert());
@@ -1022,7 +1021,7 @@ public class NativeInsertStmt extends InsertStmt {
                 throw new DdlException("txn does not exist: " + transactionId);
             }
             txnState.addTableIndexes((OlapTable) targetTable);
-            if (!isFromDeleteOrUpdateStmt && isPartialUpdate) {
+            if (isPartialUpdate) {
                 txnState.setSchemaForPartialUpdate((OlapTable) targetTable);
             }
         }
@@ -1108,7 +1107,9 @@ public class NativeInsertStmt extends InsertStmt {
             LOG.warn("analyze group commit failed", e);
             return;
         }
-        if (ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+        boolean partialUpdate = ConnectContext.get().getSessionVariable().isEnableUniqueKeyPartialUpdate();
+        if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
+                && ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && targetTable instanceof OlapTable
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
@@ -1119,10 +1120,14 @@ public class NativeInsertStmt extends InsertStmt {
             if (selectStmt.getValueList() != null) {
                 for (List<Expr> row : selectStmt.getValueList().getRows()) {
                     for (Expr expr : row) {
-                        if (!expr.isLiteralOrCastExpr()) {
+                        if (!(expr instanceof LiteralExpr)) {
                             return;
                         }
                     }
+                }
+                // Does not support: insert into tbl values();
+                if (selectStmt.getValueList().getFirstRow().isEmpty() && CollectionUtils.isEmpty(targetColumnNames)) {
+                    return;
                 }
             } else {
                 SelectList selectList = selectStmt.getSelectList();
@@ -1130,7 +1135,7 @@ public class NativeInsertStmt extends InsertStmt {
                     List<SelectListItem> items = selectList.getItems();
                     if (items != null) {
                         for (SelectListItem item : items) {
-                            if (item.getExpr() != null && !item.getExpr().isLiteralOrCastExpr()) {
+                            if (item.getExpr() != null && !(item.getExpr() instanceof LiteralExpr)) {
                                 return;
                             }
                         }
@@ -1181,8 +1186,15 @@ public class NativeInsertStmt extends InsertStmt {
             return;
         }
         OlapTable olapTable = (OlapTable) targetTable;
+        if (olapTable.getKeysType() != KeysType.UNIQUE_KEYS) {
+            return;
+        }
         if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-            throw new UserException("Partial update is only allowed in unique table with merge-on-write enabled.");
+            throw new UserException("Partial update is only allowed on unique table with merge-on-write enabled.");
+        }
+        if (hasEmptyTargetColumns) {
+            throw new AnalysisException("You must explicitly specify the columns to be updated when "
+                    + "updating partial columns using the INSERT statement.");
         }
         for (Column col : olapTable.getFullSchema()) {
             boolean exists = false;

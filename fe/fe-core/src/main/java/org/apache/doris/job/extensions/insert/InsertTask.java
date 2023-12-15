@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.insert;
 
+import org.apache.commons.lang3.RandomUtils;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
@@ -124,7 +125,7 @@ public class InsertTask extends AbstractTask {
         this.sql = sql;
         this.currentDb = currentDb;
         this.userIdentity = userIdentity;
-        setTaskId(Env.getCurrentEnv().getNextId());
+        setTaskId(getNextTaskId());
     }
 
     public InsertTask(String labelName, InsertIntoTableCommand insertInto,
@@ -134,7 +135,12 @@ public class InsertTask extends AbstractTask {
         this.ctx = ctx;
         this.stmtExecutor = executor;
         this.loadStatistic = statistic;
-        setTaskId(Env.getCurrentEnv().getNextId());
+        setTaskId(getNextTaskId());
+    }
+
+    private static long getNextTaskId() {
+        // do not use Env.getNextId(), just generate id without logging
+        return System.nanoTime() + RandomUtils.nextInt();
     }
 
     @Override

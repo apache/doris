@@ -40,7 +40,6 @@ import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
-import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.FailMsg;
@@ -125,8 +124,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
         COLUMN_TO_INDEX = builder.build();
     }
 
-    @SerializedName("tls")
-    ConcurrentLinkedQueue<Long> taskIdList;
+    @SerializedName("tis")
+    ConcurrentLinkedQueue<Long> historyTaskIdList;
     @SerializedName("did")
     private final long dbId;
     @SerializedName("ln")
@@ -193,7 +192,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
                      JobExecutionConfiguration jobConfig,
                      Long createTimeMs,
                      String executeSql) {
-        super(Env.getCurrentEnv().getNextId(), jobName, jobStatus, labelName.getDbName(), comment, createUser,
+        super(getNextJobId(), jobName, jobStatus, labelName.getDbName(), comment, createUser,
                 jobConfig, createTimeMs, executeSql, null);
         this.dbId = ConnectContext.get().getCurrentDbId();
         this.labelName = labelName.getLabelName();
@@ -207,7 +206,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
                       Map<String, String> properties,
                       String comment,
                       JobExecutionConfiguration jobConfig) {
-        super(Env.getCurrentEnv().getNextId(), labelName, JobStatus.RUNNING, null,
+        super(getNextJobId(), labelName, JobStatus.RUNNING, null,
                 comment, ctx.getCurrentUserIdentity(), jobConfig);
         this.ctx = ctx;
         this.plans = plans;
@@ -224,44 +223,32 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
         if (plans.isEmpty()) {
             InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
-            task.setTaskType(taskType);
-            task.setJobId(getJobId());
-            task.setCreateTimeMs(System.currentTimeMillis());
-            task.setStatus(TaskStatus.PENDING);
-            ArrayList<InsertTask> tasks = new ArrayList<>();
-            tasks.add(task);
-            super.initTasks(tasks);
-            recordTask(task.getTaskId());
-            return tasks;
-        } else {
-            return createBatchTasks(taskType);
-        }
-    }
-
-    private List<InsertTask> createBatchTasks(TaskType taskType) {
-        ArrayList<InsertTask> tasks = new ArrayList<>();
-        for (InsertIntoTableCommand logicalPlan : plans) {
-            InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
-            task.setJobId(getJobId());
-            task.setTaskType(taskType);
-            task.setCreateTimeMs(System.currentTimeMillis());
-            task.setStatus(TaskStatus.PENDING);
             idToTasks.put(task.getTaskId(), task);
             recordTask(task.getTaskId());
+        } else {
+            for (InsertIntoTableCommand logicalPlan : plans) {
+                InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
+                idToTasks.put(task.getTaskId(), task);
+                recordTask(task.getTaskId());
+            }
         }
-        initTasks(tasks);
+        initTasks(idToTasks.values(), taskType);
         return new ArrayList<>(idToTasks.values());
     }
 
-    private void recordTask(long id) {
-        if (CollectionUtils.isEmpty(taskIdList)) {
-            taskIdList = new ConcurrentLinkedQueue<>();
-            taskIdList.add(id);
+    public void recordTask(long id) {
+        if (Config.max_persistence_task_count < 1) {
             return;
         }
-        taskIdList.add(id);
-        if (taskIdList.size() >= MAX_SAVE_TASK_NUM) {
-            taskIdList.poll();
+        if (CollectionUtils.isEmpty(historyTaskIdList)) {
+            historyTaskIdList = new ConcurrentLinkedQueue<>();
+            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
+            historyTaskIdList.add(id);
+            return;
+        }
+        historyTaskIdList.add(id);
+        if (historyTaskIdList.size() >= Config.max_persistence_task_count) {
+            historyTaskIdList.poll();
         }
     }
 
@@ -298,10 +285,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
     @Override
     public List<InsertTask> queryTasks() {
-        if (CollectionUtils.isEmpty(taskIdList)) {
+        if (CollectionUtils.isEmpty(historyTaskIdList)) {
             return new ArrayList<>();
         }
-        List<Long> taskIdList = new ArrayList<>(this.taskIdList);
+        //TODO it's will be refactor, we will storage task info in job inner and query from it
+        List<Long> taskIdList = new ArrayList<>(this.historyTaskIdList);
+
         Collections.reverse(taskIdList);
         return queryLoadTasksByTaskIds(taskIdList);
     }

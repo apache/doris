@@ -536,6 +536,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
                         + "\"min_load_replica_num\" = \"-1\",\n"
                         + "\"is_being_synced\" = \"false\",\n"
                         + "\"storage_format\" = \"V2\",\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
                         + "\"light_schema_change\" = \"true\",\n"
                         + "\"disable_auto_compaction\" = \"false\",\n"
                         + "\"enable_single_replica_compaction\" = \"false\",\n"

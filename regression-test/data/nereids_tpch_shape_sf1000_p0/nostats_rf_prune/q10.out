@@ -4,27 +4,28 @@ PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
 ----PhysicalDistribute
 ------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=()
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->[l_orderkey]
-----------------------PhysicalProject
-------------------------filter((lineitem.l_returnflag = 'R'))
---------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
-----------------------------------PhysicalOlapScan[orders]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer]
-------------------PhysicalDistribute
+--------PhysicalProject
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute
+--------------hashAgg[LOCAL]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_nationkey = nation.n_nationkey)) otherCondition=()
 --------------------PhysicalProject
-----------------------PhysicalOlapScan[nation]
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->[l_orderkey]
+------------------------PhysicalProject
+--------------------------filter((lineitem.l_returnflag = 'R'))
+----------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=()
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((orders.o_orderdate < '1994-01-01') and (orders.o_orderdate >= '1993-10-01'))
+------------------------------------PhysicalOlapScan[orders]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[customer]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[nation]
 

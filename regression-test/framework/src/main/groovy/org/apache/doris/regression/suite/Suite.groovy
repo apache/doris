@@ -858,7 +858,7 @@ class Suite implements GroovyInterceptable {
             }
             logger.info("The state of ${showTasks} is ${status}")
             Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
         if (status != "SUCCESS") {
             logger.info("status is not success")
         }
@@ -874,6 +874,27 @@ class Suite implements GroovyInterceptable {
             Assert.fail();
         }
         return result.last().get(0);
+    }
+
+    void waiteCreateTableFinished(String tableName) {
+        Thread.sleep(2000);
+        String showCreateTable = "SHOW CREATE TABLE ${tableName}"
+        String createdTableName = "";
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 1 * 60 * 1000 // 1 min
+        do {
+            result = sql(showCreateTable)
+            if (!result.isEmpty()) {
+                createdTableName = result.last().get(0)
+            }
+            logger.info("create table result of ${showCreateTable} is ${createdTableName}")
+            Thread.sleep(500);
+        } while (timeoutTimestamp > System.currentTimeMillis() && createdTableName.isEmpty())
+        if (createdTableName.isEmpty()) {
+            logger.info("create table is not success")
+        }
+        Assert.assertEquals(true, !createdTableName.isEmpty())
     }
 }
 

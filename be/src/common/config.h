@@ -481,6 +481,11 @@ DECLARE_mBool(disable_compaction_trace_log);
 // Interval to picking rowset to compact, in seconds
 DECLARE_mInt64(pick_rowset_to_compact_interval_sec);
 
+// Compaction priority schedule
+DECLARE_mBool(enable_compaction_priority_scheduling);
+DECLARE_mInt32(low_priority_compaction_task_num_per_disk);
+DECLARE_mDouble(low_priority_tablet_version_num_ratio);
+
 // Thread count to do tablet meta checkpoint, -1 means use the data directories count.
 DECLARE_Int32(max_meta_checkpoint_threads);
 
@@ -1149,6 +1154,9 @@ DECLARE_mInt64(variant_threshold_rows_to_estimate_sparse_column);
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// When the number of missing versions is more than this value, do not directly
+// retry the publish and handle it through async publish.
+DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1173,10 +1181,11 @@ DECLARE_Int16(bitmap_serialize_version);
 DECLARE_String(group_commit_replay_wal_dir);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
-DECLARE_Bool(wait_internal_group_commit_finish);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
+DECLARE_mInt32(group_commit_memory_rows_for_max_filter_ratio);
+DECLARE_Bool(wait_internal_group_commit_finish);
 
 // The configuration item is used to lower the priority of the scanner thread,
 // typically employed to ensure CPU scheduling for write operations.
@@ -1334,6 +1343,8 @@ std::vector<std::vector<std::string>> get_config_info();
 Status set_fuzzy_config(const std::string& field, const std::string& value);
 
 void set_fuzzy_configs();
+
+void update_config(const std::string& field, const std::string& value);
 
 } // namespace config
 } // namespace doris

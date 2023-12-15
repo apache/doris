@@ -35,11 +35,9 @@ Apache Doris is an easy-to-use, high-performance and real-time analytical databa
 
 All this makes Apache Doris an ideal tool for scenarios including report analysis, ad-hoc query, unified data warehouse, and data lake query acceleration. On Apache Doris, users can build various applications, such as user behavior analysis, AB test platform, log retrieval analysis, user portrait analysis, and order analysis.
 
-🎉 Version 2.0.2 version released now. The 2.0.2 version has achieved over 10x performance improvements on standard Benchmark, comprehensive enhancement in log analysis and lakehouse scenarios, more efficient and stable data update and write efficiency, support for more comprehensive multi-tenant and resource isolation mechanisms, and take a new step in the direction of resource elasticity and storage computing separation. It has also been added a series of usability features for enterprise users. We welcome all users who have requirements for the new features of the 2.0 version to deploy and upgrade. Check out the 🔗[Release Notes](https://github.com/apache/doris/issues/25011) here. 
+🎉 Version 2.0.3 released now. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-2.0.3) here. The 2.0 version has achieved over 10x performance improvements on standard Benchmark, comprehensive enhancement in log analysis and lakehouse scenarios, more efficient and stable data update and write efficiency, support for more comprehensive multi-tenant and resource isolation mechanisms, and take a new step in the direction of resource elasticity and storage computing separation. It has also been added a series of usability features for enterprise users. We welcome all users who have requirements for the new features of the 2.0 version to deploy and upgrade.
 
-🎉 Version 1.2.7 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.2.7) here. 
-
-🎉 Version 1.1.5 released now. It is a stability improvement and bugfix release based on version 1.1. Check out the 🔗[Release Notes](https://doris.apache.org/docs/dev/releasenotes/release-1.1.5) here. 
+🎉 Version 1.2.7 released now! It is fully evolved release and all users are encouraged to upgrade to this release. Check out the 🔗[Release Notes](https://doris.apache.org/docs/releasenotes/release-1.2.7) here. 
 
 👀 Have a look at the 🔗[Official Website](https://doris.apache.org/) for a comprehensive list of Apache Doris's core features, blogs and user cases.
 

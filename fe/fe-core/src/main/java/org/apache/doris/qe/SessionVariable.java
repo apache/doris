@@ -219,6 +219,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_PIPELINE_X_ENGINE = "enable_pipeline_x_engine";
 
     public static final String ENABLE_SHARED_SCAN = "enable_shared_scan";
+    public static final String IGNORE_SCAN_DISTRIBUTION = "ignore_scan_distribution";
 
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
@@ -529,8 +530,8 @@ public class SessionVariable implements Serializable, Writable {
     private long defaultOrderByLimit = -1;
 
     // query timeout in second.
-    @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
-    public int queryTimeoutS = 900;
+    @VariableMgr.VarAttr(name = QUERY_TIMEOUT, checker = "checkQueryTimeoutValid", setter = "setQueryTimeoutS")
+    private int queryTimeoutS = 900;
 
     // query timeout in second.
     @VariableMgr.VarAttr(name = ANALYZE_TIMEOUT, flag = VariableMgr.GLOBAL, needForward = true)
@@ -782,6 +783,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
     private boolean enableSharedScan = false;
+
+    @VariableMgr.VarAttr(name = IGNORE_SCAN_DISTRIBUTION, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    private boolean ignoreScanDistribution = false;
 
     @VariableMgr.VarAttr(
             name = ENABLE_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
@@ -1851,7 +1856,23 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public void setQueryTimeoutS(int queryTimeoutS) {
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Setting invalid query timeout", new RuntimeException(""));
+        }
         this.queryTimeoutS = queryTimeoutS;
+    }
+
+    // This method will be called by VariableMgr.replayGlobalVariableV2
+    // We dont want any potential exception is thrown during replay oplog
+    // so we do not check its validation. Here potential excaption
+    // will become real in cases where user set global query timeout 0 before
+    // upgrading to this version.
+    public void setQueryTimeoutS(String queryTimeoutS) {
+        int newQueryTimeoutS = Integer.valueOf(queryTimeoutS);
+        if (newQueryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", newQueryTimeoutS, new RuntimeException(""));
+        }
+        this.queryTimeoutS = newQueryTimeoutS;
     }
 
     public void setAnalyzeTimeoutS(int analyzeTimeoutS) {
@@ -1861,11 +1882,17 @@ public class SessionVariable implements Serializable, Writable {
     public void setMaxExecutionTimeMS(int maxExecutionTimeMS) {
         this.maxExecutionTimeMS = maxExecutionTimeMS;
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", queryTimeoutS, new RuntimeException(""));
+        }
     }
 
     public void setMaxExecutionTimeMS(String maxExecutionTimeMS) {
         this.maxExecutionTimeMS = Integer.valueOf(maxExecutionTimeMS);
         this.queryTimeoutS = this.maxExecutionTimeMS / 1000;
+        if (queryTimeoutS <= 0) {
+            LOG.warn("Invalid query timeout: {}", queryTimeoutS, new RuntimeException(""));
+        }
     }
 
     public void setPipelineTaskNum(String value) throws Exception {
@@ -2497,6 +2524,14 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public void checkQueryTimeoutValid(String newQueryTimeout) {
+        int value = Integer.valueOf(newQueryTimeout);
+        if (value <= 0) {
+            LOG.warn("Setting invalid query timeout {}", value, new RuntimeException(""));
+            throw new UnsupportedOperationException("Query timeout must be greater than 0");
+        }
+    }
+
     public boolean isEnableFileCache() {
         return enableFileCache;
     }
@@ -3112,5 +3147,13 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isMaterializedViewRewriteEnableContainForeignTable() {
         return materializedViewRewriteEnableContainForeignTable;
+    }
+
+    public boolean isIgnoreScanDistribution() {
+        return ignoreScanDistribution && getEnablePipelineXEngine() && enableLocalShuffle;
+    }
+
+    public void setIgnoreScanDistribution(boolean ignoreScanDistribution) {
+        this.ignoreScanDistribution = ignoreScanDistribution;
     }
 }

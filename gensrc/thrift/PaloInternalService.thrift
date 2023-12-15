@@ -692,6 +692,7 @@ struct TPipelineFragmentParams {
   34: optional i32 num_buckets
   35: optional map<i32, i32> bucket_seq_to_instance_idx
   36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  37: optional i32 parallel_instances
 }
 
 struct TPipelineFragmentParamsList {

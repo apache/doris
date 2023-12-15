@@ -266,6 +266,7 @@ struct TOlapTableSink {
     // used by GroupCommitBlockSink
     21: optional i64 base_schema_version
     22: optional TGroupCommitMode group_commit_mode
+    23: optional double max_filter_ratio
 }
 
 struct TDataSink {

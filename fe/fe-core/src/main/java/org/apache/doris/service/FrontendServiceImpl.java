@@ -1994,7 +1994,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             parsedStmt.setOrigStmt(new OriginStatement(originStmt, 0));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             if (!StringUtils.isEmpty(request.getGroupCommitMode())) {
-                if (parsedStmt.getLabel() != null) {
+                if (!Config.wait_internal_group_commit_finish && parsedStmt.getLabel() != null) {
                     throw new AnalysisException("label and group_commit can't be set at the same time");
                 }
                 ctx.getSessionVariable().groupCommit = request.getGroupCommitMode();

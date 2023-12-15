@@ -463,7 +463,6 @@ int64_t RuntimeState::get_load_mem_limit() {
 
 void RuntimeState::resize_op_id_to_local_state(int operator_size, int sink_size) {
     _op_id_to_local_state.resize(operator_size);
-    _op_id_to_sink_local_state.resize(sink_size);
 }
 
 void RuntimeState::emplace_local_state(
@@ -490,26 +489,19 @@ Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
 
 void RuntimeState::emplace_sink_local_state(
         int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
-    DCHECK(id < _op_id_to_sink_local_state.size())
-            << " id=" << id << " state: " << state->debug_string(0);
-    DCHECK(!_op_id_to_sink_local_state[id]) << " id=" << id << " state: " << state->debug_string(0);
-    _op_id_to_sink_local_state[id] = std::move(state);
+    DCHECK(!_sink_local_state) << " id=" << id << " state: " << state->debug_string(0);
+    _sink_local_state = std::move(state);
 }
 
-doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int id) {
-    return _op_id_to_sink_local_state[id].get();
+doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int) {
+    return _sink_local_state.get();
 }
 
 Result<RuntimeState::SinkLocalState*> RuntimeState::get_sink_local_state_result(int id) {
-    if (id >= _op_id_to_sink_local_state.size()) {
-        return ResultError(
-                Status::InternalError("_op_id_to_sink_local_state out of range size:{} , id:{}",
-                                      _op_id_to_sink_local_state.size(), id));
-    }
-    if (!_op_id_to_sink_local_state[id]) {
+    if (!_sink_local_state) {
         return ResultError(Status::InternalError("_op_id_to_sink_local_state id:{} is null", id));
     }
-    return _op_id_to_sink_local_state[id].get();
+    return _sink_local_state.get();
 }
 
 bool RuntimeState::enable_page_cache() const {

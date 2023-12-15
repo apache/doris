@@ -564,6 +564,10 @@ public class PlanChecker {
         return cascadesContext.getMemo().copyOut();
     }
 
+    public List<Plan> getAllPlan() {
+        return cascadesContext.getMemo().copyOutAll();
+    }
+
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties) {
         GroupExpression groupExpression = rootGroup.getLowestCostPlan(physicalProperties).orElseThrow(
                 () -> new AnalysisException("lowestCostPlans with physicalProperties("

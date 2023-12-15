@@ -27,6 +27,7 @@ import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
@@ -40,6 +41,7 @@ import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.RandomUtils;
 
 import java.io.DataInput;
 import java.io.IOException;
@@ -150,6 +152,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                     .add("Comment")
                     .build();
 
+    protected static long getNextJobId() {
+        return System.nanoTime() + RandomUtils.nextInt();
+    }
+
     @Override
     public void cancelTaskById(long taskId) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
@@ -195,10 +201,16 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         return createTasks(taskType, taskContext);
     }
 
-    public void initTasks(Collection<? extends T> tasks) {
+    public void initTasks(Collection<? extends T> tasks, TaskType taskType) {
         if (CollectionUtils.isEmpty(getRunningTasks())) {
             runningTasks = new ArrayList<>();
         }
+        tasks.forEach(task -> {
+            task.setTaskType(taskType);
+            task.setJobId(getJobId());
+            task.setCreateTimeMs(System.currentTimeMillis());
+            task.setStatus(TaskStatus.PENDING);
+        });
         getRunningTasks().addAll(tasks);
         this.startTimeMs = System.currentTimeMillis();
     }

@@ -116,7 +116,7 @@ public interface Job<T extends AbstractTask, C> {
     void onUnRegister() throws JobException;
 
     /**
-     * relay create job
+     * replay create job
      * @throws JobException  If replay create failed.
      */
     void onReplayCreate() throws JobException;

@@ -342,8 +342,10 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
     if (_sink) {
         _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+        _sink->profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
+    } else {
+        _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     }
-    _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
     _init_next_report_time();
