@@ -523,9 +523,14 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
         // second filter data by zone map
         for (auto& cid : cids) {
+            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
+            // do not check zonemap if predicate does not support zonemap
+            if (!_opts.col_id_to_predicates.at(cid)->support_zonemap()) {
+                VLOG_DEBUG << "skip zonemap for column " << cid;
+                continue;
+            }
             // get row ranges by zone map of this column,
             RowRanges column_row_ranges = RowRanges::create_single(num_rows());
-            DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
             RETURN_IF_ERROR(_column_iterators[cid]->get_row_ranges_by_zone_map(
                     _opts.col_id_to_predicates.at(cid).get(),
                     _opts.del_predicates_for_zone_map.count(cid) > 0
