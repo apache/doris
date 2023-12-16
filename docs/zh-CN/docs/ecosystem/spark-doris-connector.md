@@ -81,7 +81,7 @@ spark.yarn.jars=hdfs:///spark-jars/spark-doris-connector-3.2_2.12-1.2.0-SNAPSHOT
 <dependency>
     <groupId>org.apache.doris</groupId>
     <artifactId>spark-doris-connector-3.4_2.12</artifactId>
-    <version>1.3.0-SNAPSHOT</version>
+    <version>1.3.0</version>
 </dependency>
 ```
 
