@@ -536,9 +536,13 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
                                         &zone_map_row_ranges);
         }
+        pre_size = condition_row_ranges->count();
+        RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
+                                    condition_row_ranges);
 
         std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
         if (_opts.use_topn_opt) {
+            SCOPED_RAW_TIMER(&_opts.stats->block_conditions_filtered_zonemap_ns);
             auto query_ctx = _opts.runtime_state->get_query_ctx();
             runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
             if (runtime_predicate) {
@@ -557,9 +561,10 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
             }
         }
 
-        pre_size = condition_row_ranges->count();
+        size_t pre_size2 = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
                                     condition_row_ranges);
+        _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
     }
 

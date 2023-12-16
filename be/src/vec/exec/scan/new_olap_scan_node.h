@@ -145,6 +145,7 @@ private:
     std::map<int, PredicateFilterInfo> _filter_info;
 
     RuntimeProfile::Counter* _stats_filtered_counter = nullptr;
+    RuntimeProfile::Counter* _stats_rp_filtered_counter = nullptr;
     RuntimeProfile::Counter* _bf_filtered_counter = nullptr;
     RuntimeProfile::Counter* _dict_filtered_counter = nullptr;
     RuntimeProfile::Counter* _del_filtered_counter = nullptr;
@@ -162,6 +163,7 @@ private:
     RuntimeProfile::Counter* _block_conditions_filtered_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_bf_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_zonemap_timer = nullptr;
+    RuntimeProfile::Counter* _block_conditions_filtered_zonemap_rp_timer = nullptr;
     RuntimeProfile::Counter* _block_conditions_filtered_dict_timer = nullptr;
     RuntimeProfile::Counter* _first_read_timer = nullptr;
     RuntimeProfile::Counter* _second_read_timer = nullptr;
