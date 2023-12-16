@@ -193,6 +193,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(std::numeric_limits<int>::max())
                               .set_max_queue_size(config::fragment_pool_queue_size)
                               .build(&_join_node_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(1)
+                              .set_max_queue_size(1000000)
+                              .build(&_lazy_release_obj_pool));
     init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -564,6 +569,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
+    SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_serial_download_cache_thread_token);
@@ -624,6 +630,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
+    _lazy_release_obj_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);

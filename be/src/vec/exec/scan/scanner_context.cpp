@@ -567,6 +567,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
         _set_scanner_done();
         _blocks_queue_added_cv.notify_one();
     }
+    _ctx_finish_cv.notify_one();
 }
 
 void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current_run) {

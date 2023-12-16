@@ -55,6 +55,10 @@ QueryContext::~QueryContext() {
     }
 
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
+    // Not release the the thread token in query context's dector method, because the query
+    // conext may be dectored in the thread token it self. It is very dangerous.
+    ExecEnv::GetInstance()->laze_release_obj_pool()->->submit_func(
+            [thread_token = std::move(_thread_token)] {});
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {

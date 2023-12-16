@@ -230,10 +230,8 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         // TODO llj tg how to treat this?
         while (iter != this_run.end()) {
             (*iter)->start_wait_worker_timer();
-            auto s = ctx->thread_token->submit_func([this, scanner = *iter, ctx] {
-                this->_scanner_scan(this, ctx, scanner);
-                ctx->signal_scanner_finished();
-            });
+            auto s = ctx->thread_token->submit_func(
+                    [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
             if (s.ok()) {
                 this_run.erase(iter++);
             } else {
@@ -250,14 +248,12 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
                     auto work_func = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
-                        ctx->signal_scanner_finished();
                     };
                     SimplifiedScanTask simple_scan_task = {work_func, ctx};
                     ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
                 } else if (ctx->get_task_group() && config::enable_workload_group_for_scan) {
                     auto work_func = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
-                        ctx->signal_scanner_finished();
                     };
                     taskgroup::ScanTask scan_task = {
                             work_func, ctx, ctx->get_task_group()->local_scan_task_entity(), nice};
@@ -266,7 +262,6 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                     PriorityThreadPool::Task task;
                     task.work_function = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
-                        ctx->signal_scanner_finished();
                     };
                     task.priority = nice;
                     ret = _local_scan_thread_pool->offer(task);
@@ -275,7 +270,6 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 PriorityThreadPool::Task task;
                 task.work_function = [this, scanner = *iter, ctx] {
                     this->_scanner_scan(this, ctx, scanner);
-                    ctx->signal_scanner_finished();
                 };
                 task.priority = nice;
                 ret = _remote_scan_thread_pool->offer(task);
@@ -294,9 +288,6 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
                                      std::shared_ptr<ScannerContext> ctx, VScannerSPtr scanner) {
-    // Thread Token is in query context, during this method it will signal scannode to close
-    // scanner and return. Then this thread will deconstruct query context to destroy thread token,
-    // but it is under the thread itself, could not destroy it self.
     auto task_lock = ctx->get_task_execution_context().lock();
     if (task_lock == nullptr) {
         // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)

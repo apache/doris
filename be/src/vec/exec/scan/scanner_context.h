@@ -172,8 +172,6 @@ public:
 
     void reschedule_scanner_ctx();
 
-    void signal_scanner_finished() { _ctx_finish_cv.notify_one(); }
-
     // the unique id of this context
     std::string ctx_id;
     TUniqueId _query_id;
