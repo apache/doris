@@ -231,7 +231,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
             TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
             bool ret = false;
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
-                if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
+                if (auto* scan_sche = ctx->state()->get_query_ctx()->get_scan_scheduler()) {
                     auto work_func = [this, scanner_ref = *iter, ctx]() {
                         this->_scanner_scan(this, ctx, scanner_ref);
                     };

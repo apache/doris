@@ -153,6 +153,15 @@ public:
 
     std::string dump_pipeline_tasks();
 
+    void get_query_ctx_by_query_id(TUniqueId query_id,
+                                   std::shared_ptr<QueryContext>* query_ctx_ptr) {
+        // todo(wb) use shard lock
+        std::unique_lock<std::mutex> ctx_lock(_lock);
+        if (_query_ctx_map.find(query_id) != _query_ctx_map.end()) {
+            *query_ctx_ptr = _query_ctx_map[query_id];
+        }
+    }
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,

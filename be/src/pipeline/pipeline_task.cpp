@@ -209,10 +209,6 @@ Status PipelineTask::_open() {
     return Status::OK();
 }
 
-void PipelineTask::set_task_queue(TaskQueue* task_queue) {
-    _task_queue = task_queue;
-}
-
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);

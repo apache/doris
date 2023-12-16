@@ -31,6 +31,7 @@
 #include "agent/topic_subscriber.h"
 #include "agent/utils.h"
 #include "agent/workload_group_listener.h"
+#include "agent/workload_move_action_listener.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -72,6 +73,12 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     LOG(INFO) << "Register workload group listener";
     _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_GROUP,
                                          std::move(wg_listener));
+
+    std::unique_ptr<TopicListener> ma_listener =
+            std::make_unique<WorkloadMoveActionListener>(exec_env);
+    LOG(INFO) << "Register workload move action listener";
+    _topic_subscriber->register_listener(doris::TTopicInfoType::type::MOVE_QUERY_TO_GROUP,
+                                         std::move(ma_listener));
 #endif
 }
 

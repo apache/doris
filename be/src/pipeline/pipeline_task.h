@@ -200,7 +200,7 @@ public:
 
     taskgroup::TaskGroupPipelineTaskEntity* get_task_group_entity() const;
 
-    void set_task_queue(TaskQueue* task_queue);
+    void set_task_queue(TaskQueue* task_queue) { this->_task_queue = task_queue; }
     TaskQueue* get_task_queue() { return _task_queue; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000ULL;
@@ -288,6 +288,7 @@ protected:
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context = nullptr;
+
     TaskQueue* _task_queue = nullptr;
 
     // used for priority queue

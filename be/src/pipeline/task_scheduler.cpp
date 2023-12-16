@@ -194,7 +194,10 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     auto task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
-    static_cast<void>(task->get_task_queue()->push_back(task));
+    Status ret = task->query_context()->get_exec_task_queue()->push_back(task);
+    if (!ret.ok()) {
+        LOG(ERROR) << "push task to queue failed";
+    }
 }
 
 TaskScheduler::~TaskScheduler() {
@@ -232,6 +235,16 @@ void TaskScheduler::_do_work(size_t index) {
         if (!task) {
             continue;
         }
+
+        // query may be migrated between scheduler
+        if (task->query_context()->get_task_scheduler()->get_wg_id() != this->get_wg_id()) {
+            Status ret = task->query_context()->get_exec_task_queue()->push_back(task, index);
+            if (!ret.ok()) {
+                LOG(ERROR) << "push task to queue failed";
+            }
+            continue;
+        }
+
         if (task->is_pipelineX() && task->is_running()) {
             static_cast<void>(_task_queue->push_back(task, index));
             continue;
@@ -334,10 +347,13 @@ void TaskScheduler::_do_work(size_t index) {
         case PipelineTaskState::BLOCKED_FOR_DEPENDENCY:
             static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
             break;
-        case PipelineTaskState::RUNNABLE:
+        case PipelineTaskState::RUNNABLE: {
             task->set_running(false);
-            static_cast<void>(_task_queue->push_back(task, index));
-            break;
+            Status ret = task->query_context()->get_exec_task_queue()->push_back(task, index);
+            if (!ret.ok()) {
+                LOG(ERROR) << "push task to queue failed";
+            }
+        } break;
         default:
             DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state)
                           << " task: " << task->debug_string();
