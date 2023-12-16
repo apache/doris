@@ -287,15 +287,6 @@ public abstract class ExternalCatalog
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
-    public void setUninitialized(boolean invalidCache) {
-        this.objectCreated = false;
-        this.initialized = false;
-        this.invalidCacheInInit = invalidCache;
-        if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
-        }
-    }
-
     public void onRefresh(boolean invalidCache) {
         this.objectCreated = false;
         this.initialized = false;
@@ -303,6 +294,7 @@ public abstract class ExternalCatalog
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
+        CatalogIf.super.onClose();
     }
 
     public void updateDbList() {
