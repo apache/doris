@@ -70,11 +70,14 @@ bool ScanTaskTaskGroupQueue::take(ScanTask* scan_task) {
             return false;
         }
         if (_group_entities.empty()) {
-            _wait_task.wait_for(lock, std::chrono::milliseconds(WAIT_CORE_TASK_TIMEOUT_MS * 5));
+            _wait_task.wait_for(lock, std::chrono::milliseconds(
+                                              config::workload_group_scan_task_wait_timeout_ms));
         } else {
             entity = _next_tg_entity();
             if (!entity) {
-                _wait_task.wait_for(lock, std::chrono::milliseconds(WAIT_CORE_TASK_TIMEOUT_MS));
+                _wait_task.wait_for(lock,
+                                    std::chrono::milliseconds(
+                                            config::workload_group_scan_task_wait_timeout_ms));
             }
         }
     }
@@ -82,7 +85,8 @@ bool ScanTaskTaskGroupQueue::take(ScanTask* scan_task) {
     if (entity->task_size() == 1) {
         _dequeue_task_group(entity);
     }
-    return entity->task_queue()->try_get(scan_task, WAIT_CORE_TASK_TIMEOUT_MS /* timeout_ms */);
+    return entity->task_queue()->try_get(
+            scan_task, config::workload_group_scan_task_wait_timeout_ms /* timeout_ms */);
 }
 
 bool ScanTaskTaskGroupQueue::push_back(ScanTask scan_task) {
