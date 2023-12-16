@@ -83,6 +83,8 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    void update_null_data();
+
     MutableColumnPtr get_shrinked_column() override;
 
     const char* get_family_name() const override { return "Nullable"; }
@@ -121,8 +123,9 @@ public:
     void deserialize_vec(std::vector<StringRef>& keys, size_t num_rows) override;
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
+
     void insert(const Field& x) override;
     void insert_from(const IColumn& src, size_t n) override;
 

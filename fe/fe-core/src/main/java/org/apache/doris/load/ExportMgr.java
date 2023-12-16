@@ -65,7 +65,8 @@ public class ExportMgr {
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     private Map<Long, ExportJob> exportIdToJob = Maps.newHashMap(); // exportJobId to exportJob
-    private Map<String, Long> labelToExportJobId = Maps.newHashMap();
+    // dbid -> <label -> job>
+    private Map<Long, Map<String, Long>> dbTolabelToExportJobId = Maps.newHashMap();
 
     public ExportMgr() {
     }
@@ -95,7 +96,8 @@ public class ExportMgr {
         job.setId(jobId);
         writeLock();
         try {
-            if (labelToExportJobId.containsKey(job.getLabel())) {
+            if (dbTolabelToExportJobId.containsKey(job.getDbId())
+                    && dbTolabelToExportJobId.get(job.getDbId()).containsKey(job.getLabel())) {
                 throw new LabelAlreadyUsedException(job.getLabel());
             }
             unprotectAddJob(job);
@@ -135,7 +137,8 @@ public class ExportMgr {
 
     public void unprotectAddJob(ExportJob job) {
         exportIdToJob.put(job.getId(), job);
-        labelToExportJobId.putIfAbsent(job.getLabel(), job.getId());
+        dbTolabelToExportJobId.computeIfAbsent(job.getDbId(),
+                k -> Maps.newHashMap()).put(job.getLabel(), job.getId());
     }
 
     private List<ExportJob> getWaitingCancelJobs(CancelExportStmt stmt) throws AnalysisException {
@@ -393,7 +396,13 @@ public class ExportMgr {
                         && (job.getState() == ExportJobState.CANCELLED
                             || job.getState() == ExportJobState.FINISHED)) {
                     iter.remove();
-                    labelToExportJobId.remove(job.getLabel(), job.getId());
+                    Map<String, Long> labelJobs = dbTolabelToExportJobId.get(job.getDbId());
+                    if (labelJobs != null) {
+                        labelJobs.remove(job.getLabel());
+                        if (labelJobs.isEmpty()) {
+                            dbTolabelToExportJobId.remove(job.getDbId());
+                        }
+                    }
                 }
             }
         } finally {

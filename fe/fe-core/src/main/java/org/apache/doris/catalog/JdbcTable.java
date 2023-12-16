@@ -244,8 +244,12 @@ public class JdbcTable extends Table {
         realDatabaseName = serializeMap.get(REAL_DATABASE);
         realTableName = serializeMap.get(REAL_TABLE);
         String realColumnNamesJson = serializeMap.get(REAL_COLUMNS);
-        realColumnNames = objectMapper.readValue(realColumnNamesJson, new TypeReference<Map<String, String>>() {
-        });
+        if (realColumnNamesJson != null) {
+            realColumnNames = objectMapper.readValue(realColumnNamesJson, new TypeReference<Map<String, String>>() {
+            });
+        } else {
+            realColumnNames = Maps.newHashMap();
+        }
     }
 
     public String getResourceName() {

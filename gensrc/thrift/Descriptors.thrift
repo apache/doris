@@ -41,6 +41,7 @@ struct TColumn {
     16: optional string aggregation
     17: optional bool result_is_nullable
     18: optional bool is_auto_increment = false;
+    19: optional i32 cluster_key_id = -1
 }
 
 struct TSlotDescriptor {
@@ -333,7 +334,6 @@ struct TMCTable {
   4: optional string access_key
   5: optional string secret_key
   6: optional string public_access
-  7: optional string partition_spec
 }
 
 // "Union" of all table types.

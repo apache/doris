@@ -64,6 +64,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.statistics.StatsDeriveResult;
@@ -774,8 +775,21 @@ public class OlapScanNode extends ScanNode {
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
                 Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
-                replicas.clear();
-                replicas.add(replica);
+                if (ConnectContext.get().getSessionVariable().fallbackOtherReplicaWhenFixedCorrupt) {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
+                    // If the fixed replica is bad, then not clear the replicas using random replica
+                    if (backend == null || !backend.isAlive()) {
+                        LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
+                                replica.getId());
+                        Collections.shuffle(replicas);
+                    } else {
+                        replicas.clear();
+                        replicas.add(replica);
+                    }
+                } else {
+                    replicas.clear();
+                    replicas.add(replica);
+                }
             }
 
             final long coolDownReplicaId = tablet.getCooldownReplicaId();
@@ -1155,6 +1169,7 @@ public class OlapScanNode extends ScanNode {
         scanBackendIds.clear();
         scanTabletIds.clear();
         bucketSeq2locations.clear();
+        scanReplicaIds.clear();
         try {
             createScanRangeLocations();
         } catch (AnalysisException e) {
@@ -1262,7 +1277,12 @@ public class OlapScanNode extends ScanNode {
         // In pipeline exec engine, the instance num equals be_num * parallel instance.
         // so here we need count distinct be_num to do the work. make sure get right instance
         if (ConnectContext.get().getSessionVariable().getEnablePipelineEngine()
+                && !ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
                 && ConnectContext.get().getSessionVariable().getEnableSharedScan()) {
+            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        }
+        if (ConnectContext.get().getSessionVariable().getEnablePipelineXEngine()
+                && ConnectContext.get().getSessionVariable().isIgnoreScanDistribution()) {
             return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
         }
         return scanRangeLocations.size();
@@ -1391,6 +1411,10 @@ public class OlapScanNode extends ScanNode {
         }
 
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
+        if (olapTable.getBaseSchema().stream().anyMatch(Column::isClusterKey)) {
+            keyColumnNames.clear();
+            keyColumnTypes.clear();
+        }
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
         msg.olap_scan_node.setIndexesDesc(indexDesc);
@@ -1427,7 +1451,7 @@ public class OlapScanNode extends ScanNode {
             msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
         }
 
-        if (shouldColoScan) {
+        if (shouldColoScan || SessionVariable.enablePipelineEngineX()) {
             msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
         }
     }
@@ -1604,8 +1628,12 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNereids() {
         computeNumNodes();
         computeStatsForNereids();
-        // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
-        distributionColumnIds.clear();
+        // NOTICE: must call here to get selected tablet row count to let block rules work well.
+        mockRowCountInStatistic();
+        if (!SessionVariable.enablePipelineEngineX()) {
+            // distributionColumnIds is used for one backend node agg optimization, nereids do not support it.
+            distributionColumnIds.clear();
+        }
     }
 
     private void computeStatsForNereids() {
@@ -1666,6 +1694,13 @@ public class OlapScanNode extends ScanNode {
         // The value column of the agg does not support zone_map index.
         if (type == KeysType.AGG_KEYS && !col.isKey()) {
             return false;
+        }
+
+        if (aggExpr.getChild(0) instanceof SlotRef) {
+            SlotRef slot = (SlotRef) aggExpr.getChild(0);
+            if (CreateMaterializedViewStmt.isMVColumn(slot.getColumnName()) && slot.getColumn().isAggregated()) {
+                return false;
+            }
         }
 
         return true;

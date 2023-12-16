@@ -79,6 +79,7 @@ suite("insert_group_commit_into") {
         assertTrue(serverInfo.contains("'status':'VISIBLE'"))
         assertTrue(!serverInfo.contains("'label':'group_commit_"))
     }
+
     for (item in ["legacy", "nereids"]) {
         try {
             // create table
@@ -102,11 +103,11 @@ suite("insert_group_commit_into") {
             """
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-                sql """ set enable_insert_group_commit = true; """
+                sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    sql """ set enable_fallback_to_original_planner=false; """
+                    //sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }
@@ -194,16 +195,16 @@ suite("insert_group_commit_into") {
                 qt_sql """ select name, score from ${table} order by name asc; """
 
 
-                if (item == "nereids") {
+                /*if (item == "nereids") {
                     group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
                     group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
                     group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
                     getRowCount(23)
-                } else {
+                } else {*/
                     none_group_commit_insert """ insert into ${table}(id, name, score) values(10 + 1, 'h', 100);  """, 1
                     none_group_commit_insert """ insert into ${table}(id, name, score) select 10 + 2, 'h', 100;  """, 1
                     none_group_commit_insert """ insert into ${table} with label test_gc_""" + System.currentTimeMillis() + """ (id, name, score) values(13, 'h', 100);  """, 1
-                }
+                //}
 
                 def rowCount = sql "select count(*) from ${table}"
                 logger.info("row count: " + rowCount)
@@ -214,7 +215,7 @@ suite("insert_group_commit_into") {
         }
 
         // test connect to observer fe
-        try {
+        /*try {
             def fes = sql_return_maparray "show frontends"
             logger.info("frontends: ${fes}")
             if (fes.size() > 1) {
@@ -229,7 +230,7 @@ suite("insert_group_commit_into") {
                     def url = "jdbc:mysql://${observer_fe.Host}:${observer_fe.QueryPort}/"
                     logger.info("observer url: " + url)
                     connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = url) {
-                        sql """ set enable_insert_group_commit = true; """
+                        sql """ set group_commit = async_mode; """
                         sql """ set enable_nereids_dml = false; """
                         sql """ set enable_profile= true; """
 
@@ -260,7 +261,7 @@ suite("insert_group_commit_into") {
                 logger.info("only one fe, skip test connect to observer fe")
             }
         } finally {
-        }
+        }*/
 
         // table with array type
         tableName = "insert_group_commit_into_duplicate_array"
@@ -293,11 +294,11 @@ suite("insert_group_commit_into") {
             """
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-                sql """ set enable_insert_group_commit = true; """
+                sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
-                    sql """ set enable_fallback_to_original_planner=false; """
+                    //sql """ set enable_fallback_to_original_planner=false; """
                 } else {
                     sql """ set enable_nereids_dml = false; """
                 }

@@ -45,6 +45,7 @@ CREATE CATALOG dlf PROPERTIES (
    "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
    "dlf.region" = "cn-beijing",
    "dlf.uid" = "uid",
+   "dlf.catalog.id" = "catalog_id", //可选
    "dlf.access_key" = "ak",
    "dlf.secret_key" = "sk"
 );
@@ -55,6 +56,7 @@ CREATE CATALOG dlf PROPERTIES (
 * `dlf.endpoint`：DLF Endpoint，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
 * `dlf.region`：DLF Region，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
 * `dlf.uid`：阿里云账号。即阿里云控制台右上角个人信息的“云账号ID”。
+* `dlf.catalog.id`(可选)：Catalog Id。用于指定数据目录，如果不填，使用默认的Catalog ID。
 * `dlf.access_key`：AccessKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
 * `dlf.secret_key`：SecretKey。可以在 [阿里云控制台](https://ram.console.aliyun.com/manage/ak) 中创建和管理。
 
@@ -79,6 +81,7 @@ CREATE CATALOG dlf PROPERTIES (
        "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
        "dlf.region" = "cn-beijing",
        "dlf.uid" = "uid",
+       "dlf.catalog.id" = "catalog_id", //可选
        "dlf.access_key" = "ak",
        "dlf.secret_key" = "sk",
        "oss.hdfs.enabled" = "true"
@@ -97,6 +100,7 @@ CREATE CATALOG dlf_iceberg PROPERTIES (
    "dlf.endpoint" = "datalake-vpc.cn-beijing.aliyuncs.com",
    "dlf.region" = "cn-beijing",
    "dlf.uid" = "uid",
+   "dlf.catalog.id" = "catalog_id", //可选
    "dlf.access_key" = "ak",
    "dlf.secret_key" = "sk"
 );

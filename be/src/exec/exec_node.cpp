@@ -200,6 +200,9 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
 
         _is_resource_released = true;
     }
+    if (_peak_memory_usage_counter) {
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+    }
 }
 
 Status ExecNode::close(RuntimeState* state) {
@@ -217,9 +220,6 @@ Status ExecNode::close(RuntimeState* state) {
         if (result.ok() && !st.ok()) {
             result = st;
         }
-    }
-    if (_peak_memory_usage_counter) {
-        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
     }
     release_resource(state);
     LOG(INFO) << "query= " << print_id(state->query_id())

@@ -17,10 +17,14 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.MaterializedViewException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
@@ -35,10 +39,17 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -196,6 +207,46 @@ public class ExpressionUtils {
                 .orElse(BooleanLiteral.of(type == And.class));
     }
 
+    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
+        return shuttleExpressionWithLineage(Lists.newArrayList(expression),
+                plan, ImmutableSet.of(), ImmutableSet.of()).get(0);
+    }
+
+    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
+            Plan plan) {
+        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of());
+    }
+
+    /**
+     * Replace the slot in expressions with the lineage identifier from specifiedbaseTable sets or target table types
+     * example as following:
+     * select a + 10 as a1, d from (
+     * select b - 5 as a, d from table
+     * );
+     * op expression before is: a + 10 as a1, d. after is: b - 5 + 10, d
+     * todo to get from plan struct info
+     */
+    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
+            Plan plan,
+            Set<TableType> targetTypes,
+            Set<String> tableIdentifiers) {
+
+        ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
+                new ExpressionLineageReplacer.ExpressionReplaceContext(
+                        expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
+                        targetTypes,
+                        tableIdentifiers);
+
+        plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
+        // Replace expressions by expression map
+        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (expressions.size() != replacedExpressions.size()) {
+            throw new NereidsException("shuttle expression fail",
+                    new MaterializedViewException("shuttle expression fail"));
+        }
+        return replacedExpressions;
+    }
+
     /**
      * Choose the minimum slot from input parameter.
      */
@@ -267,6 +318,19 @@ public class ExpressionUtils {
         return expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
     }
 
+    /**
+     * replace NameExpression.
+     */
+    public static NamedExpression replace(NamedExpression expr,
+            Map<? extends Expression, ? extends Expression> replaceMap) {
+        Expression newExpr = expr.accept(ExpressionReplacer.INSTANCE, replaceMap);
+        if (newExpr instanceof NamedExpression) {
+            return (NamedExpression) newExpr;
+        } else {
+            return new Alias(expr.getExprId(), newExpr, expr.getName());
+        }
+    }
+
     public static List<Expression> replace(List<Expression> exprs,
             Map<? extends Expression, ? extends Expression> replaceMap) {
         return exprs.stream()
@@ -298,9 +362,40 @@ public class ExpressionUtils {
         @Override
         public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
             if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr);
+                Expression replacedExpression = replaceMap.get(expr);
+                if (replacedExpression instanceof SlotReference
+                        && replacedExpression.nullable() != expr.nullable()) {
+                    replacedExpression = ((SlotReference) replacedExpression).withNullable(expr.nullable());
+                }
+                return replacedExpression;
             }
             return super.visit(expr, replaceMap);
+        }
+    }
+
+    private static class ExpressionReplacerContext {
+        private final Map<? extends Expression, ? extends Expression> replaceMap;
+        // if the key of replaceMap is named expr and withAlias is true, we should
+        // add alias after replaced
+        private final boolean withAliasIfKeyNamed;
+
+        private ExpressionReplacerContext(Map<? extends Expression, ? extends Expression> replaceMap,
+                boolean withAliasIfKeyNamed) {
+            this.replaceMap = replaceMap;
+            this.withAliasIfKeyNamed = withAliasIfKeyNamed;
+        }
+
+        public static ExpressionReplacerContext of(Map<? extends Expression, ? extends Expression> replaceMap,
+                boolean withAliasIfKeyNamed) {
+            return new ExpressionReplacerContext(replaceMap, withAliasIfKeyNamed);
+        }
+
+        public Map<? extends Expression, ? extends Expression> getReplaceMap() {
+            return replaceMap;
+        }
+
+        public boolean isWithAliasIfKeyNamed() {
+            return withAliasIfKeyNamed;
         }
     }
 
@@ -414,6 +509,32 @@ public class ExpressionUtils {
         return expressions.stream()
                 .flatMap(expr -> expr.<Set<E>>collect(predicate).stream())
                 .collect(ImmutableSet.toImmutableSet());
+    }
+
+    /**
+     * extract uniform slot for the given predicate, such as a = 1 and b = 2
+     */
+    public static ImmutableSet<Slot> extractUniformSlot(Expression expression) {
+        ImmutableSet.Builder<Slot> builder = new ImmutableSet.Builder<>();
+        if (expression instanceof And) {
+            builder.addAll(extractUniformSlot(expression.child(0)));
+            builder.addAll(extractUniformSlot(expression.child(1)));
+        }
+        if (expression instanceof EqualTo) {
+            if (isInjective(expression.child(0)) && expression.child(1).isConstant()) {
+                builder.add((Slot) expression.child(0));
+            }
+        }
+        return builder.build();
+    }
+
+    // TODO: Add more injective functions
+    public static boolean isInjective(Expression expression) {
+        return expression instanceof Slot;
+    }
+
+    public static boolean isInjectiveAgg(AggregateFunction agg) {
+        return agg instanceof Sum || agg instanceof Avg || agg instanceof Max || agg instanceof Min;
     }
 
     public static <E> Set<E> mutableCollect(List<? extends Expression> expressions,

@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.manager;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -28,7 +29,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.scheduler.JobScheduler;
 import org.apache.doris.job.task.AbstractTask;
 
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.StringUtils;
 
 import java.io.DataInput;
@@ -38,8 +39,8 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
-@Slf4j
-public class JobManager<T extends AbstractJob<?>> implements Writable {
+@Log4j2
+public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
 
     private final ConcurrentHashMap<Long, T> jobMap = new ConcurrentHashMap<>(32);
@@ -53,41 +54,38 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
 
     public void registerJob(T job) throws JobException {
         job.checkJobParams();
-        checkJobNameExist(job.getJobName(), job.getJobType(), job.getCurrentDbName());
+        checkJobNameExist(job.getJobName());
         if (jobMap.get(job.getJobId()) != null) {
-            throw new JobException("job id exist,jobId:" + job.getJobId());
+            throw new JobException("job id exist, jobId:" + job.getJobId());
         }
-        //Env.getCurrentEnv().getEditLog().logCreateJob(job);
-        //check name exist
+        Env.getCurrentEnv().getEditLog().logCreateJob(job);
         jobMap.put(job.getJobId(), job);
         //check its need to scheduler
         jobScheduler.scheduleOneJob(job);
     }
 
 
-    private void checkJobNameExist(String jobName, JobType type, String currentDbName) throws JobException {
-        if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName) && a.getJobType().equals(type)
-                && (null == a.getCurrentDbName() || a.getCurrentDbName().equals(currentDbName)))) {
-            throw new JobException("job name exist,jobName:" + jobName);
+    private void checkJobNameExist(String jobName) throws JobException {
+        if (jobMap.values().stream().anyMatch(a -> a.getJobName().equals(jobName))) {
+            throw new JobException("job name exist, jobName:" + jobName);
         }
     }
 
     public void unregisterJob(Long jobId) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).setJobStatus(JobStatus.STOPPED);
-        jobMap.get(jobId).cancel();
-        //Env.getCurrentEnv().getEditLog().logDeleteJob(jobMap.get(jobId));
+        jobMap.get(jobId).cancelAllTasks();
+        Env.getCurrentEnv().getEditLog().logDeleteJob(jobMap.get(jobId));
         jobMap.remove(jobId);
     }
 
-    public void unregisterJob(String currentDbName, String jobName) throws JobException {
+    public void unregisterJob(String jobName) throws JobException {
         for (T a : jobMap.values()) {
-            if (a.getJobName().equals(jobName) && (null != a.getCurrentDbName()
-                    && a.getCurrentDbName().equals(currentDbName)) && a.getJobType().equals(JobType.INSERT)) {
+            if (a.getJobName().equals(jobName)) {
                 try {
                     unregisterJob(a.getJobId());
                 } catch (JobException e) {
-                    throw new JobException("unregister job error,jobName:" + jobName);
+                    throw new JobException("unregister job error, jobName:" + jobName);
                 }
             }
         }
@@ -97,17 +95,20 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
     public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
-        //Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
+        Env.getCurrentEnv().getEditLog().logUpdateJob(jobMap.get(jobId));
     }
 
-    public void alterJobStatus(String currentDbName, String jobName, JobStatus jobStatus) throws JobException {
+    public void alterJobStatus(String jobName, JobStatus jobStatus) throws JobException {
         for (T a : jobMap.values()) {
-            if (a.getJobName().equals(jobName) && (null != a.getCurrentDbName()
-                    && a.getCurrentDbName().equals(currentDbName)) && JobType.INSERT.equals(a.getJobType())) {
+            if (a.getJobName().equals(jobName)) {
                 try {
+                    if (jobStatus.equals(JobStatus.STOPPED)) {
+                        unregisterJob(a.getJobId());
+                        return;
+                    }
                     alterJobStatus(a.getJobId(), jobStatus);
                 } catch (JobException e) {
-                    throw new JobException("unregister job error,jobName:" + jobName);
+                    throw new JobException("unregister job error, jobName:" + jobName);
                 }
             }
         }
@@ -115,7 +116,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
 
     private void checkJobExist(Long jobId) throws JobException {
         if (null == jobMap.get(jobId)) {
-            throw new JobException("job not exist,jobId:" + jobId);
+            throw new JobException("job not exist, jobId:" + jobId);
         }
     }
 
@@ -124,29 +125,48 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
                 .collect(java.util.stream.Collectors.toList());
     }
 
-    public List<T> queryJobs(String currentDb, String jobName) {
+    public List<T> queryJobs(JobType jobType, String jobName) {
         //only query insert job,we just provide insert job
-        return jobMap.values().stream().filter(a -> checkItsMatch(currentDb, jobName, a))
+        return jobMap.values().stream().filter(a -> checkItsMatch(jobType, jobName, a))
                 .collect(Collectors.toList());
     }
 
-    private boolean checkItsMatch(String currentDb, String jobName, T job) {
-        if (StringUtils.isBlank(jobName)) {
-            return job.getJobType().equals(JobType.INSERT) && (null != job.getCurrentDbName()
-                    && job.getCurrentDbName().equals(currentDb));
+    /**
+     * query jobs by job type
+     *
+     * @param jobTypes @JobType
+     * @return List<AbstractJob> job list
+     */
+    public List<T> queryJobs(List<JobType> jobTypes) {
+        return jobMap.values().stream().filter(a -> checkItsMatch(jobTypes, a))
+                .collect(Collectors.toList());
+    }
+
+    private boolean checkItsMatch(JobType jobType, String jobName, T job) {
+        if (null == jobType) {
+            throw new IllegalArgumentException("jobType cannot be null");
         }
-        return job.getJobType().equals(JobType.INSERT) && (null != job.getCurrentDbName()
-                && job.getCurrentDbName().equals(currentDb)) && job.getJobName().equals(jobName);
+        if (StringUtils.isBlank(jobName)) {
+            return job.getJobType().equals(jobType);
+        }
+        return job.getJobType().equals(jobType) && job.getJobName().equals(jobName);
+    }
+
+    private boolean checkItsMatch(List<JobType> jobTypes, T job) {
+        if (null == jobTypes) {
+            throw new IllegalArgumentException("jobType cannot be null");
+        }
+        return jobTypes.contains(job.getJobType());
     }
 
     public List<? extends AbstractTask> queryTasks(Long jobId) throws JobException {
         checkJobExist(jobId);
-        return jobMap.get(jobId).queryTasks();
+        return jobMap.get(jobId).queryAllTasks();
     }
 
-    public void triggerJob(long jobId) throws JobException {
+    public void triggerJob(long jobId, C context) throws JobException {
         checkJobExist(jobId);
-        jobScheduler.schedulerInstantJob(jobMap.get(jobId), TaskType.MANUAL);
+        jobScheduler.schedulerInstantJob(jobMap.get(jobId), TaskType.MANUAL, context);
     }
 
     public void replayCreateJob(T job) {
@@ -176,11 +196,14 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
                 .add("msg", "replay delete scheduler job").build());
     }
 
-    void cancelTask(Long jobId, Long taskId) throws JobException {
-        checkJobExist(jobId);
-        if (null == jobMap.get(jobId).getRunningTasks()) {
-            throw new JobException("task not exist,taskId:" + taskId);
+    public void cancelTaskById(String jobName, Long taskId) throws JobException {
+        for (T job : jobMap.values()) {
+            if (job.getJobName().equals(jobName)) {
+                job.cancelTaskById(taskId);
+                return;
+            }
         }
+        throw new JobException("job not exist, jobName:" + jobName);
     }
 
     @Override
@@ -190,7 +213,7 @@ public class JobManager<T extends AbstractJob<?>> implements Writable {
             try {
                 job.write(out);
             } catch (IOException e) {
-                log.error("write job error,jobId:" + jobId, e);
+                log.error("write job error, jobId:" + jobId, e);
             }
         });
     }

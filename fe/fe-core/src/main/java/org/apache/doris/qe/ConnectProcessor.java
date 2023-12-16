@@ -90,10 +90,6 @@ public abstract class ConnectProcessor {
 
     // change current database of this session.
     protected void handleInitDb(String fullDbName) {
-        if (Strings.isNullOrEmpty(ctx.getClusterName())) {
-            ctx.getState().setError(ErrorCode.ERR_CLUSTER_NAME_NULL, "Please enter cluster");
-            return;
-        }
         String catalogName = null;
         String dbName = null;
         String[] dbNames = fullDbName.split("\\.");
@@ -106,7 +102,6 @@ public abstract class ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "Only one dot can be in the name: " + fullDbName);
             return;
         }
-        dbName = ClusterNamespace.getFullName(ctx.getClusterName(), dbName);
 
         // check catalog and db exists
         if (catalogName != null) {
@@ -188,7 +183,7 @@ public abstract class ConnectProcessor {
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
-                stmts = new NereidsParser().parseSQL(originStmt);
+                stmts = new NereidsParser().parseSQL(originStmt, ctx.getSessionVariable());
             } catch (NotSupportedException e) {
                 // Parse sql failed, audit it and return
                 handleQueryException(e, originStmt, null, null);
@@ -446,9 +441,6 @@ public abstract class ConnectProcessor {
         ctx.setQualifiedUser(request.user);
         ctx.setEnv(Env.getCurrentEnv());
         ctx.getState().reset();
-        if (request.isSetCluster()) {
-            ctx.setCluster(request.cluster);
-        }
         if (request.isSetUserIp()) {
             ctx.setRemoteIP(request.getUserIp());
         }

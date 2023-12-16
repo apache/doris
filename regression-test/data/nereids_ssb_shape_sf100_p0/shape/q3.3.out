@@ -9,21 +9,19 @@ PhysicalResultSink
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
-------------------------PhysicalDistribute
---------------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
-----------------------------------PhysicalOlapScan[supplier]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF1 c_custkey->[lo_custkey]
+----------------------hashJoin[INNER_JOIN] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
-----------------------------filter(c_city IN ('UNITED KI1', 'UNITED KI5'))
-------------------------------PhysicalOlapScan[customer]
+----------------------------filter(s_city IN ('UNITED KI1', 'UNITED KI5'))
+------------------------------PhysicalOlapScan[supplier]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter(c_city IN ('UNITED KI1', 'UNITED KI5'))
+----------------------------PhysicalOlapScan[customer]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------filter((dates.d_year <= 1997) and (dates.d_year >= 1992))

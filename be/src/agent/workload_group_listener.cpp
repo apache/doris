@@ -50,18 +50,20 @@ void WorkloadGroupListener::handle_topic_info(const std::vector<TopicInfo>& topi
                 task_group_info.enable_cpu_hard_limit);
 
         // 4 create and update task scheduler
-        Status ret2 =
-                _exec_env->task_group_manager()->upsert_task_scheduler(&task_group_info, _exec_env);
+        Status ret2 = _exec_env->task_group_manager()->upsert_cg_task_scheduler(&task_group_info,
+                                                                                _exec_env);
         if (!ret2.ok()) {
             LOG(WARNING) << "upsert task sche failed, tg_id=" << task_group_info.id
                          << ", reason=" << ret2.to_string();
         }
 
-        LOG(INFO) << "update task group success, tg info=" << tg->debug_string()
+        LOG(INFO) << "update task group finish, tg info=" << tg->debug_string()
                   << ", enable_cpu_hard_limit="
-                  << _exec_env->task_group_manager()->enable_cpu_hard_limit()
+                  << (_exec_env->task_group_manager()->enable_cpu_hard_limit() ? "true" : "false")
                   << ", cgroup cpu_shares=" << task_group_info.cgroup_cpu_shares
-                  << ", cgroup cpu_hard_limit=" << task_group_info.cgroup_cpu_hard_limit;
+                  << ", cgroup cpu_hard_limit=" << task_group_info.cgroup_cpu_hard_limit
+                  << ", enable_cgroup_cpu_soft_limit="
+                  << (config::enable_cgroup_cpu_soft_limit ? "true" : "false");
     }
 
     _exec_env->task_group_manager()->delete_task_group_by_ids(current_wg_ids);

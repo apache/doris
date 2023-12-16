@@ -161,8 +161,8 @@ protected:
     }
 
     // For dictionary encoding
-    std::unique_ptr<uint8_t[]> _dict = nullptr;
-    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder = nullptr;
+    std::unique_ptr<uint8_t[]> _dict;
+    std::unique_ptr<RleBatchDecoder<uint32_t>> _index_batch_decoder;
     std::vector<uint32_t> _indexes;
 };
 

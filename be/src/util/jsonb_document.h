@@ -318,13 +318,13 @@ public:
 
 private:
     /// The current position in the stream.
-    const char* m_position;
+    const char* m_position = nullptr;
 
     /// The end of the stream.
     const char* const m_end;
 
     ///path leg ptr
-    char* leg_ptr;
+    char* leg_ptr = nullptr;
 
     ///path leg len
     unsigned int leg_len;
@@ -335,7 +335,7 @@ private:
 
 struct leg_info {
     ///path leg ptr
-    char* leg_ptr;
+    char* leg_ptr = nullptr;
 
     ///path leg len
     unsigned int leg_len;
@@ -1573,6 +1573,9 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
             stream->skip(1);
             stream->add_leg_len();
             stream->set_has_escapes(true);
+            if (stream->exhausted()) {
+                return false;
+            }
             continue;
         } else if (stream->peek() == DOUBLE_QUOTE) {
             if (left_quotation_marks == nullptr) {

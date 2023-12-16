@@ -436,11 +436,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
         for (SlotReference slot : usedSlotInTable) {
             Column column = slot.getColumn().get();
-            if (logicalScan instanceof LogicalOlapScan) {
-                KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
-                if (keysType == KeysType.AGG_KEYS && !column.isKey()) {
-                    return canNotPush;
-                }
+            if (column.isAggregated()) {
+                return canNotPush;
             }
             // The zone map max length of CharFamily is 512, do not
             // over the length: https://github.com/apache/doris/pull/6293

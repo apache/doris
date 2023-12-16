@@ -11,24 +11,23 @@ PhysicalResultSink
 ----------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_nationkey = nation.n_nationkey)) otherCondition=()
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN] hashCondition=((supplier.s_suppkey = lineitem.l_suppkey)) otherCondition=()
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
---------------------------------PhysicalDistribute
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[orders]
---------------------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((partsupp.ps_partkey = lineitem.l_partkey) and (partsupp.ps_suppkey = lineitem.l_suppkey)) otherCondition=()
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
+------------------------------PhysicalDistribute
+--------------------------------hashJoin[INNER_JOIN] hashCondition=((orders.o_orderkey = lineitem.l_orderkey)) otherCondition=()
 ----------------------------------PhysicalProject
-------------------------------------filter((p_name like '%green%'))
---------------------------------------PhysicalOlapScan[part]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[partsupp]
+------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[orders]
+------------------------------PhysicalDistribute
+--------------------------------PhysicalProject
+----------------------------------filter((p_name like '%green%'))
+------------------------------------PhysicalOlapScan[part]
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[partsupp]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------PhysicalOlapScan[supplier]

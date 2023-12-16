@@ -680,39 +680,39 @@ Refer to broker load for the meaning of parameters in the returned result set. T
 
 + State
 
-The current phase of the load job. After the job is submitted, the status is pending. After the spark ETL is submitted, the status changes to ETL. After ETL is completed, Fe schedules be to execute push operation, and the status changes to finished after the push is completed and the version takes effect.
+  The current phase of the load job. After the job is submitted, the status is pending. After the spark ETL is submitted, the status changes to ETL. After ETL is completed, Fe schedules be to execute push operation, and the status changes to finished after the push is completed and the version takes effect.
 
-There are two final stages of the load job: cancelled and finished. When the load job is in these two stages, the load is completed. Among them, cancelled is load failure, finished is load success.
+  There are two final stages of the load job: cancelled and finished. When the load job is in these two stages, the load is completed. Among them, cancelled is load failure, finished is load success.
 
 + Progress
 
-Progress description of the load job. There are two kinds of progress: ETL and load, corresponding to the two stages of the load process, ETL and loading.
+  Progress description of the load job. There are two kinds of progress: ETL and load, corresponding to the two stages of the load process, ETL and loading.
 
-The progress range of load is 0 ~ 100%.
+  The progress range of load is 0 ~ 100%.
 
-```Load progress = the number of tables that have completed all replica imports / the total number of tables in this import task * 100%```
+  ```Load progress = the number of tables that have completed all replica imports / the total number of tables in this import task * 100%```
 
-**If all load tables are loaded, the progress of load is 99%**, the load enters the final effective stage. After the whole load is completed, the load progress will be changed to 100%.
+  **If all load tables are loaded, the progress of load is 99%**, the load enters the final effective stage. After the whole load is completed, the load progress will be changed to 100%.
 
-The load progress is not linear. Therefore, if the progress does not change over a period of time, it does not mean that the load is not in execution.
+  The load progress is not linear. Therefore, if the progress does not change over a period of time, it does not mean that the load is not in execution.
 
 + Type
 
-Type of load job. Spark load is spark.
+  Type of load job. Spark load is spark.
 
 + CreateTime/EtlStartTime/EtlFinishTime/LoadStartTime/LoadFinishTime
 
-These values represent the creation time of the load, the start time of the ETL phase, the completion time of the ETL phase, the start time of the loading phase, and the completion time of the entire load job.
+  These values represent the creation time of the load, the start time of the ETL phase, the completion time of the ETL phase, the start time of the loading phase, and the completion time of the entire load job.
 
 + JobDetails
 
-Display the detailed running status of some jobs, which will be updated when ETL ends. It includes the number of loaded files, the total size (bytes), the number of subtasks, the number of processed original lines, etc.
+  Display the detailed running status of some jobs, which will be updated when ETL ends. It includes the number of loaded files, the total size (bytes), the number of subtasks, the number of processed original lines, etc.
 
-```{"ScannedRows":139264,"TaskNumber":1,"FileNumber":1,"FileSize":940754064}```
+  ```{"ScannedRows":139264,"TaskNumber":1,"FileNumber":1,"FileSize":940754064}```
 
 + URL
 
-Copy this url to the browser and jump to the web interface of the corresponding application.
+  Copy this url to the browser and jump to the web interface of the corresponding application.
 
 ### View spark launcher commit log
 
@@ -730,31 +730,31 @@ The following configuration belongs to the system level configuration of spark l
 
 + `enable_spark_load`
 
-Open spark load and create resource. The default value is false. This feature is turned off.
+  Open spark load and create resource. The default value is false. This feature is turned off.
 
 + `spark_load_default_timeout_second`
 
-The default timeout for tasks is 259200 seconds (3 days).
+  The default timeout for tasks is 259200 seconds (3 days).
 
 + `spark_home_default_dir`
 
-Spark client path (`Fe/lib/spark2x`).
+  Spark client path (`Fe/lib/spark2x`).
 
 + `spark_resource_path`
 
-The path of the packaged spark dependent file (empty by default).
+  The path of the packaged spark dependent file (empty by default).
 
 + `spark_launcher_log_dir`
 
-The directory where the spark client's commit log is stored (`Fe/log/spark)_launcher_log`）.
+  The directory where the spark client's commit log is stored (`Fe/log/spark)_launcher_log`）.
 
 + `yarn_client_path`
 
-The path of the yarn binary executable file (`Fe/lib/yarn-client/Hadoop/bin/yarn').
+  The path of the yarn binary executable file (`Fe/lib/yarn-client/Hadoop/bin/yarn').
 
 + `yarn_config_dir`
 
-The path to generate the yarn configuration file (`Fe/lib/yarn-config`).
+  The path to generate the yarn configuration file (`Fe/lib/yarn-config`).
 
 ## Best practices
 
@@ -767,23 +767,39 @@ The most suitable scenario to use spark load is that the raw data is in the file
 * Spark load does not yet support the import of Doris table fields that are of type String. If your table fields are of type String, please change them to type varchar, otherwise the import will fail, prompting `type:ETL_QUALITY_UNSATISFIED; msg:quality not good enough to cancel`
 * When using spark load, the `HADOOP_CONF_DIR` environment variable is no set in the `spark-env.sh`.
 
-If the `HADOOP_CONF_DIR` environment variable is not set, the error `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment` will be reported.
+    If the `HADOOP_CONF_DIR` environment variable is not set, the error `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment` will be reported.
 
 * When using spark load, the `spark_home_default_dir` does not specify correctly.
 
-The spark submit command is used when submitting a spark job. If `spark_home_default_dir` is set incorrectly, an error `Cannot run program 'xxx/bin/spark_submit', error = 2, no such file or directory` will be reported.
+    The spark submit command is used when submitting a spark job. If `spark_home_default_dir` is set incorrectly, an error `Cannot run program 'xxx/bin/spark_submit', error = 2, no such file or directory` will be reported.
 
 * When using spark load, `spark_resource_path` does not point to the packaged zip file.
 
-If `spark_resource_path` is not set correctly. An error `file XXX/jars/spark-2x.zip` does not exist will be reported.
+    If `spark_resource_path` is not set correctly. An error `file XXX/jars/spark-2x.zip` does not exist will be reported.
 
 * When using spark load `yarn_client_path` does not point to a executable file of yarn.
 
-If `yarn_client_path` is not set correctly. An error `yarn client does not exist in path: XXX/yarn-client/hadoop/bin/yarn` will be reported.
+    If `yarn_client_path` is not set correctly. An error `yarn client does not exist in path: XXX/yarn-client/hadoop/bin/yarn` will be reported.
 
 * When using spark load, the `JAVA_HOME` environment variable is no set in the `hadoop-config.sh` on the yarn clinet.
 
-If the `JAVA_HOME`  environment variable is not set, the error `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` will be reported.
+    If the `JAVA_HOME`  environment variable is not set, the error `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` will be reported.
+
+* When using spark load, the launch log for `SparkLauncher` is not printed or report an error `start spark app failed. error: Waiting too much time to get appId from handle. spark app state: UNKNOWN, loadJobId:xxx`
+
+    In `<`SPARK_HOME`>`/conf, add the log4j.properties configuration file and set the log level to INFO.
+
+* When using spark load, `SparkLauncher` fails to launch.
+
+    Copy the spark-launcher_`<`xxx`>`.jar from `<`SPARK_HOME`>`/lib to the lib of FE and restart the FE process.
+
+* Error with `Compression codec com.hadoop.compression.lzo.LzoCodec not found`.
+
+    Copy `<`HADOOP_HOME`>`/share/hadoop/yarn/lib/hadoop-lzo-.`<`xxx`>`jar to `<`SPARK_HOME`>`/lib and repackage it into a zip and upload it to hdfs.
+
+* Error with `NoClassDefFoundError com/sun/jersey/api/client/config/ClientConfig`.
+
+    Delete or rename the jersey-client-`<`xxx`>`.jar in the `<`SPARK_HOME`>`/lib, copy `<`HADOOP_HOME`>`/share/hadoop/yarn/lib/jersey-client-.`<`xxx`>`jar to `<`SPARK_HOME`>`/lib, and repackage it into a zip and upload it to hdfs.
 
 ## More Help
 

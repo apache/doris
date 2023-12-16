@@ -97,7 +97,7 @@ private:
     Status _delete_dir();
 
     RuntimeState* _state; // not owned, set when init
-    const ResultFileOptions* _file_opts;
+    const ResultFileOptions* _file_opts = nullptr;
     TStorageBackendType::type _storage_type;
     TUniqueId _fragment_instance_id;
 

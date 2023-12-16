@@ -18,18 +18,17 @@
 #include "partition_sort_sink_operator.h"
 
 #include "common/status.h"
+#include "partition_sort_source_operator.h"
 #include "vec/common/hash_table/hash.h"
 
-namespace doris {
-
-namespace pipeline {
+namespace doris::pipeline {
 
 OperatorPtr PartitionSortSinkOperatorBuilder::build_operator() {
     return std::make_shared<PartitionSortSinkOperator>(this, _node);
 }
 
 Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortDependency>::init(state, info));
+    RETURN_IF_ERROR(PipelineXSinkLocalState<PartitionSortSinkDependency>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     auto& p = _parent->cast<PartitionSortSinkOperatorX>();
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
@@ -43,8 +42,6 @@ Status PartitionSortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _agg_arena_pool = std::make_unique<vectorized::Arena>();
     _hash_table_size_counter = ADD_COUNTER(_profile, "HashTableSize", TUnit::UNIT);
     _build_timer = ADD_TIMER(_profile, "HashTableBuildTime");
-    _partition_sort_timer = ADD_TIMER(_profile, "PartitionSortTime");
-    _get_sorted_timer = ADD_TIMER(_profile, "GetSortedTime");
     _selector_block_timer = ADD_TIMER(_profile, "SelectorBlockTime");
     _emplace_key_timer = ADD_TIMER(_profile, "EmplaceKeyTime");
     _init_hash_method();
@@ -117,7 +114,7 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
                     std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
                     local_state._shared_state->blocks_buffer.push(std::move(*input_block));
                     // buffer have data, source could read this.
-                    local_state._dependency->set_ready_for_read();
+                    local_state._dependency->set_ready_to_read();
                 }
             } else {
                 RETURN_IF_ERROR(
@@ -154,7 +151,11 @@ Status PartitionSortSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
 
         COUNTER_SET(local_state._hash_table_size_counter, int64_t(local_state._num_partition));
         //so all data from child have sink completed
-        local_state._dependency->set_eos();
+        {
+            std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+            local_state._shared_state->sink_eos = true;
+            local_state._dependency->set_ready_to_read();
+        }
     }
 
     return Status::OK();
@@ -291,5 +292,4 @@ void PartitionSortSinkLocalState::_init_hash_method() {
     }
 }
 
-} // namespace pipeline
-} // namespace doris
+} // namespace doris::pipeline

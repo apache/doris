@@ -43,11 +43,11 @@ public:
     bool can_write() override;
 };
 
-class ResultSinkDependency final : public WriteDependency {
+class ResultSinkDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ResultSinkDependency);
-    ResultSinkDependency(int id, int node_id)
-            : WriteDependency(id, node_id, "ResultSinkDependency") {}
+    ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
     ~ResultSinkDependency() override = default;
 };
 
@@ -61,7 +61,9 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    WriteDependency* dependency() override { return _result_sink_dependency.get(); }
+    Dependency* dependency() override { return _result_sink_dependency.get(); }
+    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
+    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
 private:
     friend class ResultSinkOperatorX;
@@ -71,6 +73,8 @@ private:
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
     std::shared_ptr<ResultSinkDependency> _result_sink_dependency;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
@@ -89,7 +93,7 @@ private:
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<vectorized::ResultFileOptions> _file_opts = nullptr;
 
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;

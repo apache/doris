@@ -49,8 +49,8 @@ enum KeysType : int;
 // row pos in _input_mutable_block
 struct RowInBlock {
     size_t _row_pos;
-    char* _agg_mem;
-    size_t* _agg_state_offset;
+    char* _agg_mem = nullptr;
+    size_t* _agg_state_offset = nullptr;
     bool _has_init_agg;
 
     RowInBlock(size_t row) : _row_pos(row), _has_init_agg(false) {}
@@ -136,8 +136,8 @@ public:
     int operator()(const RowInBlock* left, const RowInBlock* right) const;
 
 private:
-    const TabletSchema* _tablet_schema;
-    vectorized::MutableBlock* _pblock; //  corresponds to Memtable::_input_mutable_block
+    const TabletSchema* _tablet_schema = nullptr;
+    vectorized::MutableBlock* _pblock = nullptr; //  corresponds to Memtable::_input_mutable_block
 };
 
 class MemTableStat {
@@ -180,7 +180,7 @@ public:
                _flush_mem_tracker->consumption();
     }
     // insert tuple from (row_pos) to (row_pos+num_rows)
-    void insert(const vectorized::Block* block, const std::vector<int>& row_idxs,
+    void insert(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                 bool is_append = false);
 
     void shrink_memtable_by_agg();
@@ -207,7 +207,7 @@ private:
     bool _enable_unique_key_mow = false;
     bool _is_partial_update = false;
     const KeysType _keys_type;
-    const TabletSchema* _tablet_schema;
+    const TabletSchema* _tablet_schema = nullptr;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 
@@ -244,6 +244,7 @@ private:
 
     //return number of same keys
     size_t _sort();
+    void _sort_by_cluster_keys();
     void _sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
                           std::function<int(const RowInBlock*, const RowInBlock*)> cmp);
     template <bool is_final>
@@ -265,11 +266,5 @@ private:
     size_t _num_columns;
     int32_t _seq_col_idx_in_block = -1;
 }; // class MemTable
-
-inline std::ostream& operator<<(std::ostream& os, const MemTable& table) {
-    os << "MemTable(addr=" << &table << ", tablet=" << table.tablet_id()
-       << ", mem=" << table.memory_usage();
-    return os;
-}
 
 } // namespace doris

@@ -33,7 +33,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
 import org.apache.doris.common.ErrorCode;
@@ -90,6 +89,7 @@ public class SelectStmt extends QueryStmt {
 
     protected SelectList selectList;
     private final ArrayList<String> colLabels; // lower case column labels
+    private final ArrayList<List<String>> subColPath; // case insensitive column labels
     protected FromClause fromClause;
     protected GroupByClause groupByClause;
     private List<Expr> originalExpr;
@@ -145,6 +145,7 @@ public class SelectStmt extends QueryStmt {
         this.selectList = new SelectList();
         this.fromClause = new FromClause();
         this.colLabels = Lists.newArrayList();
+        this.subColPath = Lists.newArrayList();
     }
 
     public SelectStmt(
@@ -171,6 +172,7 @@ public class SelectStmt extends QueryStmt {
         this.havingClause = havingPredicate;
 
         this.colLabels = Lists.newArrayList();
+        this.subColPath = Lists.newArrayList();
         this.havingPred = null;
         this.aggInfo = null;
         this.sortInfo = null;
@@ -191,6 +193,7 @@ public class SelectStmt extends QueryStmt {
                 other.havingClauseAfterAnalyzed != null ? other.havingClauseAfterAnalyzed.clone() : null;
 
         colLabels = Lists.newArrayList(other.colLabels);
+        subColPath = Lists.newArrayList(other.subColPath);
         aggInfo = (other.aggInfo != null) ? other.aggInfo.clone() : null;
         analyticInfo = (other.analyticInfo != null) ? other.analyticInfo.clone() : null;
         sqlString = (other.sqlString != null) ? other.sqlString : null;
@@ -213,6 +216,7 @@ public class SelectStmt extends QueryStmt {
         super.reset();
         selectList.reset();
         colLabels.clear();
+        subColPath.clear();
         fromClause.reset();
         if (whereClause != null) {
             whereClause.reset();
@@ -368,6 +372,12 @@ public class SelectStmt extends QueryStmt {
         return colLabels;
     }
 
+    @Override
+    public ArrayList<List<String>> getSubColPath() {
+        return subColPath;
+    }
+
+
     public ExprSubstitutionMap getBaseTblSmap() {
         return baseTblSmap;
     }
@@ -391,7 +401,7 @@ public class SelectStmt extends QueryStmt {
                 if (Strings.isNullOrEmpty(dbName)) {
                     dbName = analyzer.getDefaultDb();
                 } else {
-                    dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
+                    dbName = tblRef.getName().getDb();
                 }
                 if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
                     continue;
@@ -503,6 +513,24 @@ public class SelectStmt extends QueryStmt {
         }
         fromClause.setNeedToSql(needToSql);
         fromClause.analyze(analyzer);
+
+        if (!isForbiddenMVRewrite()) {
+            Boolean haveMv = false;
+            for (TableRef tbl : fromClause) {
+                if (!tbl.haveDesc() || !(tbl.getTable() instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) tbl.getTable();
+                if (olapTable.getIndexIds().size() != 1) {
+                    haveMv = true;
+                }
+            }
+
+            if (!haveMv) {
+                forbiddenMVRewrite();
+            }
+        }
+
         // Generate !empty() predicates to filter out empty collections.
         // Skip this step when analyzing a WITH-clause because CollectionTableRefs
         // do not register collection slots in their parent in that context
@@ -554,11 +582,14 @@ public class SelectStmt extends QueryStmt {
                     }
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
                     String columnLabel = null;
-                    // Infer column name when item is expr, both query and ddl
-                    columnLabel = item.toColumnLabel(i);
+                    Class<? extends StatementBase> statementClazz = analyzer.getRootStatementClazz();
+                    if (statementClazz != null
+                            && (!QueryStmt.class.isAssignableFrom(statementClazz) || hasOutFileClause())) {
+                        // Infer column name when item is expr
+                        columnLabel = item.toColumnLabel(i);
+                    }
                     if (columnLabel == null) {
-                        // column label without position is applicative for query and do not infer
-                        // column name when item is expr
+                        // use original column label
                         columnLabel = item.toColumnLabel();
                     }
                     SlotRef aliasRef = new SlotRef(null, columnLabel);
@@ -570,6 +601,7 @@ public class SelectStmt extends QueryStmt {
                     }
                     aliasSMap.put(aliasRef, item.getExpr().clone());
                     colLabels.add(columnLabel);
+                    subColPath.add(item.toSubColumnLabels());
                 }
             }
         }
@@ -611,6 +643,7 @@ public class SelectStmt extends QueryStmt {
                     resultExprs.add(rewriteQueryExprByMvColumnExpr(expr, analyzer));
                 }
                 colLabels.add("col_" + colLabels.size());
+                subColPath.add(expr.toSubColumnLabel());
             }
         }
         // analyze valueList if exists
@@ -698,6 +731,11 @@ public class SelectStmt extends QueryStmt {
             if (whereClause != null) {
                 whereClause.collect(SlotRef.class, conjuntSlots);
             }
+
+            if (havingClauseAfterAnalyzed != null) {
+                havingClauseAfterAnalyzed.collect(SlotRef.class, conjuntSlots);
+            }
+
             resultSlots.removeAll(orderingSlots);
             resultSlots.removeAll(conjuntSlots);
             // reset slots need to do fetch column
@@ -790,7 +828,8 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("only support duplicate key or MOW model");
             return false;
         }
-        if (!olapTable.getEnableLightSchemaChange() || !Strings.isNullOrEmpty(olapTable.getStoragePolicy())) {
+        if (!olapTable.getEnableLightSchemaChange() || !Strings.isNullOrEmpty(olapTable.getStoragePolicy())
+                    || olapTable.hasVariantColumns()) {
             return false;
         }
         if (getOrderByElements() != null) {
@@ -1214,6 +1253,8 @@ public class SelectStmt extends QueryStmt {
             slot.setTupleId(desc.getId());
             resultExprs.add(rewriteQueryExprByMvColumnExpr(slot, analyzer));
             colLabels.add(col.getName());
+            // empty sub lables
+            subColPath.add(Lists.newArrayList());
         }
     }
 

@@ -100,7 +100,6 @@ public class RoundRobinCreateTabletTest {
     @Test
     public void testCreateTablets() {
         MaterializedIndex index = new MaterializedIndex();
-        String clusterName = "default_cluster";
         HashDistributionInfo distributionInfo = new HashDistributionInfo(48, null);
         ReplicaAllocation replicaAlloc = new ReplicaAllocation((short) 3);
         TabletMeta tabletMeta = new TabletMeta(1L, 2L, 3L, 4L, 5, TStorageMedium.HDD);
@@ -111,7 +110,7 @@ public class RoundRobinCreateTabletTest {
         Config.disable_storage_medium_check = true;
 
         try {
-            Env.getCurrentEnv().getInternalCatalog().createTablets(clusterName, index, ReplicaState.NORMAL,
+            Env.getCurrentEnv().getInternalCatalog().createTablets(index, ReplicaState.NORMAL,
                     distributionInfo, 0, replicaAlloc, tabletMeta,
                     tabletIdSet, idGeneratorBuffer, false);
         } catch (Exception e) {

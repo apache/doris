@@ -111,12 +111,13 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
+bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
 
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
         int backend_num, std::shared_ptr<QueryContext> query_ctx, ExecEnv* exec_env,
         const std::function<void(RuntimeState*, Status*)>& call_back,
-        const report_status_callback& report_status_cb, bool group_commit)
+        const report_status_callback& report_status_cb)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
@@ -126,7 +127,6 @@ PipelineFragmentContext::PipelineFragmentContext(
           _call_back(call_back),
           _is_report_on_cancel(true),
           _report_status_cb(report_status_cb),
-          _group_commit(group_commit),
           _create_time(MonotonicNanos()) {
     if (_query_ctx->get_task_group()) {
         _task_group_entity = _query_ctx->get_task_group()->task_entity();
@@ -138,7 +138,7 @@ PipelineFragmentContext::~PipelineFragmentContext() {
     auto st = _query_ctx->exec_status();
     if (_runtime_state != nullptr) {
         // The memory released by the query end is recorded in the query mem tracker, main memory in _runtime_state.
-        SCOPED_ATTACH_TASK(_runtime_state.get());
+        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_runtime_state->query_mem_tracker());
         _call_back(_runtime_state.get(), &st);
         _runtime_state.reset();
     } else {
@@ -189,8 +189,21 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 PipelinePtr PipelineFragmentContext::add_pipeline() {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
     _pipelines.emplace_back(pipeline);
+    return pipeline;
+}
+
+PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
+    // _prepared、_submitted, _canceled should do not add pipeline
+    PipelineId id = _next_pipeline_id++;
+    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
+    if (idx >= 0) {
+        _pipelines.insert(_pipelines.begin() + idx, pipeline);
+    } else {
+        _pipelines.emplace_back(pipeline);
+    }
+    parent->set_children(pipeline);
     return pipeline;
 }
 
@@ -208,9 +221,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
 
     auto* fragment_context = this;
 
-    LOG_INFO("Preparing instance {}, backend_num {}",
-             PrintInstanceStandardInfo(_query_id, local_params.fragment_instance_id),
-             local_params.backend_num);
+    LOG_INFO("Preparing instance {}|{}, backend_num {}", print_id(_query_id),
+             print_id(local_params.fragment_instance_id), local_params.backend_num);
 
     // 1. init _runtime_state
     _runtime_state = RuntimeState::create_unique(
@@ -331,8 +343,10 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
     if (_sink) {
         _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+        _sink->profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
+    } else {
+        _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     }
-    _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
     _init_next_report_time();
@@ -357,7 +371,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
     }
-
+    g_pipeline_tasks_count << _total_tasks;
     for (auto& task : _tasks) {
         RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
     }
@@ -697,15 +711,24 @@ Status PipelineFragmentContext::submit() {
     auto* scheduler = _exec_env->pipeline_task_scheduler();
     if (_query_ctx->get_task_scheduler()) {
         scheduler = _query_ctx->get_task_scheduler();
-    } else if (_task_group_entity) {
+    } else if (_task_group_entity && _query_ctx->use_task_group_for_cpu_limit.load()) {
         scheduler = _exec_env->pipeline_task_group_scheduler();
     }
     for (auto& task : _tasks) {
         st = scheduler->schedule_task(task.get());
         if (!st) {
-            std::lock_guard<std::mutex> l(_status_lock);
-            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
-            _total_tasks = submit_tasks;
+            {
+                std::lock_guard<std::mutex> l(_status_lock);
+                cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "submit context fail");
+            }
+            {
+                // The fragment instance may contains 10 tasks, maybe 8 of them is in scheduler running
+                // and the 9th failed to add to scheduler, then it will update total_tasks.
+                // But the previous 8 tasks may finished and try to access total_tasks. So that
+                // has to use a lock to protect it.
+                std::lock_guard<std::mutex> l(_task_mutex);
+                _total_tasks = submit_tasks;
+            }
             break;
         }
         submit_tasks++;
@@ -713,7 +736,7 @@ Status PipelineFragmentContext::submit() {
     if (!st.ok()) {
         std::lock_guard<std::mutex> l(_task_mutex);
         if (_closed_tasks == _total_tasks) {
-            std::call_once(_close_once_flag, [this] { _close_action(); });
+            _close_fragment_instance();
         }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
@@ -745,9 +768,8 @@ void PipelineFragmentContext::close_if_prepare_failed() {
     }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
-        std::stringstream msg;
-        msg << "query " << print_id(_query_id) << " closed since prepare failed";
-        WARN_IF_ERROR(task->close(Status::OK()), msg.str());
+        WARN_IF_ERROR(task->close(Status::OK()),
+                      fmt::format("Query {} closed since prepare failed", print_id(_query_id)));
         close_a_pipeline();
     }
 }
@@ -851,8 +873,16 @@ Status PipelineFragmentContext::_create_sink(int sender_id, const TDataSink& thr
     return _root_pipeline->set_sink(sink_);
 }
 
-void PipelineFragmentContext::_close_action() {
+// If all pipeline tasks binded to the fragment instance are finished, then we could
+// close the fragment instance.
+void PipelineFragmentContext::_close_fragment_instance() {
+    if (_is_fragment_instance_closed) {
+        return;
+    }
+    Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
+    _runtime_state->runtime_profile()->total_time_counter()->update(
+            _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
@@ -860,9 +890,10 @@ void PipelineFragmentContext::_close_action() {
 
 void PipelineFragmentContext::close_a_pipeline() {
     std::lock_guard<std::mutex> l(_task_mutex);
+    g_pipeline_tasks_count << -1;
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
-        std::call_once(_close_once_flag, [this] { _close_action(); });
+        _close_fragment_instance();
     }
 }
 
@@ -902,7 +933,8 @@ Status PipelineFragmentContext::send_report(bool done) {
              _runtime_state.get(),
              std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                       std::placeholders::_2)},
+                       std::placeholders::_2),
+             _dml_query_statistics()},
             shared_from_this());
 }
 

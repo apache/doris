@@ -34,5 +34,9 @@ public class AvroProperties {
     protected static final String HIVE_SERDE = "hive.serde";
     protected static final String COLUMNS = "columns";
     protected static final String COLUMNS2TYPES = "columns.types";
+    protected static final String FS_S3A_ACCESS_KEY = "fs.s3a.access.key";
+    protected static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
+    protected static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
+    protected static final String FS_S3A_REGION = "fs.s3a.region";
 
 }

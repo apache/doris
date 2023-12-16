@@ -17,23 +17,16 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.external.iceberg.IcebergCatalog;
-import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -44,15 +37,9 @@ import java.util.Map;
  * such as `checkAndBuildIcebergProperty` to check and build it.
  */
 public class DatabaseProperty implements Writable {
-    private static final Logger LOG = LogManager.getLogger(DatabaseProperty.class);
-
-    public static final String ICEBERG_PROPERTY_PREFIX = "iceberg";
 
     @SerializedName(value = "properties")
     private Map<String, String> properties = Maps.newHashMap();
-
-    // the following variables are built from "properties"
-    private IcebergProperty icebergProperty = new IcebergProperty(Maps.newHashMap());
 
     public DatabaseProperty() {
 
@@ -78,30 +65,6 @@ public class DatabaseProperty implements Writable {
         return properties;
     }
 
-    public IcebergProperty getIcebergProperty() {
-        return icebergProperty;
-    }
-
-    public DatabaseProperty checkAndBuildProperties() throws DdlException {
-        Map<String, String> icebergProperties = new HashMap<>();
-        for (Map.Entry<String, String> entry : this.properties.entrySet()) {
-            if (entry.getKey().startsWith(ICEBERG_PROPERTY_PREFIX)) {
-                if (Config.disable_iceberg_hudi_table) {
-                    throw new DdlException(
-                            "database for iceberg is no longer supported. Use multi catalog feature instead."
-                                    + ". Or you can temporarily set 'disable_iceberg_hudi_table=false'"
-                                    + " in fe.conf to reopen this feature.");
-                } else {
-                    icebergProperties.put(entry.getKey(), entry.getValue());
-                }
-            }
-        }
-        if (icebergProperties.size() > 0) {
-            checkAndBuildIcebergProperty(icebergProperties);
-        }
-        return this;
-    }
-
     public BinlogConfig getBinlogConfig() {
         BinlogConfig binlogConfig = new BinlogConfig();
         binlogConfig.mergeFromProperties(properties);
@@ -110,17 +73,6 @@ public class DatabaseProperty implements Writable {
 
     public void updateProperties(Map<String, String> newProperties) {
         properties.putAll(newProperties);
-    }
-
-    private void checkAndBuildIcebergProperty(Map<String, String> properties) throws DdlException {
-        IcebergCatalogMgr.validateProperties(properties, false);
-        icebergProperty = new IcebergProperty(properties);
-        String icebergDb = icebergProperty.getDatabase();
-        IcebergCatalog icebergCatalog = IcebergCatalogMgr.getCatalog(icebergProperty);
-        // check database exists
-        if (!icebergCatalog.databaseExists(icebergDb)) {
-            throw new DdlException("Database [" + icebergDb + "] dose not exist in Iceberg.");
-        }
     }
 
     @Override

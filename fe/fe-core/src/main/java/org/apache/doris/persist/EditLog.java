@@ -1111,6 +1111,11 @@ public class EditLog {
                     env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
                     break;
                 }
+                case OperationType.OP_ALTER_MTMV: {
+                    final AlterMTMV alterMtmv = (AlterMTMV) journal.getData();
+                    env.getAlterInstance().processAlterMTMV(alterMtmv, true);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1178,6 +1183,9 @@ public class EditLog {
         } catch (Throwable t) {
             // Throwable contains all Exception and Error, such as IOException and
             // OutOfMemoryError
+            if (journal instanceof BDBJEJournal) {
+                LOG.error("BDBJE stats : {}", ((BDBJEJournal) journal).getBDBStats());
+            }
             LOG.error("Fatal Error : write stream Exception", t);
             System.exit(-1);
         }
@@ -1935,5 +1943,19 @@ public class EditLog {
 
     public void logDeleteTableStats(TableStatsDeletionLog log) {
         logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
+    }
+
+    public void logAlterMTMV(AlterMTMV log) {
+        logEdit(OperationType.OP_ALTER_MTMV, log);
+    }
+
+    public String getNotReadyReason() {
+        if (journal == null) {
+            return "journal is null";
+        }
+        if (journal instanceof BDBJEJournal) {
+            return ((BDBJEJournal) journal).getNotReadyReason();
+        }
+        return "";
     }
 }

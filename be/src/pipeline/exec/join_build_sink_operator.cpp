@@ -35,10 +35,10 @@ Status JoinBuildSinkLocalState<DependencyType, Derived>::init(RuntimeState* stat
     _build_rows_counter = ADD_COUNTER(PipelineXSinkLocalState<DependencyType>::profile(),
                                       "BuildRows", TUnit::UNIT);
 
-    _push_down_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
-                                 "PublishRuntimeFilterTime");
-    _push_compute_timer =
-            ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(), "PushDownComputeTime");
+    _publish_runtime_filter_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+                                              "PublishRuntimeFilterTime");
+    _runtime_filter_compute_timer = ADD_TIMER(PipelineXSinkLocalState<DependencyType>::profile(),
+                                              "RuntimeFilterComputeTime");
 
     return Status::OK();
 }
@@ -115,8 +115,9 @@ void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
 }
 
 template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<HashJoinDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState>;
 template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<NestedLoopJoinDependency, NestedLoopJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
+                                       NestedLoopJoinBuildSinkLocalState>;
 
 } // namespace doris::pipeline

@@ -18,15 +18,21 @@
 #include "runtime/load_stream.h"
 
 #include <brpc/stream.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <olap/rowset/rowset_factory.h>
 #include <olap/rowset/rowset_meta.h>
 #include <olap/storage_engine.h>
 #include <olap/tablet_manager.h>
 #include <runtime/exec_env.h>
 
+#include <memory>
+
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/tablet_fwd.h"
+#include "olap/tablet_schema.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
@@ -121,7 +127,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
     auto flush_func = [this, new_segid, eos, buf, header]() {
-        auto st = _load_stream_writer->append_data(new_segid, buf);
+        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf);
         if (eos && st.ok()) {
             st = _load_stream_writer->close_segment(new_segid);
         }
@@ -137,6 +143,11 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     SCOPED_TIMER(_add_segment_timer);
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
+    TabletSchemaSPtr flush_schema;
+    if (header.has_flush_schema()) {
+        flush_schema = std::make_shared<TabletSchema>();
+        flush_schema->init_from_pb(header.flush_schema());
+    }
 
     int64_t src_id = header.src_id();
     uint32_t segid = header.segment_id();
@@ -152,8 +163,8 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    auto add_segment_func = [this, new_segid, stat]() {
-        auto st = _load_stream_writer->add_segment(new_segid, stat);
+    auto add_segment_func = [this, new_segid, stat, flush_schema]() {
+        auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
         if (!st.ok() && _failed_st->ok()) {
             _failed_st = std::make_shared<Status>(st);
             LOG(INFO) << "add segment failed " << *this;
@@ -239,8 +250,11 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     return Status::OK();
 }
 
+// TODO: Profile is temporary disabled, because:
+// 1. It's not being processed by the upstream for now
+// 2. There are some problems in _profile->to_thrift()
 LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
-        : _load_id(load_id), _enable_profile(enable_profile), _load_stream_mgr(load_stream_mgr) {
+        : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
@@ -306,8 +320,8 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
                         }
                     }
                     LOG(INFO) << "close load " << *this
-                              << ", failed_tablet_num=" << failed_tablet_ids->size()
-                              << ", success_tablet_num=" << success_tablet_ids->size();
+                              << ", success_tablet_num=" << success_tablet_ids->size()
+                              << ", failed_tablet_num=" << failed_tablet_ids->size();
                     std::unique_lock<bthread::Mutex> lock(mutex);
                     cond.notify_one();
                 });
@@ -324,7 +338,7 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
 void LoadStream::_report_result(StreamId stream, const Status& st,
                                 const std::vector<int64_t>& success_tablet_ids,
                                 const std::vector<int64_t>& failed_tablet_ids) {
-    LOG(INFO) << "report result, success tablet num " << success_tablet_ids.size()
+    LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
               << ", failed tablet num " << failed_tablet_ids.size();
     butil::IOBuf buf;
     PWriteStreamSinkResponse response;
@@ -336,7 +350,7 @@ void LoadStream::_report_result(StreamId stream, const Status& st,
         response.add_failed_tablet_ids(id);
     }
 
-    if (_enable_profile) {
+    if (_enable_profile && _close_load_cnt == _total_streams) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
         uint8_t* buf = nullptr;
@@ -456,9 +470,8 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
-        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid load id {}, expected {}",
-                                                               UniqueId(hdr.load_id()).to_string(),
-                                                               UniqueId(_load_id).to_string());
+        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));
         _report_failure(id, st, hdr);
         return;
     }

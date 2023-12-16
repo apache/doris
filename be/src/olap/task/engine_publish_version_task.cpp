@@ -87,7 +87,7 @@ void EnginePublishVersionTask::add_error_tablet_id(int64_t tablet_id) {
     _error_tablet_ids->insert(tablet_id);
 }
 
-Status EnginePublishVersionTask::finish() {
+Status EnginePublishVersionTask::execute() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;
@@ -191,8 +191,17 @@ Status EnginePublishVersionTask::finish() {
                     }
                     auto handle_version_not_continuous = [&]() {
                         add_error_tablet_id(tablet_info.tablet_id);
-                        _discontinuous_version_tablets->emplace_back(
-                                partition_id, tablet_info.tablet_id, version.first);
+                        // When there are too many missing versions, do not directly retry the
+                        // publish and handle it through async publish.
+                        if (max_version + config::mow_publish_max_discontinuous_version_num <
+                            version.first) {
+                            StorageEngine::instance()->add_async_publish_task(
+                                    partition_id, tablet_info.tablet_id, version.first,
+                                    _publish_version_req.transaction_id, false);
+                        } else {
+                            _discontinuous_version_tablets->emplace_back(
+                                    partition_id, tablet_info.tablet_id, version.first);
+                        }
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
                                 "check_version_exist failed");
                         int64_t missed_version = max_version + 1;
@@ -274,13 +283,15 @@ Status EnginePublishVersionTask::finish() {
                         (*_succ_tablets)[tablet_id] = 0;
                     } else {
                         add_error_tablet_id(tablet_id);
-                        LOG(WARNING)
-                                << "publish version failed on transaction, tablet version not "
-                                   "exists. "
-                                << "transaction_id=" << transaction_id
-                                << ", tablet_id=" << tablet_id
-                                << ", tablet_state=" << tablet_state_name(tablet->tablet_state())
-                                << ", version=" << par_ver_info.version;
+                        if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+                            LOG(WARNING)
+                                    << "publish version failed on transaction, tablet version not "
+                                       "exists. "
+                                    << "transaction_id=" << transaction_id
+                                    << ", tablet_id=" << tablet_id << ", tablet_state="
+                                    << tablet_state_name(tablet->tablet_state())
+                                    << ", version=" << par_ver_info.version;
+                        }
                     }
                 }
             }

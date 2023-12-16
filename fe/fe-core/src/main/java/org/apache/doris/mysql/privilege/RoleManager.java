@@ -32,10 +32,10 @@ import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -55,7 +55,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class RoleManager implements Writable {
+public class RoleManager implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(RoleManager.class);
     //prefix of each user default role
     public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
@@ -65,10 +65,8 @@ public class RoleManager implements Writable {
     private Map<String, Role> roles = Maps.newHashMap();
 
     public RoleManager() {
-        roles.put(
-                Role.OPERATOR.getRoleName(), Role.OPERATOR);
-        roles.put(
-                Role.ADMIN.getRoleName(), Role.ADMIN);
+        roles.put(Role.OPERATOR.getRoleName(), Role.OPERATOR);
+        roles.put(Role.ADMIN.getRoleName(), Role.ADMIN);
     }
 
     public Role getRole(String name) {
@@ -197,14 +195,14 @@ public class RoleManager implements Writable {
         List<TablePattern> tablePatterns = Lists.newArrayList();
         TablePattern informationTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            informationTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            informationTblPattern.analyze();
             tablePatterns.add(informationTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
         TablePattern mysqlTblPattern = new TablePattern(Auth.DEFAULT_CATALOG, MysqlDb.DATABASE_NAME, "*");
         try {
-            mysqlTblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+            mysqlTblPattern.analyze();
             tablePatterns.add(mysqlTblPattern);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
@@ -262,8 +260,19 @@ public class RoleManager implements Writable {
             return roleManager;
         } else {
             String json = Text.readString(in);
-            return GsonUtils.GSON.fromJson(json, RoleManager.class);
+            RoleManager rm = GsonUtils.GSON.fromJson(json, RoleManager.class);
+            return rm;
         }
+    }
+
+    // should be removed after version 3.0
+    private void removeClusterPrefix() {
+        Map<String, Role> newRoles = Maps.newHashMap();
+        for (Map.Entry<String, Role> entry : roles.entrySet()) {
+            String roleName = ClusterNamespace.getNameFromFullName(entry.getKey());
+            newRoles.put(roleName, entry.getValue());
+        }
+        roles = newRoles;
     }
 
     @Deprecated
@@ -273,5 +282,10 @@ public class RoleManager implements Writable {
             Role role = Role.read(in);
             roles.put(role.getRoleName(), role);
         }
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        removeClusterPrefix();
     }
 }

@@ -131,6 +131,7 @@ public class TableProperty implements Writable {
                 buildTimeSeriesCompactionTimeThresholdSeconds();
                 buildSkipWriteIndexOnLoad();
                 buildEnableSingleReplicaCompaction();
+                buildDisableAutoCompaction();
                 break;
             default:
                 break;
@@ -461,6 +462,9 @@ public class TableProperty implements Writable {
         properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, Boolean.toString(enable));
     }
 
+    // In order to ensure that unique tables without the `enable_unique_key_merge_on_write` property specified
+    // before version 2.1 still maintain the merge-on-read implementation after the upgrade, we will keep
+    // the default value here as false.
     public boolean getEnableUniqueKeyMergeOnWrite() {
         return Boolean.parseBoolean(properties.getOrDefault(
                 PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "false"));
@@ -474,6 +478,16 @@ public class TableProperty implements Writable {
     public String getSequenceMapCol() {
         return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
+    }
+
+    public void setGroupCommitIntervalMs(int groupCommitIntervalMs) {
+        properties.put(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS, Integer.toString(groupCommitIntervalMs));
+    }
+
+    public int getGroupCommitIntervalMs() {
+        return Integer.parseInt(properties.getOrDefault(
+                PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS,
+                Integer.toString(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE)));
     }
 
     public void buildReplicaAllocation() {

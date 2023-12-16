@@ -47,12 +47,14 @@ class MemTrackerLimiter;
 class MemTracker {
 public:
     struct Snapshot {
-        std::string type = "";
+        std::string type;
         std::string label;
-        std::string parent_label = "";
+        std::string parent_label;
         int64_t limit = 0;
         int64_t cur_consumption = 0;
         int64_t peak_consumption = 0;
+
+        bool operator<(const Snapshot& rhs) const { return cur_consumption < rhs.cur_consumption; }
     };
 
     struct TrackerGroup {
@@ -167,7 +169,7 @@ protected:
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
 
-    std::shared_ptr<MemCounter> _consumption;
+    std::shared_ptr<MemCounter> _consumption = nullptr;
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _parent_group_num = 0;

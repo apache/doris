@@ -385,7 +385,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         long backendId = ctx.getBackendId();
         if (getTFileType() == TFileType.FILE_STREAM) {
             Backend be = Env.getCurrentSystemInfo().getIdToBackend().get(backendId);
-            if (be.isAlive()) {
+            if (be == null || be.isAlive()) {
                 return be;
             }
         }

@@ -34,6 +34,7 @@ import org.apache.doris.nereids.types.StructType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -51,13 +52,23 @@ public class ColumnDefinition {
     private AggregateType aggType;
     private boolean isNullable;
     private Optional<DefaultValue> defaultValue;
+    private Optional<DefaultValue> onUpdateDefaultValue = Optional.empty();
     private final String comment;
     private final boolean isVisible;
     private boolean aggTypeImplicit = false;
+    private boolean isAutoInc = false;
+    private int clusterKeyId = -1;
 
     public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType, boolean isNullable,
             Optional<DefaultValue> defaultValue, String comment) {
         this(name, type, isKey, aggType, isNullable, defaultValue, comment, true);
+    }
+
+    public ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
+            boolean isNullable, boolean isAutoInc, Optional<DefaultValue> defaultValue,
+            Optional<DefaultValue> onUpdateDefaultValue, String comment) {
+        this(name, type, isKey, aggType, isNullable, isAutoInc, defaultValue, onUpdateDefaultValue,
+                comment, true);
     }
 
     /**
@@ -75,8 +86,30 @@ public class ColumnDefinition {
         this.isVisible = isVisible;
     }
 
+    /**
+     * constructor
+     */
+    private ColumnDefinition(String name, DataType type, boolean isKey, AggregateType aggType,
+            boolean isNullable, boolean isAutoInc, Optional<DefaultValue> defaultValue,
+            Optional<DefaultValue> onUpdateDefaultValue, String comment, boolean isVisible) {
+        this.name = name;
+        this.type = type;
+        this.isKey = isKey;
+        this.aggType = aggType;
+        this.isNullable = isNullable;
+        this.isAutoInc = isAutoInc;
+        this.defaultValue = defaultValue;
+        this.onUpdateDefaultValue = onUpdateDefaultValue;
+        this.comment = comment;
+        this.isVisible = isVisible;
+    }
+
     public ColumnDefinition(String name, DataType type, boolean isNullable) {
         this(name, type, false, null, isNullable, Optional.empty(), "");
+    }
+
+    public ColumnDefinition(String name, DataType type, boolean isNullable, String comment) {
+        this(name, type, false, null, isNullable, Optional.empty(), comment);
     }
 
     public String getName() {
@@ -91,12 +124,28 @@ public class ColumnDefinition {
         return aggType;
     }
 
+    public void setAggType(AggregateType aggType) {
+        this.aggType = aggType;
+    }
+
     public boolean isNullable() {
         return isNullable;
     }
 
     public boolean isKey() {
         return isKey;
+    }
+
+    public void setIsKey(boolean isKey) {
+        this.isKey = isKey;
+    }
+
+    public void setClusterKeyId(int clusterKeyId) {
+        this.clusterKeyId = clusterKeyId;
+    }
+
+    public boolean isAutoInc() {
+        return isAutoInc;
     }
 
     private DataType updateCharacterTypeLength(DataType dataType) {
@@ -126,7 +175,7 @@ public class ColumnDefinition {
     /**
      * validate column definition and analyze
      */
-    public void validate(Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
+    public void validate(boolean isOlap, Set<String> keysSet, boolean isEnableMergeOnWrite, KeysType keysType) {
         if (Config.disable_nested_complex_type && isNestedComplexType(type)) {
             throw new AnalysisException("Unsupported data type: " + type.toSql());
         }
@@ -149,25 +198,44 @@ public class ColumnDefinition {
             isNullable = false;
         }
         if (type.isBitmapType()) {
-            if (keysType == KeysType.DUP_KEYS) {
-                throw new AnalysisException("column:" + name + " must be used in AGG_KEYS or UNIQUE_KEYS.");
-            }
             if (aggType != null) {
                 isNullable = false;
             }
         }
+
+        // check keys type
         if (keysSet.contains(name)) {
             isKey = true;
             if (aggType != null) {
-                throw new AnalysisException(String.format("Key column %s can not set aggregation type", name));
+                throw new AnalysisException(
+                        String.format("Key column %s can not set aggregation type", name));
             }
-            if (type.isStringType()) {
-                throw new AnalysisException("String Type should not be used in key column[" + name + "]");
+            if (isOlap) {
+                if (type.isFloatLikeType()) {
+                    throw new AnalysisException(
+                            "Float or double can not used as a key, use decimal instead.");
+                } else if (type.isStringType()) {
+                    throw new AnalysisException(
+                            "String Type should not be used in key column[" + name + "]");
+                } else if (type.isArrayType()) {
+                    throw new AnalysisException("Array can only be used in the non-key column of"
+                            + " the duplicate table at present.");
+                }
             }
             if (type.isBitmapType() || type.isHllType() || type.isQuantileStateType()) {
                 throw new AnalysisException("Key column can not set complex type:" + name);
+            } else if (type.isJsonType()) {
+                throw new AnalysisException(
+                        "JsonType type should not be used in key column[" + getName() + "].");
+            } else if (type.isMapType()) {
+                throw new AnalysisException("Map can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            } else if (type.isStructType()) {
+                throw new AnalysisException("Struct can only be used in the non-key column of"
+                        + " the duplicate table at present.");
             }
-        } else if (aggType == null) {
+        } else if (aggType == null && isOlap) {
+            Preconditions.checkState(keysType != null, "keysType is null");
             if (keysType.equals(KeysType.DUP_KEYS)) {
                 aggType = AggregateType.NONE;
             } else if (keysType.equals(KeysType.UNIQUE_KEYS) && isEnableMergeOnWrite) {
@@ -178,16 +246,54 @@ public class ColumnDefinition {
                 throw new AnalysisException("should set aggregation type to non-key column when in aggregate key");
             }
         }
-        if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
-            aggTypeImplicit = true;
+
+        if (isOlap) {
+            if (!isKey && keysType.equals(KeysType.UNIQUE_KEYS)) {
+                aggTypeImplicit = true;
+            }
+
+            // If aggregate type is REPLACE_IF_NOT_NULL, we set it nullable.
+            // If default value is not set, we set it NULL
+            if (aggType == AggregateType.REPLACE_IF_NOT_NULL) {
+                isNullable = true;
+                if (!defaultValue.isPresent()) {
+                    defaultValue = Optional.of(DefaultValue.NULL_DEFAULT_VALUE);
+                }
+            }
         }
+
+        // check default value
         if (type.isHllType()) {
+            if (defaultValue.isPresent()) {
+                throw new AnalysisException("Hll type column can not set default value");
+            }
             defaultValue = Optional.of(DefaultValue.HLL_EMPTY_DEFAULT_VALUE);
         } else if (type.isBitmapType()) {
+            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Bitmap type column can not set default value");
+            }
             defaultValue = Optional.of(DefaultValue.BITMAP_EMPTY_DEFAULT_VALUE);
-        } else if (type.isArrayType() && !defaultValue.isPresent()) {
-            defaultValue = Optional.of(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
+        } else if (type.isArrayType() && defaultValue.isPresent() && isOlap
+                && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE && !defaultValue.get()
+                        .getValue().equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.getValue())) {
+            throw new AnalysisException("Array type column default value only support null or "
+                    + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE);
+        } else if (type.isMapType()) {
+            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Map type column default value just support null");
+            }
+        } else if (type.isStructType()) {
+            if (defaultValue.isPresent() && defaultValue.get() != DefaultValue.NULL_DEFAULT_VALUE) {
+                throw new AnalysisException("Struct type column default value just support null");
+            }
         }
+
+        if (!isNullable && defaultValue.isPresent()
+                && defaultValue.get() == DefaultValue.NULL_DEFAULT_VALUE) {
+            throw new AnalysisException(
+                    "Can not set null default value to non nullable column: " + name);
+        }
+
         if (defaultValue.isPresent()
                 && defaultValue.get().getValue() != null
                 && type.toCatalogDataType().isScalarType()) {
@@ -196,6 +302,59 @@ public class ColumnDefinition {
                         defaultValue.get().getValue(), defaultValue.get().getDefaultValueExprDef());
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage(), e);
+            }
+        }
+        if (onUpdateDefaultValue.isPresent()
+                && onUpdateDefaultValue.get().getValue() != null
+                && type.toCatalogDataType().isScalarType()) {
+            try {
+                ColumnDef.validateDefaultValue(type.toCatalogDataType(),
+                        onUpdateDefaultValue.get().getValue(), onUpdateDefaultValue.get().getDefaultValueExprDef());
+            } catch (Exception e) {
+                throw new AnalysisException("meet error when validating the on update value of column["
+                        + name + "], reason: " + e.getMessage());
+            }
+            if (onUpdateDefaultValue.get().isCurrentTimeStamp()) {
+                if (!defaultValue.isPresent() || !defaultValue.get().isCurrentTimeStamp()) {
+                    throw new AnalysisException("You must set the default value of the column["
+                            + name + "] to CURRENT_TIMESTAMP when using 'ON UPDATE CURRENT_TIMESTAMP'.");
+                }
+            } else if (onUpdateDefaultValue.get().isCurrentTimeStampWithPrecision()) {
+                if (!defaultValue.isPresent() || !defaultValue.get().isCurrentTimeStampWithPrecision()) {
+                    throw new AnalysisException("You must set the default value of the column["
+                            + name + "] to CURRENT_TIMESTAMP when using 'ON UPDATE CURRENT_TIMESTAMP'.");
+                }
+                long precision1 = onUpdateDefaultValue.get().getCurrentTimeStampPrecision();
+                long precision2 = defaultValue.get().getCurrentTimeStampPrecision();
+                if (precision1 != precision2) {
+                    throw new AnalysisException("The precision of the default value of column["
+                            + name + "] should be the same with the precision in 'ON UPDATE CURRENT_TIMESTAMP'.");
+                }
+            }
+        }
+
+        // from old planner CreateTableStmt's analyze method, after call columnDef.analyze(engineName.equals("olap"));
+        if (isOlap && type.isComplexType()) {
+            if (aggType != null && aggType != AggregateType.NONE
+                    && aggType != AggregateType.REPLACE) {
+                throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                        + " column can't support aggregation " + aggType);
+            }
+            if (isKey) {
+                throw new AnalysisException(type.toCatalogDataType().getPrimitiveType()
+                        + " can only be used in the non-key column of the duplicate table at present.");
+            }
+        }
+
+        if (type.isTimeLikeType()) {
+            throw new AnalysisException("Time type is not supported for olap table");
+        }
+
+        if (type.isObjectType()) {
+            if (!type.isBitmapType()) {
+                if (keysType != KeysType.AGG_KEYS) {
+                    throw new AnalysisException("column:" + name + " must be used in AGG_KEYS.");
+                }
             }
         }
     }
@@ -229,9 +388,10 @@ public class ColumnDefinition {
      */
     public Column translateToCatalogStyle() {
         Column column = new Column(name, type.toCatalogDataType(), isKey, aggType, isNullable,
-                false, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
+                isAutoInc, defaultValue.map(DefaultValue::getRawValue).orElse(null), comment, isVisible,
                 defaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), Column.COLUMN_UNIQUE_ID_INIT_VALUE,
-                defaultValue.map(DefaultValue::getValue).orElse(null));
+                defaultValue.map(DefaultValue::getValue).orElse(null), onUpdateDefaultValue.isPresent(),
+                onUpdateDefaultValue.map(DefaultValue::getDefaultValueExprDef).orElse(null), clusterKeyId);
         column.setAggregationTypeImplicit(aggTypeImplicit);
         return column;
     }

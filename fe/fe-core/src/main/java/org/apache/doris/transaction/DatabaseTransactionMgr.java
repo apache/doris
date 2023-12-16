@@ -195,6 +195,10 @@ public class DatabaseTransactionMgr {
         return dbId;
     }
 
+    public TransactionIdGenerator getIdGenerator() {
+        return idGenerator;
+    }
+
     protected TransactionState getTransactionState(Long transactionId) {
         readLock();
         try {
@@ -310,12 +314,13 @@ public class DatabaseTransactionMgr {
             throws DuplicatedRequestException, LabelAlreadyUsedException, BeginTransactionException,
             AnalysisException, QuotaExceedException, MetaNotFoundException {
         checkDatabaseDataQuota();
+        Preconditions.checkNotNull(coordinator);
+        Preconditions.checkNotNull(label);
+        FeNameFormat.checkLabel(label);
+
+        long tid = 0L;
         writeLock();
         try {
-            Preconditions.checkNotNull(coordinator);
-            Preconditions.checkNotNull(label);
-            FeNameFormat.checkLabel(label);
-
             /*
              * Check if label already used, by following steps
              * 1. get all existing transactions
@@ -350,9 +355,7 @@ public class DatabaseTransactionMgr {
 
             checkRunningTxnExceedLimit(sourceType);
 
-            long tid = idGenerator.getNextTransactionId();
-            LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listener id: {}",
-                    tid, label, coordinator, listenerId);
+            tid = idGenerator.getNextTransactionId();
             TransactionState transactionState = new TransactionState(dbId, tableIdList,
                     tid, label, requestId, sourceType, coordinator, listenerId, timeoutSecond * 1000);
             transactionState.setPrepareTime(System.currentTimeMillis());
@@ -361,11 +364,12 @@ public class DatabaseTransactionMgr {
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_TXN_BEGIN.increase(1L);
             }
-
-            return tid;
         } finally {
             writeUnlock();
         }
+        LOG.info("begin transaction: txn id {} with label {} from coordinator {}, listener id: {}",
+                    tid, label, coordinator, listenerId);
+        return tid;
     }
 
     private void checkDatabaseDataQuota() throws MetaNotFoundException, QuotaExceedException {
@@ -1983,15 +1987,15 @@ public class DatabaseTransactionMgr {
             // set transaction status will call txn state change listener
             transactionState.replaySetTransactionStatus();
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
-                LOG.info("replay a committed transaction {}", transactionState);
                 updateCatalogAfterCommitted(transactionState, db);
             } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
-                LOG.info("replay a visible transaction {}", transactionState);
                 updateCatalogAfterVisible(transactionState, db);
             }
             unprotectUpsertTransactionState(transactionState, true);
         } finally {
             writeUnlock();
+            LOG.info("replay a {} transaction {}",
+                     transactionState.getTransactionStatus(), transactionState);
             if (shouldAddTableListLock) {
                 MetaLockUtils.writeUnlockTables(tableList);
             }

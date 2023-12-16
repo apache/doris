@@ -97,6 +97,22 @@ CL_NS(store)::Directory* DorisCompoundFileWriter::getDirectory() {
     return directory;
 }
 
+void DorisCompoundFileWriter::sort_files(std::vector<FileInfo>& file_infos) {
+    auto file_priority = [](const std::string& filename) {
+        if (filename.find("segments") != std::string::npos) return 1;
+        if (filename.find("fnm") != std::string::npos) return 2;
+        if (filename.find("tii") != std::string::npos) return 3;
+        return 4; // Other files
+    };
+
+    std::sort(file_infos.begin(), file_infos.end(), [&](const FileInfo& a, const FileInfo& b) {
+        int32_t priority_a = file_priority(a.filename);
+        int32_t priority_b = file_priority(b.filename);
+        if (priority_a != priority_b) return priority_a < priority_b;
+        return a.filesize < b.filesize;
+    });
+}
+
 void DorisCompoundFileWriter::writeCompoundFile() {
     // list files in current dir
     std::vector<std::string> files;
@@ -106,15 +122,15 @@ void DorisCompoundFileWriter::writeCompoundFile() {
     if (it != files.end()) {
         files.erase(it);
     }
-    // sort file list by file length
-    std::vector<std::pair<std::string, int64_t>> sorted_files;
+
+    std::vector<FileInfo> sorted_files;
     for (auto file : files) {
-        sorted_files.push_back(std::make_pair(
-                file, ((DorisCompoundDirectory*)directory)->fileLength(file.c_str())));
+        FileInfo file_info;
+        file_info.filename = file;
+        file_info.filesize = ((DorisCompoundDirectory*)directory)->fileLength(file.c_str());
+        sorted_files.emplace_back(std::move(file_info));
     }
-    std::sort(sorted_files.begin(), sorted_files.end(),
-              [](const std::pair<std::string, int64_t>& a,
-                 const std::pair<std::string, int64_t>& b) { return (a.second < b.second); });
+    sort_files(sorted_files);
 
     int32_t file_count = sorted_files.size();
 
@@ -138,12 +154,12 @@ void DorisCompoundFileWriter::writeCompoundFile() {
     const int64_t buffer_length = 16384;
     uint8_t ram_buffer[buffer_length];
     for (auto file : sorted_files) {
-        ram_output->writeString(file.first); // file name
-        ram_output->writeLong(0);            // data offset
-        ram_output->writeLong(file.second);  // file length
-        header_file_length += file.second;
+        ram_output->writeString(file.filename); // file name
+        ram_output->writeLong(0);               // data offset
+        ram_output->writeLong(file.filesize);   // file length
+        header_file_length += file.filesize;
         if (header_file_length <= MAX_HEADER_DATA_SIZE) {
-            copyFile(file.first.c_str(), ram_output.get(), ram_buffer, buffer_length);
+            copyFile(file.filename.c_str(), ram_output.get(), ram_buffer, buffer_length);
             header_file_count++;
         }
     }
@@ -167,7 +183,7 @@ void DorisCompoundFileWriter::writeCompoundFile() {
     uint8_t header_buffer[buffer_length];
     for (int i = 0; i < sorted_files.size(); ++i) {
         auto file = sorted_files[i];
-        output->writeString(file.first); // FileName
+        output->writeString(file.filename); // FileName
         // DataOffset
         if (i < header_file_count) {
             // file data write in header, so we set its offset to -1.
@@ -175,19 +191,19 @@ void DorisCompoundFileWriter::writeCompoundFile() {
         } else {
             output->writeLong(data_offset);
         }
-        output->writeLong(file.second); // FileLength
+        output->writeLong(file.filesize); // FileLength
         if (i < header_file_count) {
             // append data
-            copyFile(file.first.c_str(), output.get(), header_buffer, buffer_length);
+            copyFile(file.filename.c_str(), output.get(), header_buffer, buffer_length);
         } else {
-            data_offset += file.second;
+            data_offset += file.filesize;
         }
     }
     // write rest files' data
     uint8_t data_buffer[buffer_length];
     for (int i = header_file_count; i < sorted_files.size(); ++i) {
         auto file = sorted_files[i];
-        copyFile(file.first.c_str(), output.get(), data_buffer, buffer_length);
+        copyFile(file.filename.c_str(), output.get(), data_buffer, buffer_length);
     }
     out_dir->close();
     // NOTE: need to decrease ref count, but not to delete here,
@@ -263,7 +279,11 @@ bool DorisCompoundDirectory::FSIndexInput::open(const io::FileSystemSPtr& fs, co
     }
     SharedHandle* h = _CLNEW SharedHandle(path);
 
-    if (!fs->open_file(path, &h->_reader).ok()) {
+    io::FileReaderOptions reader_options;
+    reader_options.cache_type = config::enable_file_cache ? io::FileCachePolicy::FILE_BLOCK_CACHE
+                                                          : io::FileCachePolicy::NO_CACHE;
+    reader_options.is_doris_table = true;
+    if (!fs->open_file(path, &h->_reader, &reader_options).ok()) {
         error.set(CL_ERR_IO, "open file error");
     }
 
@@ -298,16 +318,17 @@ DorisCompoundDirectory::FSIndexInput::FSIndexInput(const FSIndexInput& other)
         _CLTHROWA(CL_ERR_NullPointer, "other handle is null");
     }
 
-    std::lock_guard<doris::Mutex> wlock(*other._handle->_shared_lock);
+    std::lock_guard<std::mutex> wlock(*other._handle->_shared_lock);
     _handle = _CL_POINTER(other._handle);
     _pos = other._handle->_fpos; //note where we are currently...
+    _io_ctx = other._io_ctx;
 }
 
 DorisCompoundDirectory::FSIndexInput::SharedHandle::SharedHandle(const char* path) {
     _length = 0;
     _fpos = 0;
     strcpy(this->path, path);
-    _shared_lock = new doris::Mutex();
+    _shared_lock = new std::mutex();
 }
 
 DorisCompoundDirectory::FSIndexInput::SharedHandle::~SharedHandle() {
@@ -328,10 +349,10 @@ lucene::store::IndexInput* DorisCompoundDirectory::FSIndexInput::clone() const {
 void DorisCompoundDirectory::FSIndexInput::close() {
     BufferedIndexInput::close();
     if (_handle != nullptr) {
-        doris::Mutex* lock = _handle->_shared_lock;
+        std::mutex* lock = _handle->_shared_lock;
         bool ref = false;
         {
-            std::lock_guard<doris::Mutex> wlock(*lock);
+            std::lock_guard<std::mutex> wlock(*lock);
             //determine if we are about to delete the handle...
             ref = (_LUCENE_ATOMIC_INT_GET(_handle->__cl_refcount) > 1);
             //decdelete (deletes if refcount is down to 0
@@ -354,7 +375,7 @@ void DorisCompoundDirectory::FSIndexInput::seekInternal(const int64_t position) 
 void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_t len) {
     CND_PRECONDITION(_handle != nullptr, "shared file handle has closed");
     CND_PRECONDITION(_handle->_reader != nullptr, "file is not open");
-    std::lock_guard<doris::Mutex> wlock(*_handle->_shared_lock);
+    std::lock_guard<std::mutex> wlock(*_handle->_shared_lock);
 
     int64_t position = getFilePointer();
     if (_pos != position) {
@@ -367,7 +388,7 @@ void DorisCompoundDirectory::FSIndexInput::readInternal(uint8_t* b, const int32_
 
     Slice result {b, (size_t)len};
     size_t bytes_read = 0;
-    if (!_handle->_reader->read_at(_pos, result, &bytes_read).ok()) {
+    if (!_handle->_reader->read_at(_pos, result, &bytes_read, &_io_ctx).ok()) {
         _CLTHROWA(CL_ERR_IO, "read past EOF");
     }
     bufferLength = len;
@@ -410,9 +431,25 @@ DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
 void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const int32_t size) {
     if (_writer != nullptr && b != nullptr && size > 0) {
         Slice data {b, (size_t)size};
+        DBUG_EXECUTE_IF(
+                "DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_"
+                "flushBuffer",
+                {
+                    if (_writer->path().filename() == "_0.tii" ||
+                        _writer->path().filename() == "_0.tis") {
+                        return;
+                    }
+                })
         Status st = _writer->append(data);
+        DBUG_EXECUTE_IF(
+                "DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer",
+                {
+                    st = Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "flush buffer mock error");
+                })
         if (!st.ok()) {
             LOG(WARNING) << "File IO Write error: " << st.to_string();
+            _CLTHROWA(CL_ERR_IO, "writer append data when flushBuffer error");
         }
     } else {
         if (_writer == nullptr) {
@@ -523,7 +560,7 @@ void DorisCompoundDirectory::init(const io::FileSystemSPtr& _fs, const char* _pa
 }
 
 void DorisCompoundDirectory::create() {
-    std::lock_guard<doris::Mutex> wlock(_this_lock);
+    std::lock_guard<std::mutex> wlock(_this_lock);
 
     //clear old files
     std::vector<std::string> files;
@@ -689,7 +726,7 @@ bool DorisCompoundDirectory::deleteDirectory() {
 
 void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     CND_PRECONDITION(directory[0] != 0, "directory is not open");
-    std::lock_guard<doris::Mutex> wlock(_this_lock);
+    std::lock_guard<std::mutex> wlock(_this_lock);
     char old[CL_MAX_DIR];
     priv_getFN(old, from);
 

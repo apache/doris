@@ -228,9 +228,9 @@ public abstract class AbstractPhysicalJoin<
     @Override
     public String toString() {
         List<Object> args = Lists.newArrayList("type", joinType,
+                "stats", statistics,
                 "hashCondition", hashJoinConjuncts,
-                "otherCondition", otherJoinConjuncts,
-                "stats", statistics);
+                "otherCondition", otherJoinConjuncts);
         if (markJoinSlotReference.isPresent()) {
             args.add("isMarkJoin");
             args.add("true");

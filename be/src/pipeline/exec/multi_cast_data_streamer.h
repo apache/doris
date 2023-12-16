@@ -21,7 +21,7 @@
 
 namespace doris::pipeline {
 
-class MultiCastDependency;
+class MultiCastSourceDependency;
 struct MultiCastBlock {
     MultiCastBlock(vectorized::Block* block, int used_count, size_t mem_size);
 
@@ -74,7 +74,7 @@ public:
         _set_ready_for_read();
     }
 
-    void set_dep_by_sender_idx(int sender_idx, MultiCastDependency* dep) {
+    void set_dep_by_sender_idx(int sender_idx, MultiCastSourceDependency* dep) {
         _dependencies[sender_idx] = dep;
         _block_reading(sender_idx);
     }
@@ -85,7 +85,7 @@ private:
     void _block_reading(int sender_idx);
 
     const RowDescriptor& _row_desc;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     std::list<MultiCastBlock> _multi_cast_blocks;
     std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;
     std::mutex _mutex;
@@ -94,9 +94,9 @@ private:
     int _closed_sender_count = 0;
     int64_t _cumulative_mem_size = 0;
 
-    RuntimeProfile::Counter* _process_rows;
-    RuntimeProfile::Counter* _peak_mem_usage;
+    RuntimeProfile::Counter* _process_rows = nullptr;
+    RuntimeProfile::Counter* _peak_mem_usage = nullptr;
 
-    std::vector<MultiCastDependency*> _dependencies;
+    std::vector<MultiCastSourceDependency*> _dependencies;
 };
 } // namespace doris::pipeline

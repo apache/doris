@@ -276,11 +276,6 @@ public:
     // TODO(ygl):
     bool is_primary_replica() { return false; }
 
-    // TODO(ygl):
-    // eco mode means power saving in new energy car
-    // eco mode also means save money in palo
-    bool in_eco_mode() { return false; }
-
     // return true if the checkpoint is actually done
     bool do_tablet_meta_checkpoint();
 
@@ -411,7 +406,7 @@ public:
                           const std::vector<RowsetSharedPtr>& specified_rowsets,
                           RowLocation* row_location, uint32_t version,
                           std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
-                          RowsetSharedPtr* rowset = nullptr);
+                          RowsetSharedPtr* rowset = nullptr, bool with_rowid = true);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
@@ -617,7 +612,7 @@ public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
 
 private:
-    DataDir* _data_dir;
+    DataDir* _data_dir = nullptr;
     TimestampedVersionTracker _timestamped_version_tracker;
 
     DorisCallOnce<Status> _init_once;

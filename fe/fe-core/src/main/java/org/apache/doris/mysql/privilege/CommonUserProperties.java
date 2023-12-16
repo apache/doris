@@ -25,6 +25,8 @@ import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -35,6 +37,8 @@ import java.util.Set;
  * Used in
  */
 public class CommonUserProperties implements Writable {
+    private static final Logger LOG = LogManager.getLogger(CommonUserProperties.class);
+
     // The max connections allowed for a user on one FE
     @SerializedName("maxConn")
     private long maxConn = 100;
@@ -110,10 +114,6 @@ public class CommonUserProperties implements Writable {
     }
 
     public Set<Tag> getResourceTags() {
-        // If resource tags in user properties is empty, use default backend tag.
-        if (resourceTags.isEmpty()) {
-            return Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
-        }
         return resourceTags;
     }
 
@@ -130,6 +130,9 @@ public class CommonUserProperties implements Writable {
     }
 
     public void setQueryTimeout(int timeout) {
+        if (timeout <= 0) {
+            LOG.warn("Setting 0 query timeout", new RuntimeException(""));
+        }
         this.queryTimeout = timeout;
     }
 

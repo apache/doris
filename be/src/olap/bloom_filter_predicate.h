@@ -55,6 +55,10 @@ public:
     uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                       uint16_t size) const override;
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == T || (is_string_type(input_type) && is_string_type(T));
+    }
+
 private:
     template <bool is_nullable>
     uint16_t evaluate(const vectorized::IColumn& column, const uint8_t* null_map, uint16_t* sel,
@@ -65,74 +69,16 @@ private:
 
         uint16_t new_size = 0;
         if (column.is_column_dictionary()) {
-            const auto* dict_col = reinterpret_cast<const vectorized::ColumnDictI32*>(&column);
-            if (_be_exec_version >= 2) {
-                for (uint16_t i = 0; i < size; i++) {
-                    uint16_t idx = sel[i];
-                    sel[new_size] = idx;
-                    if constexpr (is_nullable) {
-                        new_size += !null_map[idx] && _specific_filter->find_uint32_t(
-                                                              dict_col->get_crc32_hash_value(idx));
-                    } else {
-                        new_size += _specific_filter->find_uint32_t(
-                                dict_col->get_crc32_hash_value(idx));
-                    }
-                }
-            } else {
-                for (uint16_t i = 0; i < size; i++) {
-                    uint16_t idx = sel[i];
-                    sel[new_size] = idx;
-                    if constexpr (is_nullable) {
-                        new_size += !null_map[idx] &&
-                                    _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
-                    } else {
-                        new_size += _specific_filter->find_uint32_t(dict_col->get_hash_value(idx));
-                    }
-                }
-            }
-        } else if (is_string_type(T) && _be_exec_version >= 2) {
-            auto& pred_col =
-                    reinterpret_cast<
-                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
-                            &column)
-                            ->get_data();
-
-            auto pred_col_data = pred_col.data();
-            const bool is_dense_column = pred_col.size() == size;
-            for (uint16_t i = 0; i < size; i++) {
-                uint16_t idx = is_dense_column ? i : sel[i];
-                if constexpr (is_nullable) {
-                    if (!null_map[idx] && _specific_filter->find_crc32_hash(&pred_col_data[idx])) {
-                        sel[new_size++] = idx;
-                    }
-                } else {
-                    if (_specific_filter->find_crc32_hash(&pred_col_data[idx])) {
-                        sel[new_size++] = idx;
-                    }
-                }
-            }
-        } else if (IRuntimeFilter::enable_use_batch(_be_exec_version > 0, T)) {
+            const auto* dict_col = assert_cast<const vectorized::ColumnDictI32*>(&column);
+            new_size = _specific_filter->template find_dict_olap_engine<is_nullable>(
+                    dict_col, null_map, sel, size);
+        } else {
             const auto& data =
-                    reinterpret_cast<
-                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
+                    assert_cast<const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
                             &column)
                             ->get_data();
             new_size = _specific_filter->find_fixed_len_olap_engine((char*)data.data(), null_map,
                                                                     sel, size, data.size() != size);
-        } else {
-            auto& pred_col =
-                    reinterpret_cast<
-                            const vectorized::PredicateColumnType<PredicateEvaluateType<T>>*>(
-                            &column)
-                            ->get_data();
-
-            auto pred_col_data = pred_col.data();
-#define EVALUATE_WITH_NULL_IMPL(IDX) \
-    !null_map[IDX] && _specific_filter->find_olap_engine(&pred_col_data[IDX])
-#define EVALUATE_WITHOUT_NULL_IMPL(IDX) _specific_filter->find_olap_engine(&pred_col_data[IDX])
-            EVALUATE_BY_SELECTOR(EVALUATE_WITH_NULL_IMPL, EVALUATE_WITHOUT_NULL_IMPL)
-#undef EVALUATE_WITH_NULL_IMPL
-#undef EVALUATE_WITHOUT_NULL_IMPL
         }
         return new_size;
     }
@@ -164,8 +110,8 @@ uint16_t BloomFilterColumnPredicate<T>::evaluate(const vectorized::IColumn& colu
         return size;
     }
     if (column.is_nullable()) {
-        auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
-        auto& null_map_data = nullable_col->get_null_map_column().get_data();
+        const auto* nullable_col = reinterpret_cast<const vectorized::ColumnNullable*>(&column);
+        const auto& null_map_data = nullable_col->get_null_map_column().get_data();
         new_size =
                 evaluate<true>(nullable_col->get_nested_column(), null_map_data.data(), sel, size);
     } else {

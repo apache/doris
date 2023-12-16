@@ -11,21 +11,19 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------PhysicalProject
 ----------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=() build RFs:RF3 c_current_cdemo_sk->[cd_demo_sk]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
+------------------PhysicalProject
+--------------------PhysicalOlapScan[customer_demographics] apply RFs: RF3
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------hashJoin[INNER_JOIN] hashCondition=((household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[c_current_hdemo_sk]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
+------------------------PhysicalProject
+--------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[customer] apply RFs: RF1 RF2
+----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer] apply RFs: RF1 RF2
-------------------------------PhysicalDistribute
---------------------------------PhysicalProject
-----------------------------------filter((customer_address.ca_city = 'Woodland'))
-------------------------------------PhysicalOlapScan[customer_address]
+--------------------------------filter((customer_address.ca_city = 'Woodland'))
+----------------------------------PhysicalOlapScan[customer_address]
 ------------------------PhysicalDistribute
 --------------------------hashJoin[INNER_JOIN] hashCondition=((income_band.ib_income_band_sk = household_demographics.hd_income_band_sk)) otherCondition=() build RFs:RF0 ib_income_band_sk->[hd_income_band_sk]
 ----------------------------PhysicalProject

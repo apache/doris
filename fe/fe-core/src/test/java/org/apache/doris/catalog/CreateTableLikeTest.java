@@ -20,6 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.CreateDbStmt;
 import org.apache.doris.analysis.CreateTableLikeStmt;
 import org.apache.doris.analysis.CreateTableStmt;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.qe.ConnectContext;
@@ -51,6 +52,7 @@ public class CreateTableLikeTest {
 
         // create connect context
         connectContext = UtFrameUtils.createDefaultCtx();
+        Config.enable_odbc_mysql_broker_table = true;
         // create database
         String createDbStmtStr = "create database test;";
         CreateDbStmt createDbStmt = (CreateDbStmt) UtFrameUtils.parseAndAnalyzeStmt(createDbStmtStr, connectContext);
@@ -114,9 +116,9 @@ public class CreateTableLikeTest {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
         Database newDb =
-                Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+                Env.getCurrentInternalCatalog().getDbOrDdlException("" + newDbName);
         Database existedDb = Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("default_cluster:" + existedDbName);
+                .getDbOrDdlException("" + existedDbName);
         OlapTable newTbl = (OlapTable) newDb.getTableOrDdlException(newTblName);
         OlapTable existedTbl = (OlapTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, rollupSize);
@@ -128,9 +130,9 @@ public class CreateTableLikeTest {
         createTable(createTableSql);
         createTableLike(createTableLikeSql);
         Database newDb =
-                Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:" + newDbName);
+                Env.getCurrentInternalCatalog().getDbOrDdlException("" + newDbName);
         Database existedDb = Env.getCurrentInternalCatalog()
-                .getDbOrDdlException("default_cluster:" + existedDbName);
+                .getDbOrDdlException("" + existedDbName);
         MysqlTable newTbl = (MysqlTable) newDb.getTableOrDdlException(newTblName);
         MysqlTable existedTbl = (MysqlTable) existedDb.getTableOrDdlException(existedTblName);
         checkTableEqual(newTbl, existedTbl, 0);
@@ -146,7 +148,7 @@ public class CreateTableLikeTest {
                 + "    partition p2 VALUES  [(\"20211201\"),(\"20220101\"))\n" + ")\n"
                 + "DISTRIBUTED BY HASH(`id1`) BUCKETS 1\n" + "PROPERTIES (\n" + "\"replication_num\" = \"1\"\n" + ");";
         createTable(createTableSql);
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable table = (OlapTable) db.getTableOrDdlException("bucket_distribution_test");
         DistributionInfo defaultInfo = table.getDefaultDistributionInfo();
         DistributionInfo previous = null;
@@ -337,7 +339,7 @@ public class CreateTableLikeTest {
         String existedDbName2 = "test";
         String newTblName2 = "testAbTbl2_like";
         String existedTblName2 = "testAbTbl1";
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown database 'default_cluster:fake_test'",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Unknown database 'fake_test'",
                 () -> checkCreateOlapTableLike(createTableSql2, createTableLikeSql2, newDbName2, existedDbName2,
                         newTblName2, existedTblName2));
 

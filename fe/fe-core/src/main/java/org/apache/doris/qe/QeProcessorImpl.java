@@ -140,7 +140,9 @@ public final class QeProcessorImpl implements QeProcessor {
     public void unregisterQuery(TUniqueId queryId) {
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
         if (queryInfo != null) {
-            LOG.info("Deregister query id {}", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
+            }
 
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
@@ -159,7 +161,9 @@ public final class QeProcessorImpl implements QeProcessor {
                 }
             }
         } else {
-            LOG.warn("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
+            }
         }
 
         // commit hive tranaction if needed
@@ -190,10 +194,6 @@ public final class QeProcessorImpl implements QeProcessor {
 
     @Override
     public TReportExecStatusResult reportExecStatus(TReportExecStatusParams params, TNetworkAddress beAddr) {
-        LOG.info("Processing report exec status, query {} instance {} from {}",
-                DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id),
-                beAddr.toString());
-
         if (params.isSetProfile()) {
             LOG.info("ReportExecStatus(): fragment_instance_id={}, query id={}, backend num: {}, ip: {}",
                     DebugUtil.printId(params.fragment_instance_id), DebugUtil.printId(params.query_id),
@@ -220,7 +220,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 writeProfileExecutor.submit(new WriteProfileTask(params, info));
             }
         } catch (Exception e) {
-            LOG.warn("Report response: {}, query: {}, instance: {}", result.toString(),
+            LOG.warn("Exception during handle report, response: {}, query: {}, instance: {}", result.toString(),
                     DebugUtil.printId(params.query_id), DebugUtil.printId(params.fragment_instance_id));
             return result;
         }

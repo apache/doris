@@ -4,18 +4,18 @@
 
 -- !desc_uniq_table --
 k	INT	Yes	true	\N	
-int_value	INT	Yes	false	\N	REPLACE
-char_value	CHAR(10)	Yes	false	\N	REPLACE
-date_value	DATE	Yes	false	\N	REPLACE
+int_value	INT	Yes	false	\N	NONE
+char_value	CHAR(10)	Yes	false	\N	NONE
+date_value	DATE	Yes	false	\N	NONE
 
 -- !0 --
 k1	INT	Yes	true	\N	
-v1	TINYINT	Yes	false	\N	REPLACE
-v2	INT	Yes	false	\N	REPLACE
-v3	INT	Yes	false	\N	REPLACE
-v4	INT	Yes	false	\N	REPLACE
-__DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
-__DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
+v1	TINYINT	Yes	false	\N	NONE
+v2	INT	Yes	false	\N	NONE
+v3	INT	Yes	false	\N	NONE
+v4	INT	Yes	false	\N	NONE
+__DORIS_DELETE_SIGN__	TINYINT	No	false	0	NONE
+__DORIS_VERSION_COL__	BIGINT	No	false	0	NONE
 
 -- !1 --
 1	1	1	1	1	0	2

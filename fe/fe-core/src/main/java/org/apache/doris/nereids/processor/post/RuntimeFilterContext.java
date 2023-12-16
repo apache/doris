@@ -52,6 +52,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * runtime filter context used at post process and translation.
@@ -128,7 +129,7 @@ public class RuntimeFilterContext {
     private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newHashMap();
 
     // cte candidates which can be pushed into common runtime filter into from outside
-    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newHashMap();
+    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newLinkedHashMap();
 
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
 
@@ -273,6 +274,7 @@ public class RuntimeFilterContext {
                     l.addAll(r);
                     return l;
                 });
+        filters = filters.stream().distinct().collect(Collectors.toList());
         filters.sort((a, b) -> a.getId().compareTo(b.getId()));
         return filters;
     }
