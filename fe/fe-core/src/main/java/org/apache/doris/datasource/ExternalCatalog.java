@@ -294,7 +294,6 @@ public abstract class ExternalCatalog
         if (invalidCache) {
             Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
         }
-        CatalogIf.super.onClose();
     }
 
     public void updateDbList() {
