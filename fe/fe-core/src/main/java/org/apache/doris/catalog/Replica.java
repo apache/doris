@@ -627,7 +627,7 @@ public class Replica implements Writable {
                         .filter(disk -> disk.getPathHash() == pathHash)
                         .findFirst().orElse(null);
                 if (diskInfo == null) {
-                    strBuffer.append(", disk not exists");
+                    strBuffer.append(", disk with path hash " + pathHash + " not exists");
                 } else if (diskInfo.getState() == DiskInfo.DiskState.OFFLINE) {
                     strBuffer.append(", disk " + diskInfo.getRootPath() + " is bad");
                 }
