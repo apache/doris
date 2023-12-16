@@ -39,7 +39,6 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -233,8 +232,6 @@ public class CreateTableInfo {
             throw new AnalysisException(e.getMessage(), e);
         }
 
-        clusterName = ctx.getClusterName();
-
         // analyze catalog name
         if (Strings.isNullOrEmpty(ctlName)) {
             if (ctx.getCurrentCatalog() != null) {
@@ -253,9 +250,7 @@ public class CreateTableInfo {
 
         // analyze table name
         if (Strings.isNullOrEmpty(dbName)) {
-            dbName = ClusterNamespace.getFullName(clusterName, ctx.getDatabase());
-        } else {
-            dbName = ClusterNamespace.getFullName(clusterName, dbName);
+            dbName = ctx.getDatabase();
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
@@ -858,7 +853,7 @@ public class CreateTableInfo {
                 catalogColumns, catalogIndexes, engineName,
                 new KeysDesc(keysType, keys, clusterKeysColumnNames, clusterKeysColumnIds),
                 partitionDesc, distributionDesc, Maps.newHashMap(properties), extProperties,
-                comment, addRollups, clusterName, null);
+                comment, addRollups, null);
     }
 
     private static ArrayList<Expr> convertToLegacyAutoPartitionExprs(List<Expression> expressions) {

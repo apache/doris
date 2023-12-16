@@ -382,7 +382,7 @@ class Suite implements GroovyInterceptable {
     long getTableId(String tableName) {
         def dbInfo = sql "show proc '/dbs'"
         for(List<Object> row : dbInfo) {
-            if (row[1].split(":")[1].equals(context.dbName)) {
+            if (row[1].equals(context.dbName)) {
                 def tbInfo = sql "show proc '/dbs/${row[0]}' "
                 for (List<Object> tb : tbInfo) {
                     if (tb[1].equals(tableName)) {

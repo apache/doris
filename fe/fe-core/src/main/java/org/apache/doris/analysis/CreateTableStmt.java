@@ -211,7 +211,6 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment,
             List<AlterClause> rollupAlterClauseList,
-            String clusterName,
             Void unused) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
@@ -227,7 +226,6 @@ public class CreateTableStmt extends DdlStmt {
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
         this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
-        this.setClusterName(clusterName);
     }
 
     public void addColumnDef(ColumnDef columnDef) {
