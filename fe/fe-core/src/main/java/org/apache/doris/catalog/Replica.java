@@ -619,6 +619,20 @@ public class Replica implements Writable {
             strBuffer.append(", lastFailedTimestamp=");
             strBuffer.append(lastFailedTimestamp);
         }
+        if (isBad()) {
+            strBuffer.append(", isBad=true");
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
+            if (backend != null && pathHash != -1) {
+                DiskInfo diskInfo = backend.getDisks().values().stream()
+                        .filter(disk -> disk.getPathHash() == pathHash)
+                        .findFirst().orElse(null);
+                if (diskInfo == null) {
+                    strBuffer.append(", disk not exists");
+                } else if (diskInfo.getState() == DiskInfo.DiskState.OFFLINE) {
+                    strBuffer.append(", disk " + diskInfo.getRootPath() + " is bad");
+                }
+            }
+        }
         strBuffer.append(", state=");
         strBuffer.append(state.name());
         strBuffer.append("]");
