@@ -143,7 +143,7 @@ public:
     }
 
     bool support_zonemap() const override {
-        for (const auto *child_block_predicate : _block_column_predicate_vec) {
+        for (const auto* child_block_predicate : _block_column_predicate_vec) {
             if (!child_block_predicate->support_zonemap()) {
                 return false;
             }

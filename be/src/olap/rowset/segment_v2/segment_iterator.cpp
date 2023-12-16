@@ -539,11 +539,11 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                     &column_row_ranges));
             // intersect different columns's row ranges to get final row ranges by zone map
             RowRanges::ranges_intersection(zone_map_row_ranges, column_row_ranges,
-                                        &zone_map_row_ranges);
+                                           &zone_map_row_ranges);
         }
         pre_size = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                    condition_row_ranges);
+                                       condition_row_ranges);
 
         std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
         if (_opts.use_topn_opt) {
@@ -556,19 +556,19 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 and_predicate.add_column_predicate(single_predicate);
 
                 RowRanges column_rp_row_ranges = RowRanges::create_single(num_rows());
-                RETURN_IF_ERROR(
-                        _column_iterators[runtime_predicate->column_id()]->get_row_ranges_by_zone_map(
-                                &and_predicate, nullptr, &column_rp_row_ranges));
+                RETURN_IF_ERROR(_column_iterators[runtime_predicate->column_id()]
+                                        ->get_row_ranges_by_zone_map(&and_predicate, nullptr,
+                                                                     &column_rp_row_ranges));
 
                 // intersect different columns's row ranges to get final row ranges by zone map
                 RowRanges::ranges_intersection(zone_map_row_ranges, column_rp_row_ranges,
-                                            &zone_map_row_ranges);
+                                               &zone_map_row_ranges);
             }
         }
 
         size_t pre_size2 = condition_row_ranges->count();
         RowRanges::ranges_intersection(*condition_row_ranges, zone_map_row_ranges,
-                                    condition_row_ranges);
+                                       condition_row_ranges);
         _opts.stats->rows_stats_rp_filtered += (pre_size2 - condition_row_ranges->count());
         _opts.stats->rows_stats_filtered += (pre_size - condition_row_ranges->count());
     }
@@ -589,7 +589,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
 
             pre_size = condition_row_ranges->count();
             RowRanges::ranges_intersection(*condition_row_ranges, dict_row_ranges,
-                                        condition_row_ranges);
+                                           condition_row_ranges);
             _opts.stats->rows_dict_filtered += (pre_size - condition_row_ranges->count());
         }
     }
