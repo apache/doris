@@ -338,7 +338,7 @@ public class JdbcScanNode extends ExternalScanNode {
             // Iterate through all children of the CompoundPredicate
             for (Expr child : compoundPredicate.getChildren()) {
                 // Recursively call conjunctExprToString for each child and append to the result
-                result.append(conjunctExprToString(tableType, child, tbl));
+                result.append(conjunctExprToString(tableType, child));
 
                 // If the operator is not 'NOT', append the operator after each child expression
                 if (!(compoundPredicate.getOp() == Operator.NOT)) {
