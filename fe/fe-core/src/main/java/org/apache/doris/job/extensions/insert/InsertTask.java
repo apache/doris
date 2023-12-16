@@ -30,7 +30,6 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TUniqueId;
@@ -106,7 +105,6 @@ public class InsertTask extends AbstractTask {
         }
         ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();

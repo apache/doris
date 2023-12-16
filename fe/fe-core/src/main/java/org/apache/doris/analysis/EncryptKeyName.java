@@ -64,11 +64,6 @@ public class EncryptKeyName implements Writable {
             if (Strings.isNullOrEmpty(db)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NAME_NULL);
-            }
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
     }
 

@@ -33,7 +33,6 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ColumnAliasGenerator;
 import org.apache.doris.common.ErrorCode;
@@ -402,7 +401,7 @@ public class SelectStmt extends QueryStmt {
                 if (Strings.isNullOrEmpty(dbName)) {
                     dbName = analyzer.getDefaultDb();
                 } else {
-                    dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), tblRef.getName().getDb());
+                    dbName = tblRef.getName().getDb();
                 }
                 if (isViewTableRef(tblRef.getName().toString(), parentViewNameSet)) {
                     continue;
