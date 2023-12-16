@@ -39,13 +39,25 @@ ANALYZE
 ```sql
 ANALYZE < TABLE | DATABASE table_name | db_name > 
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
+    [ WITH SYNC ]
+    [ WITH [ SAMPLE PERCENT | ROWS ] | [FULL] ]
+    [ WITH INCREMENTAL ]
+    [ WITH HISTOGRAM ]
+    [ WITH BUCKETS < bucket count > ]
+    [ WITH PERIOD < interval in seconds> ]
+    [ WITH CRON <cron expression> ];
 ```
 
-- table_name: 指定的目标表。可以是  `db_name.table_name`  形式。
-- column_name: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
-- sync：同步收集统计信息。收集完后返回。若不指定则异步执行并返回JOB ID。
-- sample percent | rows：抽样收集统计信息。可以指定抽样比例或者抽样行数。
+- `table_name``: 指定的目标表。可以是  `db_name.table_name`  形式。
+- `column_name`: 指定的目标列。必须是  `table_name`  中存在的列，多个列名称用逗号分隔。
+- `sync`：同步收集统计信息。收集完后返回。若不指定则异步执行并返回JOB ID。
+- `sample percent | rows`：抽样收集统计信息。可以指定抽样比例或者抽样行数。
+- `full`：使用完整的强制采样方法收集统计数据。 您可以指定 FULL 或样本百分比/行。
+- `incremental`：增量或一次性收集统计信息（默认：完整）
+- `histogram`：收集统计信息并构建指定列的直方图。
+- `buckets`：指定直方图的桶数。
+- `period`：指定应安排分析的间隔时间。
+- `cron`：根据 cron 表达式定期收集统计信息。
 
 ### Example
 

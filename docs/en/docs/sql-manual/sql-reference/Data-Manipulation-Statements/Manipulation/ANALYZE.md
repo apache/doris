@@ -39,13 +39,25 @@ This statement is used to collect statistical information for various columns.
 ```sql
 ANALYZE < TABLE | DATABASE table_name | db_name > 
     [ (column_name [, ...]) ]
-    [ [ WITH SYNC ] [ WITH SAMPLE PERCENT | ROWS ] ];
+    [ WITH SYNC ]
+    [ WITH [ SAMPLE PERCENT | ROWS ] | [FULL] ]
+    [ WITH INCREMENTAL ]
+    [ WITH HISTOGRAM ]
+    [ WITH BUCKETS < bucket count > ]
+    [ WITH PERIOD < interval in seconds> ]
+    [ WITH CRON <cron expression> ];
 ```
 
 - `table_name`: The specified target table. It can be in the format `db_name.table_name`.
 - `column_name`: The specified target column. It must be an existing column in `table_name`. You can specify multiple column names separated by commas.
 - `sync`: Collect statistics synchronously. Returns after collection. If not specified, it executes asynchronously and returns a JOB ID.
 - `sample percent | rows`: Collect statistics with sampling. You can specify a sampling percentage or a number of sampling rows.
+- `full`: Collect statistics with force sampling method full. You can specify either FULL or sample percent/row.
+- `incremental`: Collects statistics incrementally or all at once (default: full)
+- `histogram`: Collects statistics and build histogram of the specified columns.
+- `buckets`: Specifies number of buckets for histogram.
+- `period`: Specifies the interval time in which analyze should be scheduled.
+- `cron`: Collects statistics periodically based on the cron expression.
 
 ### Example
 
