@@ -26,6 +26,7 @@ class DelayReleaseToken : public Runnable {
 public:
     DelayReleaseToken(std::unique_ptr<ThreadPoolToken>&& token) { token_ = std::move(token); }
     virtual ~DelayReleaseToken() = default;
+    void run() override {}
     std::unique_ptr<ThreadPoolToken> token_;
 };
 
