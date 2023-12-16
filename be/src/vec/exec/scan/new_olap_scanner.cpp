@@ -590,6 +590,14 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(Parent->_block_init_seek_timer, stats.block_init_seek_ns);                     \
     COUNTER_UPDATE(Parent->_block_init_seek_counter, stats.block_init_seek_num);                  \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_timer, stats.block_conditions_filtered_ns); \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_bf_timer,                                   \
+                   stats.block_conditions_filtered_bf_ns);                                        \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_timer,                              \
+                   stats.block_conditions_filtered_zonemap_ns);                                   \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_rp_timer,                           \
+                   stats.block_conditions_filtered_bf_zonemap_rp_ns);                             \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_dict_timer,                                 \
+                   stats.block_conditions_filtered_dict_ns);                                      \
     COUNTER_UPDATE(Parent->_first_read_timer, stats.first_read_ns);                               \
     COUNTER_UPDATE(Parent->_second_read_timer, stats.second_read_ns);                             \
     COUNTER_UPDATE(Parent->_first_read_seek_timer, stats.block_first_read_seek_ns);               \
@@ -608,6 +616,7 @@ void NewOlapScanner::_update_counters_before_close() {
         Parent->add_filter_info(id, info);                                                        \
     }                                                                                             \
     COUNTER_UPDATE(Parent->_stats_filtered_counter, stats.rows_stats_filtered);                   \
+    COUNTER_UPDATE(Parent->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);             \
     COUNTER_UPDATE(Parent->_dict_filtered_counter, stats.rows_dict_filtered);                     \
     COUNTER_UPDATE(Parent->_bf_filtered_counter, stats.rows_bf_filtered);                         \
     COUNTER_UPDATE(Parent->_del_filtered_counter, stats.rows_del_filtered);                       \
