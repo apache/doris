@@ -35,12 +35,21 @@ import com.clickhouse.data.value.UnsignedLong;
 import com.clickhouse.data.value.UnsignedShort;
 import com.google.common.base.Preconditions;
 import com.vesoft.nebula.client.graph.data.ValueWrapper;
+import org.apache.arrow.adapter.jdbc.ArrowVectorIterator;
+import org.apache.arrow.adapter.jdbc.JdbcToArrow;
+import org.apache.arrow.memory.BufferAllocator;
+import org.apache.arrow.memory.RootAllocator;
+import org.apache.arrow.vector.FieldVector;
+import org.apache.arrow.vector.VectorSchemaRoot;
+import org.apache.arrow.vector.complex.reader.FieldReader;
+import org.apache.arrow.vector.types.pojo.Field;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.lang.reflect.Array;
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -145,24 +154,35 @@ public class JdbcExecutor {
     }
 
     public int read() throws UdfRuntimeException {
-        try {
-            resultSet = ((PreparedStatement) stmt).executeQuery();
-            resultSetMetaData = resultSet.getMetaData();
-            int columnCount = resultSetMetaData.getColumnCount();
-            resultColumnTypeNames = new ArrayList<>(columnCount);
-            block = new ArrayList<>(columnCount);
-            if (isNebula()) {
-                for (int i = 0; i < columnCount; ++i) {
-                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
-                }
-            } else {
-                for (int i = 0; i < columnCount; ++i) {
-                    resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
-                    block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
+        int columnCount = 0;
+        try (BufferAllocator allocator = new RootAllocator();
+                ResultSet resultSet = ((PreparedStatement) stmt).executeQuery();
+        ArrowVectorIterator iterator = JdbcToArrow.sqlToArrowVectorIterator(
+                resultSet, allocator)){
+
+            while (iterator.hasNext()) {
+                try (VectorSchemaRoot root = iterator.next()) {
+                    List<Field> fields = root.getSchema().getFields();
+                    columnCount = fields.size();
+                    block = new ArrayList<>(columnCount);
+                    for (int i = 0; i < columnCount; ++i) {
+                       try ( FieldVector vector = root.getVector(i)){
+                           curBlockRows = vector.getValueCount();
+                           FieldReader reader = vector.getReader();
+                           Object[] values = new Object[curBlockRows];
+                           int index = 0;
+                           while (reader.isSet()){
+                               values[index] = reader.readObject();
+                               index++;
+                           }
+                           block.add(values);
+                       }
+                    }
                 }
             }
+
             return columnCount;
-        } catch (SQLException e) {
+        } catch (SQLException | IOException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
     }
@@ -184,18 +204,7 @@ public class JdbcExecutor {
 
             String[] nullableList = isNullableString.split(",");
             String[] replaceStringList = replaceString.split(",");
-            curBlockRows = 0;
             int columnCount = resultSetMetaData.getColumnCount();
-
-            do {
-                for (int i = 0; i < columnCount; ++i) {
-                    boolean isBitmapOrHll =
-                            replaceStringList[i].equals("bitmap")
-                                    || replaceStringList[i].equals("hll");
-                    block.get(i)[curBlockRows] = getColumnValue(tableType, i, isBitmapOrHll);
-                }
-                curBlockRows++;
-            } while (curBlockRows < batchSize && resultSet.next());
 
             outputTable = VectorTable.createWritableTable(outputParams, curBlockRows);
 
@@ -203,12 +212,10 @@ public class JdbcExecutor {
                 Object[] columnData = block.get(i);
                 ColumnType type = outputTable.getColumnType(i);
                 Class<?> clz = findNonNullClass(columnData, type);
-                Object[] newColumn = (Object[]) Array.newInstance(clz, curBlockRows);
-                System.arraycopy(columnData, 0, newColumn, 0, curBlockRows);
                 boolean isNullable = Boolean.parseBoolean(nullableList[i]);
                 outputTable.appendData(
                         i,
-                        newColumn,
+                        columnData,
                         getOutputConverter(type, clz, replaceStringList[i]),
                         isNullable);
             }

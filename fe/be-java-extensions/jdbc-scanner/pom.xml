@@ -62,6 +62,10 @@ under the License.
             <version>19.3.0.0</version>
             <scope>provided</scope>
         </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-jdbc</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
