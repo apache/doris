@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CompoundPredicate;
+import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
@@ -330,7 +331,7 @@ public class JdbcScanNode extends ExternalScanNode {
             CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
 
             // If the operator is 'NOT', prepend 'NOT' to the start of the string
-            if ("NOT".equals(compoundPredicate.getOp().toString())) {
+            if (compoundPredicate.getOp() == Operator.NOT) {
                 result.append("NOT ");
             }
 
@@ -340,14 +341,14 @@ public class JdbcScanNode extends ExternalScanNode {
                 result.append(conjunctExprToString(tableType, child, tbl));
 
                 // If the operator is not 'NOT', append the operator after each child expression
-                if (!"NOT".equals(compoundPredicate.getOp().toString())) {
+                if (!(compoundPredicate.getOp() == Operator.NOT)) {
                     result.append(" ").append(compoundPredicate.getOp().toString()).append(" ");
                 }
             }
 
             // For operators other than 'NOT', remove the extra appended operator at the end
             // This is necessary for operators like 'AND' or 'OR' that appear between child expressions
-            if (!"NOT".equals(compoundPredicate.getOp().toString())) {
+            if (!(compoundPredicate.getOp() == Operator.NOT)) {
                 result.setLength(result.length() - compoundPredicate.getOp().toString().length() - 2);
             }
 
