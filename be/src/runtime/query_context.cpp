@@ -67,8 +67,10 @@ QueryContext::~QueryContext() {
     // conext may be dectored in the thread token it self. It is very dangerous and may core.
     // And also thread token need shutdown, it may take some time, may cause the thread that
     // release the token hang, the thread maybe a pipeline task scheduler thread.
-    static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
-            std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+    if (_thread_token) {
+        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+    }
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
