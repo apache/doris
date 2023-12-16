@@ -25,7 +25,7 @@ namespace doris {
 class DelayReleaseToken : public Runnable {
 public:
     DelayReleaseToken(std::unique_ptr<ThreadPoolToken>&& token) { token_ = std::move(token); }
-    virtual ~DelayReleaseToken() = default;
+    ~DelayReleaseToken() override = default;
     void run() override {}
     std::unique_ptr<ThreadPoolToken> token_;
 };
