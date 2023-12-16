@@ -50,16 +50,6 @@ ColumnNullable::ColumnNullable(MutableColumnPtr&& nested_column_, MutableColumnP
     _need_update_has_null = true;
 }
 
-void ColumnNullable::update_null_data() {
-    const auto& null_map_data = _get_null_map_data();
-    auto s = size();
-    for (size_t i = 0; i < s; ++i) {
-        if (null_map_data[i]) {
-            nested_column->replace_column_data_default(i);
-        }
-    }
-}
-
 MutableColumnPtr ColumnNullable::get_shrinked_column() {
     return ColumnNullable::create(get_nested_column_ptr()->get_shrinked_column(),
                                   get_null_map_column_ptr());

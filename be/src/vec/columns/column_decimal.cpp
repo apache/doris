@@ -515,6 +515,14 @@ ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
 }
 
+template <typename T>
+void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
+    auto s = size();
+    for (size_t i = 0; i < s; ++i) {
+        data[i] = null_map[i] ? T() : data[i];
+    }
+}
+
 template class ColumnDecimal<Decimal32>;
 template class ColumnDecimal<Decimal64>;
 template class ColumnDecimal<Decimal128>;
