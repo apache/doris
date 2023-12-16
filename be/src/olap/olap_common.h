@@ -463,13 +463,18 @@ using RowsetIdUnorderedSet = std::unordered_set<RowsetId, HashOfRowsetId>;
 class DeleteBitmap;
 // merge on write context
 struct MowContext {
-    MowContext(int64_t version, int64_t txnid, const RowsetIdUnorderedSet& ids,
+    MowContext(int64_t version, int64_t txnid, RowsetIdUnorderedSet& ids,
                std::shared_ptr<DeleteBitmap> db)
             : max_version(version), txn_id(txnid), rowset_ids(ids), delete_bitmap(db) {}
+    void update_rowset_ids_with_lock(std::function<void()> callback) {
+        std::lock_guard<std::mutex> lock(m);
+        callback();
+    }
     int64_t max_version;
     int64_t txn_id;
-    const RowsetIdUnorderedSet& rowset_ids;
+    RowsetIdUnorderedSet& rowset_ids;
     std::shared_ptr<DeleteBitmap> delete_bitmap;
+    std::mutex m; // protection for updating rowset_ids only
 };
 
 // used in mow partial update
