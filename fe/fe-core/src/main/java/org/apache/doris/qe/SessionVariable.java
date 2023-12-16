@@ -542,8 +542,9 @@ public class SessionVariable implements Serializable, Writable {
     // no MAX_EXECUTION_TIME(N) optimizer hint or for which N is 0.
     // https://dev.mysql.com/doc/refman/5.7/en/server-system-variables.html
     // So that it is == query timeout in doris
-    @VariableMgr.VarAttr(name = MAX_EXECUTION_TIME, fuzzy = true, setter = "setMaxExecutionTimeMS")
-    public int maxExecutionTimeMS = -1;
+    @VariableMgr.VarAttr(name = MAX_EXECUTION_TIME, checker = "checkMaxExecutionTimeMSValid",
+                        setter = "setMaxExecutionTimeMS")
+    public int maxExecutionTimeMS = 900000;
 
     @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
     public int insertTimeoutS = 14400;
@@ -2527,8 +2528,23 @@ public class SessionVariable implements Serializable, Writable {
     public void checkQueryTimeoutValid(String newQueryTimeout) {
         int value = Integer.valueOf(newQueryTimeout);
         if (value <= 0) {
-            LOG.warn("Setting invalid query timeout {}", value, new RuntimeException(""));
-            throw new UnsupportedOperationException("Query timeout must be greater than 0");
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(
+                        "query_timeout can not be set to " + newQueryTimeout + ", it must be greater than 0");
+            LOG.warn("Check query_timeout failed", exception);
+            throw exception;
+        }
+    }
+
+    public void checkMaxExecutionTimeMSValid(String newValue) {
+        int value = Integer.valueOf(newValue);
+        if (value < 1000) {
+            UnsupportedOperationException exception =
+                    new UnsupportedOperationException(
+                        "max_execution_time can not be set to " + newValue
+                        + ", it must be greater or equal to 1000, the time unit is millisecond");
+            LOG.warn("Check max_execution_time failed", exception);
+            throw exception;
         }
     }
 
