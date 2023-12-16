@@ -111,6 +111,7 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
+bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
 
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
@@ -370,7 +371,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
     }
-
+    g_pipeline_tasks_count << _total_tasks;
     for (auto& task : _tasks) {
         RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
     }
@@ -889,6 +890,7 @@ void PipelineFragmentContext::_close_fragment_instance() {
 
 void PipelineFragmentContext::close_a_pipeline() {
     std::lock_guard<std::mutex> l(_task_mutex);
+    g_pipeline_tasks_count << -1;
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
         _close_fragment_instance();
