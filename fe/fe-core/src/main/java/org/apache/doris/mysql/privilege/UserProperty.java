@@ -31,7 +31,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.resource.Tag;
 
-import com.amazonaws.services.inspector2.model.transform.PackageAggregationJsonUnmarshaller;
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
