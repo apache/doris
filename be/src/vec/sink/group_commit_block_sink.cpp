@@ -141,38 +141,25 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
-    //reuse vars for find_tablets
-    _partitions.assign(rows, nullptr);
-    _filter_bitmap.Reset(rows);
     _has_filtered_rows = false;
+    if (!_vpartition->is_auto_partition()) {
+        //reuse vars for find_partition
+        _partitions.assign(rows, nullptr);
+        _filter_bitmap.Reset(rows);
 
-    // if there's projection of partition calc, we need to calc it first.
-    auto [part_ctxs, part_funcs] = _get_partition_function();
-    std::vector<uint16_t> partition_cols_idx;
-    if (_vpartition->is_projection_partition()) {
-        // calc the start value of missing partition ranges.
-        auto func_size = part_funcs.size();
-        for (int i = 0; i < func_size; ++i) {
-            int result_idx = -1;
-            RETURN_IF_ERROR(part_funcs[i]->execute(part_ctxs[i].get(), block.get(), &result_idx));
-            VLOG_DEBUG << "Partition-calculated block:" << block->dump_data();
-            partition_cols_idx.push_back(result_idx);
+        for (int index = 0; index < rows; index++) {
+            _vpartition->find_partition(block.get(), index, _partitions[index]);
         }
-
-        // change the column to compare to transformed.
-        _vpartition->set_transformed_slots(partition_cols_idx);
-    }
-
-    for (int index = 0; index < rows; index++) {
-        _vpartition->find_partition(block.get(), index, _partitions[index]);
-    }
-    for (int row_index = 0; row_index < rows; row_index++) {
-        if (_partitions[row_index] == nullptr) [[unlikely]] {
-            _filter_bitmap.Set(row_index, true);
-            LOG(WARNING) << "no partition for this tuple. tuple=" << block->dump_data(row_index, 1);
+        for (int row_index = 0; row_index < rows; row_index++) {
+            if (_partitions[row_index] == nullptr) [[unlikely]] {
+                _filter_bitmap.Set(row_index, true);
+                LOG(WARNING) << "no partition for this tuple. tuple="
+                             << block->dump_data(row_index, 1);
+            }
+            _has_filtered_rows = true;
         }
-        _has_filtered_rows = true;
     }
+
     if (_block_convertor->num_filtered_rows() > 0 || _has_filtered_rows) {
         auto cloneBlock = block->clone_without_columns();
         auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
