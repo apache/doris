@@ -72,7 +72,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable").add("SyncWithBaseTables").add("UnSyncTables")
+            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables")
             .build();
 
     private Database db;
