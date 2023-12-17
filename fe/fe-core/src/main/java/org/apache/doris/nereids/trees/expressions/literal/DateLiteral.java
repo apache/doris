@@ -414,4 +414,33 @@ public class DateLiteral extends Literal {
                 ? new NullLiteral(DateType.INSTANCE)
                 : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
     }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 00:00:00
+     */
+    public DateTimeLiteral toBeginOfTheDay() {
+        return new DateTimeLiteral(year, month, day, 0, 0, 0);
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-01 24:00:00
+     */
+    public DateTimeLiteral toEndOfTheDay() {
+        return new DateTimeLiteral(year, month, day, 24, 0, 0);
+    }
+
+    /**
+     * 2020-01-01
+     * @return 2020-01-02 0:0:0
+     */
+    public DateTimeLiteral toBeginOfTomorrow() {
+        Expression tomorrow = plusDays(1);
+        if (tomorrow instanceof DateLiteral) {
+            return ((DateLiteral) tomorrow).toBeginOfTheDay();
+        } else {
+            return toEndOfTheDay();
+        }
+    }
 }
