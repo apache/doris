@@ -41,7 +41,7 @@ public class CreateMTMVStmt extends CreateTableStmt {
             Map<String, String> properties, Map<String, String> mvProperties, String querySql, String comment,
             EnvInfo envInfo, PartitionDesc partitionDesc, MTMVPartitionInfo mvPartitionInfo, MTMVRelation relation) {
         super(ifNotExists, false, mvName, columns, new ArrayList<Index>(), DEFAULT_ENGINE_NAME, keyDesc, partitionDesc,
-                distributionDesc, properties, null, comment, null, null, null);
+                distributionDesc, properties, null, comment, null, null);
         this.refreshInfo = refreshInfo;
         this.querySql = querySql;
         this.envInfo = envInfo;

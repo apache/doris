@@ -129,7 +129,7 @@ public class RuntimeFilterContext {
     private final Map<CTEId, Set<PhysicalHashJoin>> cteToJoinsMap = Maps.newHashMap();
 
     // cte candidates which can be pushed into common runtime filter into from outside
-    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newHashMap();
+    private final Map<PhysicalCTEProducer, Map<EqualTo, PhysicalHashJoin>> cteRFPushDownMap = Maps.newLinkedHashMap();
 
     private final Map<CTEId, PhysicalCTEProducer> cteProducerMap = Maps.newHashMap();
 

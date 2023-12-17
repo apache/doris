@@ -1819,7 +1819,7 @@ public class StmtExecutor {
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
             request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
-                    .setCluster(dbObj.getClusterName()).setLabel(label).setUser("").setUserIp("").setPasswd("");
+                    .setLabel(label).setUser("").setUserIp("").setPasswd("");
             TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
             txnConf.setTxnId(result.getTxnId());
             txnConf.setToken(token);
@@ -2157,9 +2157,6 @@ public class StmtExecutor {
     private void handleUseStmt() throws AnalysisException {
         UseStmt useStmt = (UseStmt) parsedStmt;
         try {
-            if (Strings.isNullOrEmpty(useStmt.getClusterName())) {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
-            }
             if (useStmt.getCatalogName() != null) {
                 context.getEnv().changeCatalog(context, useStmt.getCatalogName());
             }

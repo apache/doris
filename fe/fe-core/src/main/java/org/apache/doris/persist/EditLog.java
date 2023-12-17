@@ -151,13 +151,6 @@ public class EditLog {
         return journal == null ? 0 : 1;
     }
 
-    public long getEnvDiskUsagePercent() {
-        if (journal instanceof BDBJEJournal) {
-            return ((BDBJEJournal) journal).getEnvDiskUsagePercent();
-        }
-        return -1;
-    }
-
     /**
      * Load journal.
      **/
@@ -1954,5 +1947,15 @@ public class EditLog {
 
     public void logAlterMTMV(AlterMTMV log) {
         logEdit(OperationType.OP_ALTER_MTMV, log);
+    }
+
+    public String getNotReadyReason() {
+        if (journal == null) {
+            return "journal is null";
+        }
+        if (journal instanceof BDBJEJournal) {
+            return ((BDBJEJournal) journal).getNotReadyReason();
+        }
+        return "";
     }
 }

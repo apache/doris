@@ -52,6 +52,7 @@ private:
     friend class ShuffleExchanger;
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
+    friend class AdaptivePassthroughExchanger;
 
     Exchanger* _exchanger = nullptr;
     int _channel_id;

@@ -652,8 +652,8 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                             << (rowset != nullptr ? rowset->rowset_id().to_string() : "0");
             }
         }
+        it->second.erase(load_itr);
     }
-    it->second.erase(load_itr);
     if (it->second.empty()) {
         txn_tablet_map.erase(it);
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);

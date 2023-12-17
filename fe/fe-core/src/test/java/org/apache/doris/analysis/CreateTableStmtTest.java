@@ -109,7 +109,7 @@ public class CreateTableStmtTest {
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
     }
@@ -119,7 +119,7 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
                 new KeysDesc(KeysType.DUP_KEYS, colsName), null, new RandomDistributionDesc(6), null, null, "");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
         Assert.assertTrue(stmt.toSql().contains("DISTRIBUTED BY RANDOM\nBUCKETS 6"));
@@ -271,7 +271,7 @@ public class CreateTableStmtTest {
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "", ops);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
         Assert.assertTrue(stmt.toSql()
@@ -298,10 +298,6 @@ public class CreateTableStmtTest {
                 noDbAnalyzer.getDefaultDb();
                 minTimes = 0;
                 result = "";
-
-                noDbAnalyzer.getClusterName();
-                minTimes = 0;
-                result = "cluster";
             }
         };
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",

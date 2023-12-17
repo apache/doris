@@ -1664,7 +1664,7 @@ public class OlapTable extends Table {
         }
     }
 
-    public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
+    public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler) {
         List<Long> aliveBeIds = infoService.getAllBackendIds(true);
         for (Partition partition : idToPartition.values()) {
             long visibleVersion = partition.getVisibleVersion();
@@ -2417,7 +2417,6 @@ public class OlapTable extends Table {
         for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
             try {
                 ConnectContext connectContext = new ConnectContext();
-                connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
                 connectContext.setDatabase(dbName);
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
                 meta.parseStmt(analyzer);

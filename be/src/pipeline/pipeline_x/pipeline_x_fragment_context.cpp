@@ -735,6 +735,12 @@ void PipelineXFragmentContext::_inherit_pipeline_properties(ExchangeType exchang
         pipe_with_sink->set_need_to_local_shuffle(pipe_with_source->need_to_local_shuffle());
         pipe_with_source->set_need_to_local_shuffle(true);
         break;
+    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+        // ADAPTIVE_PASSTHROUGH is a combination of SHUFFLE and PASSTHROUGH,
+        // with the former being the SHUFFLE  and the latter being the PASSTHROUGH .
+        pipe_with_sink->set_need_to_local_shuffle(pipe_with_source->need_to_local_shuffle());
+        pipe_with_source->set_need_to_local_shuffle(true);
+        break;
     default:
         __builtin_unreachable();
     }
@@ -790,6 +796,10 @@ Status PipelineXFragmentContext::_add_local_exchange(
     case ExchangeType::BROADCAST:
         shared_state->exchanger =
                 BroadcastExchanger::create_unique(new_pip->num_tasks(), _num_instances);
+        break;
+    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+        shared_state->exchanger =
+                AdaptivePassthroughExchanger::create_unique(new_pip->num_tasks(), _num_instances);
         break;
     default:
         return Status::InternalError("Unsupported local exchange type : " +
