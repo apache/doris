@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import java.util.List;
 import java.util.Set;
@@ -47,7 +46,6 @@ public class MTMVPlanUtil {
     public static ConnectContext createMTMVContext(MTMV mtmv) throws AnalysisException {
         ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setQualifiedUser(Auth.ADMIN_USER);
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
