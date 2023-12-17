@@ -36,14 +36,14 @@ import java.util.stream.Collectors;
 /**
  * The cache for materialized view cache
  */
-public class MVCache {
+public class MTMVCache {
 
     // the materialized view plan which should be optimized by the same rules to query
     private final Plan logicalPlan;
     // this should be shuttle expression with lineage
     private final List<NamedExpression> mvOutputExpressions;
 
-    public MVCache(MTMV materializedView, Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
+    public MTMVCache(MTMV materializedView, Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
         this.logicalPlan = logicalPlan;
         this.mvOutputExpressions = mvOutputExpressions;
     }
@@ -56,12 +56,12 @@ public class MVCache {
         return mvOutputExpressions;
     }
 
-    public MVCache(Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
+    public MTMVCache(Plan logicalPlan, List<NamedExpression> mvOutputExpressions) {
         this.logicalPlan = logicalPlan;
         this.mvOutputExpressions = mvOutputExpressions;
     }
 
-    public static MVCache from(MTMV mtmv, ConnectContext connectContext) {
+    public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
         // TODO: connect context set current db when create mv by use database
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
@@ -77,6 +77,6 @@ public class MVCache {
         List<NamedExpression> mvOutputExpressions = mvRewrittenPlan.getExpressions().stream()
                 .map(NamedExpression.class::cast)
                 .collect(Collectors.toList());
-        return new MVCache(mvPlan, mvOutputExpressions);
+        return new MTMVCache(mvPlan, mvOutputExpressions);
     }
 }

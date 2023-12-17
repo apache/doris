@@ -31,7 +31,7 @@ import java.util.Objects;
 /**
  * alter multi table materialized view
  */
-public class AlterMTMVCommand extends Command implements ForwardWithSync {
+public class AlterMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
 
     public static final Logger LOG = LogManager.getLogger(AlterMTMVCommand.class);
     private final AlterMTMVInfo alterMTMVInfo;

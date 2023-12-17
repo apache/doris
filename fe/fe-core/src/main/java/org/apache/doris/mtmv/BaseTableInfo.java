@@ -19,13 +19,18 @@ package org.apache.doris.mtmv;
 
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 
 import com.google.common.base.Objects;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 public class BaseTableInfo {
+    private static final Logger LOG = LogManager.getLogger(BaseTableInfo.class);
+
     @SerializedName("ti")
     private Long tableId;
     @SerializedName("di")
@@ -87,5 +92,14 @@ public class BaseTableInfo {
                 + ", dbId=" + dbId
                 + ", ctlId=" + ctlId
                 + '}';
+    }
+
+    public String getTableName() {
+        try {
+            return MTMVUtil.getTable(this).getName();
+        } catch (AnalysisException e) {
+            LOG.warn("can not get table: " + this);
+            return "";
+        }
     }
 }
