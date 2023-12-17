@@ -915,7 +915,10 @@ public:
                             typename BinaryOperationTraits<Operation, LeftDataType,
                                                            RightDataType>::ResultDataType;
                     if constexpr (!std::is_same_v<ResultDataType, InvalidType>) {
-                        need_replace_null_data_to_default_ = IsDataTypeDecimal<ResultDataType>;
+                        need_replace_null_data_to_default_ =
+                                IsDataTypeDecimal<ResultDataType> ||
+                                (name == "pow" &&
+                                 std::is_floating_point_v<typename ResultDataType::FieldType>);
                         if constexpr (IsDataTypeDecimal<LeftDataType> &&
                                       IsDataTypeDecimal<RightDataType>) {
                             type_res = decimal_result_type(left, right, OpTraits::is_multiply,
