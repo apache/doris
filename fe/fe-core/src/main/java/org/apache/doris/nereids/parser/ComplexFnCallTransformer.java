@@ -15,14 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.trino;
-
-import org.apache.doris.nereids.parser.AbstractFnCallTransformer;
+package org.apache.doris.nereids.parser;
 
 /**
  * Trino complex function transformer
  */
-public abstract class ComplexTrinoFnCallTransformer extends AbstractFnCallTransformer {
+public abstract class ComplexFnCallTransformer extends AbstractFnCallTransformer {
 
     protected abstract String getSourceFnName();
 }

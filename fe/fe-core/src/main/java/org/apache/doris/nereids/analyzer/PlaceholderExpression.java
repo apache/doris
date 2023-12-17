@@ -35,7 +35,8 @@ import java.util.Objects;
 public class PlaceholderExpression extends Expression implements AlwaysNotNullable {
     private final Class<? extends Expression> delegateClazz;
     /**
-     * 1 based
+     * start from 1,
+     * a placeholderExpression will be replaced later by the position of sourceFnTransformedArguments
      */
     private final int position;
 
@@ -51,6 +52,7 @@ public class PlaceholderExpression extends Expression implements AlwaysNotNullab
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        visitor.visitPlaceholderExpression(this, context);
         return visitor.visit(this, context);
     }
 

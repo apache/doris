@@ -18,14 +18,13 @@
 package org.apache.doris.nereids.parser.trino;
 
 import org.apache.doris.nereids.analyzer.PlaceholderExpression;
-import org.apache.doris.nereids.parser.AbstractFnCallTransformer;
 import org.apache.doris.nereids.parser.AbstractFnCallTransformers;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Lists;
 
 /**
- * The builder and factory for trino {@link AbstractFnCallTransformer},
+ * The builder and factory for trino function call transformers,
  * and supply transform facade ability.
  */
 public class TrinoFnCallTransformers extends AbstractFnCallTransformers {
@@ -47,8 +46,8 @@ public class TrinoFnCallTransformers extends AbstractFnCallTransformers {
     }
 
     protected void registerStringFunctionTransformer() {
-        doRegister("codepoint", 1, "ascii",
-                Lists.newArrayList(PlaceholderExpression.of(Expression.class, 1)), false);
+        doRegister("codepoint", "ascii",
+                Lists.newArrayList(PlaceholderExpression.of(Expression.class, 1)));
         // TODO: add other string function transformer
     }
 

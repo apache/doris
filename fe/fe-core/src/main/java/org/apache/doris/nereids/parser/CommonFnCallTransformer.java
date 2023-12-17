@@ -23,29 +23,26 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 
+import com.google.common.collect.Lists;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
 /**
- * Trino function transformer
+ * Common function transformer,
+ * can transform functions which the size of function arguments is the same with the source function.
  */
 public class CommonFnCallTransformer extends AbstractFnCallTransformer {
     private final UnboundFunction targetFunction;
     private final List<PlaceholderExpression> targetArguments;
-    private final boolean variableArgument;
-    private final int sourceArgumentsNum;
 
     /**
-     * Trino function transformer, mostly this handle common function.
+     * Common function transformer, mostly this handle common function.
      */
-    public CommonFnCallTransformer(UnboundFunction targetFunction,
-                                   boolean variableArgument,
-                                   int sourceArgumentsNum) {
+    public CommonFnCallTransformer(UnboundFunction targetFunction) {
         this.targetFunction = targetFunction;
-        this.variableArgument = variableArgument;
-        this.sourceArgumentsNum = sourceArgumentsNum;
-        PlaceholderCollector placeHolderCollector = new PlaceholderCollector(variableArgument);
+        PlaceholderCollector placeHolderCollector = new PlaceholderCollector();
         placeHolderCollector.visit(targetFunction, null);
         this.targetArguments = placeHolderCollector.getPlaceholderExpressions();
     }
@@ -57,22 +54,12 @@ public class CommonFnCallTransformer extends AbstractFnCallTransformer {
         List<Class<? extends Expression>> sourceFnTransformedArgClazz = sourceFnTransformedArguments.stream()
                 .map(Expression::getClass)
                 .collect(Collectors.toList());
-        if (variableArgument) {
-            if (targetArguments.isEmpty()) {
-                return false;
-            }
-            Class<? extends Expression> targetArgumentClazz = targetArguments.get(0).getDelegateClazz();
-            for (Expression argument : sourceFnTransformedArguments) {
-                if (!targetArgumentClazz.isAssignableFrom(argument.getClass())) {
-                    return false;
-                }
-            }
-        }
-        if (sourceFnTransformedArguments.size() != sourceArgumentsNum) {
+        if (sourceFnTransformedArguments.size() != targetArguments.size()) {
             return false;
         }
-        for (int i = 0; i < targetArguments.size(); i++) {
-            if (!targetArguments.get(i).getDelegateClazz().isAssignableFrom(sourceFnTransformedArgClazz.get(i))) {
+        for (PlaceholderExpression targetArgument : targetArguments) {
+            int position = targetArgument.getPosition();
+            if (!targetArgument.getDelegateClazz().isAssignableFrom(sourceFnTransformedArgClazz.get(position - 1))) {
                 return false;
             }
         }
@@ -83,7 +70,12 @@ public class CommonFnCallTransformer extends AbstractFnCallTransformer {
     protected Function transform(String sourceFnName,
             List<Expression> sourceFnTransformedArguments,
             ParserContext context) {
-        return targetFunction.withChildren(sourceFnTransformedArguments);
+        List<Expression> sourceFnTransformedArgumentsInorder = Lists.newArrayList();
+        for (PlaceholderExpression placeholderExpression : targetArguments) {
+            Expression expression = sourceFnTransformedArguments.get(placeholderExpression.getPosition() -1);
+            sourceFnTransformedArgumentsInorder.add(expression);
+        }
+        return targetFunction.withChildren(sourceFnTransformedArgumentsInorder);
     }
 
     /**
@@ -93,20 +85,12 @@ public class CommonFnCallTransformer extends AbstractFnCallTransformer {
     public static final class PlaceholderCollector extends DefaultExpressionVisitor<Void, Void> {
 
         private final List<PlaceholderExpression> placeholderExpressions = new ArrayList<>();
-        private final boolean variableArgument;
 
-        public PlaceholderCollector(boolean variableArgument) {
-            this.variableArgument = variableArgument;
-        }
+        public PlaceholderCollector() {}
 
         @Override
         public Void visitPlaceholderExpression(PlaceholderExpression placeholderExpression, Void context) {
-
-            if (variableArgument) {
-                placeholderExpressions.add(placeholderExpression);
-                return null;
-            }
-            placeholderExpressions.set(placeholderExpression.getPosition() - 1, placeholderExpression);
+            placeholderExpressions.add(placeholderExpression);
             return null;
         }
 
