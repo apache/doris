@@ -41,6 +41,7 @@ import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.lang3.RandomUtils;
+import org.apache.commons.lang3.StringUtils;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -116,7 +117,7 @@ public class InsertTask extends AbstractTask {
 
     public InsertTask(InsertIntoTableCommand insertInto,
                       ConnectContext ctx, StmtExecutor executor, LoadStatistic statistic) {
-        this(null, insertInto, ctx, executor, statistic);
+        this(insertInto.getLabelName().get(), insertInto, ctx, executor, statistic);
     }
 
     public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
@@ -131,6 +132,7 @@ public class InsertTask extends AbstractTask {
                        ConnectContext ctx, StmtExecutor executor, LoadStatistic statistic) {
         this.labelName = labelName;
         this.command = insertInto;
+        this.userIdentity = ctx.getCurrentUserIdentity();
         this.ctx = ctx;
         this.stmtExecutor = executor;
         this.loadStatistic = statistic;
@@ -153,15 +155,19 @@ public class InsertTask extends AbstractTask {
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
-        ctx.setDatabase(currentDb);
+        if (StringUtils.isNotEmpty(currentDb)) {
+            ctx.setDatabase(currentDb);
+        }
         TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
         stmtExecutor = new StmtExecutor(ctx, (String) null);
         ctx.setQueryId(queryId);
-        NereidsParser parser = new NereidsParser();
-        this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
-        this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
-        this.command.setJobId(getTaskId());
+        if (StringUtils.isNotEmpty(sql)) {
+            NereidsParser parser = new NereidsParser();
+            this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
+            this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+            this.command.setJobId(getTaskId());
+        }
 
         super.before();
 

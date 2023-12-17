@@ -226,7 +226,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
             idToTasks.put(task.getTaskId(), task);
             recordTask(task.getTaskId());
         } else {
+            // use for load stmt
             for (InsertIntoTableCommand logicalPlan : plans) {
+                if (!logicalPlan.getLabelName().isPresent()) {
+                    throw new IllegalArgumentException("Load plan need label name.");
+                }
                 InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
                 idToTasks.put(task.getTaskId(), task);
                 recordTask(task.getTaskId());
@@ -325,6 +329,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
     @Override
     public void onTaskFail(InsertTask task) {
+        try {
+            updateJobStatus(JobStatus.STOPPED);
+            failMsg.setMsg(task.getErrMsg());
+        } catch (JobException e) {
+            throw new RuntimeException(e);
+        }
         getRunningTasks().remove(task);
     }
 
@@ -344,7 +354,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
             // label
             jobInfo.add(getLabelName());
             // state
-            jobInfo.add(getJobStatus().name());
+            if (getJobStatus() == JobStatus.STOPPED) {
+                jobInfo.add("CANCELLED");
+            } else {
+                jobInfo.add(getJobStatus().name());
+            }
 
             // progress
             String progress = Env.getCurrentProgressManager().getProgressInfo(String.valueOf(getJobId()));
@@ -546,7 +560,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
     @Override
     public void onUnRegister() throws JobException {
-        Env.getCurrentEnv().getLabelProcessor().removeJob(getDbId(), getLabelName());
+        // TODO: need record cancelled jobs in order to show cancelled job
+        // Env.getCurrentEnv().getLabelProcessor().removeJob(getDbId(), getLabelName());
     }
 
     @Override

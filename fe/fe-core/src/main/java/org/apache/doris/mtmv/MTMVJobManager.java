@@ -17,7 +17,6 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MTMV;
@@ -61,16 +60,13 @@ public class MTMVJobManager implements MTMVHookService {
      */
     @Override
     public void createMTMV(MTMV mtmv) throws DdlException {
-        String comment = mtmv.getName();
-        UserIdentity userIdentity = ConnectContext.get().getCurrentUserIdentity();
-        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(),
-                mtmv.getDatabase().getFullName(),
-                mtmv.getId(),
-                mtmv.getJobInfo().getJobName(),
-                comment,
-                userIdentity,
-                JobStatus.RUNNING,
-                getJobConfig(mtmv));
+        MTMVJob job = new MTMVJob(mtmv.getDatabase().getId(), mtmv.getId());
+        job.setJobId(Env.getCurrentEnv().getNextId());
+        job.setJobName(mtmv.getJobInfo().getJobName());
+        job.setComment(mtmv.getName());
+        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
+        job.setJobStatus(JobStatus.RUNNING);
+        job.setJobConfig(getJobConfig(mtmv));
         try {
             Env.getCurrentEnv().getJobManager().registerJob(job);
         } catch (JobException e) {

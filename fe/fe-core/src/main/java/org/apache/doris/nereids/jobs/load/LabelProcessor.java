@@ -120,6 +120,10 @@ public class LabelProcessor {
         }
     }
 
+    public void cleanOldLabels() throws JobException {
+        // TODO: remain this method to implement label cleaner
+    }
+
     /**
      * filterJobs with label and support quick match label
      * @param dbId dbId
