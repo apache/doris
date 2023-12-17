@@ -50,6 +50,30 @@ echo "#### Run tpch-sf100 test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 exit_flag=0
 
+check_tpch_result() {
+    log_file="$1"
+    if ! grep '^Total cold run time' "${log_file}" || ! grep '^Total hot run time' "${log_file}"; then
+        echo "ERROR: can not find 'Total hot run time' in '${log_file}'"
+        return 1
+    else
+        cold_run_time=$(grep '^Total cold run time' "${log_file}" | awk '{print $5}')
+        hot_run_time=$(grep '^Total hot run time' "${log_file}" | awk '{print $5}')
+    fi
+    # 单位是毫秒
+    cold_run_time_threshold=${cold_run_time_threshold:-50000}
+    hot_run_time_threshold=${hot_run_time_threshold:-42000}
+    if [[ ${cold_run_time} -gt 50000 || ${hot_run_time} -gt 42000 ]]; then
+        echo "ERROR:
+    cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
+    or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"
+        return 1
+    else
+        echo "INFO:
+    cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
+    or, hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
+    fi
+}
+
 (
     set -e
     shopt -s inherit_errexit
@@ -104,7 +128,7 @@ exit_flag=0
     set_session_variable runtime_filter_mode global
     sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
-    if ! grep '^Total hot run time' "${teamcity_build_checkoutDir}"/run-tpch-queries.log >/dev/null; then exit 1; fi
+    if ! check_tpch_result "${teamcity_build_checkoutDir}"/run-tpch-queries.log; then exit 1; fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
     line_begin=$((line_end - 23))
     comment_body="Tpch sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}

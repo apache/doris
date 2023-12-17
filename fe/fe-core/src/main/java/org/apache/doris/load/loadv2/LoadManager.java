@@ -26,7 +26,6 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -621,7 +620,7 @@ public class LoadManager implements Writable {
      * Get load job info.
      **/
     public void getLoadJobInfo(Load.JobInfo info) throws DdlException {
-        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
+        String fullDbName = info.dbName;
         info.dbName = fullDbName;
         Database database = checkDb(info.dbName);
         readLock();

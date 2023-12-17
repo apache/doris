@@ -135,8 +135,7 @@ public class ConnectContext {
     protected volatile long currentDbId = -1;
     // Transaction
     protected volatile TransactionEntry txnEntry = null;
-    // cluster name
-    protected volatile String clusterName = "";
+
     // username@host of current login user
     protected volatile String qualifiedUser;
     // LDAP authenticated but the Doris account does not exist,
@@ -797,14 +796,6 @@ public class ConnectContext {
 
     public TUniqueId queryId() {
         return queryId;
-    }
-
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setCluster(String clusterName) {
-        this.clusterName = clusterName;
     }
 
     public String getSqlHash() {

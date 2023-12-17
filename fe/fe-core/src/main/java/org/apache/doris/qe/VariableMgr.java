@@ -470,7 +470,12 @@ public class VariableMgr {
                     LOG.error("failed to get global variable {} when replaying", (String) varName);
                     continue;
                 }
-                setValue(varContext.getObj(), varContext.getField(), root.get((String) varName).toString());
+                try {
+                    setValue(varContext.getObj(), varContext.getField(), root.get((String) varName).toString());
+                } catch (Exception exception) {
+                    LOG.warn("Exception during replay global variabl {} oplog, {}, THIS EXCEPTION WILL BE IGNORED.",
+                            (String) varName, exception.getMessage());
+                }
             }
         } finally {
             wlock.unlock();

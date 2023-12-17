@@ -2107,7 +2107,7 @@ public class Config extends ConfigBase {
             "When set to true, if a query is unable to select a healthy replica, "
                     + "the detailed information of all the replicas of the tablet,"
                     + " including the specific reason why they are unqueryable, will be printed out."})
-    public static boolean show_details_for_unaccessible_tablet = false;
+    public static boolean show_details_for_unaccessible_tablet = true;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
             "是否启用binlog特性",

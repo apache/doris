@@ -223,7 +223,7 @@ public class TempPartitionTest {
         Env.getCurrentEnv().createTable(createTableStmt);
 
         Database db2 =
-                Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db2");
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("db2");
         OlapTable tbl2 = (OlapTable) db2.getTableOrAnalysisException("tbl2");
 
         testSerializeOlapTable(tbl2);
@@ -521,7 +521,7 @@ public class TempPartitionTest {
         CreateTableStmt createTableStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createTblStmtStr1, ctx);
         Env.getCurrentEnv().createTable(createTableStmt);
 
-        Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db3");
+        Env.getCurrentInternalCatalog().getDbOrAnalysisException("db3");
 
         // base range is [min, 10), [10, 20), [20, 30)
 
@@ -599,7 +599,7 @@ public class TempPartitionTest {
         Env.getCurrentEnv().createTable(createTableStmt);
 
         Database db4 =
-                Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db4");
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("db4");
         OlapTable tbl4 = (OlapTable) db4.getTableOrAnalysisException("tbl4");
 
         testSerializeOlapTable(tbl4);
@@ -950,7 +950,7 @@ public class TempPartitionTest {
         Env.getCurrentEnv().createTable(createTableStmt);
 
         Database db5 =
-                Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:db5");
+                Env.getCurrentInternalCatalog().getDbOrAnalysisException("db5");
         OlapTable tbl5 = (OlapTable) db5.getTableOrAnalysisException("tbl5");
 
         testSerializeOlapTable(tbl5);
