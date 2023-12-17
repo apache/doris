@@ -93,7 +93,6 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -4911,8 +4910,7 @@ public class Env {
             ctx.setDatabase(lastDb);
         }
         if (catalogIf instanceof EsExternalCatalog) {
-            ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
-                    + EsExternalCatalog.DEFAULT_DB);
+            ctx.setDatabase(EsExternalCatalog.DEFAULT_DB);
         }
     }
 

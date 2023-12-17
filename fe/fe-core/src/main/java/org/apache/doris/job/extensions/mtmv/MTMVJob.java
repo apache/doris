@@ -17,7 +17,6 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
-import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -29,10 +28,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.base.AbstractJob;
-import org.apache.doris.job.base.JobExecutionConfiguration;
-import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
+import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TCell;
@@ -42,7 +40,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -50,9 +47,8 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
-public class MTMVJob extends AbstractJob<MTMVTask, Map> {
+public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
     private static final ShowResultSetMetaData JOB_META_DATA =
             ShowResultSetMetaData.builder()
@@ -101,11 +97,10 @@ public class MTMVJob extends AbstractJob<MTMVTask, Map> {
     @SerializedName(value = "mi")
     private long mtmvId;
 
-    public MTMVJob() {}
+    public MTMVJob() {
+    }
 
-    public MTMVJob(long dbId, String dbName, long mtmvId, String jobName, String comment,
-                   UserIdentity createUser, JobStatus status, JobExecutionConfiguration jobConfiguration) {
-        super(getNextJobId(), jobName, status, dbName, comment, createUser, jobConfiguration);
+    public MTMVJob(long dbId, long mtmvId) {
         this.dbId = dbId;
         this.mtmvId = mtmvId;
         super.setCreateTimeMs(System.currentTimeMillis());
@@ -117,8 +112,11 @@ public class MTMVJob extends AbstractJob<MTMVTask, Map> {
     }
 
     @Override
-    public List<MTMVTask> createTasks(TaskType taskType, Map taskContext) {
-        MTMVTask task = new MTMVTask(dbId, mtmvId);
+    public List<MTMVTask> createTasks(TaskType taskType, MTMVTaskContext taskContext) {
+        if (taskContext == null) {
+            taskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
+        }
+        MTMVTask task = new MTMVTask(dbId, mtmvId, taskContext);
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
         tasks.add(task);
@@ -126,9 +124,25 @@ public class MTMVJob extends AbstractJob<MTMVTask, Map> {
         return tasks;
     }
 
+    /**
+     * if user trigger, return true
+     * if system trigger, Check if there are any system triggered tasks, and if so, return false
+     *
+     * @param taskContext
+     * @return
+     */
     @Override
-    public boolean isReadyForScheduling(Map taskContext) {
-        return CollectionUtils.isEmpty(getRunningTasks());
+    public boolean isReadyForScheduling(MTMVTaskContext taskContext) {
+        if (taskContext != null) {
+            return true;
+        }
+        List<MTMVTask> runningTasks = getRunningTasks();
+        for (MTMVTask task : runningTasks) {
+            if (task.getTaskContext() == null || task.getTaskContext().getTriggerMode() == MTMVTaskTriggerMode.SYSTEM) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override

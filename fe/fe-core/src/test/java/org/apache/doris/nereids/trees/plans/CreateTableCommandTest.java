@@ -46,7 +46,7 @@ public class CreateTableCommandTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
     }
 
     @Override
@@ -209,7 +209,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                 + "'function_column.sequence_col' = 'v1');"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assertions.assertTrue(tbl6.getColumn("k1").isKey());
         Assertions.assertTrue(tbl6.getColumn("k2").isKey());
@@ -694,7 +694,7 @@ public class CreateTableCommandTest extends TestWithFeService {
         Assertions.assertDoesNotThrow(
                 () -> createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10), k3 VARCHAR, k4 VARCHAR(10))"
                         + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');"));
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
         Assertions.assertEquals(1, tb.getColumn("k1").getStrLen());
         Assertions.assertEquals(10, tb.getColumn("k2").getStrLen());

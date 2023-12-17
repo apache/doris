@@ -32,7 +32,7 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTable("create table t1 (\n"
                 + "    k1 int,\n"
                 + "    k2 int,\n"

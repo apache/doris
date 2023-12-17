@@ -95,6 +95,7 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_instance_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(timeout_canceled_fragment_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(fragment_thread_pool_queue_size, MetricUnit::NOUNIT);
 bvar::LatencyRecorder g_fragmentmgr_prepare_latency("doris_FragmentMgr", "prepare");
+bvar::Adder<int64_t> g_pipeline_fragment_instances_count("doris_pipeline_fragment_instances_count");
 
 std::string to_load_error_http_path(const std::string& file_name) {
     if (file_name.empty()) {
@@ -587,6 +588,7 @@ void FragmentMgr::remove_pipeline_context(
         LOG_INFO("Removing query {} instance {}, all done? {}", print_id(query_id),
                  print_id(ins_id), all_done);
         _pipeline_map.erase(ins_id);
+        g_pipeline_fragment_instances_count << -1;
     }
     if (all_done) {
         LOG_INFO("Query {} finished", print_id(query_id));
@@ -960,6 +962,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
         };
 
         int target_size = params.local_params.size();
+        g_pipeline_fragment_instances_count << target_size;
+
         if (target_size > 1) {
             int prepare_done = {0};
             Status prepare_status[target_size];

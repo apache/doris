@@ -1493,7 +1493,6 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .tag("retry_time", retry_time)
                 .error(status);
         ++retry_time;
-        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     for (auto& item : discontinuous_version_tablets) {

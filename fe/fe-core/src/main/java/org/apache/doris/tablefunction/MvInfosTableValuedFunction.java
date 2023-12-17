@@ -20,10 +20,8 @@ package org.apache.doris.tablefunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TMaterializedViewsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
@@ -56,7 +54,9 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
             new Column("RefreshInfo", ScalarType.createStringType()),
             new Column("QuerySql", ScalarType.createStringType()),
             new Column("EnvInfo", ScalarType.createStringType()),
-            new Column("MvProperties", ScalarType.createStringType()));
+            new Column("MvProperties", ScalarType.createStringType()),
+            new Column("MvPartitionInfo", ScalarType.createStringType()),
+            new Column("SyncWithBaseTables", ScalarType.createType(PrimitiveType.BOOLEAN)));
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -87,7 +87,7 @@ public class MvInfosTableValuedFunction extends MetadataTableValuedFunction {
         if (dbName == null) {
             throw new AnalysisException("Invalid mtmv metadata query");
         }
-        this.databaseName = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName);
+        this.databaseName = dbName;
     }
 
     @Override

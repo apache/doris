@@ -82,7 +82,7 @@ public abstract class AbstractMaterializedViewRule {
                     queryPlan.getGroupExpression().get().getOwnerGroup().getGroupId())) {
                 continue;
             }
-            Plan mvPlan = materializationContext.getMtmv().getMvCache().getLogicalPlan();
+            Plan mvPlan = materializationContext.getMtmv().getCache().getLogicalPlan();
             List<StructInfo> viewStructInfos = extractStructInfo(mvPlan, cascadesContext);
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one

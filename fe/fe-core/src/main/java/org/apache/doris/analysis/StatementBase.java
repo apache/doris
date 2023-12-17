@@ -22,24 +22,18 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.thrift.TQueryOptions;
 
 import com.google.common.base.Preconditions;
-import com.google.common.base.Strings;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public abstract class StatementBase implements ParseNode {
-
-    private String clusterName;
-
     // Set this variable if this QueryStmt is the top level query from an EXPLAIN <query>
     protected ExplainOptions explainOptions = null;
 
@@ -89,10 +83,6 @@ public abstract class StatementBase implements ParseNode {
         if (analyzer.getRootStatementClazz() == null) {
             analyzer.setRootStatementClazz(this.getClass());
         }
-        if (Strings.isNullOrEmpty(analyzer.getClusterName())) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_SELECT_CLUSTER);
-        }
-        this.clusterName = analyzer.getClusterName();
     }
 
     public Analyzer getAnalyzer() {
@@ -219,14 +209,6 @@ public abstract class StatementBase implements ParseNode {
     public void foldConstant(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
         throw new IllegalStateException(
                 "foldConstant() not implemented for this stmt: " + getClass().getSimpleName());
-    }
-
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setClusterName(String clusterName) {
-        this.clusterName = clusterName;
     }
 
     public void setOrigStmt(OriginStatement origStmt) {
