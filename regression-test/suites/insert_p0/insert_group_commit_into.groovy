@@ -103,7 +103,7 @@ suite("insert_group_commit_into") {
             """
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-                sql """ set enable_insert_group_commit = true; """
+                sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """
@@ -214,54 +214,54 @@ suite("insert_group_commit_into") {
             // try_sql("DROP TABLE ${table}")
         }
 
-//        // test connect to observer fe
-//        try {
-//            def fes = sql_return_maparray "show frontends"
-//            logger.info("frontends: ${fes}")
-//            if (fes.size() > 1) {
-//                def observer_fe = null
-//                for (def fe : fes) {
-//                    if (fe.IsMaster == "false") {
-//                        observer_fe = fe
-//                        break
-//                    }
-//                }
-//                if (observer_fe != null) {
-//                    def url = "jdbc:mysql://${observer_fe.Host}:${observer_fe.QueryPort}/"
-//                    logger.info("observer url: " + url)
-//                    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = url) {
-//                        sql """ set enable_insert_group_commit = true; """
-//                        sql """ set enable_nereids_dml = false; """
-//                        sql """ set enable_profile= true; """
-//
-//                        // 1. insert into
-//                        def server_info = group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
-//                        assertTrue(server_info.contains('query_id'))
-//                        // get query_id, such as 43f87963586a482a-b0496bcf9e2b5555
-//                        def query_id_index = server_info.indexOf("'query_id':'") + "'query_id':'".length()
-//                        def query_id = server_info.substring(query_id_index, query_id_index + 33)
-//                        logger.info("query_id: " + query_id)
-//                        // 2. check profile
-//                        StringBuilder sb = new StringBuilder();
-//                        sb.append("curl -X GET -u ${context.config.jdbcUser}:${context.config.jdbcPassword} http://${observer_fe.Host}:${observer_fe.HttpPort}")
-//                        sb.append("/api/profile?query_id=").append(query_id)
-//                        String command = sb.toString()
-//                        logger.info(command)
-//                        def process = command.execute()
-//                        def code = process.waitFor()
-//                        def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-//                        def out = process.getText()
-//                        logger.info("Get profile: code=" + code + ", out=" + out + ", err=" + err)
-//                        assertEquals(code, 0)
-//                        def json = parseJson(out)
-//                        assertEquals("success", json.msg.toLowerCase())
-//                    }
-//                }
-//            } else {
-//                logger.info("only one fe, skip test connect to observer fe")
-//            }
-//        } finally {
-//        }
+        // test connect to observer fe
+        /*try {
+            def fes = sql_return_maparray "show frontends"
+            logger.info("frontends: ${fes}")
+            if (fes.size() > 1) {
+                def observer_fe = null
+                for (def fe : fes) {
+                    if (fe.IsMaster == "false") {
+                        observer_fe = fe
+                        break
+                    }
+                }
+                if (observer_fe != null) {
+                    def url = "jdbc:mysql://${observer_fe.Host}:${observer_fe.QueryPort}/"
+                    logger.info("observer url: " + url)
+                    connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = url) {
+                        sql """ set group_commit = async_mode; """
+                        sql """ set enable_nereids_dml = false; """
+                        sql """ set enable_profile= true; """
+
+                        // 1. insert into
+                        def server_info = group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
+                        assertTrue(server_info.contains('query_id'))
+                        // get query_id, such as 43f87963586a482a-b0496bcf9e2b5555
+                        def query_id_index = server_info.indexOf("'query_id':'") + "'query_id':'".length()
+                        def query_id = server_info.substring(query_id_index, query_id_index + 33)
+                        logger.info("query_id: " + query_id)
+                        // 2. check profile
+                        StringBuilder sb = new StringBuilder();
+                        sb.append("curl -X GET -u ${context.config.jdbcUser}:${context.config.jdbcPassword} http://${observer_fe.Host}:${observer_fe.HttpPort}")
+                        sb.append("/api/profile?query_id=").append(query_id)
+                        String command = sb.toString()
+                        logger.info(command)
+                        def process = command.execute()
+                        def code = process.waitFor()
+                        def err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
+                        def out = process.getText()
+                        logger.info("Get profile: code=" + code + ", out=" + out + ", err=" + err)
+                        assertEquals(code, 0)
+                        def json = parseJson(out)
+                        assertEquals("success", json.msg.toLowerCase())
+                    }
+                }
+            } else {
+                logger.info("only one fe, skip test connect to observer fe")
+            }
+        } finally {
+        }*/
 
         // table with array type
         tableName = "insert_group_commit_into_duplicate_array"
@@ -294,7 +294,7 @@ suite("insert_group_commit_into") {
             """
 
             connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
-                sql """ set enable_insert_group_commit = true; """
+                sql """ set group_commit = async_mode; """
                 if (item == "nereids") {
                     sql """ set enable_nereids_dml = true; """
                     sql """ set enable_nereids_planner=true; """

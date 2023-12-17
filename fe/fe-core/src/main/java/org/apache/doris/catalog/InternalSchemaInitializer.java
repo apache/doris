@@ -26,7 +26,6 @@ import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.KeysDesc;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -36,7 +35,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -131,10 +129,8 @@ public class InternalSchemaInitializer extends Thread {
 
     @VisibleForTesting
     public static void createDB() {
-        CreateDbStmt createDbStmt = new CreateDbStmt(true,
-                ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, FeConstants.INTERNAL_DB_NAME),
+        CreateDbStmt createDbStmt = new CreateDbStmt(true, FeConstants.INTERNAL_DB_NAME,
                 null);
-        createDbStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         try {
             Env.getCurrentEnv().createDb(createDbStmt);
         } catch (DdlException e) {
@@ -179,7 +175,6 @@ public class InternalSchemaInitializer extends Thread {
         CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
                 tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
                 properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
-        // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         StatisticsUtil.analyze(createTableStmt);
         return createTableStmt;
     }
@@ -214,14 +209,13 @@ public class InternalSchemaInitializer extends Thread {
                 tableName, columnDefs, engineName, keysDesc, null, distributionDesc,
                 properties, null, "Doris internal statistics table, DO NOT MODIFY IT", null);
         StatisticsUtil.analyze(createTableStmt);
-        // createTableStmt.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
         return createTableStmt;
     }
 
     private boolean created() {
         Optional<Database> optionalDatabase =
                 Env.getCurrentEnv().getInternalCatalog()
-                        .getDb(SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME);
+                        .getDb(FeConstants.INTERNAL_DB_NAME);
         if (!optionalDatabase.isPresent()) {
             return false;
         }

@@ -423,6 +423,7 @@ public class CreateTableStmt extends DdlStmt {
             if (keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
                 enableUniqueKeyMergeOnWrite = false;
                 if (properties != null) {
+                    properties = PropertyAnalyzer.enableUniqueKeyMergeOnWriteIfNotExists(properties);
                     // `analyzeXXX` would modify `properties`, which will be used later,
                     // so we just clone a properties map here.
                     enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(
@@ -521,12 +522,7 @@ public class CreateTableStmt extends DdlStmt {
             }
 
             if (columnDef.getType().isObjectStored()) {
-                if (columnDef.getType().isBitmapType()) {
-                    if (keysDesc.getKeysType() == KeysType.DUP_KEYS) {
-                        throw new AnalysisException("column:" + columnDef.getName()
-                                + " must be used in AGG_KEYS or UNIQUE_KEYS.");
-                    }
-                } else {
+                if (!columnDef.getType().isBitmapType()) {
                     if (keysDesc.getKeysType() != KeysType.AGG_KEYS) {
                         throw new AnalysisException("column:" + columnDef.getName() + " must be used in AGG_KEYS.");
                     }

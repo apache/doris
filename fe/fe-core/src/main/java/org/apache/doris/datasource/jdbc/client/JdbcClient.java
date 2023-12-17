@@ -154,7 +154,7 @@ public abstract class JdbcClient {
         }
     }
 
-    private static String parseDbType(String jdbcUrl) {
+    public static String parseDbType(String jdbcUrl) {
         try {
             return JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {

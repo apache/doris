@@ -42,6 +42,7 @@
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/threadpool.h"
@@ -187,7 +188,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     DCHECK(_num_local_sink > 0) << "num local sink should be greator than 0";
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
-
+    DBUG_EXECUTE_IF("VTabletWriterV2._init.is_high_priority", { _is_high_priority = true; });
     _mem_tracker =
             std::make_shared<MemTracker>("VTabletWriterV2:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());

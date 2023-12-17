@@ -117,13 +117,13 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+    auto& p = _parent->cast<typename Derived::Parent>();
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
 
     _scan_dependency = ScanDependency::create_shared(PipelineXLocalState<>::_parent->operator_id(),
                                                      PipelineXLocalState<>::_parent->node_id(),
                                                      state->get_query_ctx());
 
-    auto& p = _parent->cast<typename Derived::Parent>();
     set_scan_ranges(state, info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
     for (size_t i = 0; i < _common_expr_ctxs_push_down.size(); i++) {
@@ -1233,9 +1233,8 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
-                                                    p._col_distribute_ids, 1);
-    _scan_dependency->set_scanner_ctx(_scanner_ctx.get());
-    _scanner_ctx->set_dependency(_scan_dependency, _finish_dependency);
+                                                    p._col_distribute_ids, 1, _scan_dependency,
+                                                    _finish_dependency);
     return Status::OK();
 }
 
@@ -1362,9 +1361,11 @@ void ScanLocalState<Derived>::get_cast_types_for_variants() {
 
 template <typename LocalStateType>
 ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
-                                             int operator_id, const DescriptorTbl& descs)
+                                             int operator_id, const DescriptorTbl& descs,
+                                             int parallel_tasks)
         : OperatorX<LocalStateType>(pool, tnode, operator_id, descs),
-          _runtime_filter_descs(tnode.runtime_filters) {
+          _runtime_filter_descs(tnode.runtime_filters),
+          _parallel_tasks(parallel_tasks) {
     if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
         // Which means the request could be fullfilled in a single segment iterator request.
         if (tnode.limit > 0 && tnode.limit < 1024) {
@@ -1436,7 +1437,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     SCOPED_TIMER(_close_timer);
 
     SCOPED_TIMER(exec_time_counter());
-    if (_scanner_ctx.get()) {
+    if (_scanner_ctx) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
     }
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());

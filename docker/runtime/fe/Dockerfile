@@ -16,25 +16,39 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# choose a base image
-FROM openjdk:8u342-jdk
+# how to use Dockerfile.
+# this is dockerfile for build doris fe image on amd64.
+# when build youself image.
+# 1. pull binary from official website and decompress into resource directory that the level equals with Dockerfile_be_ubuntu.
+# 2. untar xxxx.tar.gz in resource directory, update the dockerfile field `apache-doris-xxx`, replace with real version.
+# 3. run commad docker build -t xxx.doris.be:xx -f Dockerfile_be_ubuntu.
+
+# we have support buildx for amd64 and arm64 architecture image build.
+# get the binary from doris github and utar into resource, update the directory as apache-`version(example:2.0.1)`-bin-`architecture(amd64/arm64)` mode.
+
+FROM ubuntu:22.04
+
+ARG TARGETARCH
 
 # set environment variables
-ENV JAVA_HOME="/usr/local/openjdk-8/" \
-	PATH="/opt/apache-doris/fe/bin:${PATH}"
+ENV JAVA_HOME=/usr/lib/jvm/java-8-openjdk-${TARGETARCH:-amd64} \
+        PATH="/opt/apache-doris/fe/bin:${PATH}"
 
-# download the software to the mirror and replace it as needed
-ADD ./resource/apache-doris-fe-x.x.x-bin.tar.gz /opt/
+# apache-doris/fe from doris release tar.gz, please update the version in follows x.x.x.
+COPY resource/apache-doris-x.x.x-bin-${TARGETARCH:-amd64}/fe /opt/apache-doris/fe
 
-# deploy software
-RUN apt-get update && \
-	apt-get install -y default-mysql-client && \
-	apt-get clean && \
-	mkdir /opt/apache-doris && \
-	cd /opt && \
-	mv apache-doris-fe-x.x.x-bin /opt/apache-doris/fe
+RUN apt-get update -y &&  DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+    patchelf gdb binutils binutils-common mysql-client \
+    curl wget less vim htop iproute2 numactl jq iotop sysstat tzdata \
+    tcpdump iputils-ping dnsutils strace lsof blktrace \
+    bpfcc-tools linux-headers-realtime linux-tools-realtime silversearcher-ag \
+    net-tools openjdk-8-jdk && \
+    rm -rf /var/lib/apt/lists/*
 
-ADD resource/init_fe.sh /opt/apache-doris/fe/bin
-RUN chmod 755 /opt/apache-doris/fe/bin/init_fe.sh
+ADD resource/init_fe.sh /opt/apache-doris/fe/bin/
+
+COPY resource/fe_*.sh /opt/apache-doris/
+
+WORKDIR /opt/apache-doris
 
 ENTRYPOINT ["/opt/apache-doris/fe/bin/init_fe.sh"]

@@ -99,8 +99,21 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
         return ColumnNullable::create(src, ColumnUInt8::create(input_rows_count, 0));
     }
 
-    return ColumnNullable::create(src_not_nullable->convert_to_full_column_if_const(),
-                                  result_null_map_column);
+    bool update_null_data = false;
+    auto full_column = src_not_nullable->convert_to_full_column_if_const();
+    if (const auto* nullable = check_and_get_column<const ColumnNullable>(full_column.get())) {
+        const auto& nested_column = nullable->get_nested_column();
+        update_null_data = nested_column.is_numeric() || nested_column.is_column_decimal();
+    } else {
+        update_null_data = full_column->is_numeric() || full_column->is_column_decimal();
+    }
+    auto result_column = ColumnNullable::create(full_column, result_null_map_column);
+    if (update_null_data) {
+        auto* res_nullable_column =
+                assert_cast<ColumnNullable*>(std::move(*result_column).mutate().get());
+        res_nullable_column->update_null_data();
+    }
+    return result_column;
 }
 
 NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {

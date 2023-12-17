@@ -588,7 +588,13 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
                         col.checkSchemaChangeAllowed(modColumn);
-                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                        // If col and modColumn is not key, it allow light schema change,
+                        // of course, olapTable has been enable light schema change
+                        if (modColumn.isKey() || col.isKey()) {
+                            lightSchemaChange = false;
+                        } else {
+                            lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                        }
                     }
                     if (col.isClusterKey()) {
                         throw new DdlException("Can not modify cluster key column: " + col.getName());
@@ -1762,7 +1768,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    public void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+    public void process(String rawSql, List<AlterClause> alterClauses, Database db,
                         OlapTable olapTable)
             throws UserException {
         olapTable.writeLockOrDdlException();

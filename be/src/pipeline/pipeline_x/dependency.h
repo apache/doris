@@ -92,7 +92,6 @@ public:
         _shared_state = shared_state;
     }
     virtual std::string debug_string(int indentation_level = 0);
-    virtual bool push_to_blocking_queue() const { return false; }
 
     // Start the watcher. We use it to count how long this dependency block the current pipeline task.
     void start_watcher() {
@@ -118,9 +117,7 @@ public:
 
 protected:
     void _add_block_task(PipelineXTask* task);
-    bool _is_cancelled() const {
-        return push_to_blocking_queue() ? false : _query_ctx->is_cancelled();
-    }
+    bool _is_cancelled() const { return _query_ctx->is_cancelled(); }
 
     const int _id;
     const int _node_id;
@@ -161,12 +158,10 @@ class RuntimeFilterDependency;
 class RuntimeFilterTimer {
 public:
     RuntimeFilterTimer(int64_t registration_time, int32_t wait_time_ms,
-                       std::shared_ptr<RuntimeFilterDependency> parent,
-                       IRuntimeFilter* runtime_filter)
+                       std::shared_ptr<RuntimeFilterDependency> parent)
             : _parent(std::move(parent)),
               _registration_time(registration_time),
-              _wait_time_ms(wait_time_ms),
-              _runtime_filter(runtime_filter) {}
+              _wait_time_ms(wait_time_ms) {}
 
     void call_ready();
 
@@ -188,7 +183,7 @@ private:
     std::mutex _lock;
     const int64_t _registration_time;
     const int32_t _wait_time_ms;
-    IRuntimeFilter* _runtime_filter = nullptr;
+    bool _is_ready = false;
 };
 
 struct RuntimeFilterTimerQueue {
@@ -477,6 +472,8 @@ public:
     std::mutex buffer_mutex;
     std::vector<std::unique_ptr<vectorized::PartitionSorter>> partition_sorts;
     std::unique_ptr<vectorized::SortCursorCmp> previous_row;
+    bool sink_eos = false;
+    std::mutex sink_eos_lock;
 };
 
 class AsyncWriterDependency final : public Dependency {
@@ -579,6 +576,8 @@ enum class ExchangeType : uint8_t {
     HASH_SHUFFLE = 1,
     PASSTHROUGH = 2,
     BUCKET_HASH_SHUFFLE = 3,
+    BROADCAST = 4,
+    ADAPTIVE_PASSTHROUGH = 5,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -591,6 +590,10 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "PASSTHROUGH";
     case ExchangeType::BUCKET_HASH_SHUFFLE:
         return "BUCKET_HASH_SHUFFLE";
+    case ExchangeType::BROADCAST:
+        return "BROADCAST";
+    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+        return "ADAPTIVE_PASSTHROUGH";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
@@ -603,6 +606,9 @@ public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     std::unique_ptr<Exchanger> exchanger {};
     std::vector<Dependency*> source_dependencies;
+    Dependency* sink_dependency;
+    std::vector<MemTracker*> mem_trackers;
+    std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
     void _set_ready_for_read() {
@@ -611,13 +617,41 @@ public:
             dep->set_ready();
         }
     }
+
     void set_dep_by_channel_id(Dependency* dep, int channel_id) {
         source_dependencies[channel_id] = dep;
     }
-    void set_ready_for_read(int channel_id) {
+
+    void set_ready_to_read(int channel_id) {
         auto* dep = source_dependencies[channel_id];
-        DCHECK(dep) << channel_id << " " << (int64_t)this;
+        DCHECK(dep) << channel_id;
         dep->set_ready();
+    }
+
+    void add_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
+        mem_trackers[channel_id]->consume(delta);
+        if (update_total_mem_usage) {
+            add_total_mem_usage(delta);
+        }
+    }
+
+    void sub_mem_usage(int channel_id, size_t delta, bool update_total_mem_usage = true) {
+        mem_trackers[channel_id]->release(delta);
+        if (update_total_mem_usage) {
+            sub_total_mem_usage(delta);
+        }
+    }
+
+    void add_total_mem_usage(size_t delta) {
+        if (mem_usage.fetch_add(delta) > config::local_exchange_buffer_mem_limit) {
+            sink_dependency->block();
+        }
+    }
+
+    void sub_total_mem_usage(size_t delta) {
+        if (mem_usage.fetch_sub(delta) <= config::local_exchange_buffer_mem_limit) {
+            sink_dependency->set_ready();
+        }
     }
 };
 

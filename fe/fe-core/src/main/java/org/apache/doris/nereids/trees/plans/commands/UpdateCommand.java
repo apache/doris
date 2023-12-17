@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -137,7 +138,7 @@ public class UpdateCommand extends Command implements ForwardWithSync, Explainab
 
         // make UnboundTableSink
         return new UnboundTableSink<>(nameParts, ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), isPartialUpdate, logicalQuery);
+                false, ImmutableList.of(), isPartialUpdate, DMLCommandType.UPDATE, logicalQuery);
     }
 
     private void checkTable(ConnectContext ctx) throws AnalysisException {

@@ -47,7 +47,9 @@ namespace doris::pipeline {
 PipelineXTask::PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                              PipelineFragmentContext* fragment_context,
                              RuntimeProfile* parent_profile,
-                             std::map<int, std::shared_ptr<LocalExchangeSharedState>> le_state_map,
+                             std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                                     std::shared_ptr<LocalExchangeSinkDependency>>>
+                                     le_state_map,
                              int task_idx)
         : PipelineTask(pipeline, task_id, state, fragment_context, parent_profile),
           _operators(pipeline->operator_xs()),
@@ -73,18 +75,23 @@ Status PipelineXTask::prepare(RuntimeState* state, const TPipelineInstanceParams
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_prepare_timer);
+    DCHECK_EQ(state, _state);
 
     {
         // set sink local state
-        LocalSinkStateInfo info {_parent_profile, local_params.sender_id,
-                                 get_downstream_dependency(), _le_state_map, tsink};
+        LocalSinkStateInfo info {_task_idx,
+                                 _task_profile.get(),
+                                 local_params.sender_id,
+                                 get_downstream_dependency(),
+                                 _le_state_map,
+                                 tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(state, info));
     }
 
     std::vector<TScanRangeParams> no_scan_ranges;
     auto scan_ranges = find_with_default(local_params.per_node_scan_ranges,
                                          _operators.front()->node_id(), no_scan_ranges);
-    auto* parent_profile = _parent_profile;
+    auto* parent_profile = state->get_sink_local_state(_sink->operator_id())->profile();
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
         auto& deps = get_upstream_dependency(op->operator_id());
@@ -328,6 +335,10 @@ Status PipelineXTask::close(Status exec_status) {
         COUNTER_UPDATE(_task_profile->total_time_counter(), close_ns);
     }
     return s;
+}
+
+Status PipelineXTask::close_sink(Status exec_status) {
+    return _sink->close(_state, exec_status);
 }
 
 std::string PipelineXTask::debug_string() {

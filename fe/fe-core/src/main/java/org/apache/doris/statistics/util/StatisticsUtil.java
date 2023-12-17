@@ -73,7 +73,6 @@ import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Frontend;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -184,7 +183,7 @@ public class StatisticsUtil {
         sessionVariable.setEnablePipelineEngine(false);
         sessionVariable.enableProfile = false;
         sessionVariable.enableScanRunSerial = limitScan;
-        sessionVariable.queryTimeoutS = StatisticsUtil.getAnalyzeTimeout();
+        sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
         sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
         sessionVariable.forbidUnknownColStats = false;
@@ -193,7 +192,6 @@ public class StatisticsUtil {
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);
     }
 
@@ -422,7 +420,7 @@ public class StatisticsUtil {
     }
 
     public static boolean statsTblAvailable() {
-        String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
         List<OlapTable> statsTbls = new ArrayList<>();
         try {
             statsTbls.add(

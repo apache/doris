@@ -150,7 +150,7 @@ public class RepairVersionTest extends TestWithFeService {
         createTable("CREATE TABLE test." + tableName + " (k INT) DISTRIBUTED BY HASH(k) "
                 + " BUCKETS 1 PROPERTIES ( \"replication_num\" = \"2\" )");
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrMetaException("test");
         OlapTable tbl = (OlapTable) db.getTableOrMetaException(tableName);
         Assertions.assertNotNull(tbl);
         Partition partition = tbl.getPartitions().iterator().next();

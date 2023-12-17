@@ -106,7 +106,7 @@ public class SystemHandler extends AlterHandler {
 
     @Override
     // add synchronized to avoid process 2 or more stmts at same time
-    public synchronized void process(String rawSql, List<AlterClause> alterClauses, String clusterName,
+    public synchronized void process(String rawSql, List<AlterClause> alterClauses,
             Database dummyDb,
             OlapTable dummyTbl) throws UserException {
         Preconditions.checkArgument(alterClauses.size() == 1);

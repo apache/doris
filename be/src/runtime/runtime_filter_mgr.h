@@ -50,6 +50,7 @@ class RuntimeState;
 enum class RuntimeFilterRole;
 class RuntimePredicateWrapper;
 class QueryContext;
+struct RuntimeFilterParamsContext;
 
 /// producer:
 /// Filter filter;
@@ -65,7 +66,7 @@ class QueryContext;
 // RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
 class RuntimeFilterMgr {
 public:
-    RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state);
+    RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state);
 
     RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx);
 
@@ -82,7 +83,8 @@ public:
 
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    int node_id, bool build_bf_exactly = false);
+                                    int node_id, bool build_bf_exactly = false,
+                                    int merged_rf_num = 0);
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     bool build_bf_exactly = false);
 
@@ -106,7 +108,7 @@ private:
     std::map<int32_t, std::vector<ConsumerFilterHolder>> _consumer_map;
     std::map<int32_t, IRuntimeFilter*> _producer_map;
 
-    RuntimeState* _state = nullptr;
+    RuntimeFilterParamsContext* _state = nullptr;
     QueryContext* _query_ctx = nullptr;
     std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
@@ -123,7 +125,7 @@ private:
 // the class is destroyed with the last fragment_exec.
 class RuntimeFilterMergeControllerEntity {
 public:
-    RuntimeFilterMergeControllerEntity(RuntimeState* state)
+    RuntimeFilterMergeControllerEntity(RuntimeFilterParamsContext* state)
             : _query_id(0, 0), _fragment_instance_id(0, 0), _state(state) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
@@ -172,7 +174,7 @@ private:
     using CntlValwithLock =
             std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<std::mutex>>;
     std::map<int, CntlValwithLock> _filter_map;
-    RuntimeState* _state = nullptr;
+    RuntimeFilterParamsContext* _state = nullptr;
     bool _opt_remote_rf = true;
 };
 
@@ -188,11 +190,11 @@ public:
     // add_entity will return a exists entity
     Status add_entity(const TExecPlanFragmentParams& params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeState* state);
+                      RuntimeFilterParamsContext* state);
     Status add_entity(const TPipelineFragmentParams& params,
                       const TPipelineInstanceParams& local_params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeState* state);
+                      RuntimeFilterParamsContext* state);
     // thread safe
     // increase a reference count
     // if a query-id is not exist

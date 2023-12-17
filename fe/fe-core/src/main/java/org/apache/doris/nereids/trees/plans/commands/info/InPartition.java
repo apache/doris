@@ -26,6 +26,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 
 import com.google.common.collect.Maps;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -57,6 +58,10 @@ public class InPartition extends PartitionDefinition {
 
     @Override
     public AllPartitionDesc translateToCatalogStyle() {
+        if (values.isEmpty()) {
+            // add a empty list for default value process
+            values.add(new ArrayList<>());
+        }
         List<List<PartitionValue>> catalogValues = values.stream().map(l -> l.stream()
                 .map(this::toLegacyPartitionValueStmt)
                 .collect(Collectors.toList())).collect(Collectors.toList());

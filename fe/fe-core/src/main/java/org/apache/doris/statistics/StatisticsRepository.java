@@ -28,7 +28,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Maps;
 import org.apache.commons.text.StringSubstitutor;
@@ -52,8 +51,7 @@ public class StatisticsRepository {
 
     private static final Logger LOG = LogManager.getLogger(StatisticsRepository.class);
 
-    private static final String FULL_QUALIFIED_DB_NAME = "`" + SystemInfoService.DEFAULT_CLUSTER + ":"
-            + FeConstants.INTERNAL_DB_NAME + "`";
+    private static final String FULL_QUALIFIED_DB_NAME = "`" + FeConstants.INTERNAL_DB_NAME + "`";
 
     private static final String FULL_QUALIFIED_COLUMN_STATISTICS_NAME = FULL_QUALIFIED_DB_NAME + "."
             + "`" + StatisticConstants.STATISTIC_TBL_NAME + "`";
@@ -142,7 +140,7 @@ public class StatisticsRepository {
     private static ResultRow queryColumnStatisticById(long tblId, String colName, boolean isHistogram) {
         Map<String, String> map = new HashMap<>();
         String id = constructId(tblId, -1, colName);
-        map.put("id", id);
+        map.put("id", StatisticsUtil.escapeSQL(id));
         List<ResultRow> rows = isHistogram ? StatisticsUtil.executeQuery(FETCH_COLUMN_HISTOGRAM_TEMPLATE, map) :
                 StatisticsUtil.executeQuery(FETCH_COLUMN_STATISTIC_TEMPLATE, map);
         int size = rows.size();
@@ -336,7 +334,7 @@ public class StatisticsRepository {
         Map<String, String> params = new HashMap<>();
         params.put("tblId", String.valueOf(tableId));
         params.put("idxId", String.valueOf(idxId));
-        params.put("colId", colName);
+        params.put("colId", StatisticsUtil.escapeSQL(colName));
 
         return StatisticsUtil.execStatisticQuery(new StringSubstitutor(params)
                 .replace(QUERY_COLUMN_STATISTICS));
