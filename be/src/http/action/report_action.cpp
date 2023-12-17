@@ -18,6 +18,8 @@
 #include "http/action/report_action.h"
 
 #include "common/status.h"
+#include "http/http_channel.h"
+#include "olap/storage_engine.h"
 
 namespace doris {
 
@@ -27,9 +29,11 @@ ReportAction::ReportAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivil
 
 void ReportAction::handle(HttpRequest* req) {
     if (StorageEngine::instance()->notify_listener(_report_name)) {
-        HttpChannel::send_reply(req, HttpStatus::OK, Status::OK().to_string());
+        HttpChannel::send_reply(req, HttpStatus::OK, Status::OK().to_json());
     } else {
-        HttpChannel::send_reply(req, HttpStatus::INTERNAL_SERVER_ERROR, Status::InternalError("unknown reporter with name: " + _report_name);
+        HttpChannel::send_reply(
+                req, HttpStatus::INTERNAL_SERVER_ERROR,
+                Status::InternalError("unknown reporter with name: " + _report_name).to_json());
     }
 }
 
