@@ -1049,10 +1049,6 @@ Status NewJsonReader::_simdjson_handle_simple_json(RuntimeState* /*state*/, Bloc
 
         for (_json_stream_iterator = _json_stream.begin();
              _json_stream_iterator != _json_stream.end(); ++_json_stream_iterator) {
-            if (_json_stream_iterator.current_index() >= _original_doc_size) {
-                break;
-            }
-
             // step2: get json value by json doc
             Status st = _get_json_value(&size, eof, &error, is_empty_row);
             if (st.is<DATA_QUALITY_ERROR>()) {
@@ -1158,9 +1154,6 @@ Status NewJsonReader::_simdjson_handle_flat_array_complex_json(
 
         for (_json_stream_iterator = _json_stream.begin();
              _json_stream_iterator != _json_stream.end(); ++_json_stream_iterator) {
-            if (_json_stream_iterator.current_index() >= _original_doc_size) {
-                break;
-            }
             // step2: get json value by json doc
             Status st = _get_json_value(&size, eof, &error, is_empty_row);
             if (st.is<DATA_QUALITY_ERROR>()) {
@@ -1264,9 +1257,6 @@ Status NewJsonReader::_simdjson_handle_nested_complex_json(
 
         for (_json_stream_iterator = _json_stream.begin();
              _json_stream_iterator != _json_stream.end(); ++_json_stream_iterator) {
-            if (_json_stream_iterator.current_index() >= _original_doc_size) {
-                break;
-            }
             Status st = _get_json_value(&size, eof, &error, is_empty_row);
             if (st.is<DATA_QUALITY_ERROR>()) {
                 return Status::OK();
