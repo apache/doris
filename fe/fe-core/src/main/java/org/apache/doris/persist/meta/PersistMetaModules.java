@@ -43,7 +43,7 @@ public class PersistMetaModules {
 
     // Modules in this list is deprecated and will not be saved in meta file. (also should not be in MODULE_NAMES)
     public static final ImmutableList<String> DEPRECATED_MODULE_NAMES = ImmutableList.of(
-            "loadJob", "cooldownJob", "AnalysisMgr", "mtmvJobManager");
+            "loadJob", "cooldownJob", "AnalysisMgr", "mtmvJobManager", "JobTaskManager");
 
     static {
         MODULES_MAP = Maps.newHashMap();
