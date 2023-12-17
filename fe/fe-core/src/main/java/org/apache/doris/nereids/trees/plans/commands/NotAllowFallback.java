@@ -15,52 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
+package org.apache.doris.nereids.trees.plans.commands;
 
 /**
- * refresh enum
+ * The class that implements this interface does not allow fallback to OriginalPlanner,
+ * for example, some new features are not implemented by the old parser
  */
-public class MTMVRefreshEnum {
-
-    /**
-     * RefreshMethod
-     */
-    public enum RefreshMethod {
-        COMPLETE, //complete
-        AUTO //try to update incrementally, if not possible, update in full
-    }
-
-    /**
-     * BuildMode
-     */
-    public enum BuildMode {
-        IMMEDIATE, //right now
-        DEFERRED // deferred
-    }
-
-    /**
-     * RefreshTrigger
-     */
-    public enum RefreshTrigger {
-        MANUAL, //manual
-        SCHEDULE // schedule
-    }
-
-    /**
-     * MTMVState
-     */
-    public enum MTMVState {
-        INIT,
-        NORMAL,
-        SCHEMA_CHANGE
-    }
-
-    /**
-     * MTMVRefreshState
-     */
-    public enum MTMVRefreshState {
-        INIT,
-        FAIL,
-        SUCCESS
-    }
+public interface NotAllowFallback {
 }
