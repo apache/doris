@@ -616,3 +616,7 @@
 1	test
 2	test
 
+-- !qt_sql18 --
+1	test
+2	test
+
