@@ -35,6 +35,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SQLDialectUtils;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -169,7 +170,9 @@ public abstract class ConnectProcessor {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         }
 
-        String sqlHash = DigestUtils.md5Hex(originStmt);
+        String convertedStmt = SQLDialectUtils.convertStmtWithDialect(originStmt, ctx, mysqlCommand);
+
+        String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
         ctx.getAuditEventBuilder().reset();
         ctx.getAuditEventBuilder()
@@ -183,15 +186,15 @@ public abstract class ConnectProcessor {
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
-                stmts = new NereidsParser().parseSQL(originStmt, ctx.getSessionVariable());
+                stmts = new NereidsParser().parseSQL(convertedStmt, ctx.getSessionVariable());
             } catch (NotSupportedException e) {
                 // Parse sql failed, audit it and return
-                handleQueryException(e, originStmt, null, null);
+                handleQueryException(e, convertedStmt, null, null);
                 return;
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
-                        e.getMessage(), originStmt);
+                        e.getMessage(), convertedStmt);
                 nereidsParseException = e;
             }
         }
@@ -199,7 +202,7 @@ public abstract class ConnectProcessor {
         // stmts == null when Nereids cannot planner this query or Nereids is disabled.
         if (stmts == null) {
             try {
-                stmts = parse(originStmt);
+                stmts = parse(convertedStmt);
             } catch (Throwable throwable) {
                 // if NereidsParser and oldParser both failed,
                 // prove is a new feature implemented only on the nereids,
@@ -208,7 +211,7 @@ public abstract class ConnectProcessor {
                     throwable = nereidsParseException;
                 }
                 // Parse sql failed, audit it and return
-                handleQueryException(throwable, originStmt, null, null);
+                handleQueryException(throwable, convertedStmt, null, null);
                 return;
             }
         }
@@ -217,15 +220,15 @@ public abstract class ConnectProcessor {
         // if stmts.size() > 1, split originStmt to multi singleStmts
         if (stmts.size() > 1) {
             try {
-                origSingleStmtList = SqlUtils.splitMultiStmts(originStmt);
+                origSingleStmtList = SqlUtils.splitMultiStmts(convertedStmt);
             } catch (Exception ignore) {
-                LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", originStmt);
+                LOG.warn("Try to parse multi origSingleStmt failed, originStmt: \"{}\"", convertedStmt);
             }
         }
 
         boolean usingOrigSingleStmt = origSingleStmtList != null && origSingleStmtList.size() == stmts.size();
         for (int i = 0; i < stmts.size(); ++i) {
-            String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : originStmt;
+            String auditStmt = usingOrigSingleStmt ? origSingleStmtList.get(i) : convertedStmt;
 
             ctx.getState().reset();
             if (i > 0) {
@@ -233,7 +236,7 @@ public abstract class ConnectProcessor {
             }
 
             StatementBase parsedStmt = stmts.get(i);
-            parsedStmt.setOrigStmt(new OriginStatement(originStmt, i));
+            parsedStmt.setOrigStmt(new OriginStatement(convertedStmt, i));
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);

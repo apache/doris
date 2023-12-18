@@ -217,8 +217,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_TABLE: {
-                data = new CreateTableInfo();
-                ((CreateTableInfo) data).readFields(in);
+                data = CreateTableInfo.read(in);
                 isRead = true;
                 break;
             }
