@@ -362,10 +362,13 @@ Status WalManager::delete_wal(int64_t wal_id) {
         if (_wal_id_to_writer_map.empty()) {
             CHECK_EQ(_all_wal_disk_bytes->load(std::memory_order_relaxed), 0);
         }
-        std::string wal_path = _wal_path_map[wal_id];
-        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));
-        LOG(INFO) << "delete file=" << wal_path;
-        _wal_path_map.erase(wal_id);
+        auto it = _wal_path_map.find(wal_id);
+        if (it != _wal_path_map.end()) {
+            std::string wal_path = it->second;
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));
+            LOG(INFO) << "delete file=" << wal_path;
+            _wal_path_map.erase(wal_id);
+        }
     }
     return Status::OK();
 }

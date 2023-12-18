@@ -242,10 +242,5 @@ Status GroupCommitBlockSink::_add_blocks() {
     return Status::OK();
 }
 
-std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs>
-GroupCommitBlockSink::_get_partition_function() {
-    return {_vpartition->get_part_func_ctx(), _vpartition->get_partition_function()};
-}
-
 } // namespace vectorized
 } // namespace doris

@@ -3301,7 +3301,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         try {
             table = db.getTable(tableId).get();
         } catch (NoSuchElementException e) {
-            LOG.info("getColumnInfo catch exception:" + e);
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
             result.setStatus(errorStatus);

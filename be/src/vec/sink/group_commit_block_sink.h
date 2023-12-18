@@ -48,7 +48,6 @@ public:
 private:
     Status _add_block(RuntimeState* state, std::shared_ptr<vectorized::Block> block);
     Status _add_blocks();
-    std::pair<vectorized::VExprContextSPtrs, vectorized::VExprSPtrs> _get_partition_function();
 
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
 
