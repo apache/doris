@@ -115,7 +115,7 @@ public enum AggregateType {
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        // all types except quantile_state and agg_state.
+        // all types except agg_state.
         EnumSet<PrimitiveType> excObjectStored = EnumSet.allOf(PrimitiveType.class);
         excObjectStored.remove(PrimitiveType.AGG_STATE);
         compatibilityMap.put(REPLACE, EnumSet.copyOf(excObjectStored));
