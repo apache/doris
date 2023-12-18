@@ -36,7 +36,7 @@
          return 1
 --- src/rdkafka_broker.c
 +++ src/rdkafka_broker.c
-@@ -4613,7 +4613,9 @@ static int rd_kafka_broker_thread_main(void *arg) {
+@@ -5461,7 +5461,9 @@ static int rd_kafka_broker_thread_main(void *arg) {
   */
  void rd_kafka_broker_destroy_final(rd_kafka_broker_t *rkb) {
  
@@ -47,4 +47,3 @@
          rd_assert(TAILQ_EMPTY(&rkb->rkb_monitors));
          rd_assert(TAILQ_EMPTY(&rkb->rkb_outbufs.rkbq_bufs));
          rd_assert(TAILQ_EMPTY(&rkb->rkb_waitresps.rkbq_bufs));
-
