@@ -169,7 +169,7 @@ NOTE:
 ```
 
 ### Using parameters in FE and BE code
-Following request activates debug point `OlapTableSink.write_random_choose_sink` in FE and passes two parameters:
+Following request activates debug point `OlapTableSink.write_random_choose_sink` in FE and passes two parameters, `needCatchUp` and `sinkNum`: 
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/OlapTableSink.write_random_choose_sink?needCatchUp=true&sinkNum=3"
 ```
@@ -272,3 +272,43 @@ None
 ```
 curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 ```
+
+## Debug Points in Regression Test
+
+In regression test, the debug points are especially useful, and the framework provides methods to activate debug points.
+We can also use debug points in regression tests, in the test suite context, we can use GetDebugPoint().enableDebugPointForAllBEs(), to activate debug points in BE and GetDebugPoint().enableDebugPointForAllFEs(), to activate debug points in FEs before executing the test action.
+
+### Examples
+
+```java
+suite('debugpoint_action', 'nonConcurrent') {
+    try {
+        GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
+        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
+        GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
+    }
+}
+```
+The enableDebugPointForAllFE/senableDebugPointForAllBEs is declared as :
+def enableDebugPointForAllFEs(String name, Map<String, String> params = null)
+def enableDebugPointForAllBEs(String name, Map<String, String> params = null)
+where the first parameter is name of debug point to activate, the second parameter is a set of key-value pairs passed to the debug point.
+
+```java
+suite('debugpoint_action', 'nonConcurrent') {
+    try {
+        GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
+        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss', [tablet_id:'12345', version_miss:true, timeout:1])
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
+        GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
+    }
+}
+```
+
+
+
+
+
