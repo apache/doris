@@ -69,7 +69,7 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
         return slot;
     }
 
-    private boolean isElementAtOfVariantType(Expr expr) {
+    private static boolean isElementAtOfVariantType(Expr expr) {
         if (!(expr instanceof FunctionCallExpr)) {
             return false;
         }
@@ -78,7 +78,13 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
                 && functionCallExpr.getType() == Type.VARIANT;
     }
 
-    private void getElementAtFunction(Expr expr, List<Expr> result) {
+    public static boolean containsElementAtFunction(Expr expr) {
+        List<Expr> result = Lists.newArrayList();
+        getElementAtFunction(expr, result);
+        return !result.isEmpty();
+    }
+
+    private static void getElementAtFunction(Expr expr, List<Expr> result) {
         if (isElementAtOfVariantType(expr)) {
             result.add(expr);
             return;
