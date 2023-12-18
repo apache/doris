@@ -572,7 +572,11 @@ import org.apache.doris.qe.SqlModeHelper;
     return new Symbol(id, yyline+1, yycolumn+1, value);
   }
 
-  private static String escapeBackSlash(String str) {
+  private static String escapeBackSlash(String str, long sqlMode) {
+      if ((sqlMode & SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES) != 0) {
+          return str;
+      }
+
       StringWriter writer = new StringWriter();
       int strLen = str.length();
       for (int i = 0; i < strLen; ++i) {
@@ -732,12 +736,12 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 
 {SingleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("''", "'"));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1), sql_mode).replaceAll("''", "'"));
 }
 
 {DoubleQuoteStringLiteral} {
   return newToken(SqlParserSymbols.STRING_LITERAL,
-      escapeBackSlash(yytext().substring(1, yytext().length()-1)).replaceAll("\"\"", "\""));
+      escapeBackSlash(yytext().substring(1, yytext().length()-1), sql_mode).replaceAll("\"\"", "\""));
 }
 
 {CommentedHintBegin} {

@@ -39,7 +39,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/brpc_client_cache.h"
-#include "util/spinlock.h"
 
 namespace doris {
 
@@ -227,7 +226,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options, -1, false);
-    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
+    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<std::mutex>()});
     return Status::OK();
 }
 
@@ -249,7 +248,7 @@ Status RuntimeFilterMergeControllerEntity::_init_with_desc(
     auto filter_id = runtime_filter_desc->filter_id;
     // LOG(INFO) << "entity filter id:" << filter_id;
     cntVal->filter->init_with_desc(&cntVal->runtime_filter_desc, query_options);
-    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<SpinLock>()});
+    _filter_map.emplace(filter_id, CntlValwithLock {cntVal, std::make_unique<std::mutex>()});
     return Status::OK();
 }
 
@@ -323,7 +322,7 @@ Status RuntimeFilterMergeControllerEntity::merge(const PMergeFilterRequest* requ
     // iter->second = pair{CntlVal,SpinLock}
     cntVal = iter->second.first;
     {
-        std::lock_guard<SpinLock> l(*iter->second.second);
+        std::lock_guard<std::mutex> l(*iter->second.second);
         MergeRuntimeFilterParams params(request, attach_data);
         ObjectPool* pool = cntVal->pool.get();
         RuntimeFilterWrapperHolder holder;

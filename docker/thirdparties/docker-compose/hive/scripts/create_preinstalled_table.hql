@@ -632,6 +632,17 @@ insert into `schema_evo_test_orc` select 2, "messi", from_unixtime(to_unix_times
 SET hive.support.concurrency=true;
 SET hive.txn.manager=org.apache.hadoop.hive.ql.lockmgr.DbTxnManager;
 
+create table orc_full_acid_empty (id INT, value STRING)
+CLUSTERED BY (id) INTO 3 BUCKETS
+STORED AS ORC
+TBLPROPERTIES ('transactional' = 'true');
+
+create table orc_full_acid_par_empty (id INT, value STRING)
+PARTITIONED BY (part_col INT)
+CLUSTERED BY (id) INTO 3 BUCKETS
+STORED AS ORC
+TBLPROPERTIES ('transactional' = 'true');
+
 create table orc_full_acid (id INT, value STRING)
 CLUSTERED BY (id) INTO 3 BUCKETS
 STORED AS ORC

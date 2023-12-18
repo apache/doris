@@ -221,6 +221,37 @@ public class StatisticsAutoCollectorTest {
     }
 
     @Test
+    public void testSkipWideTable() {
+
+        TableIf tableIf = new OlapTable();
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public List<Column> getBaseSchema() {
+                return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
+            }
+        };
+
+        new MockUp<StatisticsUtil>() {
+            int count = 0;
+            int [] thresholds = {1, 10};
+            @Mock
+            public TableIf findTable(long catalogName, long dbName, long tblName) {
+                return tableIf;
+            }
+
+            @Mock
+            public int getAutoAnalyzeTableWidthThreshold() {
+                return thresholds[count++];
+            }
+        };
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().build();
+        StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
+        Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
+        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
+    }
+
+    @Test
     public void testLoop() {
         AtomicBoolean timeChecked = new AtomicBoolean();
         AtomicBoolean switchChecked = new AtomicBoolean();
@@ -247,7 +278,7 @@ public class StatisticsAutoCollectorTest {
     @Test
     public void checkAvailableThread() {
         StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
-        Assertions.assertEquals(Config.full_auto_analyze_simultaneously_running_task_num,
+        Assertions.assertEquals(Config.auto_analyze_simultaneously_running_task_num,
                 autoCollector.analysisTaskExecutor.executors.getMaximumPoolSize());
     }
 

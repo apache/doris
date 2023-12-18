@@ -521,6 +521,9 @@ public class CascadesContext implements ScheduleContext {
                 cascadesContext.extractTables(plan);
             }
             for (TableIf table : cascadesContext.tables.values()) {
+                if (!table.needReadLockWhenPlan()) {
+                    continue;
+                }
                 if (!table.tryReadLock(1, TimeUnit.MINUTES)) {
                     close();
                     throw new RuntimeException(String.format("Failed to get read lock on table: %s", table.getName()));

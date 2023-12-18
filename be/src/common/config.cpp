@@ -956,6 +956,7 @@ DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_mBool(enable_workload_group_for_scan, "false");
+DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -1084,7 +1085,7 @@ DEFINE_Int32(group_commit_insert_threads, "10");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
 
-DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
 
 DEFINE_Bool(exit_on_exception, "false");
 
@@ -1104,6 +1105,8 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
 DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
+
+DEFINE_Bool(enable_snapshot_action, "false");
 
 // clang-format off
 #ifdef BE_TEST

@@ -25,6 +25,7 @@ import org.apache.doris.analysis.AdminShowReplicaStatusStmt;
 import org.apache.doris.analysis.AdminShowTabletStorageFormatStmt;
 import org.apache.doris.analysis.DescribeStmt;
 import org.apache.doris.analysis.HelpStmt;
+import org.apache.doris.analysis.LimitElement;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.ShowAlterStmt;
 import org.apache.doris.analysis.ShowAnalyzeStmt;
@@ -179,6 +180,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecord;
 import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
@@ -1616,9 +1618,33 @@ public class ShowExecutor {
             List<List<String>> rows = ((PartitionsProcDir) procNodeI).fetchResultByFilter(showStmt.getFilterMap(),
                     showStmt.getOrderByPairs(), showStmt.getLimitElement()).getRows();
             resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
+        } else if (showStmt.getCatalog() instanceof MaxComputeExternalCatalog) {
+            handleShowMaxComputeTablePartitions(showStmt);
         } else {
             handleShowHMSTablePartitions(showStmt);
         }
+    }
+
+    private void handleShowMaxComputeTablePartitions(ShowPartitionsStmt showStmt) {
+        MaxComputeExternalCatalog catalog = (MaxComputeExternalCatalog) (showStmt.getCatalog());
+        List<List<String>> rows = new ArrayList<>();
+        String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
+        List<String> partitionNames;
+        LimitElement limit = showStmt.getLimitElement();
+        if (limit != null && limit.hasLimit()) {
+            partitionNames = catalog.listPartitionNames(dbName,
+                    showStmt.getTableName().getTbl(), limit.getOffset(), limit.getLimit());
+        } else {
+            partitionNames = catalog.listPartitionNames(dbName, showStmt.getTableName().getTbl());
+        }
+        for (String partition : partitionNames) {
+            List<String> list = new ArrayList<>();
+            list.add(partition);
+            rows.add(list);
+        }
+        // sort by partition name
+        rows.sort(Comparator.comparing(x -> x.get(0)));
+        resultSet = new ShowResultSet(showStmt.getMetaData(), rows);
     }
 
     private void handleShowHMSTablePartitions(ShowPartitionsStmt showStmt) {
@@ -1626,8 +1652,15 @@ public class ShowExecutor {
         List<List<String>> rows = new ArrayList<>();
         String dbName = ClusterNamespace.getNameFromFullName(showStmt.getTableName().getDb());
 
-        List<String> partitionNames = catalog.getClient().listPartitionNames(dbName,
-                showStmt.getTableName().getTbl());
+        List<String> partitionNames;
+        LimitElement limit = showStmt.getLimitElement();
+        if (limit != null && limit.hasLimit()) {
+            // only limit is valid on Hive
+            partitionNames = catalog.getClient()
+                    .listPartitionNames(dbName, showStmt.getTableName().getTbl(), limit.getLimit());
+        } else {
+            partitionNames = catalog.getClient().listPartitionNames(dbName, showStmt.getTableName().getTbl());
+        }
         for (String partition : partitionNames) {
             List<String> list = new ArrayList<>();
             list.add(partition);
@@ -2590,37 +2623,51 @@ public class ShowExecutor {
         List<List<String>> resultRows = Lists.newArrayList();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
-            List<String> row = new ArrayList<>();
-            row.add(String.valueOf(analysisInfo.jobId));
-            CatalogIf<? extends DatabaseIf<? extends TableIf>> c = StatisticsUtil.findCatalog(analysisInfo.catalogId);
-            row.add(c.getName());
-            Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
-            row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
-            if (databaseIf.isPresent()) {
-                Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
-                row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
-            } else {
-                row.add("DB may get deleted");
+            try {
+                List<String> row = new ArrayList<>();
+                row.add(String.valueOf(analysisInfo.jobId));
+                CatalogIf<? extends DatabaseIf<? extends TableIf>> c
+                        = StatisticsUtil.findCatalog(analysisInfo.catalogId);
+                row.add(c.getName());
+                Optional<? extends DatabaseIf<? extends TableIf>> databaseIf = c.getDb(analysisInfo.dbId);
+                row.add(databaseIf.isPresent() ? databaseIf.get().getFullName() : "DB may get deleted");
+                if (databaseIf.isPresent()) {
+                    Optional<? extends TableIf> table = databaseIf.get().getTable(analysisInfo.tblId);
+                    row.add(table.isPresent() ? table.get().getName() : "Table may get deleted");
+                } else {
+                    row.add("DB may get deleted");
+                }
+                row.add(analysisInfo.colName);
+                row.add(analysisInfo.jobType.toString());
+                row.add(analysisInfo.analysisType.toString());
+                row.add(analysisInfo.message);
+                row.add(TimeUtils.DATETIME_FORMAT.format(
+                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
+                        ZoneId.systemDefault())));
+                row.add(analysisInfo.state.toString());
+                try {
+                    row.add(showStmt.isAuto()
+                            ? analysisInfo.progress
+                            : Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
+                } catch (Exception e) {
+                    row.add("N/A");
+                    LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
+                }
+                row.add(analysisInfo.scheduleType.toString());
+                LocalDateTime startTime =
+                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
+                        java.time.ZoneId.systemDefault());
+                LocalDateTime endTime =
+                        LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
+                        java.time.ZoneId.systemDefault());
+                row.add(startTime.format(formatter));
+                row.add(endTime.format(formatter));
+                resultRows.add(row);
+            } catch (Exception e) {
+                LOG.warn("Failed to get analyze info for table {}.{}.{}, reason: {}",
+                        analysisInfo.catalogId, analysisInfo.dbId, analysisInfo.tblId, e.getMessage());
+                continue;
             }
-            row.add(analysisInfo.colName);
-            row.add(analysisInfo.jobType.toString());
-            row.add(analysisInfo.analysisType.toString());
-            row.add(analysisInfo.message);
-            row.add(TimeUtils.DATETIME_FORMAT.format(
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
-                            ZoneId.systemDefault())));
-            row.add(analysisInfo.state.toString());
-            row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
-            row.add(analysisInfo.scheduleType.toString());
-            LocalDateTime startTime =
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
-                            java.time.ZoneId.systemDefault());
-            LocalDateTime endTime =
-                    LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.endTime),
-                            java.time.ZoneId.systemDefault());
-            row.add(startTime.format(formatter));
-            row.add(endTime.format(formatter));
-            resultRows.add(row);
         }
         resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }

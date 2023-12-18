@@ -33,6 +33,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 
 // INSERT INTO table_map VALUES ({'key1':1, 'key2':10, 'k3':100}), ({'key1':2,'key2':20}), ({'key1':3,'key2':30});
@@ -205,5 +206,23 @@ public class MapLiteral extends LiteralExpr {
         for (Expr e : children) {
             Expr.writeTo(e, out);
         }
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hashCode(children);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof MapLiteral)) {
+            return false;
+        }
+        if (this == o) {
+            return true;
+        }
+
+        MapLiteral that = (MapLiteral) o;
+        return Objects.equals(children, that.children);
     }
 }

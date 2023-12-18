@@ -142,8 +142,7 @@
                     "label": "Doris Partition",
                     "items": [
                         "advanced/partition/dynamic-partition",
-                        "advanced/partition/table-temp-partition",
-                        "advanced/partition/auto-partition"
+                        "advanced/partition/table-temp-partition"
                     ]
                 },
                 {
@@ -235,7 +234,6 @@
                 "ecosystem/datax",
                 "ecosystem/seatunnel",
                 "ecosystem/kyuubi",
-                "ecosystem/mysql-to-doris",
                 "ecosystem/logstash",
                 "ecosystem/beats",
                 "ecosystem/plugin-development-manual",
@@ -1328,6 +1326,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",

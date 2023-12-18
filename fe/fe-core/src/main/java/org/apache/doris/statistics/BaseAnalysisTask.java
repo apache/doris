@@ -92,8 +92,8 @@ public abstract class BaseAnalysisTask {
             + "${rowCount} AS `row_count`, "
             + "${ndvFunction} as `ndv`, "
             + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
-            + "'${min}' AS `min`, "
-            + "'${max}' AS `max`, "
+            + "${min} AS `min`, "
+            + "${max} AS `max`, "
             + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
             + "NOW() "
             + "FROM ( "
@@ -115,8 +115,8 @@ public abstract class BaseAnalysisTask {
             + "${row_count} AS `row_count`, "
             + "${ndv} AS `ndv`, "
             + "${null_count} AS `null_count`, "
-            + "'${min}' AS `min`, "
-            + "'${max}' AS `max`, "
+            + "${min} AS `min`, "
+            + "${max} AS `max`, "
             + "${data_size} AS `data_size`, "
             + "NOW() ";
 
@@ -181,7 +181,7 @@ public abstract class BaseAnalysisTask {
 
     protected void executeWithRetry() {
         int retriedTimes = 0;
-        while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+        while (retriedTimes < StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
             if (killed) {
                 break;
             }
@@ -193,7 +193,7 @@ public abstract class BaseAnalysisTask {
                     throw new RuntimeException(t);
                 }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
-                if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                if (retriedTimes >= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     job.taskFailed(this, t.getMessage());
                     throw new RuntimeException(t);
                 }
@@ -252,7 +252,7 @@ public abstract class BaseAnalysisTask {
 
     protected String getMinFunction() {
         if (tableSample == null) {
-            return "to_base64(CAST(MIN(`${colName}`) as ${type})) ";
+            return "CAST(MIN(`${colName}`) as ${type}) ";
         } else {
             // Min value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
             return "NULL";
@@ -276,7 +276,7 @@ public abstract class BaseAnalysisTask {
     // Max value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
     protected String getMaxFunction() {
         if (tableSample == null) {
-            return "to_base64(CAST(MAX(`${colName}`) as ${type})) ";
+            return "CAST(MAX(`${colName}`) as ${type}) ";
         } else {
             return "NULL";
         }
@@ -311,11 +311,11 @@ public abstract class BaseAnalysisTask {
         this.job = job;
     }
 
-    protected void runQuery(String sql, boolean needEncode) {
+    protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
-            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0), needEncode);
+            ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
             job.appendBuf(this, Collections.singletonList(colStatsData));
         } finally {
             LOG.debug("End cost time in secs: " + (System.currentTimeMillis() - startTime) / 1000);

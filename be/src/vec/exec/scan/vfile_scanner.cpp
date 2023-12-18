@@ -658,7 +658,7 @@ Status VFileScanner::_get_next_reader() {
         }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
-        if (_next_range >= _ranges.size()) {
+        if (_next_range >= _ranges.size() || _should_stop) {
             _scanner_eof = true;
             _state->update_num_finished_scan_range(1);
             return Status::OK();
@@ -686,13 +686,13 @@ Status VFileScanner::_get_next_reader() {
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
-            if (_real_tuple_desc->table_desc()->table_type() ==
-                ::doris::TTableType::type::MAX_COMPUTE_TABLE) {
-                const MaxComputeTableDescriptor* mc_desc =
-                        static_cast<const MaxComputeTableDescriptor*>(
-                                _real_tuple_desc->table_desc());
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "max_compute") {
+                const auto* mc_desc = static_cast<const MaxComputeTableDescriptor*>(
+                        _real_tuple_desc->table_desc());
                 std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
-                        mc_desc, _file_slot_descs, range, _state, _profile);
+                        mc_desc, range.table_format_params.max_compute_params, _file_slot_descs,
+                        range, _state, _profile);
                 init_status = mc_reader->init_reader(_colname_to_value_range);
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
@@ -1042,6 +1042,13 @@ Status VFileScanner::close(RuntimeState* state) {
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
+}
+
+void VFileScanner::try_stop() {
+    VScanner::try_stop();
+    if (_io_ctx) {
+        _io_ctx->should_stop = true;
+    }
 }
 
 } // namespace doris::vectorized

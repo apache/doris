@@ -93,6 +93,8 @@ public:
         return Base::create(std::forward<Args>(args)...);
     }
 
+    void update_null_data();
+
     MutableColumnPtr get_shrinked_column() override;
 
     const char* get_family_name() const override { return "Nullable"; }

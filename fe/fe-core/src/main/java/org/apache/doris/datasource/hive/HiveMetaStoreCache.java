@@ -90,6 +90,7 @@ import java.io.FileNotFoundException;
 import java.net.URI;
 import java.security.PrivilegedExceptionAction;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -319,6 +320,10 @@ public class HiveMetaStoreCache {
     }
 
     private Map<PartitionCacheKey, HivePartition> loadPartitions(Iterable<? extends PartitionCacheKey> keys) {
+        Map<PartitionCacheKey, HivePartition> ret = new HashMap<>();
+        if (keys == null || !keys.iterator().hasNext()) {
+            return ret;
+        }
         PartitionCacheKey oneKey = Iterables.get(keys, 0);
         String dbName = oneKey.getDbName();
         String tblName = oneKey.getTblName();
@@ -340,7 +345,6 @@ public class HiveMetaStoreCache {
         }).collect(Collectors.toList());
         List<Partition> partitions = catalog.getClient().getPartitions(dbName, tblName, partitionNames);
         // Compose the return result map.
-        Map<PartitionCacheKey, HivePartition> ret = new HashMap<>();
         for (Partition partition : partitions) {
             StorageDescriptor sd = partition.getSd();
             ret.put(new PartitionCacheKey(dbName, tblName, partition.getValues()),
@@ -788,6 +792,9 @@ public class HiveMetaStoreCache {
                 } else {
                     directory = AcidUtils.getAcidState(new Path(partition.getPath()), jobConf, validWriteIds, false,
                             true);
+                }
+                if (directory == null || directory.getBaseDirectory() == null) {
+                    return Collections.emptyList();
                 }
                 if (!directory.getOriginalFiles().isEmpty()) {
                     throw new Exception("Original non-ACID files in transactional tables are not supported");

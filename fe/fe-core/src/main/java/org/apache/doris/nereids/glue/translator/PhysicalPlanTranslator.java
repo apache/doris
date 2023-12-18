@@ -595,7 +595,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapScanNode olapScanNode = new OlapScanNode(olapScan.translatePlanNodeId(), tupleDescriptor, "OlapScanNode");
         // TODO: move all node set cardinality into one place
         if (olapScan.getStats() != null) {
-            olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
+            // NOTICE: we should not set stats row count
+            //   because it is whole table cardinality and will break block rules.
+            // olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
             if (ConnectContext.get().getSessionVariable().forbidUnknownColStats) {
                 for (int i = 0; i < slots.size(); i++) {
                     Slot slot = slots.get(i);

@@ -1854,7 +1854,7 @@ public class Config extends ConfigBase {
      * otherwise it will throw an AnalysisException.
      */
     @ConfField(mutable = true, expType = ExperimentalType.EXPERIMENTAL)
-    public static boolean enable_query_hive_views = false;
+    public static boolean enable_query_hive_views = true;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
@@ -1963,7 +1963,7 @@ public class Config extends ConfigBase {
      * OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
      */
     @ConfField
-    public static String bdbje_file_logging_level = "ALL";
+    public static String bdbje_file_logging_level = "INFO";
 
     /**
      * When holding lock time exceeds the threshold, need to report it.
@@ -2122,7 +2122,7 @@ public class Config extends ConfigBase {
             "暂时性配置项，开启后会自动将所有的olap表修改为可light schema change",
             "temporary config filed, will make all olap tables enable light schema change"
     })
-    public static boolean enable_convert_light_weight_schema_change = true;
+    public static boolean enable_convert_light_weight_schema_change = false;
     @ConfField(mutable = true, masterOnly = false, description = {
             "查询information_schema.metadata_name_ids表时,获取一个数据库中所有表用的时间",
             "When querying the information_schema.metadata_name_ids table,"
@@ -2156,7 +2156,7 @@ public class Config extends ConfigBase {
     public static int autobucket_min_buckets = 1;
 
     @ConfField
-    public static int full_auto_analyze_simultaneously_running_task_num = 1;
+    public static int auto_analyze_simultaneously_running_task_num = 1;
 
     @ConfField
     public static final int period_analyze_simultaneously_running_task_num = 1;
@@ -2210,9 +2210,25 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
+    @ConfField(masterOnly = true, description = {
+        "设置 root 用户初始化2阶段 SHA-1 加密密码，默认为''，即不设置 root 密码。"
+            + "后续 root 用户的 `set password` 操作会将 root 初始化密码覆盖。"
+            + "示例：如要配置密码的明文是 `root@123`，可在Doris执行SQL `select password('root@123')` "
+            + "获取加密密码 `*A00C34073A26B40AB4307650BFB9309D6BFA6999`",
+        "Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. "
+            + "Subsequent `set password` operations for root user will overwrite the initial root password. "
+            + "Example: If you want to configure a plaintext password `root@123`."
+            + "You can execute Doris SQL `select password('root@123')` to generate encrypted "
+            + "password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`"})
+    public static String initial_root_password = "";
+
     @ConfField(description = {
             "限制fe节点thrift server可以接收的最大包大小,默认20M,设置为-1表示不限制",
             "the max package size fe thrift server can receive,avoid accepting error"
             + "or too large package causing OOM,default 20000000(20M),set -1 for unlimited. "})
     public static int fe_thrift_max_pkg_bytes = 20000000;
+
+    @ConfField(description = {"是否开启通过http接口获取log文件的功能",
+            "Whether to enable the function of getting log files through http interface"})
+    public static boolean enable_get_log_file_api = false;
 }

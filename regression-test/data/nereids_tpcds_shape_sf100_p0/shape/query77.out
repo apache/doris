@@ -30,21 +30,22 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[store]
 ------------------------PhysicalProject
---------------------------hashAgg[LOCAL]
-----------------------------PhysicalProject
-------------------------------hashJoin[INNER_JOIN](store_returns.sr_store_sk = store.s_store_sk)
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_returns]
---------------------------------------PhysicalDistribute
+--------------------------hashAgg[GLOBAL]
+----------------------------PhysicalDistribute
+------------------------------hashAgg[LOCAL]
+--------------------------------PhysicalProject
+----------------------------------hashJoin[INNER_JOIN](store_returns.sr_store_sk = store.s_store_sk)
+------------------------------------PhysicalProject
+--------------------------------------hashJoin[INNER_JOIN](store_returns.sr_returned_date_sk = date_dim.d_date_sk)
 ----------------------------------------PhysicalProject
-------------------------------------------filter((date_dim.d_date <= '1998-09-04')(date_dim.d_date >= '1998-08-05'))
---------------------------------------------PhysicalOlapScan[date_dim]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store]
+------------------------------------------PhysicalOlapScan[store_returns]
+----------------------------------------PhysicalDistribute
+------------------------------------------PhysicalProject
+--------------------------------------------filter((date_dim.d_date <= '1998-09-04')(date_dim.d_date >= '1998-08-05'))
+----------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[store]
 --------------------PhysicalProject
 ----------------------NestedLoopJoin[CROSS_JOIN]
 ------------------------PhysicalProject

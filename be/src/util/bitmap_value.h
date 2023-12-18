@@ -2172,7 +2172,7 @@ public:
 
     // Return how many bytes are required to serialize this bitmap.
     // See BitmapTypeCode for the serialized format.
-    size_t getSizeInBytes() const {
+    size_t getSizeInBytes() {
         size_t res = 0;
         switch (_type) {
         case EMPTY:
@@ -2186,6 +2186,7 @@ public:
             }
             break;
         case BITMAP:
+            _prepare_bitmap_for_write();
             _bitmap->runOptimize();
             _bitmap->shrinkToFit();
             res = _bitmap->getSizeInBytes(config::bitmap_serialize_version);

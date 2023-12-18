@@ -998,6 +998,7 @@ DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
 DECLARE_mBool(enable_workload_group_for_scan);
+DECLARE_mInt64(workload_group_scan_task_wait_timeout_ms);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -1160,6 +1161,9 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 DECLARE_Int32(download_binlog_rate_limit_kbs);
 
 DECLARE_mInt32(buffered_reader_read_timeout_ms);
+
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
 
 #ifdef BE_TEST
 // test s3

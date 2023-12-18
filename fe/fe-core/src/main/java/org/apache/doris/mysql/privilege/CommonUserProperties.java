@@ -110,10 +110,6 @@ public class CommonUserProperties implements Writable {
     }
 
     public Set<Tag> getResourceTags() {
-        // If resource tags in user properties is empty, use default backend tag.
-        if (resourceTags.isEmpty()) {
-            return Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
-        }
         return resourceTags;
     }
 

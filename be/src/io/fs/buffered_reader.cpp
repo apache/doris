@@ -474,6 +474,10 @@ void PrefetchBuffer::prefetch_buffer() {
         return;
     }
     if (!s.ok() && _offset < _reader->size()) {
+        // We should print the error msg since this buffer might not be accessed by the consumer
+        // which would result in the status being missed
+        LOG_WARNING("prefetch path {} failed, offset {}, error {}", _reader->path().native(),
+                    _offset, s.to_string());
         _prefetch_status = std::move(s);
     }
     _buffer_status = BufferStatus::PREFETCHED;

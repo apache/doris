@@ -49,7 +49,7 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
             qt_q4 """ select * from mc_parts where dt = '2020-09-21' """
             qt_q5 """ select * from mc_parts where dt = '2021-08-21' """
             qt_q6 """ select * from mc_parts where dt = '2020-09-21' and mc_bigint > 6223 """
-            qt_q7 """ select * from mc_parts where dt = '2020-09-21' or mc_bigint > 0 """
+            qt_q7 """ select * from mc_parts where dt = '2020-09-21' or (mc_bigint > 0 and dt > '2020-09-20') order by mc_bigint, dt limit 3; """
         }
 
         sql """ switch `${mc_catalog_name}`; """
@@ -73,5 +73,20 @@ suite("test_external_catalog_maxcompute", "p2,external,maxcompute,external_remot
         sql """ switch `${mc_catalog_name}`; """
         sql """ use `${mc_db}`; """
         qt_replay_q6 """ select * from mc_parts where dt = '2020-09-21' and mc_bigint > 6223 """
+        
+        // test multi partitions prune
+        sql """ refresh catalog ${mc_catalog_name} """
+        sql """ switch `${mc_catalog_name}`; """
+        sql """ use `${mc_db}`; """
+        qt_multi_partition_q1 """ show partitions from multi_partitions limit 5,3; """
+        qt_multi_partition_q2 """ select pt, create_time, yy, mm, dd from multi_partitions where pt>-1 and yy > '' and mm > '' and dd >'' order by pt desc, dd desc limit 3; """
+        qt_multi_partition_q3 """ select sum(pt), create_time, yy, mm, dd from multi_partitions where yy > '' and mm > '' and dd >'' group by create_time, yy, mm, dd order by dd limit 3; """
+        qt_multi_partition_q4 """ select count(*) from multi_partitions where pt>-1 and yy > '' and mm > '' and dd <= '30'; """
+        qt_multi_partition_q5 """ select create_time, yy, mm, dd from multi_partitions where yy = '2021' and mm='12' and dd='21' order by pt limit 3; """
+        qt_multi_partition_q6 """ select max(pt), yy, mm from multi_partitions where yy = '2021' and mm='12' group by yy, mm order by yy, mm; """
+        qt_multi_partition_q7 """ select count(*) from multi_partitions where yy < '2022'; """
+        qt_multi_partition_q8 """ select count(*) from multi_partitions where pt>=14; """
+        qt_multi_partition_q9 """ select city,mnt,gender,finished_time,order_rate,cut_date,create_time,pt, yy, mm, dd from multi_partitions where pt >= 12 and pt < 14 and finished_time is not null; """
+        qt_multi_partition_q10 """ select pt, yy, mm, dd from multi_partitions where pt >= 12 and create_time > '2022-04-23 11:11:00' order by pt, yy, mm, dd limit 3; """
     }
 }

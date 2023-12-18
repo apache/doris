@@ -17,12 +17,14 @@
 
 suite("test_analyze_with_agg_complex_type") {
     sql """drop table if exists test_agg_complex_type;"""
+    sql """set  enable_agg_state=true"""
 
     sql """create table test_agg_complex_type (
             datekey int,
             device_id bitmap BITMAP_UNION NULL,
                     hll_test hll hll_union,
-                    qs QUANTILE_STATE QUANTILE_UNION
+                    qs QUANTILE_STATE QUANTILE_UNION,
+                    agg_st_1 agg_state max_by(int ,int)
     )
     aggregate key (datekey)
     distributed by hash(datekey) buckets 1
@@ -30,9 +32,9 @@ suite("test_analyze_with_agg_complex_type") {
             "replication_num" = "1"
     );"""
 
-    sql """insert into test_agg_complex_type values (1,to_bitmap(1), hll_hash("11"), TO_QUANTILE_STATE("11", 1.0));"""
+    sql """insert into test_agg_complex_type values (1,to_bitmap(1), hll_hash("11"), TO_QUANTILE_STATE("11", 1.0), max_by_state(1,2));"""
     
-    sql """insert into test_agg_complex_type values (2, to_bitmap(1),  hll_hash("12"), TO_QUANTILE_STATE("11", 1.0));"""
+    sql """insert into test_agg_complex_type values (2, to_bitmap(1),  hll_hash("12"), TO_QUANTILE_STATE("11", 1.0), max_by_state(1,2));"""
     
     sql """ANALYZE TABLE test_agg_complex_type WITH SYNC"""
 
