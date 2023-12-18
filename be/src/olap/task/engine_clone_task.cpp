@@ -37,6 +37,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include <regex>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -390,7 +391,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         status = _download_files(&data_dir, remote_url_prefix, local_data_path);
         if (!status.ok()) [[unlikely]] {
             LOG_WARNING("failed to download snapshot from remote BE")
-                    .tag("url", remote_url_prefix)
+                    .tag("url", _mask_token(remote_url_prefix))
                     .error(status);
             continue; // Try another BE
         }
@@ -526,11 +527,11 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 
         std::string local_file_path = local_path + "/" + file_name;
 
-        LOG(INFO) << "clone begin to download file from: " << remote_file_url
+        LOG(INFO) << "clone begin to download file from: " << _mask_token(remote_file_url)
                   << " to: " << local_file_path << ". size(B): " << file_size
                   << ", timeout(s): " << estimate_timeout;
 
-        auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
+        auto download_cb = [this, &remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
@@ -546,7 +547,7 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             }
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << remote_file_url << ", file_size=" << file_size
+                             << ", remote_path=" << _mask_token(remote_file_url) << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
@@ -825,6 +826,11 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
+}
+
+std::string _mask_token(const std::string& str) {
+    std::regex pattern("token=[\\w|-]+");
+    return regex_replace(str, pattern, "token=******");
 }
 
 } // namespace doris
