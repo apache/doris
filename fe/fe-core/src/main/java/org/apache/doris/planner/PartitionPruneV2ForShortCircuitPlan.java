@@ -36,7 +36,7 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
     // map to record literal range to find specific partition
     private RangeMap<LiteralExpr, Long> partitionRangeMapByLiteral = new RangeMap<>();
     // last timestamp partitionRangeMapByLiteral updated
-    private long lastPartitionRangeMapUpdateTimestampS = 0;
+    private long lastPartitionRangeMapUpdateTimestampMs = 0;
 
     PartitionPruneV2ForShortCircuitPlan() {
         super();
@@ -45,7 +45,7 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
     public boolean update(Map<Long, PartitionItem> keyItemMap) {
         // interval to update partitionRangeMapByLiteral
         long partitionRangeMapUpdateIntervalS = 10;
-        if (System.currentTimeMillis() - lastPartitionRangeMapUpdateTimestampS
+        if (System.currentTimeMillis() - lastPartitionRangeMapUpdateTimestampMs
                     > partitionRangeMapUpdateIntervalS * 1000) {
             partitionRangeMapByLiteral = new RangeMap<>();
             // recalculate map
@@ -57,7 +57,7 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
                 partitionRangeMapByLiteral.put(partitionRange, entry.getKey());
             }
             LOG.debug("update partitionRangeMapByLiteral");
-            this.lastPartitionRangeMapUpdateTimestampS = System.currentTimeMillis();
+            this.lastPartitionRangeMapUpdateTimestampMs = System.currentTimeMillis();
             return true;
         }
         return false;
