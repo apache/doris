@@ -108,23 +108,26 @@ logger.info("Added 'update_all_be_config' function to Suite")
 
 
 Suite.metaClass._be_report = { String ip, int port, String reportName ->
-    def url = "http://${beIp}:${port}/api/report/${reportName}"
+    def url = "http://${ip}:${port}/api/report/${reportName}"
     def result = Http.GET(url, true)
     Http.checkHttpResult(result, NodeType.BE)
 }
 
+// before report, be need random sleep 5s
 Suite.metaClass.be_report_disk = { String ip, int port ->
     _be_report(ip, port, "disk")
 }
 
 logger.info("Added 'be_report_disk' function to Suite")
 
+// before report, be need random sleep 5s
 Suite.metaClass.be_report_tablet = { String ip, int port ->
     _be_report(ip, port, "tablet")
 }
 
 logger.info("Added 'be_report_tablet' function to Suite")
 
+// before report, be need random sleep 5s
 Suite.metaClass.be_report_task = { String ip, int port ->
     _be_report(ip, port, "task")
 }
