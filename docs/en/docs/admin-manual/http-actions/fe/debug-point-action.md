@@ -32,11 +32,11 @@ it can change variables or behaviors of the program.
 
 It is mainly used for unit test or regression test when it is impossible to trigger some exceptions through normal means.
 
-Each debug point has a name, we can name it whatever we want, there are swithes to enable and disable debug points, 
+Each debug point has a name, the name can be whatever we want, there are swithes to enable and disable debug points, 
 
 and we can also pass data to debug points.
 
-Both FE and BE support debug point, and after inserting debug point code, we need to recompile FE or BE.
+Both FE and BE support debug point, and after inserting debug point code, recompilation of FE or BE is needed.
 
 ## Code Example
 
@@ -80,7 +80,7 @@ To enable debug points globally, we need to set `enable_debug_points` to true,
 
 ## Activate Specified Debug Point
 
-After debug points are enabled globally by setting `enable_debug_points` to true,
+After debug points are enabled globally,
 we need to specify the debug point name we want to activate, this is done by sending a http request to FE or BE node,
 only after that, when the program running into the specified debug point, related code can be executed.
 
@@ -276,8 +276,9 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 
 ## Debug Points in Regression Test
 
-In community CI system, `enable_debug_points` configuration of FE and BE are set to true.
-The Regression test framework also provides methods to activate and deactivate perticular debug point, they are declared as below:
+In community CI system, `enable_debug_points` configuration of FE and BE are set to true.<br>
+The Regression test framework also provides methods to activate and deactivate perticular debug point, <br>
+they are declared as below:
 ```groovy
 // name is the debug point to activate, params is a list key-value pairs passed to debug point
 def enableDebugPointForAllFEs(String name, Map<String, String> params = null);
@@ -286,31 +287,32 @@ def enableDebugPointForAllBEs(String name, Map<String, String> params = null);
 def disableDebugPointForAllFEs(String name);
 def disableDebugPointForAllFEs(String name);
 ```
-We need to call `enableDebugPointForAllFEs`/`enableDebugPointForAllBEs` before those test actions we want to generate error, 
-and call `disableDebugPointForAllFEs`/`disableDebugPointForAllBEs` afterward.
+`enableDebugPointForAllFEs()` or `enableDebugPointForAllBEs()` needs to be called before test actions you want to generate error, <br>
+and `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` needs to be called later.
 
 ### Concurrent Issue
 
-Enabling debug points affects FE or BE globally, it could cause other concurrent tests of your pull request to fail unexpectly. 
-To avoid this, we has a convension that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0,
-and set group name to "nonConcurrent", because community CI system will run them serially. 
+Enabling debug points affects FE or BE globally, it could cause other concurrent tests of your pull request to fail unexpectly. <br>
+To avoid this, there's a convension that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0, <br>
+and their group name must be "nonConcurrent", because community CI system will run them serially. 
 
 ### Examples
 
 ```groovy
 // .groovy file of the test case must be in regression-test/suites/fault_injection_p0
-// and group name must be 'nonConcurrent'
+// and the group name must be 'nonConcurrent'
 suite('debugpoint_action', 'nonConcurrent') {
     try {
         // Activate debug point named "PublishVersionDaemon.stop_publish" in all FE,
-        // and pass argument timeout=1.
+        // and pass timeout=1.
         // Same as above, "execute" and "timeout" are pre-existing parameters.
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
         // Activate debug point named "Tablet.build_tablet_report_info.version_miss" in all BE,
-        // and pass argument: tablet_id='12345', version_miss=true and timeout=1
+        // and pass: tablet_id='12345', version_miss=true and timeout=1
         GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss',
                                                   [tablet_id:'12345', version_miss:true, timeout:1])
 
+        // Actions which will run into debug point and generate error
         sql """CREATE TABLE tbl_1 (k1 INT, k2 INT)
                DUPLICATE KEY (k1)
                DISTRIBUTED BY HASH(k1)
