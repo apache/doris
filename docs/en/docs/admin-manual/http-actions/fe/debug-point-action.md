@@ -36,7 +36,7 @@ Each debug point has a name, we can name it whatever we want, there are swithes 
 
 and we can also pass data to debug points.
 
-Both FE and BE support debug point, and after inserting the debug point code, we need to recompile FE or BE.
+Both FE and BE support debug point, and after inserting debug point code, we need to recompile FE or BE.
 
 ## Code Example
 
@@ -44,8 +44,8 @@ FE example
 
 ```java
 private Status foo() {
-	// dbug_fe_foo_do_nothing is the debug point name.
-	// When it's active，DebugPointUtil.isEnable("dbug_fe_foo_do_nothing") will return true.
+	// dbug_fe_foo_do_nothing is the debug point name,
+	// when it's active, DebugPointUtil.isEnable("dbug_fe_foo_do_nothing") returns true.
 	if (DebugPointUtil.isEnable("dbug_fe_foo_do_nothing")) {
       	return Status.Nothing;
     }
@@ -60,8 +60,8 @@ BE example
 
 ```c++
 void Status foo() {
-     // dbug_be_foo_do_nothing is the debug point name.
-     // When it's active，DBUG_EXECUTE_IF will execute the code block.
+     // dbug_be_foo_do_nothing is the debug point name,
+     // when it's active, DBUG_EXECUTE_IF will execute the code block.
      DBUG_EXECUTE_IF("dbug_be_foo_do_nothing",  { return Status.Nothing; });
    
      do_foo_action();
@@ -73,16 +73,16 @@ void Status foo() {
 
 ## Global Config
 
-To enable debug points globally, we need to set `enable_debug_points` to true.
+To enable debug points globally, we need to set `enable_debug_points` to true,
 
-`enable_debug_points` is located in FE's fe.conf and BE's be.conf。
+`enable_debug_points` is located in FE's fe.conf and BE's be.conf.
 
 
 ## Activate Specified Debug Point
 
-After debug points are enabled globally, 
-we need to specify a debug point name we want to activate, by sending a http request to FE or BE node,
-only after that, when program running into the specified debug point, related code can be executed.
+After debug points are enabled globally by setting `enable_debug_points` to true,
+we need to specify the debug point name we want to activate, this is done by sending a http request to FE or BE node,
+only after that, when the program running into the specified debug point, related code can be executed.
 
 ### API
 
@@ -97,7 +97,7 @@ POST /api/debug_point/add/{debug_point_name}[?timeout=<int>&execute=<int>]
     Debug point name. Required.
 
 * `timeout`
-    Timeout in seconds. When timeout, the debug point will be disable. Default is -1, never timeout. Optional.
+    Timeout in seconds. When timeout, the debug point will be deactivated. Default is -1, never timeout. Optional.
 
 * `execute`
     After activating, the max times the debug point can be executed. Default is -1,  unlimited times. Optional.  
@@ -137,8 +137,9 @@ When activating debug point, besides "timeout" and "execute" mentioned above, we
 POST /api/debug_point/add/{debug_point_name}[?k1=v1&k2=v2&k3=v3...]
 ```
 * `k1=v1` <br>
-  The parameters are passed in a key=value fashion, k1 is parameter name and v1 is parameter value, <br>
-  multiple key-value pairs are concatenated by `&`.
+  The parameter passing is in key-value fashion, e.g. k1 is name and v1 is value, <br>
+  multiple key-value pairs are concatenated by `&`, <br>
+  
 
   
 ### Request body
@@ -164,17 +165,17 @@ curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5
 ```
 NOTE:
 1. Inside FE and BE code, names and values of parameters are taken as strings.
-2. Parameter names and values in http request and FE/BE code are case sensitive.
-3. FE and BE share the same url path, it's just their IPs and Ports are different.
+2. Parameter names and values are case sensitive in http request and FE/BE code.
+3. FE and BE share same url paths of REST API, it's just their IPs and Ports are different.
 ```
 
-### Using parameters in FE and BE code
+### Use parameters in FE and BE code
 Following request activates debug point `OlapTableSink.write_random_choose_sink` in FE and passes two parameters, `needCatchUp` and `sinkNum`: 
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/OlapTableSink.write_random_choose_sink?needCatchUp=true&sinkNum=3"
 ```
 
-The code in FE checks debug point `OlapTableSink.write_random_choose_sink` and gets values of parameter `needCatchUp` and `sinkNum`:
+The code in FE checks debug point `OlapTableSink.write_random_choose_sink` and gets values:
 ```java
 private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
     DebugPoint debugPoint = DebugPointUtil.getDebugPoint("OlapTableSink.write_random_choose_sink");
@@ -192,7 +193,7 @@ Following request activates debug point `TxnManager.prepare_txn.random_failed` i
 curl -X POST "http://127.0.0.1:8040/api/debug_point/add/TxnManager.prepare_txn.random_failed?percent=0.7
 ```
 
-The code in BE checks debug point `TxnManager.prepare_txn.random_failed` and gets value of parameter `percent`:
+The code in BE checks debug point `TxnManager.prepare_txn.random_failed` and gets value:
 ```c++
 DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 		{if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
@@ -275,40 +276,57 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 
 ## Debug Points in Regression Test
 
-In regression test, the debug points are especially useful, and the framework provides methods to activate debug points.
-We can also use debug points in regression tests, in the test suite context, we can use GetDebugPoint().enableDebugPointForAllBEs(), to activate debug points in BE and GetDebugPoint().enableDebugPointForAllFEs(), to activate debug points in FEs before executing the test action.
+In community CI system, `enable_debug_points` configuration of FE and BE are set to true.
+The Regression test framework also provides methods to activate and deactivate perticular debug point, they are declared as below:
+```groovy
+// name is the debug point to activate, params is a list key-value pairs passed to debug point
+def enableDebugPointForAllFEs(String name, Map<String, String> params = null);
+def enableDebugPointForAllBEs(String name, Map<String, String> params = null);
+// name is the debug point to deactivate
+def disableDebugPointForAllFEs(String name);
+def disableDebugPointForAllFEs(String name);
+```
+We need to call `enableDebugPointForAllFEs`/`enableDebugPointForAllBEs` before those test actions we want to generate error, 
+and call `disableDebugPointForAllFEs`/`disableDebugPointForAllBEs` afterward.
+
+### Concurrent Issue
+
+Enabling debug points affects FE or BE globally, it could cause other concurrent tests of your pull request to fail unexpectly. 
+To avoid this, we has a convension that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0,
+and set group name to "nonConcurrent", because community CI system will run them serially. 
 
 ### Examples
 
-```java
+```groovy
+// .groovy file of the test case must be in regression-test/suites/fault_injection_p0
+// and group name must be 'nonConcurrent'
 suite('debugpoint_action', 'nonConcurrent') {
     try {
-        GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
-        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
-    } finally {
-        GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
-        GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
-    }
-}
-```
-The enableDebugPointForAllFE/senableDebugPointForAllBEs is declared as :
-def enableDebugPointForAllFEs(String name, Map<String, String> params = null)
-def enableDebugPointForAllBEs(String name, Map<String, String> params = null)
-where the first parameter is name of debug point to activate, the second parameter is a set of key-value pairs passed to the debug point.
-
-```java
-suite('debugpoint_action', 'nonConcurrent') {
-    try {
+        // Activate debug point named "PublishVersionDaemon.stop_publish" in all FE,
+        // and pass argument timeout=1.
+        // Same as above, "execute" and "timeout" are pre-existing parameters.
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
-        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss', [tablet_id:'12345', version_miss:true, timeout:1])
+        // Activate debug point named "Tablet.build_tablet_report_info.version_miss" in all BE,
+        // and pass argument: tablet_id='12345', version_miss=true and timeout=1
+        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss',
+                                                  [tablet_id:'12345', version_miss:true, timeout:1])
+
+        sql """CREATE TABLE tbl_1 (k1 INT, k2 INT)
+               DUPLICATE KEY (k1)
+               DISTRIBUTED BY HASH(k1)
+               BUCKETS 3
+               PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+            """
+        sql "INSERT INTO tbl_1 VALUES (1, 10)"
+        sql "INSERT INTO tbl_1 VALUES (2, 20)"
+        order_qt_select_1_1 'SELECT * FROM tbl_1'
+
     } finally {
         GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
         GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
     }
 }
 ```
-
-
 
 
 
