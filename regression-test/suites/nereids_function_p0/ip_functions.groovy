@@ -50,4 +50,9 @@ suite("ip_functions") {
     qt_ip28 "SELECT inet6_ntoa(unhex('aaaa@#'));"
     qt_ip29 "SELECT inet6_ntoa(unhex('\0'));"
     qt_ip30 "SELECT inet6_ntoa(unhex('00000000000000000000FFFF7F000001'));"
+
+    qt_ip31 "SELECT isipv4string('255.255.255.255');"
+    qt_ip32 "SELECT isipv4string('255.255.255.256');"
+    qt_ip33 "SELECT isipv6string('2001:5b0:23ff:fffa::113');"
+    qt_ip34 "SELECT isipv6string('2001:da8:e000:1691:2eaa:7eff:ffe7:7924e');"
 }

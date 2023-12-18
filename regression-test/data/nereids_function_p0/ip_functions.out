@@ -88,3 +88,15 @@ aaaa:aaaa:ffff:ffff:ffff:ffff:aaaa:aaaa
 
 -- !ip30 --
 ::ffff:127.0.0.1
+
+-- !ip31 --
+1
+
+-- !ip32 --
+0
+
+-- !ip33 --
+1
+
+-- !ip34 --
+0
