@@ -132,23 +132,25 @@ suite("partition_mv_rewrite") {
     sql """DROP TABLE IF EXISTS mv_10086"""
     sql"""
         CREATE MATERIALIZED VIEW mv_10086
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        BUILD IMMEDIATE REFRESH AUTO ON MANUAL
+        partition by(l_shipdate)
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
-        AS ${mv_def_sql}
+        AS 
+        ${mv_def_sql}
         """
 
     def job_name = getJobName(db, "mv_10086");
     waitingMTMVTaskFinished(job_name)
 
-//    explain {
-//        sql("${all_partition_sql}")
-//        contains "mv_10086"
-//    }
-//    explain {
-//        sql("${partition_sql}")
-//        contains "mv_10086"
-//    }
+    explain {
+        sql("${all_partition_sql}")
+        contains "mv_10086"
+    }
+    explain {
+        sql("${partition_sql}")
+        contains "mv_10086"
+    }
     // partition is invalid, so can not use partition 2023-10-17 to rewrite
     sql """
     insert into lineitem values 
@@ -156,27 +158,28 @@ suite("partition_mv_rewrite") {
     """
     // wait partition is invalid
     sleep(3000)
+    // only can use valid partition
     explain {
         sql("${all_partition_sql}")
         notContains "mv_10086"
     }
-//    explain {
-//        sql("${partition_sql}")
-//        contains "mv_10086"
-//    }
+    explain {
+        sql("${partition_sql}")
+        contains "mv_10086"
+    }
 
-//    sql """
-//    REFRESH MATERIALIZED VIEW mv_10086;
-//    """
-//    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
-//
-//    explain {
-//        sql("${all_partition_sql}")
-//        contains "mv_10086"
-//    }
-//    explain {
-//        sql("${partition_sql}")
-//        contains "mv_10086"
-//    }
-//    sql """DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
+    sql """
+    REFRESH MATERIALIZED VIEW mv_10086;
+    """
+    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
+
+    explain {
+        sql("${all_partition_sql}")
+        contains "mv_10086"
+    }
+    explain {
+        sql("${partition_sql}")
+        contains "mv_10086"
+    }
+    sql """DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
 }
