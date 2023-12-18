@@ -70,7 +70,8 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
                                                       arrow::ipc::IpcReadOptions::Defaults());
     if (!res_open.ok()) {
         LOG(WARNING) << "failed to open stream reader: " << res_open.status().message();
-        return Status::InternalError("failed to open stream reader: {}", res_open.status().message());
+        return Status::InternalError("failed to open stream reader: {}",
+                                     res_open.status().message());
     }
     auto reader = std::move(res_open).ValueUnsafe();
 
@@ -80,7 +81,8 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
         LOG(WARNING) << "failed to read batch: " << res_reader.status().message();
         return Status::InternalError("failed to read batch: {}", res_reader.status().message());
     }
-    std::vector<std::shared_ptr<arrow::RecordBatch>> out_batches = std::move(res_reader).ValueUnsafe();
+    std::vector<std::shared_ptr<arrow::RecordBatch>> out_batches =
+            std::move(res_reader).ValueUnsafe();
 
     // convert arrow batch to block
     auto columns = block->mutate_columns();
@@ -95,7 +97,8 @@ Status ArrowStreamReader::get_next_block(Block* block, size_t* read_rows, bool* 
             std::string column_name = batch.schema()->field(c)->name();
 
             try {
-                vectorized::ColumnWithTypeAndName& column_with_name = block->get_by_name(column_name);
+                vectorized::ColumnWithTypeAndName& column_with_name =
+                        block->get_by_name(column_name);
                 column_with_name.type->get_serde()->read_column_from_arrow(
                         column_with_name.column->assume_mutable_ref(), column, 0, num_rows, _ctzz);
             } catch (Exception& e) {
