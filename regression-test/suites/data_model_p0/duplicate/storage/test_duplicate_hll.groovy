@@ -49,21 +49,22 @@ suite("test_duplicate_table_hll") {
 
         // 1. insert from aggregate table
         sql "insert into ${tbName} select * from ${tbNameAgg};"
-        qt_sql "select k, hll_cardinality(v) from ${tbName} order by k, hll_cardinality(v);"
-        qt_sql "select HLL_UNION_AGG(v) from ${tbName};"
+        qt_from_agg "select k, hll_cardinality(v) from ${tbName} order by k, hll_cardinality(v);"
+        qt_from_agg "select HLL_UNION_AGG(v) from ${tbName};"
         // 2. insert into values
         sql """ insert into ${tbName} values (4, hll_hash(100)), (1, hll_hash(999)), (2, hll_hash(0));"""
-        qt_sql "select k, hll_cardinality(v) from ${tbName} order by k, hll_cardinality(v);"
-        qt_sql "select k, hll_cardinality(hll_union(v)) from ${tbName} group by k order by k, hll_cardinality(hll_union(v));"
-        qt_sql "select HLL_UNION_AGG(v) from ${tbName};"
+        qt_from_values "select k, hll_cardinality(v) from ${tbName} order by k, hll_cardinality(v);"
+        qt_from_values "select k, hll_cardinality(hll_union(v)) from ${tbName} group by k order by k, hll_cardinality(hll_union(v));"
+        qt_from_values "select HLL_UNION_AGG(v) from ${tbName};"
         // 3. insert from duplicate table
         sql "insert into ${tbName} select * from ${tbName};"
-        qt_sql "select k, hll_cardinality(v) from ${tbName} order by k, hll_cardinality(v);"
-        qt_sql "select k, hll_cardinality(hll_union(v)) from ${tbName} group by k order by k, hll_cardinality(hll_union(v));"
-        qt_sql "select HLL_UNION_AGG(v) from ${tbName};"
+        qt_from_dup "select k, hll_cardinality(v) from ${tbName} order by k, hll_cardinality(v);"
+        qt_from_dup "select k, hll_cardinality(hll_union(v)) from ${tbName} group by k order by k, hll_cardinality(hll_union(v));"
+        qt_from_dup "select HLL_UNION_AGG(v) from ${tbName};"
 
         sql "DROP TABLE IF EXISTS ${tbName};"
         sql "DROP TABLE IF EXISTS ${tbNameAgg};"
+
 
         tbName = "test_duplicate_hll3"
         sql "DROP TABLE IF EXISTS ${tbName}"
