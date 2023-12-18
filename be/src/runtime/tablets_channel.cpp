@@ -406,7 +406,7 @@ void BaseTabletsChannel::refresh_profile() {
 Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
-    for (auto& index : _schema->indexes()) {
+    for (const auto& index : _schema->indexes()) {
         if (index->index_id == _index_id) {
             index_slots = &index->slots;
             schema_hash = index->schema_hash;
@@ -430,7 +430,7 @@ Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& req
 #endif
 
     int tablet_cnt = 0;
-    for (auto& tablet : request.tablets()) {
+    for (const auto& tablet : request.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
         }
@@ -513,23 +513,7 @@ Status BaseTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request
 
     std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>
             tablet_to_rowidxs;
-    for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
-        if (request.is_single_tablet_block()) {
-            break;
-        }
-        int64_t tablet_id = request.tablet_ids(i);
-        if (_is_broken_tablet(tablet_id)) {
-            // skip broken tablets
-            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
-            continue;
-        }
-        auto it = tablet_to_rowidxs.find(tablet_id);
-        if (it == tablet_to_rowidxs.end()) {
-            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<uint32_t> {i});
-        } else {
-            it->second.emplace_back(i);
-        }
-    }
+    _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
 
     vectorized::Block send_data;
     RETURN_IF_ERROR(send_data.deserialize(request.block()));
@@ -589,9 +573,34 @@ void BaseTabletsChannel::_add_broken_tablet(int64_t tablet_id) {
     _broken_tablets.insert(tablet_id);
 }
 
-bool BaseTabletsChannel::_is_broken_tablet(int64_t tablet_id) {
-    std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+bool BaseTabletsChannel::_is_broken_tablet(int64_t tablet_id) const {
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
+}
+
+void BaseTabletsChannel::_build_tablet_to_rowidxs(
+        const PTabletWriterAddBlockRequest& request,
+        std::unordered_map<int64_t, std::vector<uint32_t>>* tablet_to_rowidxs) {
+    // just add a coarse-grained read lock here rather than each time when visiting _broken_tablets
+    // tests show that a relatively coarse-grained read lock here performs better under multicore scenario
+    // see: https://github.com/apache/doris/pull/28552
+    std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+    for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
+        if (request.is_single_tablet_block()) {
+            break;
+        }
+        int64_t tablet_id = request.tablet_ids(i);
+        if (_is_broken_tablet(tablet_id)) {
+            // skip broken tablets
+            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
+            continue;
+        }
+        auto it = tablet_to_rowidxs->find(tablet_id);
+        if (it == tablet_to_rowidxs->end()) {
+            tablet_to_rowidxs->emplace(tablet_id, std::initializer_list<uint32_t> {i});
+        } else {
+            it->second.emplace_back(i);
+        }
+    }
 }
 
 } // namespace doris
