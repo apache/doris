@@ -37,16 +37,12 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
     private RangeMap<LiteralExpr, Long> partitionRangeMapByLiteral = new RangeMap<>();
     // last timestamp partitionRangeMapByLiteral updated
     private long lastPartitionRangeMapUpdateTimestampS = 0;
-    LiteralExpr lowerBoundLiteral;
-    LiteralExpr upperBoundLiteral;
 
     PartitionPruneV2ForShortCircuitPlan() {
         super();
     }
 
-    public boolean update(Map<Long, PartitionItem> keyItemMap, LiteralExpr lowerBound, LiteralExpr upperBound) {
-        this.lowerBoundLiteral = lowerBound;
-        this.upperBoundLiteral = upperBound;
+    public boolean update(Map<Long, PartitionItem> keyItemMap) {
         // interval to update partitionRangeMapByLiteral
         long partitionRangeMapUpdateIntervalS = 10;
         if (System.currentTimeMillis() - lastPartitionRangeMapUpdateTimestampS
@@ -67,10 +63,14 @@ public class PartitionPruneV2ForShortCircuitPlan extends PartitionPrunerV2Base {
         return false;
     }
 
+    public Collection<Long> prune(LiteralExpr lowerBound, LiteralExpr upperBound) throws AnalysisException {
+        Range<LiteralExpr> filterRangeValue = Range.closed(lowerBound, upperBound);
+        return partitionRangeMapByLiteral.getOverlappingRangeValues(filterRangeValue);
+    }
+
     @Override
     public Collection<Long> prune() throws AnalysisException {
-        Range<LiteralExpr> filterRangeValue = Range.closed(lowerBoundLiteral, upperBoundLiteral);
-        return partitionRangeMapByLiteral.getOverlappingRangeValues(filterRangeValue);
+        throw new AnalysisException("Not implemented");
     }
 
     @Override
