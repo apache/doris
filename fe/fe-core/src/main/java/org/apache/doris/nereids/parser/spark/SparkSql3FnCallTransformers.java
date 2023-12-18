@@ -75,7 +75,7 @@ public class SparkSql3FnCallTransformers extends AbstractFnCallTransformers {
         doRegister("to_date", "str_to_date",
                 Lists.newArrayList(
                         PlaceholderExpression.of(Expression.class, 1),
-                        PlaceholderExpression.of(Expression.class, 2)));;
+                        PlaceholderExpression.of(Expression.class, 2)));
     }
 
     private void registerNumericFunctionTransformers() {

@@ -59,7 +59,8 @@ public class CommonFnCallTransformer extends AbstractFnCallTransformer {
         }
         for (PlaceholderExpression targetArgument : targetArguments) {
             int position = targetArgument.getPosition();
-            if (!targetArgument.getDelegateClazz().isAssignableFrom(sourceFnTransformedArgClazz.get(position - 1))) {
+            Class<? extends Expression> sourceArgClazz = sourceFnTransformedArgClazz.get(position - 1);
+            if (!targetArgument.getDelegateClazz().isAssignableFrom(sourceArgClazz)) {
                 return false;
             }
         }
@@ -72,7 +73,7 @@ public class CommonFnCallTransformer extends AbstractFnCallTransformer {
             ParserContext context) {
         List<Expression> sourceFnTransformedArgumentsInorder = Lists.newArrayList();
         for (PlaceholderExpression placeholderExpression : targetArguments) {
-            Expression expression = sourceFnTransformedArguments.get(placeholderExpression.getPosition() -1);
+            Expression expression = sourceFnTransformedArguments.get(placeholderExpression.getPosition() - 1);
             sourceFnTransformedArgumentsInorder.add(expression);
         }
         return targetFunction.withChildren(sourceFnTransformedArgumentsInorder);

@@ -17,11 +17,11 @@
 
 package org.apache.doris.nereids.parser.spark;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserTestBase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import org.apache.commons.lang3.StringUtils;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
