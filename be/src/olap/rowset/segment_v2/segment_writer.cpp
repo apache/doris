@@ -584,7 +584,6 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
     const auto& cids_missing = _opts.rowset_ctx->partial_update_info->missing_cids;
     auto old_value_block = _tablet_schema->create_block_by_cids(cids_missing);
     CHECK(cids_missing.size() == old_value_block.columns());
-    auto mutable_old_columns = old_value_block.mutate_columns();
     bool has_row_column = _tablet_schema->store_row_column();
     // record real pos, key is input line num, value is old_block line num
     std::map<uint32_t, uint32_t> read_index;
@@ -607,6 +606,7 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                 }
                 continue;
             }
+            auto mutable_old_columns = old_value_block.mutate_columns();
             for (size_t cid = 0; cid < mutable_old_columns.size(); ++cid) {
                 TabletColumn tablet_column = _tablet_schema->column(cids_missing[cid]);
                 auto st = tablet->fetch_value_by_rowids(rowset, seg_it.first, rids, tablet_column,
@@ -617,10 +617,9 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                     return st;
                 }
             }
+            old_value_block.set_columns(std::move(mutable_old_columns));
         }
     }
-    old_value_block.set_columns(std::move(mutable_old_columns));
-
     // build default value columns
     auto default_value_block = old_value_block.clone_empty();
     auto mutable_default_value_columns = default_value_block.mutate_columns();
@@ -685,7 +684,6 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                     pos_in_old_block);
         }
     }
-    default_value_block.set_columns(std::move(mutable_default_value_columns));
     return Status::OK();
 }
 
