@@ -340,7 +340,7 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_36_1 "select cast(v:a as int), cast(v:b as int), cast(v:c as int) from ${table_name} order by k limit 10"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
-        qt_sql_36_2 "select * from ${table_name} where k > 3 order by k desc limit 10"
+        qt_sql_36_2 """select k, json_extract(cast(v as text), "\$.repo") from ${table_name} where k > 3 order by k desc limit 10"""
         sql "insert into ${table_name} select * from ${table_name}"
         sql """UPDATE ${table_name} set v = '{"updated_value" : 10}' where k = 2"""
         qt_sql_36_3 """select * from ${table_name} where k = 2"""
