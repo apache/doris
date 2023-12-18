@@ -602,7 +602,7 @@ DEFINE_Int32(load_process_soft_mem_limit_percent, "80");
 
 // If load memory consumption is within load_process_safe_mem_permit_percent,
 // memtable memory limiter will do nothing.
-DEFINE_Int32(load_process_safe_mem_permit_percent, "2");
+DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
