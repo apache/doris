@@ -520,8 +520,8 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
             filterparams->query_id.set_hi(_runtime_state->query_id().hi);
             filterparams->query_id.set_lo(_runtime_state->query_id().lo);
 
-            filterparams->fragment_instance_id.set_hi(fragment_instance_id.hi);
-            filterparams->fragment_instance_id.set_lo(fragment_instance_id.lo);
+            filterparams->_fragment_instance_id.set_hi(fragment_instance_id.hi);
+            filterparams->_fragment_instance_id.set_lo(fragment_instance_id.lo);
             filterparams->be_exec_version = _runtime_state->be_exec_version();
             filterparams->query_ctx = _query_ctx.get();
         }
