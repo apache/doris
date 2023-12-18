@@ -69,7 +69,8 @@ public class CommonFnCallTransformer extends AbstractFnCallTransformer {
         // if variableArguments=true, we can not recognize if the type of all arguments is valid or not,
         // because:
         //     1. the argument size is not sure
-        //     2. there are some functions which can accept different types of arguments, for example: struct(1, 'a', 'abc')
+        //     2. there are some functions which can accept different types of arguments,
+        //        for example: struct(1, 'a', 'abc')
         // so just return true here.
         if (variableArguments) {
             return true;
