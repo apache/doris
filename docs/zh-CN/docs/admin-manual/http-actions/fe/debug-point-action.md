@@ -260,3 +260,60 @@ POST /api/debug_point/clear
 ```
 curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 ```
+
+## 在回归测试中使用代码桩
+
+社区的 CI 系统默认开启 FE 和 BE 的`enable_debug_points`配置。
+回归测试框架提供了开关指定代码桩的方法函数，它们声明如下：
+
+```groovy
+// 打开代码桩，name 是代码桩名称，params是一个key-value列表，是传给代码桩的参数
+def enableDebugPointForAllFEs(String name, Map<String, String> params = null);
+def enableDebugPointForAllBEs(String name, Map<String, String> params = null);
+// 关闭代码桩，name 是代码桩的名称
+def disableDebugPointForAllFEs(String name);
+def disableDebugPointForAllFEs(String name);
+```
+需要在调用测试action之前调用 `enableDebugPointForAllFEs()` 或 `enableDebugPointForAllBEs()` 来开启代码桩， <br>
+这样执行到代码桩代码时，相关代码才会被执行，<br>
+然后在调用测试action之后调用 `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` 来关闭代码桩。
+
+### 并发问题
+
+FE 或 BE 中开启代码桩后会全局生效，提交了 Pull Request 后，可能并发跑的其它测试用例会受影响而意外失败。
+为了避免这种情况，我们规定，使用代码打桩的回归测试，必须放在 regression-test/suites/fault_injection_p0 目录下，
+且组名必须设置为 `nonConcurrent`，社区 CI 系统对于这些用例，会串行运行。
+
+### Examples
+
+```groovy
+// 测试用例的.groovy 文件必须放在 regression-test/suites/fault_injection_p0 目录下，
+// 且组名设置为 'nonConcurrent'
+suite('debugpoint_action', 'nonConcurrent') {
+    try {
+        // 打开所有FE中，名为 "PublishVersionDaemon.stop_publish" 的代码桩
+        // 传参数 timeout=1
+        // execute 和 timeout 是预设的参数，作用和上面curl调用时一样
+        GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
+        // 打开所有BE中，名为 "Tablet.build_tablet_report_info.version_miss" 的代码桩
+        // 传参数 tablet_id='12345', version_miss=true and timeout=1
+        GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss',
+                                                  [tablet_id:'12345', version_miss:true, timeout:1])
+
+        // 想要利用代码桩构造错误的测试用例
+        sql """CREATE TABLE tbl_1 (k1 INT, k2 INT)
+               DUPLICATE KEY (k1)
+               DISTRIBUTED BY HASH(k1)
+               BUCKETS 3
+               PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+            """
+        sql "INSERT INTO tbl_1 VALUES (1, 10)"
+        sql "INSERT INTO tbl_1 VALUES (2, 20)"
+        order_qt_select_1_1 'SELECT * FROM tbl_1'
+
+    } finally {
+        GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
+        GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
+    }
+}
+```
