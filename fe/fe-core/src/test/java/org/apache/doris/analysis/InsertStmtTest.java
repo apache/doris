@@ -36,7 +36,6 @@ import mockit.Injectable;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
-import org.junit.Test;
 import org.junit.jupiter.api.Disabled;
 
 import java.io.StringReader;
