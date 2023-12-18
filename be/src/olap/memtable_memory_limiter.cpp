@@ -38,6 +38,7 @@ bvar::Status<int64_t> g_memtable_flush_memory("mm_limiter_mem_flush", 0);
 bvar::Status<int64_t> g_memtable_load_memory("mm_limiter_mem_load", 0);
 bvar::Status<int64_t> g_load_hard_mem_limit("mm_limiter_limit_hard", 0);
 bvar::Status<int64_t> g_load_soft_mem_limit("mm_limiter_limit_soft", 0);
+bvar::Status<int64_t> g_orphan_memory("mm_limiter_mem_orphan", 0);
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -236,6 +237,7 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     g_memtable_load_memory.set_value(_mem_usage);
     VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
     THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
+    g_orphan_memory.set_value(ExecEnv::GetInstance()->orphan_mem_tracker()->consumption());
     if (!_hard_limit_reached()) {
         _hard_limit_end_cond.notify_all();
     }
