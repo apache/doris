@@ -56,6 +56,7 @@ Status compact_column(int32_t index_id, int src_segment_num, int dest_segment_nu
         dest_index_dirs[i] = DorisCompoundDirectory::getDirectory(fs, path.c_str(), true);
     }
 
+    DCHECK_EQ(src_index_dirs.size(), trans_vec.size());
     index_writer->indexCompaction(src_index_dirs, dest_index_dirs, trans_vec,
                                   dest_segment_num_rows);
 
