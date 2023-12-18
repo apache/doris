@@ -35,13 +35,11 @@ suite("explain_graph") {
         DISTRIBUTED BY HASH(`a`) BUCKETS 10
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "min_load_replica_num" = "-1",
         "is_being_synced" = "false",
         "storage_format" = "V2",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
-        "group_commit_interval_ms" = "10000"
+        "enable_single_replica_compaction" = "false"
         ); """
     
         sql "drop table if exists T2;"
@@ -56,13 +54,11 @@ suite("explain_graph") {
         DISTRIBUTED BY HASH(`a`) BUCKETS 10
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "min_load_replica_num" = "-1",
         "is_being_synced" = "false",
         "storage_format" = "V2",
         "light_schema_change" = "true",
         "disable_auto_compaction" = "false",
-        "enable_single_replica_compaction" = "false",
-        "group_commit_interval_ms" = "10000"
+        "enable_single_replica_compaction" = "false"
         ); """
         // make sure "explain graph" could work with "insert select" 
         sql "explain graph insert into T2 select * from T1"
