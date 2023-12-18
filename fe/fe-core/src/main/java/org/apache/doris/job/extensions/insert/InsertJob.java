@@ -17,7 +17,6 @@
 
 package org.apache.doris.job.extensions.insert;
 
-import org.apache.doris.analysis.LabelName;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
@@ -141,12 +140,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     @SerializedName("fm")
     private FailMsg failMsg;
     @SerializedName("plans")
-    private List<InsertIntoTableCommand> plans;
+    private List<InsertIntoTableCommand> plans = new ArrayList<>();
     private LoadStatistic loadStatistic = new LoadStatistic();
     private Set<Long> finishedTaskIds = new HashSet<>();
-    private Set<String> tableNames;
     private ConcurrentHashMap<Long, InsertTask> idToTasks = new ConcurrentHashMap<>();
-    private Map<String, String> properties;
+    private Map<String, String> properties = new HashMap<>();
+    private Set<String> tableNames;
     private AuthorizationInfo authorizationInfo;
 
     private ConnectContext ctx;
@@ -186,16 +185,15 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
     public InsertJob(String jobName,
                      JobStatus jobStatus,
-                     LabelName labelName,
+                     String dbName,
                      String comment,
                      UserIdentity createUser,
                      JobExecutionConfiguration jobConfig,
                      Long createTimeMs,
                      String executeSql) {
-        super(getNextJobId(), jobName, jobStatus, labelName.getDbName(), comment, createUser,
+        super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
                 jobConfig, createTimeMs, executeSql, null);
         this.dbId = ConnectContext.get().getCurrentDbId();
-        this.labelName = labelName.getLabelName();
     }
 
     public InsertJob(ConnectContext ctx,
@@ -331,7 +329,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     public void onTaskFail(InsertTask task) {
         try {
             updateJobStatus(JobStatus.STOPPED);
-            failMsg.setMsg(task.getErrMsg());
+            this.failMsg = new FailMsg(FailMsg.CancelType.LOAD_RUN_FAIL, task.getErrMsg());
         } catch (JobException e) {
             throw new RuntimeException(e);
         }
@@ -352,7 +350,11 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
             // jobId
             jobInfo.add(getJobId().toString());
             // label
-            jobInfo.add(getLabelName());
+            if (StringUtils.isEmpty(getLabelName())) {
+                jobInfo.add(FeConstants.null_string);
+            } else {
+                jobInfo.add(getLabelName());
+            }
             // state
             if (getJobStatus() == JobStatus.STOPPED) {
                 jobInfo.add("CANCELLED");
@@ -410,7 +412,13 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
             jobInfo.add(TimeUtils.longToTimeString(getFinishTimeMs()));
             // tracking urls
             List<String> trackingUrl = idToTasks.values().stream()
-                    .map(InsertTask::getTrackingUrl)
+                    .map(task -> {
+                        if (StringUtils.isNotEmpty(task.getTrackingUrl())) {
+                            return task.getTrackingUrl();
+                        } else {
+                            return FeConstants.null_string;
+                        }
+                    })
                     .collect(Collectors.toList());
             if (trackingUrl.isEmpty()) {
                 jobInfo.add(FeConstants.null_string);
@@ -504,7 +512,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     private void checkAuthWithoutAuthInfo(String command) throws DdlException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         // check auth
-        if (tableNames.isEmpty()) {
+        if (tableNames == null || tableNames.isEmpty()) {
             // forward compatibility
             if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db.getFullName(),
                     PrivPredicate.LOAD)) {
@@ -534,7 +542,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
     public String getResourceName() {
         // TODO: get tvf param from tvf relation
-        return LoadType.BULK.name();
+        return "N/A";
     }
 
     public boolean isRunning() {
@@ -552,7 +560,9 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     @Override
     public void onRegister() throws JobException {
         try {
-            Env.getCurrentEnv().getLabelProcessor().addJob(this);
+            if (StringUtils.isNotEmpty(labelName)) {
+                Env.getCurrentEnv().getLabelProcessor().addJob(this);
+            }
         } catch (LabelAlreadyUsedException e) {
             throw new JobException(e);
         }
@@ -569,11 +579,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
         JobExecutionConfiguration jobConfig = new JobExecutionConfiguration();
         jobConfig.setExecuteType(JobExecuteType.INSTANT);
         setJobConfig(jobConfig);
-        try {
-            Env.getCurrentEnv().getLabelProcessor().addJob(this);
-        } catch (LabelAlreadyUsedException e) {
-            throw new JobException(e);
-        }
+        onRegister();
         checkJobParams();
         log.info(new LogBuilder(LogKey.LOAD_JOB, getJobId()).add("msg", "replay create load job").build());
     }

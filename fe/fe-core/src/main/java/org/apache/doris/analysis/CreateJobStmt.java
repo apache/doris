@@ -41,7 +41,6 @@ import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashSet;
 import java.util.Set;
-import java.util.UUID;
 
 /**
  * syntax:
@@ -154,11 +153,11 @@ public class CreateJobStmt extends DdlStmt {
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt);
-        String jobName = labelName.getDbName() + "_" +  labelName.getLabelName()
-                + UUID.randomUUID().toString().replace("-", "_");
+        // create job use label name as its job name
+        String jobName = labelName.getLabelName();
         InsertJob job = new InsertJob(jobName,
                 JobStatus.RUNNING,
-                labelName,
+                labelName.getDbName(),
                 comment,
                 ConnectContext.get().getCurrentUserIdentity(),
                 jobExecutionConfiguration,
