@@ -34,6 +34,10 @@ suite("test_unique_table_hll") {
             sql """ CREATE TABLE IF NOT EXISTS ${tbName} ( k int, v hll ) UNIQUE KEY(k)
                     DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "${enable_mow}"); """
 
+            def result = sql "show create table ${tbName}"
+            logger.info("${result}")
+            assertTrue(result.toString().containsIgnoreCase('`v` HLL NOT NULL'))
+
             def tbNameAgg = "test_unique_hll_agg1"
             sql "DROP TABLE IF EXISTS ${tbNameAgg}"
             sql """ CREATE TABLE IF NOT EXISTS ${tbNameAgg} ( k int, v hll hll_union ) AGGREGATE KEY(k)

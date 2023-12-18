@@ -191,10 +191,7 @@ public class ColumnDefinition {
                 throw new AnalysisException("Type exceeds the maximum nesting depth of 9");
             }
         }
-        if (type.isHllType() || type.isQuantileStateType()) {
-            isNullable = false;
-        }
-        if (type.isBitmapType()) {
+        if (type.isHllType() || type.isQuantileStateType() || type.isBitmapType()) {
             if (aggType != null) {
                 isNullable = false;
             }

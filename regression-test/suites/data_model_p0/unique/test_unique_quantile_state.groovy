@@ -34,6 +34,10 @@ suite("test_unique_table_quantile_state") {
             sql """ CREATE TABLE IF NOT EXISTS ${tbName} ( k int, v QUANTILE_STATE ) UNIQUE KEY(k)
                     DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "${enable_mow}"); """
 
+            def result = sql "show create table ${tbName}"
+            logger.info("${result}")
+            assertTrue(result.toString().containsIgnoreCase('`v` QUANTILE_STATE NOT NULL'))
+
             def tbNameAgg = "test_unique_quantile_state_agg1"
             sql "DROP TABLE IF EXISTS ${tbNameAgg}"
             sql """ CREATE TABLE IF NOT EXISTS ${tbNameAgg} ( k int, v QUANTILE_STATE QUANTILE_UNION NOT NULL ) AGGREGATE KEY(k)

@@ -33,6 +33,10 @@ suite("test_duplicate_table_hll") {
         sql """ CREATE TABLE IF NOT EXISTS ${tbName} ( k int, v hll ) DUPLICATE KEY(k)
                 DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1"); """
 
+        def result = sql "show create table ${tbName}"
+        logger.info("${result}")
+        assertTrue(result.toString().containsIgnoreCase('`v` HLL NOT NULL'))
+
         def tbNameAgg = "test_duplicate_hll_agg1"
         sql "DROP TABLE IF EXISTS ${tbNameAgg}"
         sql """ CREATE TABLE IF NOT EXISTS ${tbNameAgg} ( k int, v hll hll_union ) AGGREGATE KEY(k)

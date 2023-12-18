@@ -33,6 +33,10 @@ suite("test_duplicate_table_quantile_state") {
         sql """ CREATE TABLE IF NOT EXISTS ${tbName} ( k int, v QUANTILE_STATE ) DUPLICATE KEY(k)
                 DISTRIBUTED BY HASH(k) BUCKETS 1 properties("replication_num" = "1"); """
 
+        def result = sql "show create table ${tbName}"
+        logger.info("${result}")
+        assertTrue(result.toString().containsIgnoreCase('`v` QUANTILE_STATE NOT NULL'))
+
         def tbNameAgg = "test_duplicate_quantile_state_agg1"
         sql "DROP TABLE IF EXISTS ${tbNameAgg}"
         sql """ CREATE TABLE IF NOT EXISTS ${tbNameAgg} ( k int, v QUANTILE_STATE QUANTILE_UNION NOT NULL ) AGGREGATE KEY(k)
