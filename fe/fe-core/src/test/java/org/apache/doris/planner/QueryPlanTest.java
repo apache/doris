@@ -2062,8 +2062,8 @@ public class QueryPlanTest extends TestWithFeService {
         String explainString = getSQLPlanOrErrorMsg(queryStr);
         Assert.assertFalse(explainString.contains("OUTPUT EXPRS:\n    3\n    4"));
         System.out.println(explainString);
-        Assert.assertTrue(explainString.contains(
-                "OUTPUT EXPRS:\n" + "    CAST(<slot 4> <slot 2> 3 AS INT)\n" + "    CAST(<slot 5> <slot 3> 4 AS INT)"));
+        Assert.assertTrue(explainString, explainString
+                        .contains("OUTPUT EXPRS:\n" + "    CAST(`a`.`aid` AS INT)\n" + "    CAST(`b`.`bid` AS INT)"));
     }
 
     @Test
