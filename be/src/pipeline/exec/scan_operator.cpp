@@ -99,8 +99,8 @@ std::string ScanOperator::debug_string() const {
     }
 
 template <typename Derived>
-ScanLocalState<Derived>::ScanLocalState(RuntimeState* state_, OperatorXBase* parent_)
-        : ScanLocalStateBase(state_, parent_) {}
+ScanLocalState<Derived>::ScanLocalState(RuntimeState* state, OperatorXBase* parent)
+        : ScanLocalStateBase(state, parent) {}
 
 template <typename Derived>
 bool ScanLocalState<Derived>::ready_to_read() {
@@ -171,7 +171,7 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
         _finish_dependency->block();
         DCHECK(!_eos && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
-        RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx.get()));
+        RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
     }
     _opened = true;
     return status;
@@ -1420,7 +1420,7 @@ Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
 template <typename LocalStateType>
 Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    if (local_state._scanner_ctx.get()) {
+    if (local_state._scanner_ctx) {
         // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
         // TODO: there is a lock in `set_should_stop` may cause some slight impact
         local_state._scanner_ctx->set_should_stop();
