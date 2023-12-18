@@ -33,7 +33,6 @@ suite("rf_prune") {
         DISTRIBUTED BY HASH(`id`) BUCKETS 10
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "min_load_replica_num" = "-1",
         "is_being_synced" = "false",
         "storage_format" = "V2",
         "light_schema_change" = "true",
@@ -52,7 +51,6 @@ suite("rf_prune") {
         DISTRIBUTED BY HASH(`id`) BUCKETS 10
         PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "min_load_replica_num" = "-1",
         "is_being_synced" = "false",
         "storage_format" = "V2",
         "light_schema_change" = "true",
