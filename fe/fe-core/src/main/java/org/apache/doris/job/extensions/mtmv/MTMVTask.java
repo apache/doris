@@ -146,15 +146,19 @@ public class MTMVTask extends AbstractTask {
                 return;
             }
             Map<OlapTable, String> tableWithPartKey = getIncrementalTableMap();
+            this.completedPartitions = Lists.newArrayList();
             int refreshPartitionNum = mtmv.getRefreshPartitionNum();
-            long execNums = needRefreshPartitionIds.size() / refreshPartitionNum;
-            for (int i = 0; i < execNums; i++) {
+            long execNum = (needRefreshPartitionIds.size() / refreshPartitionNum) + ((needRefreshPartitionIds.size()
+                    % refreshPartitionNum) > 0 ? 1 : 0);
+            for (int i = 0; i < execNum; i++) {
                 int start = i * refreshPartitionNum;
                 int end = start + refreshPartitionNum;
                 Set<Long> execPartitionIds = Sets.newHashSet(needRefreshPartitionIds
                         .subList(start, end > needRefreshPartitionIds.size() ? needRefreshPartitionIds.size() : end));
-                doRefresh(ctx, execPartitionIds, tableWithPartKey);
-                completedPartitions.addAll(MTMVUtil.getPartitionNamesByIds(mtmv, execPartitionIds));
+                // need get names before exec
+                List<String> execPartitionNames = MTMVUtil.getPartitionNamesByIds(mtmv, execPartitionIds);
+                exec(ctx, execPartitionIds, tableWithPartKey);
+                completedPartitions.addAll(execPartitionNames);
             }
         } catch (Throwable e) {
             LOG.warn("run task failed: ", e);
@@ -162,11 +166,13 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    public void doRefresh(ConnectContext ctx, Set<Long> refreshPartitionIds, Map<OlapTable, String> tableWithPartKey)
+    public void exec(ConnectContext ctx, Set<Long> refreshPartitionIds, Map<OlapTable, String> tableWithPartKey)
             throws Exception {
         TUniqueId queryId = generateQueryId();
+        // if SELF_MANAGE, will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
-                .from(mtmv, refreshPartitionIds, tableWithPartKey);
+                .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE
+                        ? refreshPartitionIds : Sets.newHashSet(), tableWithPartKey);
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         ctx.setQueryId(queryId);
         command.run(ctx, executor);
@@ -247,7 +253,7 @@ public class MTMVTask extends AbstractTask {
         if (CollectionUtils.isEmpty(needRefreshPartitions)) {
             return FeConstants.null_string;
         }
-        int completedSize = CollectionUtils.isEmpty(needRefreshPartitions) ? 0 : needRefreshPartitions.size();
+        int completedSize = CollectionUtils.isEmpty(completedPartitions) ? 0 : completedPartitions.size();
         BigDecimal result = new BigDecimal(completedSize * 100)
                 .divide(new BigDecimal(needRefreshPartitions.size()), 2, RoundingMode.HALF_UP);
         StringBuilder builder = new StringBuilder(result.toString());
