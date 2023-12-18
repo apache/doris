@@ -53,6 +53,7 @@ public class FoundRows extends OneRewriteRuleFactory {
                             || ctx.cascadesContext.getConnectContext().getFoundRowsPlan() == null) {
                         return null;
                     }
+                    // check match select count(*) from () v; pattern
                     LogicalResultSink<LogicalProject<LogicalAggregate<LogicalSubQueryAlias<Plan>>>> rs = ctx.root;
                     LogicalProject<LogicalAggregate<LogicalSubQueryAlias<Plan>>> project = rs.child();
                     if (project.getProjects().size() != 1) {

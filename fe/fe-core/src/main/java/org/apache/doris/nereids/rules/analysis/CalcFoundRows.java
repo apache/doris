@@ -43,7 +43,9 @@ public class CalcFoundRows extends OneRewriteRuleFactory {
                     LogicalPlan limitChild = (LogicalPlan) limit.child();
 
                     ctx.cascadesContext.getConnectContext().setFoundRowsPlan(limitChild);
-
+                    // put cal_found_rows behind found_rows, otherwise, this limit dropped plan
+                    // will match found_rows for some original select count stmt and reset
+                    // saved foundRowsPlan as null unexpectedly.
                     return new LogicalResultSink<>(rs.getOutputExprs(),
                             limit.getLimit(), limit.getOffset(), limitChild);
                 }).toRule(RuleType.CALC_FOUND_ROWS);

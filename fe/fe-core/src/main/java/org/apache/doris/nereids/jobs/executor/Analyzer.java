@@ -127,8 +127,8 @@ public class Analyzer extends AbstractBatchJobExecutor {
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
             bottomUp(new JoinCommute()),
-            topDown(new CalcFoundRows()),
             topDown(new FoundRows()),
+            topDown(new CalcFoundRows()),
             bottomUp(
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()
