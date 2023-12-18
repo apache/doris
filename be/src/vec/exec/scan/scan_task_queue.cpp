@@ -26,7 +26,8 @@ namespace taskgroup {
 static void empty_function() {}
 ScanTask::ScanTask() : ScanTask(empty_function, nullptr, nullptr, 1) {}
 
-ScanTask::ScanTask(WorkFunction scan_func, vectorized::ScannerContext* scanner_context,
+ScanTask::ScanTask(WorkFunction scan_func,
+                   std::shared_ptr<vectorized::ScannerContext> scanner_context,
                    TGSTEntityPtr scan_entity, int priority)
         : scan_func(std::move(scan_func)),
           scanner_context(scanner_context),
