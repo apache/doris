@@ -763,7 +763,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                          _opts.enable_unique_key_merge_on_write);
         bool need_short_key_indexes =
                 !need_primary_key_indexes ||
-                (need_primary_key_indexes && _tablet_schema->cluster_key_idxes().size() > 0);
+                (need_primary_key_indexes && !_tablet_schema->cluster_key_idxes().empty());
         if (need_primary_key_indexes && !need_short_key_indexes) { // mow table without cluster keys
             RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
                                                         num_rows, false));
