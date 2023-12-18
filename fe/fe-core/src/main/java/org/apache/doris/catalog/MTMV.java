@@ -188,7 +188,7 @@ public class MTMV extends OlapTable {
     public int getRefreshPartitionNum() {
         if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
             int value = Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
-            return value < 1 ? 1 : value;
+            return value < 1 ? MTMVTask.DEFAULT_REFRESH_PARTITION_NUM : value;
         } else {
             return MTMVTask.DEFAULT_REFRESH_PARTITION_NUM;
         }

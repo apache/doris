@@ -240,14 +240,14 @@ public class CreateMTMVInfo {
             if (!(followTable instanceof OlapTable)) {
                 throw new AnalysisException("base table for partitioning only can be OlapTable.");
             }
-            Set<String> partitionColumnNames;
+            Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             try {
-                partitionColumnNames = ((OlapTable) followTable).getPartitionColumnNames();
+                partitionColumnNames.addAll(((OlapTable) followTable).getPartitionColumnNames());
             } catch (DdlException e) {
                 throw new AnalysisException(e.getMessage(), e);
             }
 
-            if (!partitionColumnNames.contains(relatedTableInfo.get().getColumn().toLowerCase())) {
+            if (!partitionColumnNames.contains(relatedTableInfo.get().getColumn())) {
                 throw new AnalysisException("error related column: " + relatedTableInfo.get().getColumn());
             }
             if (partitionColumnNames.size() != 1) {

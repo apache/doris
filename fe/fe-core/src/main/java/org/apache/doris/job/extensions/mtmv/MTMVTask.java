@@ -261,9 +261,7 @@ public class MTMVTask extends AbstractTask {
         BigDecimal result = new BigDecimal(completedSize * 100)
                 .divide(new BigDecimal(needRefreshPartitions.size()), 2, RoundingMode.HALF_UP);
         StringBuilder builder = new StringBuilder(result.toString());
-        builder.append("%");
-        builder.append(" ");
-        builder.append("(");
+        builder.append("% (");
         builder.append(completedSize);
         builder.append("/");
         builder.append(needRefreshPartitions.size());
