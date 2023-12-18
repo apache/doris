@@ -458,7 +458,7 @@ Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                   const std::string& import_label, WalManager* wal_manager,
                                   std::vector<TSlotDescriptor>& slot_desc, int be_exe_version) {
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
-            db_id, tb_id, txn_id, label, wal_manager, slot_desc, be_exe_version);
+            db_id, tb_id, wal_id, import_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();
 }
 

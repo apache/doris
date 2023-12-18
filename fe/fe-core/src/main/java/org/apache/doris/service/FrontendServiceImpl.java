@@ -240,6 +240,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
@@ -3296,15 +3297,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        Table table = db.getTable(tableId).get();
-        if (table == null) {
+        Table table;
+        try {
+            table = db.getTable(tableId).get();
+        } catch (NoSuchElementException e) {
+            LOG.info("getColumnInfo catch exception:" + e);
             errorStatus.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
             result.setStatus(errorStatus);
             return result;
         }
         StringBuilder sb = new StringBuilder();
-        for (Column column : table.getFullSchema()) {
+        for (Column column : table.getBaseSchema(true)) {
             sb.append(column.getName() + ":" + column.getUniqueId() + ",");
         }
         String columnInfo = sb.toString();
