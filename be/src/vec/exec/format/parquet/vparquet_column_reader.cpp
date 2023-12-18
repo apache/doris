@@ -285,7 +285,7 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
         }
     } else {
         if (_chunk_reader->max_def_level() > 0) {
-            return Status::Corruption("Not nullable column has null values in parquet file");
+            // return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }
@@ -371,7 +371,7 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         map_data_column = &(nullable_column->get_null_map_data());
     } else {
         if (_field_schema->is_nullable) {
-            return Status::Corruption("Not nullable column has null values in parquet file");
+            // return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }
@@ -605,7 +605,7 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         if (_field_schema->is_nullable) {
-            return Status::Corruption("Not nullable column has null values in parquet file");
+            // return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }
@@ -651,7 +651,7 @@ Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& t
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         if (_field_schema->is_nullable) {
-            return Status::Corruption("Not nullable column has null values in parquet file");
+            // return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }
@@ -714,7 +714,7 @@ Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
         data_column = nullable_column->get_nested_column_ptr();
     } else {
         if (_field_schema->is_nullable) {
-            return Status::Corruption("Not nullable column has null values in parquet file");
+            // return Status::Corruption("Not nullable column has null values in parquet file");
         }
         data_column = doris_column->assume_mutable();
     }

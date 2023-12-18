@@ -241,7 +241,7 @@ private:
     }
 
     template <bool scale_left, bool scale_right>
-    static Int8 apply(A a, B b, CompareInt scale [[maybe_unused]]) {
+    static UInt8 apply(A a, B b, CompareInt scale [[maybe_unused]]) {
         CompareInt x = a;
         CompareInt y = b;
 
