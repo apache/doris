@@ -129,6 +129,7 @@ public abstract class ConnectProcessor {
             return;
         }
 
+        ctx.setFoundRowsPlan(null);
         ctx.getState().setOk();
     }
 
@@ -140,16 +141,19 @@ public abstract class ConnectProcessor {
 
     // do nothing
     protected void handlePing() {
+        ctx.setFoundRowsPlan(null);
         ctx.getState().setOk();
     }
 
     protected void handleStmtReset() {
+        ctx.setFoundRowsPlan(null);
         ctx.getState().setOk();
     }
 
     protected void handleStmtClose(int stmtId) {
         LOG.debug("close stmt id: {}", stmtId);
         ConnectContext.get().removePrepareStmt(String.valueOf(stmtId));
+        ctx.setFoundRowsPlan(null);
         // No response packet is sent back to the client, see
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_close.html
         ctx.getState().setNoop();
@@ -375,6 +379,7 @@ public abstract class ConnectProcessor {
         } finally {
             table.readUnlock();
         }
+        ctx.setFoundRowsPlan(null);
         ctx.getState().setEof();
     }
 

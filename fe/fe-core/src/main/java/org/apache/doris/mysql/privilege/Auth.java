@@ -1045,6 +1045,15 @@ public class Auth implements Writable {
         }
     }
 
+    public boolean isEnableFoundRows(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.isEnableFoundRows(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
     public Pair<Boolean, String> isWorkloadGroupInUse(String groupName) {
         readLock();
         try {

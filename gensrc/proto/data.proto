@@ -35,6 +35,7 @@ message PQueryStatistics {
     optional int64 cpu_ms = 4;
     optional int64 max_peak_memory_bytes = 5;
     repeated PNodeStatistics nodes_statistics = 6;
+    optional int64 total_return_rows = 7;
 }
 
 message PRowBatch {

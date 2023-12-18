@@ -65,6 +65,9 @@ public class CommonUserProperties implements Writable {
     @SerializedName("workloadGroup")
     private String workloadGroup = WorkloadGroupMgr.DEFAULT_GROUP_NAME;
 
+    @SerializedName("isEnableFoundRows")
+    private boolean isEnableFoundRows = false;
+
     private String[] sqlBlockRulesSplit = {};
 
     long getMaxConn() {
@@ -123,6 +126,14 @@ public class CommonUserProperties implements Writable {
 
     public void setExecMemLimit(long execMemLimit) {
         this.execMemLimit = execMemLimit;
+    }
+
+    public boolean isEnableFoundRows() {
+        return isEnableFoundRows;
+    }
+
+    public void setEnableFoundRows(boolean isEnableFoundRows) {
+        this.isEnableFoundRows = isEnableFoundRows;
     }
 
     public int getQueryTimeout() {

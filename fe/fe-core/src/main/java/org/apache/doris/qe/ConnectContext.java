@@ -48,6 +48,7 @@ import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.arrowflight.results.FlightSqlChannel;
@@ -124,6 +125,9 @@ public class ConnectContext {
     // state
     protected volatile QueryState state;
     protected volatile long returnRows;
+
+    // found rows
+    protected volatile long foundRows;
     // the protocol capability which server say it can support
     protected volatile MysqlCapability serverCapability;
     // the protocol capability after server and client negotiate
@@ -160,6 +164,8 @@ public class ConnectContext {
     protected volatile long startTime;
     // Cache thread info for this connection.
     protected volatile ThreadInfo threadInfo;
+
+    protected volatile LogicalPlan foundRowsPlan;
 
     // Catalog: put catalog here is convenient for unit test,
     // because catalog is singleton, hard to mock
@@ -310,6 +316,8 @@ public class ConnectContext {
     public void init() {
         state = new QueryState();
         returnRows = 0;
+        foundRows = 0;
+        foundRowsPlan = null;
         isKilled = false;
         sessionVariable = VariableMgr.newSessionVariable();
         userVars = new HashMap<>();
@@ -587,6 +595,14 @@ public class ConnectContext {
         returnRows = 0;
     }
 
+    public LogicalPlan getFoundRowsPlan() {
+        return foundRowsPlan;
+    }
+
+    public void setFoundRowsPlan(LogicalPlan plan) {
+        this.foundRowsPlan = plan;
+    }
+
     public void updateReturnRows(int returnRows) {
         this.returnRows += returnRows;
     }
@@ -597,6 +613,14 @@ public class ConnectContext {
 
     public void resetReturnRows() {
         returnRows = 0;
+    }
+
+    public long getFoundRows() {
+        return foundRows;
+    }
+
+    public void setFoundRows(long rows) {
+        foundRows = rows;
     }
 
     public int getConnectionId() {
@@ -768,6 +792,8 @@ public class ConnectContext {
         closeChannel();
         threadLocalInfo.remove();
         returnRows = 0;
+        foundRows = 0;
+        foundRowsPlan = null;
     }
 
     public boolean isKilled() {

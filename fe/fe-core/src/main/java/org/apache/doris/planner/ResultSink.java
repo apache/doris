@@ -36,13 +36,25 @@ public class ResultSink extends DataSink {
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
+    // for calculating found rows
+    private final long limit;
+
+    // for calculating found rows
+    private final long offset;
+
     public ResultSink(PlanNodeId exchNodeId) {
-        this.exchNodeId = exchNodeId;
+        this(exchNodeId, TResultSinkType.MYSQL_PROTOCAL);
     }
 
     public ResultSink(PlanNodeId exchNodeId, TResultSinkType resultSinkType) {
+        this(exchNodeId, resultSinkType, -1, 0);
+    }
+
+    public ResultSink(PlanNodeId exchNodeId, TResultSinkType resultSinkType, long limit, long offset) {
         this.exchNodeId = exchNodeId;
         this.resultSinkType = resultSinkType;
+        this.limit = limit;
+        this.offset = offset;
     }
 
     @Override
@@ -58,11 +70,21 @@ public class ResultSink extends DataSink {
             }
         }
         strBuilder.append(prefix).append("   ").append(resultSinkType).append("\n");
+        strBuilder.append(prefix).append("   ").append("limit:" + limit).append("\n");
+        strBuilder.append(prefix).append("   ").append("offset:" + offset).append("\n");
         return strBuilder.toString();
     }
 
     public void setFetchOption(TFetchOption fetchOption) {
         this.fetchOption = fetchOption;
+    }
+
+    public long getLimit() {
+        return limit;
+    }
+
+    public long getOffset() {
+        return offset;
     }
 
     @Override
@@ -72,6 +94,8 @@ public class ResultSink extends DataSink {
         if (fetchOption != null) {
             tResultSink.setFetchOption(fetchOption);
         }
+        tResultSink.setLimit(limit);
+        tResultSink.setOffset(offset);
         tResultSink.setType(resultSinkType);
         result.setResultSink(tResultSink);
         return result;

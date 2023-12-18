@@ -99,6 +99,7 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             return;
         }
         ctx.setStartTime();
+        ctx.setFoundRowsPlan(null);
         if (prepareCtx.stmt.getInnerStmt() instanceof QueryStmt) {
             ctx.getState().setIsQuery(true);
         }

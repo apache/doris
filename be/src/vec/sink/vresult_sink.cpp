@@ -58,6 +58,8 @@ VResultSink::VResultSink(const RowDescriptor& row_desc, const std::vector<TExpr>
     }
     _fetch_option = sink.fetch_option;
     _name = "ResultSink";
+    _limit = sink.__isset.limit ? sink.limit : -1;
+    _offset = sink.__isset.offset ? sink.offset : 0;
 }
 
 VResultSink::~VResultSink() = default;
@@ -137,6 +139,31 @@ Status VResultSink::send(RuntimeState* state, Block* block, bool eos) {
     SCOPED_TIMER(_exec_timer);
     COUNTER_UPDATE(_blocks_sent_counter, 1);
     COUNTER_UPDATE(_output_rows_counter, block->rows());
+
+    int block_rows = block->rows();
+    // doris always send block directly, because the limit have done before other node.
+    // but when enable_found_rows = true, will need doing limit at here.
+    // so only send limit rows to FE, other blocks only to get rows not send to FE.
+    if (_num_row_skipped + block_rows <= _offset) { // skip this block
+        _num_row_skipped += block_rows;
+        block->set_num_rows(0);
+        return Status::OK();
+    } else if (_num_row_skipped < _offset) { // skip some rows
+        auto offset = _offset - _num_row_skipped;
+        _num_row_skipped = _offset;
+        block->set_num_rows(block_rows - offset);
+        block_rows = block->rows();
+    }
+    _total_return_rows += block_rows;
+    if (!_reached_limit) {
+        if (_limit != -1 && _total_return_rows > _limit) { // need cut some rows
+            block->set_num_rows((_limit + block_rows) - _total_return_rows);
+            _reached_limit = true;
+        }
+    } else {
+        // have reach limit, so could not send any data, just return to update _total_return_rows
+        return Status::OK();
+    }
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         DCHECK(_sink_type == TResultSinkType::MYSQL_PROTOCAL);
         RETURN_IF_ERROR(second_phase_fetch_data(state, block));
@@ -172,9 +199,10 @@ Status VResultSink::close(RuntimeState* state, Status exec_status) {
             _sender->update_num_written_rows(_writer->get_written_rows());
         }
         _sender->update_max_peak_memory_bytes();
-        static_cast<void>(_sender->close(final_status));
+        _sender->update_total_return_rows(_total_return_rows + _num_row_skipped);
+        RETURN_IF_ERROR(_sender->close(final_status));
     }
-    static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
+    RETURN_IF_ERROR(state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id()));
     return DataSink::close(state, exec_status);

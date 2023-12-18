@@ -190,6 +190,8 @@ struct TResultSink {
     1: optional TResultSinkType type;
     2: optional TResultFileSinkOptions file_options; // deprecated
     3: optional TFetchOption fetch_option;
+    4: optional i64 limit;
+    5: optional i64 offset;
 }
 
 struct TResultFileSink {

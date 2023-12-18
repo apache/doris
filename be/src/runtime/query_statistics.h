@@ -60,12 +60,7 @@ private:
 class QueryStatistics {
 public:
     QueryStatistics(TQueryType::type query_type = TQueryType::type::SELECT)
-            : scan_rows(0),
-              scan_bytes(0),
-              cpu_ms(0),
-              returned_rows(0),
-              max_peak_memory_bytes(0),
-              _query_type(query_type) {}
+            : _query_type(query_type) {}
     virtual ~QueryStatistics();
 
     void merge(const QueryStatistics& other);
@@ -90,6 +85,8 @@ public:
 
     void set_returned_rows(int64_t num_rows) { this->returned_rows = num_rows; }
 
+    void set_total_return_rows(int64_t rows) { this->total_return_rows = rows; }
+
     void set_max_peak_memory_bytes(int64_t max_peak_memory_bytes) {
         this->max_peak_memory_bytes = max_peak_memory_bytes;
     }
@@ -106,6 +103,7 @@ public:
         scan_rows = 0;
         scan_bytes = 0;
         cpu_ms = 0;
+        total_return_rows = 0;
         returned_rows = 0;
         max_peak_memory_bytes = 0;
         clearNodeStatistics();
@@ -124,15 +122,19 @@ public:
 
 private:
     friend class QueryStatisticsRecvr;
-    int64_t scan_rows;
-    int64_t scan_bytes;
-    int64_t cpu_ms;
+    int64_t scan_rows = 0;
+    int64_t scan_bytes = 0;
+    int64_t cpu_ms = 0;
+    // eg: select sum(k1) from table group by k2 limit 3;
+    // total_return_rows = count(select sum(k1) from table group by k2);
+    // returned_rows = 3;
+    int64_t total_return_rows = 0;
     // number rows returned by query.
     // only set once by result sink when closing.
-    int64_t returned_rows;
+    int64_t returned_rows = 0;
     // Maximum memory peak for all backends.
     // only set once by result sink when closing.
-    int64_t max_peak_memory_bytes;
+    int64_t max_peak_memory_bytes = 0;
     // The statistics of the query on each backend.
     using NodeStatisticsMap = std::unordered_map<int64_t, NodeStatistics*>;
     NodeStatisticsMap _nodes_statistics_map;
