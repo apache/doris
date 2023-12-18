@@ -152,6 +152,14 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select right(\"good morning\", NULL);"
     qt_sql "select strright(\"Hello doris\", 5);"
     qt_sql "select right(\"Hello doris\", 5);"
+    qt_sql "select strleft(\"good morning\", 120);"
+    qt_sql "select strleft(\"good morning\", -5);"
+    qt_sql "select strright(\"Hello doris\", 120);"
+    qt_sql "select strright(\"Hello doris\", -5);"
+    qt_sql "select left(\"good morning\", 120);"
+    qt_sql "select left(\"good morning\", -5);"
+    qt_sql "select right(\"Hello doris\", 120);"
+    qt_sql "select right(\"Hello doris\", -6);"
 
     sql """ drop table if exists left_right_test; """
     sql """ create table left_right_test (
@@ -215,6 +223,9 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substring('abc1', -2);"
     qt_sql "select substring('abc1', 5);"
     qt_sql "select substring('abc1def', 2, 2);"
+    qt_sql "select substring('abcdef',3,-1);"
+    qt_sql "select substring('abcdef',-3,-1);"
+    qt_sql "select substring('abcdef',10,1);"
 
     sql """ drop table if exists test_string_function; """
     sql """ create table test_string_function (
@@ -252,6 +263,8 @@ suite("test_string_function", "arrow_flight_sql") {
     qt_sql "select substr('a',-1,1);"
     qt_sql "select substr('a',-2,1);"
     qt_sql "select substr('a',-3,1);"
+    qt_sql "select substr('abcdef',3,-1);"
+    qt_sql "select substr('abcdef',-3,-1);"
 
     qt_sql "select sub_replace(\"this is origin str\",\"NEW-STR\",1);"
     qt_sql "select sub_replace(\"doris\",\"***\",1,2);"

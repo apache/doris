@@ -323,6 +323,30 @@ doris
 -- !sql --
 doris
 
+-- !sql --
+good morning
+
+-- !sql --
+
+
+-- !sql --
+Hello doris
+
+-- !sql --
+o doris
+
+-- !sql --
+good morning
+
+-- !sql --
+
+
+-- !sql --
+Hello doris
+
+-- !sql --
+ doris
+
 -- !select_null_str --
 1	Isaac	ewton	Isaac 	Newton
 2	Alber	stein	Albert	nstein
@@ -348,6 +372,15 @@ c1
 
 -- !sql --
 bc
+
+-- !sql --
+
+
+-- !sql --
+
+
+-- !sql --
+
 
 -- !sql_substring1 --
 \N
@@ -382,6 +415,12 @@ a
 
 -- !sql --
 a
+
+-- !sql --
+
+
+-- !sql --
+
 
 -- !sql --
 
