@@ -24,6 +24,7 @@ suite("minus_except") {
     sql "CREATE TABLE ${tableNameDate}(c2 date) DUPLICATE key(c2) DISTRIBUTED BY hash(c2) BUCKETS auto PROPERTIES ('replication_num' = '1')"
     sql "insert into ${tableNameVarchar} values('+06-00');"
     sql "insert into ${tableNameDate} values('1990-11-11');"
+    qt_select " SELECT c1,c1 FROM ${tableNameVarchar} MINUS SELECT c2,c2 FROM ${tableNameDate};"
     qt_select " SELECT c1,c1 FROM ${tableNameVarchar} EXCEPT SELECT c2,c2 FROM ${tableNameDate};"
     sql "DROP TABLE IF EXISTS ${tableNameVarchar}"
     sql "DROP TABLE IF EXISTS ${tableNameDate}"
