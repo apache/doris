@@ -39,6 +39,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
@@ -176,6 +177,9 @@ public class MTMVTask extends AbstractTask {
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         ctx.setQueryId(queryId);
         command.run(ctx, executor);
+        if (ctx.getState().getStateType() != MysqlStateType.OK) {
+            throw new JobException(ctx.getState().getErrorMessage());
+        }
     }
 
     @Override
