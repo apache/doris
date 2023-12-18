@@ -66,7 +66,7 @@ import java.util.UUID;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
-    public static final Integer DEFAULT_REFRESH_PARTITION_NUM = 1;
+    public static final int DEFAULT_REFRESH_PARTITION_NUM = 1;
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("TaskId", ScalarType.createStringType()),
