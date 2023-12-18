@@ -80,8 +80,8 @@ To enable debug points globally, we need to set `enable_debug_points` to true,
 
 ## Activate Specified Debug Point
 
-After debug points are enabled globally,
-we need to specify the debug point name we want to activate, this is done by sending a http request to FE or BE node,
+After debug points are enabled globally, <br>
+we need to specify the debug point name we want to activate, this is done by sending a http request to FE or BE node, <br>
 only after that, when the program running into the specified debug point, related code can be executed.
 
 ### API
@@ -129,7 +129,7 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 
 
 ## Pass Custom Parameters
-When activating debug point, besides "timeout" and "execute" mentioned above, we can also pass our own parameters.
+When activating debug point, besides "timeout" and "execute" mentioned above, we can also pass custom parameters.
 
 ### API
 
