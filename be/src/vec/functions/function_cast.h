@@ -342,7 +342,8 @@ struct ConvertImpl {
                                         vec_from.size());
                             } else if constexpr (IsDataTypeDecimal<FromDataType>) {
                                 convert_from_decimal<FromDataType, ToDataType, narrow_integral>(
-                                        vec_to.data(), vec_from.data(), vec_from.get_scale(), size);
+                                        vec_to.data(), vec_from.data(), vec_from.get_scale(),
+                                        min_result, max_result, size);
                             } else {
                                 convert_to_decimal<FromDataType, ToDataType, multiply_may_overflow,
                                                    narrow_integral>(vec_to.data(), vec_from.data(),
