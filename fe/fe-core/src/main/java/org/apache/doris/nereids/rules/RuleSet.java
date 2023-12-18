@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
-import org.apache.doris.nereids.rules.exploration.OrExpansion;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoin;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
@@ -87,6 +86,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
