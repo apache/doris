@@ -23,9 +23,11 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * Expression placeHolder, the expression in PlaceHolderExpression will be collected by
@@ -33,7 +35,8 @@ import java.util.Objects;
  * @see PlaceholderCollector
  */
 public class PlaceholderExpression extends Expression implements AlwaysNotNullable {
-    private final Class<? extends Expression> delegateClazz;
+
+    private final ImmutableSet<Class<? extends Expression>> delegateClazzSet;
     /**
      * start from 1, set the index of this placeholderExpression in sourceFnTransformedArguments
      * this placeholderExpression will be replaced later
@@ -42,12 +45,24 @@ public class PlaceholderExpression extends Expression implements AlwaysNotNullab
 
     public PlaceholderExpression(List<Expression> children, Class<? extends Expression> delegateClazz, int position) {
         super(children);
-        this.delegateClazz = Objects.requireNonNull(delegateClazz, "delegateClazz should not be null");
+        this.delegateClazzSet = ImmutableSet.of(
+                Objects.requireNonNull(delegateClazz, "delegateClazz should not be null"));
+        this.position = position;
+    }
+
+    public PlaceholderExpression(List<Expression> children,
+                                 Set<Class<? extends Expression>> delegateClazzSet, int position) {
+        super(children);
+        this.delegateClazzSet = ImmutableSet.copyOf(delegateClazzSet);
         this.position = position;
     }
 
     public static PlaceholderExpression of(Class<? extends Expression> delegateClazz, int position) {
         return new PlaceholderExpression(ImmutableList.of(), delegateClazz, position);
+    }
+
+    public static PlaceholderExpression of(Set<Class<? extends Expression>> delegateClazzSet, int position) {
+        return new PlaceholderExpression(ImmutableList.of(), delegateClazzSet, position);
     }
 
     @Override
@@ -56,8 +71,8 @@ public class PlaceholderExpression extends Expression implements AlwaysNotNullab
         return visitor.visit(this, context);
     }
 
-    public Class<? extends Expression> getDelegateClazz() {
-        return delegateClazz;
+    public Set<Class<? extends Expression>> getDelegateClazzSet() {
+        return delegateClazzSet;
     }
 
     public int getPosition() {
@@ -76,11 +91,11 @@ public class PlaceholderExpression extends Expression implements AlwaysNotNullab
             return false;
         }
         PlaceholderExpression that = (PlaceholderExpression) o;
-        return position == that.position && Objects.equals(delegateClazz, that.delegateClazz);
+        return position == that.position && Objects.equals(delegateClazzSet, that.delegateClazzSet);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), delegateClazz, position);
+        return Objects.hash(super.hashCode(), delegateClazzSet, position);
     }
 }

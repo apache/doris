@@ -31,26 +31,49 @@ import java.util.stream.Collectors;
 
 /**
  * Common function transformer,
- * can transform functions which the size of function arguments is the same with the source function.
+ * can transform functions which the size and type of target arguments are both the same with the source function,
+ * or source function is a variable-arguments function.
  */
 public class CommonFnCallTransformer extends AbstractFnCallTransformer {
     private final UnboundFunction targetFunction;
     private final List<PlaceholderExpression> targetArguments;
 
+    // true means the arguments of this function is dynamic, for example:
+    // - named_struct('f1', 1, 'f2', 'a', 'f3', "abc")
+    // - struct(1, 'a', 'abc');
+    private final boolean variableArguments;
+
     /**
      * Common function transformer, mostly this handle common function.
      */
+    public CommonFnCallTransformer(UnboundFunction targetFunction, boolean variableArguments) {
+        this.targetFunction = targetFunction;
+        PlaceholderCollector placeHolderCollector = new PlaceholderCollector();
+        placeHolderCollector.visit(targetFunction, null);
+        this.targetArguments = placeHolderCollector.getPlaceholderExpressions();
+        this.variableArguments = variableArguments;
+    }
+
     public CommonFnCallTransformer(UnboundFunction targetFunction) {
         this.targetFunction = targetFunction;
         PlaceholderCollector placeHolderCollector = new PlaceholderCollector();
         placeHolderCollector.visit(targetFunction, null);
         this.targetArguments = placeHolderCollector.getPlaceholderExpressions();
+        this.variableArguments = false;
     }
 
     @Override
     protected boolean check(String sourceFnName,
             List<Expression> sourceFnTransformedArguments,
             ParserContext context) {
+        // if variableArguments=true, we can not recognize if the type of all arguments is valid or not,
+        // because:
+        //     1. the argument size is not sure
+        //     2. there are some functions which can accept different types of arguments, for example: struct(1, 'a', 'abc')
+        // so just return true here.
+        if (variableArguments) {
+            return true;
+        }
         List<Class<? extends Expression>> sourceFnTransformedArgClazz = sourceFnTransformedArguments.stream()
                 .map(Expression::getClass)
                 .collect(Collectors.toList());
@@ -58,9 +81,17 @@ public class CommonFnCallTransformer extends AbstractFnCallTransformer {
             return false;
         }
         for (PlaceholderExpression targetArgument : targetArguments) {
+            // replace the arguments of target function by the position of target argument
             int position = targetArgument.getPosition();
             Class<? extends Expression> sourceArgClazz = sourceFnTransformedArgClazz.get(position - 1);
-            if (!targetArgument.getDelegateClazz().isAssignableFrom(sourceArgClazz)) {
+            boolean valid = false;
+            for (Class<? extends Expression> targetArgClazz : targetArgument.getDelegateClazzSet()) {
+                if (targetArgClazz.isAssignableFrom(sourceArgClazz)) {
+                    valid = true;
+                    break;
+                }
+            }
+            if (!valid) {
                 return false;
             }
         }
@@ -71,6 +102,10 @@ public class CommonFnCallTransformer extends AbstractFnCallTransformer {
     protected Function transform(String sourceFnName,
             List<Expression> sourceFnTransformedArguments,
             ParserContext context) {
+        if (variableArguments) {
+            // not support adjust the order of arguments when variableArguments=true
+            return targetFunction.withChildren(sourceFnTransformedArguments);
+        }
         List<Expression> sourceFnTransformedArgumentsInorder = Lists.newArrayList();
         for (PlaceholderExpression placeholderExpression : targetArguments) {
             Expression expression = sourceFnTransformedArguments.get(placeholderExpression.getPosition() - 1);
