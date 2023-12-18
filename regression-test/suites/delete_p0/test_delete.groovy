@@ -407,4 +407,21 @@ suite("test_delete") {
     qt_check_data7 """ select * from  every_type_table order by col_1; """
     sql "drop table every_type_table"
 
+
+    sql "drop table if exists test2"
+    sql """
+    CREATE TABLE `test2`  
+    (
+            col_1 int,
+            col_2 decimalv2(10,3)
+    )ENGINE=OLAP
+    duplicate KEY(`col_1`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`col_1`) BUCKETS 1
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql "set enable_fold_constant_by_be = true;"
+    sql "DELETE FROM test2  WHERE col_2 = cast(123.45 as decimalv2(10,3));"
 }
