@@ -1305,45 +1305,200 @@ PARTITION `p599` VALUES IN (599)
     assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][6].substring(1, 1025)
     assert "1111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111" == truncate_test_result[0][7].substring(1, 1025)
 
+    // Test analyze empty table
+    sql """TRUNCATE TABLE ${tbl}"""
+    sql """ANALYZE TABLE ${tbl} WITH SYNC"""
+    result_after_truncate = sql """show column stats ${tbl}"""
+    assertEquals(14, result_after_truncate.size())
+    result = sql """show column stats ${tbl}(analyzetestlimitedk0);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk0", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
 
-   // Test trigger type.
-   sql """DROP DATABASE IF EXISTS trigger"""
-   sql """CREATE DATABASE IF NOT EXISTS trigger"""
-   sql """USE trigger"""
-   sql """
-     CREATE TABLE if not exists trigger_test(
-      `id`      int NOT NULL,
-      `name`    VARCHAR(152)
-     )ENGINE=OLAP
-     DUPLICATE KEY(`id`)
-     COMMENT "OLAP"
-     DISTRIBUTED BY HASH(`id`) BUCKETS 1
-     PROPERTIES (
-      "replication_num" = "1"
-     );
-   """
-   sql """insert into trigger_test values(1,'name1') """
-   sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+    result = sql """show column stats ${tbl}(analyzetestlimitedk1);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk1", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
 
-   int i = 0;
-   for (0; i < 10; i++) {
-       def result = sql """show column stats trigger_test"""
-       if (result.size <= 0) {
-	   Thread.sleep(1000)
-           continue;
-       }
-       assertEquals(result.size(), 2)
-       assertEquals(result[0][10], "SYSTEM")
-       assertEquals(result[1][10], "SYSTEM")
-       break
-   }
-   if (i < 10) {
-       sql """analyze table trigger_test with sync"""
-       def result = sql """show column stats trigger_test"""
-       assertEquals(result.size(), 2)
-       assertEquals(result[0][10], "MANUAL")
-       assertEquals(result[1][10], "MANUAL")
-   }
-   sql """DROP DATABASE IF EXISTS trigger"""
+    result = sql """show column stats ${tbl}(analyzetestlimitedk2);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk2", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
 
+    result = sql """show column stats ${tbl}(analyzetestlimitedk3);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk3", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk4);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk4", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk5);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk5", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk6);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk6", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk7);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk7", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk8);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk8", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk9);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk9", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk10);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk10", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk11);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk11", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk12);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk12", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    result = sql """show column stats ${tbl}(analyzetestlimitedk13);"""
+    assertEquals(1, result.size())
+    assertEquals("analyzetestlimitedk13", result[0][0])
+    assertEquals("0.0", result[0][1])
+    assertEquals("0.0", result[0][2])
+    assertEquals("0.0", result[0][3])
+    assertEquals("0.0", result[0][4])
+    assertEquals("0.0", result[0][5])
+    assertEquals("N/A", result[0][6])
+    assertEquals("N/A", result[0][7])
+
+    // Test trigger type.
+    sql """DROP DATABASE IF EXISTS trigger"""
+    sql """CREATE DATABASE IF NOT EXISTS trigger"""
+    sql """USE trigger"""
+    sql """
+      CREATE TABLE if not exists trigger_test(
+       `id`      int NOT NULL,
+       `name`    VARCHAR(152)
+      )ENGINE=OLAP
+      DUPLICATE KEY(`id`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`id`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1"
+      );
+    """
+    sql """insert into trigger_test values(1,'name1') """
+    sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+
+    int i = 0;
+    for (0; i < 10; i++) {
+        def result = sql """show column stats trigger_test"""
+        if (result.size() != 2) {
+	    Thread.sleep(1000)
+            continue;
+        }
+        assertEquals(result[0][10], "SYSTEM")
+        assertEquals(result[1][10], "SYSTEM")
+        break
+    }
+    if (i < 10) {
+        sql """analyze table trigger_test with sync"""
+        def result = sql """show column stats trigger_test"""
+        assertEquals(result.size(), 2)
+        assertEquals(result[0][10], "MANUAL")
+        assertEquals(result[1][10], "MANUAL")
+    }
 }
