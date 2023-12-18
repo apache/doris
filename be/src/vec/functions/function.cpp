@@ -99,21 +99,8 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
         return ColumnNullable::create(src, ColumnUInt8::create(input_rows_count, 0));
     }
 
-    bool update_null_data = false;
-    auto full_column = src_not_nullable->convert_to_full_column_if_const();
-    if (const auto* nullable = check_and_get_column<const ColumnNullable>(full_column.get())) {
-        const auto& nested_column = nullable->get_nested_column();
-        update_null_data = nested_column.is_numeric() || nested_column.is_column_decimal();
-    } else {
-        update_null_data = full_column->is_numeric() || full_column->is_column_decimal();
-    }
-    auto result_column = ColumnNullable::create(full_column, result_null_map_column);
-    if (update_null_data) {
-        auto* res_nullable_column =
-                assert_cast<ColumnNullable*>(std::move(*result_column).mutate().get());
-        res_nullable_column->update_null_data();
-    }
-    return result_column;
+    return ColumnNullable::create(src_not_nullable->convert_to_full_column_if_const(),
+                                  result_null_map_column);
 }
 
 NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
@@ -247,8 +234,14 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
     }
 
     if (null_presence.has_nullable) {
-        auto [temporary_block, new_args, new_result] =
-                create_block_with_nested_columns(block, args, result);
+        bool check_overflow_for_decimal = false;
+        if (context) {
+            check_overflow_for_decimal = context->check_overflow_for_decimal();
+        }
+        auto [temporary_block, new_args, new_result] = create_block_with_nested_columns(
+                block, args, result,
+                check_overflow_for_decimal && need_replace_null_data_to_default());
+
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(
                 context, temporary_block, new_args, new_result, temporary_block.rows(), dry_run));
         block.get_by_position(result).column =
