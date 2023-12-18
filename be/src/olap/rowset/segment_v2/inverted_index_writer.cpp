@@ -285,12 +285,12 @@ public:
             }
             auto* v = (Slice*)values;
             for (int i = 0; i < count; ++i) {
-                auto ignore_above_value = get_parser_ignore_above_value_from_properties(
-                        _index_meta->properties());
+                auto ignore_above_value =
+                        get_parser_ignore_above_value_from_properties(_index_meta->properties());
                 auto ignore_above = std::stoi(ignore_above_value);
                 if (v->get_size() > ignore_above) {
                     VLOG_DEBUG << "fulltext index value length can be at most 256, but got "
-                                 << "value length:" << v->get_size() << ", ignore this value";
+                               << "value length:" << v->get_size() << ", ignore this value";
                     new_fulltext_field(empty_value.c_str(), 0);
                 } else {
                     new_fulltext_field(v->get_data(), v->get_size());
@@ -334,12 +334,12 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                auto ignore_above_value = get_parser_ignore_above_value_from_properties(
-                        _index_meta->properties());
+                auto ignore_above_value =
+                        get_parser_ignore_above_value_from_properties(_index_meta->properties());
                 auto ignore_above = std::stoi(ignore_above_value);
                 if (value.length() > ignore_above) {
                     VLOG_DEBUG << "fulltext index value length can be at most 256, but got "
-                                 << "value length:" << value.length() << ", ignore this value";
+                               << "value length:" << value.length() << ", ignore this value";
                     new_fulltext_field(empty_value.c_str(), 0);
                 } else {
                     new_fulltext_field(value.c_str(), value.length());
