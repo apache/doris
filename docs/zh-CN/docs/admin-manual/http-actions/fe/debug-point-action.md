@@ -75,6 +75,7 @@ void Status foo() {
 
 
 ## 打开木桩
+打开总开关后，还需要通过向 FE 或 BE 发送 http 请求的方式，打开或关闭指定名称的木桩，只有这样当代码执行到这个木桩时，相关代码才会被执行。
 
 ### API
 
@@ -92,7 +93,7 @@ POST /api/debug_point/add/{debug_point_name}[?timeout=<int>&execute=<int>]
     超时时间，单位为秒。超时之后，木桩失活。默认值-1表示永远不超时。可选。
 
 * `execute`
-    木桩最大激活次数。默认值-1表示不限激活次数。可选。       
+    木桩最大执行次数。默认值-1表示不限执行次数。可选。       
 
 
 ### Request body
@@ -111,14 +112,14 @@ POST /api/debug_point/add/{debug_point_name}[?timeout=<int>&execute=<int>]
 ### Examples
 
 
-打开木桩 `foo`，最多激活5次。
+打开木桩 `foo`，最多执行5次。
 	
 	
 ```
 curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 
 ```
-注意，要先激活木桩，然后再执行含有木桩的代码，代码中的木桩才会生效。
+
     
 ## 向木桩传递参数
 
@@ -154,9 +155,9 @@ curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5
 
 ```
 注意：
-1、在FE或BE的代码中，参数名和参数值都是字符串。
-2、在FE或BE的代码中和http请求中的参数名称和值都是大小写敏感的。
-3、发给FE或BE的http请求，路径部分格式是相同的，只是IP地址和端口号不同。
+1、在 FE 或 BE 的代码中，参数名和参数值都是字符串。
+2、在 FE 或 BE 的代码中和 http 请求中的参数名称和值都是大小写敏感的。
+3、发给 FE 或 BE 的 http 请求，路径部分格式是相同的，只是 IP 地址和端口号不同。
 ```
 
 ### 在FE、BE代码中使用参数
@@ -261,26 +262,26 @@ POST /api/debug_point/clear
 curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 ```
 
-## 在回归测试中使用代码桩
+## 在回归测试中使用木桩
 
-社区的 CI 系统默认开启 FE 和 BE 的`enable_debug_points`配置。
-回归测试框架提供了开关指定代码桩的方法函数，它们声明如下：
+当提交PR时，社区的 CI 系统默认开启 FE 和 BE 的`enable_debug_points`配置。
+回归测试框架提供了开关指定木桩的方法函数，它们声明如下：
 
 ```groovy
-// 打开代码桩，name 是代码桩名称，params是一个key-value列表，是传给代码桩的参数
+// 打开木桩，name 是木桩名称，params是一个key-value列表，是传给木桩的参数
 def enableDebugPointForAllFEs(String name, Map<String, String> params = null);
 def enableDebugPointForAllBEs(String name, Map<String, String> params = null);
-// 关闭代码桩，name 是代码桩的名称
+// 关闭木桩，name 是木桩的名称
 def disableDebugPointForAllFEs(String name);
 def disableDebugPointForAllFEs(String name);
 ```
-需要在调用测试action之前调用 `enableDebugPointForAllFEs()` 或 `enableDebugPointForAllBEs()` 来开启代码桩， <br>
-这样执行到代码桩代码时，相关代码才会被执行，<br>
-然后在调用测试action之后调用 `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` 来关闭代码桩。
+需要在调用测试action之前调用 `enableDebugPointForAllFEs()` 或 `enableDebugPointForAllBEs()` 来开启木桩， <br>
+这样执行到木桩代码时，相关代码才会被执行，<br>
+然后在调用测试action之后调用 `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` 来关闭木桩。
 
 ### 并发问题
 
-FE 或 BE 中开启代码桩后会全局生效，提交了 Pull Request 后，可能并发跑的其它测试用例会受影响而意外失败。
+FE 或 BE 中开启木桩后会全局生效，提交了 Pull Request 后，可能并发跑的其它测试用例会受影响而意外失败。
 为了避免这种情况，我们规定，使用代码打桩的回归测试，必须放在 regression-test/suites/fault_injection_p0 目录下，
 且组名必须设置为 `nonConcurrent`，社区 CI 系统对于这些用例，会串行运行。
 
@@ -291,16 +292,16 @@ FE 或 BE 中开启代码桩后会全局生效，提交了 Pull Request 后，�
 // 且组名设置为 'nonConcurrent'
 suite('debugpoint_action', 'nonConcurrent') {
     try {
-        // 打开所有FE中，名为 "PublishVersionDaemon.stop_publish" 的代码桩
+        // 打开所有FE中，名为 "PublishVersionDaemon.stop_publish" 的木桩
         // 传参数 timeout=1
         // execute 和 timeout 是预设的参数，作用和上面curl调用时一样
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
-        // 打开所有BE中，名为 "Tablet.build_tablet_report_info.version_miss" 的代码桩
+        // 打开所有BE中，名为 "Tablet.build_tablet_report_info.version_miss" 的木桩
         // 传参数 tablet_id='12345', version_miss=true and timeout=1
         GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss',
                                                   [tablet_id:'12345', version_miss:true, timeout:1])
 
-        // 想要利用代码桩构造错误的测试用例
+        // 想要利用木桩构造错误的测试用例
         sql """CREATE TABLE tbl_1 (k1 INT, k2 INT)
                DUPLICATE KEY (k1)
                DISTRIBUTED BY HASH(k1)
