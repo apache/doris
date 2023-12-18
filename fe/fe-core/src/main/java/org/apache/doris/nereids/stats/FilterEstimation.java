@@ -367,7 +367,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 // 4. not A like XXX
                 colBuilder.setNumNulls(0);
                 Preconditions.checkArgument(
-                        child instanceof EqualTo
+                        child instanceof EqualPredicate
                                 || child instanceof InPredicate
                                 || child instanceof IsNull
                                 || child instanceof Like,
