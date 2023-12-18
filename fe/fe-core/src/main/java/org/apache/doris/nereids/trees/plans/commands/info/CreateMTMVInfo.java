@@ -247,7 +247,7 @@ public class CreateMTMVInfo {
                 throw new AnalysisException(e.getMessage(), e);
             }
 
-            if (!partitionColumnNames.contains(relatedTableInfo.get().getColumn())) {
+            if (!partitionColumnNames.contains(relatedTableInfo.get().getColumn().toLowerCase())) {
                 throw new AnalysisException("error related column: " + relatedTableInfo.get().getColumn());
             }
             if (partitionColumnNames.size() != 1) {
