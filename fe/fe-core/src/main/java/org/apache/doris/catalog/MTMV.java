@@ -185,6 +185,15 @@ public class MTMV extends OlapTable {
         }
     }
 
+    public int getRefreshPartitionNum() {
+        if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
+            int value = Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
+            return value < 1 ? 1 : value;
+        } else {
+            return MTMVTask.DEFAULT_REFRESH_PARTITION_NUM;
+        }
+    }
+
     public Set<String> getExcludedTriggerTables() {
         if (!mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
             return Sets.newHashSet();

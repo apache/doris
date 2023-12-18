@@ -174,6 +174,18 @@ public class CreateMTMVInfo {
             mvProperties.put(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD, gracePeriod);
             properties.remove(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
+            String refreshPartitionNum = properties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
+            try {
+                Integer.parseInt(refreshPartitionNum);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(
+                        "valid refresh_partition_num: " + properties
+                                .get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
+            }
+            mvProperties.put(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM, refreshPartitionNum);
+            properties.remove(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
+        }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
             String excludedTriggerTables = properties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
             mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, excludedTriggerTables);
