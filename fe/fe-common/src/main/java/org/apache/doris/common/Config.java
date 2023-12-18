@@ -2371,4 +2371,6 @@ public class Config extends ConfigBase {
     public static boolean enable_profile_when_analyze = false;
     @ConfField(mutable = true)
     public static boolean enable_collect_internal_query_profile = false;
+    @ConfField
+    public static boolean external_table_column_nullable = true;
 }
