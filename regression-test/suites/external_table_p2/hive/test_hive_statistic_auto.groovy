@@ -41,43 +41,43 @@ suite("test_hive_statistic_auto", "p2,external,hive,external_remote,external_rem
             if (result.size <= 0) {
                 continue;
             }
-            assertTrue(result.size() == 1)
-            assertTrue(result[0][0] == "lo_quantity")
-            assertTrue(result[0][1] == "100.0")
-            assertTrue(result[0][2] == "46.0")
-            assertTrue(result[0][3] == "0.0")
-            assertTrue(result[0][4] == "404.0")
-            assertTrue(result[0][5] == "4.0")
-            assertTrue(result[0][6] == "1")
-            assertTrue(result[0][7] == "50")
+            assertEquals(result.size(), 1)
+            assertEquals(result[0][0], "lo_quantity")
+            assertEquals(result[0][1], "100.0")
+            assertEquals(result[0][2], "46.0")
+            assertEquals(result[0][3], "0.0")
+            assertEquals(result[0][4], "400.0")
+            assertEquals(result[0][5], "4.0")
+            assertEquals(result[0][6], "1")
+            assertEquals(result[0][7], "50")
 
             result = sql """show column stats `statistics` (lo_orderkey)"""
             if (result.size <= 0) {
                 continue;
             }
-            assertTrue(result.size() == 1)
-            assertTrue(result[0][0] == "lo_orderkey")
-            assertTrue(result[0][1] == "100.0")
-            assertTrue(result[0][2] == "26.0")
-            assertTrue(result[0][3] == "0.0")
-            assertTrue(result[0][4] == "404.0")
-            assertTrue(result[0][5] == "4.0")
-            assertTrue(result[0][6] == "1")
-            assertTrue(result[0][7] == "98")
+            assertEquals(result.size(), 1)
+            assertEquals(result[0][0], "lo_orderkey")
+            assertEquals(result[0][1], "100.0")
+            assertEquals(result[0][2], "26.0")
+            assertEquals(result[0][3], "0.0")
+            assertEquals(result[0][4], "400.0")
+            assertEquals(result[0][5], "4.0")
+            assertEquals(result[0][6], "1")
+            assertEquals(result[0][7], "98")
 
             result = sql """show column stats `statistics` (lo_linenumber)"""
             if (result.size <= 0) {
                 continue;
             }
-            assertTrue(result.size() == 1)
-            assertTrue(result[0][0] == "lo_linenumber")
-            assertTrue(result[0][1] == "100.0")
-            assertTrue(result[0][2] == "7.0")
-            assertTrue(result[0][3] == "0.0")
-            assertTrue(result[0][4] == "404.0")
-            assertTrue(result[0][5] == "4.0")
-            assertTrue(result[0][6] == "1")
-            assertTrue(result[0][7] == "7")
+            assertEquals(result.size(), 1)
+            assertEquals(result[0][0], "lo_linenumber")
+            assertEquals(result[0][1], "100.0")
+            assertEquals(result[0][2], "7.0")
+            assertEquals(result[0][3], "0.0")
+            assertEquals(result[0][4], "400.0")
+            assertEquals(result[0][5], "4.0")
+            assertEquals(result[0][6], "1")
+            assertEquals(result[0][7], "7")
         }
 
         sql """drop catalog ${catalog_name}"""

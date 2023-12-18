@@ -160,11 +160,13 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
         LogicalOlapScan newOlapScan;
         if (olapScan.getManuallySpecifiedPartitions().isEmpty()) {
             newOlapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
-                    olapScan.getTable(), olapScan.getQualifier(), olapScan.getHints(), olapScan.getTableSample());
+                    olapScan.getTable(), olapScan.getQualifier(), olapScan.getSelectedTabletIds(),
+                    olapScan.getHints(), olapScan.getTableSample());
         } else {
             newOlapScan = new LogicalOlapScan(StatementScopeIdGenerator.newRelationId(),
                     olapScan.getTable(), olapScan.getQualifier(),
-                    olapScan.getManuallySpecifiedPartitions(), olapScan.getHints(), olapScan.getTableSample());
+                    olapScan.getManuallySpecifiedPartitions(), olapScan.getSelectedTabletIds(),
+                    olapScan.getHints(), olapScan.getTableSample());
         }
         newOlapScan.getOutput();
         context.putRelation(olapScan.getRelationId(), newOlapScan);

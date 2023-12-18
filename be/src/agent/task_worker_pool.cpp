@@ -1594,12 +1594,14 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                     TabletSharedPtr tablet =
                             StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
                     if (tablet != nullptr) {
-                        tablet->publised_count++;
-                        if (tablet->publised_count % 10 == 0) {
-                            StorageEngine::instance()->submit_compaction_task(
-                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
-                            LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
-                                      << ", publised:" << tablet->publised_count;
+                        if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                            tablet->publised_count++;
+                            if (tablet->publised_count % 10 == 0) {
+                                StorageEngine::instance()->submit_compaction_task(
+                                        tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                                LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
+                                          << ", publised:" << tablet->publised_count;
+                            }
                         }
                     } else {
                         LOG(WARNING) << "trigger compaction failed, tablet_id:" << tablet_id;
@@ -1883,9 +1885,10 @@ void CloneTaskPool::_clone_worker_thread_callback() {
             LOG_INFO("successfully clone tablet")
                     .tag("signature", agent_task_req.signature)
                     .tag("tablet_id", clone_req.tablet_id);
+            ++_s_report_version;
             finish_task_request.__set_finish_tablet_infos(tablet_infos);
         }
-
+        finish_task_request.__set_report_version(_s_report_version);
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }

@@ -86,7 +86,7 @@ public:
     virtual Status from_string(ReadBuffer& rb, IColumn* column) const;
 
     // get specific serializer or deserializer
-    virtual DataTypeSerDeSPtr get_serde() const = 0;
+    virtual DataTypeSerDeSPtr get_serde(int nesting_level = 1) const = 0;
 
 protected:
     virtual String do_get_name() const;

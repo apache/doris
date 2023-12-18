@@ -341,8 +341,8 @@ public class HyperGraphBuilder {
         for (Slot slot : scanPlan.getOutput()) {
             slotIdToColumnStats.put(slot,
                     new ColumnStatistic(count, count, null, 1, 0, 0, 0,
-                            count, null, null, true, null,
-                            new Date().toString(), null));
+                            count, null, null, true,
+                            new Date().toString()));
         }
         return new Statistics(count, slotIdToColumnStats);
     }

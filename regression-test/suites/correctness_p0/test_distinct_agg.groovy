@@ -56,7 +56,7 @@ suite("test_distinct_agg") {
         result([['1', '2023-01-10', 1L]])
     }
 
-    sql '''SELECT `b`.`dt` AS `dt`
+    qt_distinct_1 '''SELECT `b`.`dt` AS `dt`
             FROM 
                 (SELECT `dt`AS `dt`,
                     count(DISTINCT `role_id`) AS `pay_role`,
@@ -117,4 +117,46 @@ suite("test_distinct_agg") {
     sql 'drop view if exists dim_v2'
     sql 'drop view if exists dim_v3'
     sql 'drop table if exists test_distinct_agg_t'
+
+    sql "drop table if exists multi_distinct_agg_tab;"
+
+    sql """
+    CREATE TABLE `multi_distinct_agg_tab` (
+        `k1` bigint(20) NULL,
+        `k2` varchar(20) NULL,
+        `d1` DECIMAL(18, 0) NULL,
+        `d2` DECIMAL(38, 0) NULL
+    ) ENGINE = OLAP DUPLICATE KEY(`k1`) DISTRIBUTED BY HASH(`k1`) BUCKETS 2 PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+
+    sql """
+    INSERT INTO
+        `multi_distinct_agg_tab` (`k1`, `k2`, `d1`, `d2`)
+    VALUES (1, 'aaa', 123, 356),(2, 'bbb', 123, 789), (3, 'ccc', 246, 789);
+    """
+    sql "sync"
+
+    qt_multi_distinct_1 """
+        select
+            count(distinct d1),
+            count(distinct d2)
+        from
+            multi_distinct_agg_tab;
+    """
+    qt_multi_distinct_2 """
+        select
+            sum(distinct d1),
+            sum(distinct d2)
+        from
+            multi_distinct_agg_tab;
+    """
+    qt_multi_distinct_3 """
+        select
+            avg(distinct d1),
+            avg(distinct d2)
+        from
+            multi_distinct_agg_tab;
+    """
 }

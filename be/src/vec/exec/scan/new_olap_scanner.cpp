@@ -189,9 +189,7 @@ Status NewOlapScanner::init() {
                 auto st = _tablet->capture_rs_readers(rd_version, &read_source.rs_splits);
                 if (!st.ok()) {
                     LOG(WARNING) << "fail to init reader.res=" << st;
-                    return Status::InternalError(
-                            "failed to initialize storage reader. tablet_id={} : {}",
-                            _tablet->tablet_id(), st.to_string());
+                    return st;
                 }
             }
             if (!_state->skip_delete_predicate()) {
@@ -536,6 +534,14 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_block_init_seek_counter, stats.block_init_seek_num);
     COUNTER_UPDATE(olap_parent->_block_conditions_filtered_timer,
                    stats.block_conditions_filtered_ns);
+    COUNTER_UPDATE(olap_parent->_block_conditions_filtered_bf_timer,
+                   stats.block_conditions_filtered_bf_ns);
+    COUNTER_UPDATE(olap_parent->_block_conditions_filtered_zonemap_timer,
+                   stats.block_conditions_filtered_zonemap_ns);
+    COUNTER_UPDATE(olap_parent->_block_conditions_filtered_zonemap_rp_timer,
+                   stats.block_conditions_filtered_zonemap_rp_ns);
+    COUNTER_UPDATE(olap_parent->_block_conditions_filtered_dict_timer,
+                   stats.block_conditions_filtered_dict_ns);
     COUNTER_UPDATE(olap_parent->_first_read_timer, stats.first_read_ns);
     COUNTER_UPDATE(olap_parent->_second_read_timer, stats.second_read_ns);
     COUNTER_UPDATE(olap_parent->_first_read_seek_timer, stats.block_first_read_seek_ns);
@@ -556,6 +562,7 @@ void NewOlapScanner::_update_counters_before_close() {
     }
 
     COUNTER_UPDATE(olap_parent->_stats_filtered_counter, stats.rows_stats_filtered);
+    COUNTER_UPDATE(olap_parent->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);
     COUNTER_UPDATE(olap_parent->_dict_filtered_counter, stats.rows_dict_filtered);
     COUNTER_UPDATE(olap_parent->_bf_filtered_counter, stats.rows_bf_filtered);
     COUNTER_UPDATE(olap_parent->_del_filtered_counter, stats.rows_del_filtered);

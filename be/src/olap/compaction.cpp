@@ -606,9 +606,10 @@ Status Compaction::construct_output_rowset_writer(RowsetWriterContext& ctx, bool
                                 std::string file_str = p.filename().string();
                                 lucene::store::Directory* dir =
                                         DorisCompoundDirectory::getDirectory(fs, dir_str.c_str());
-                                auto reader = new DorisCompoundReader(dir, file_str.c_str());
+                                DorisCompoundReader reader(dir, file_str.c_str());
                                 std::vector<std::string> files;
-                                reader->list(&files);
+                                reader.list(&files);
+                                reader.close();
 
                                 // why is 3?
                                 // bkd index will write at least 3 files
@@ -694,7 +695,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
             }
         }
 
-        RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+        if (config::enable_rowid_conversion_correctness_check) {
+            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+        }
         location_map.clear();
 
         {
@@ -755,7 +758,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                 }
             }
 
-            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+            if (config::enable_rowid_conversion_correctness_check) {
+                RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+            }
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));

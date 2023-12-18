@@ -87,7 +87,6 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
         case FieldType::OLAP_FIELD_TYPE_STRUCT: {
             // not support empty struct
             DCHECK(meta.children_columns_size() >= 1);
-            num_rows = meta.children_columns(0).num_rows();
             // create struct column reader
             std::unique_ptr<ColumnReader> struct_reader(
                     new ColumnReader(opts, meta, num_rows, file_reader));
@@ -291,6 +290,9 @@ Status ColumnReader::get_row_ranges_by_zone_map(
 }
 
 Status ColumnReader::next_batch_of_zone_map(size_t* n, vectorized::MutableColumnPtr& dst) const {
+    if (_segment_zone_map == nullptr) {
+        return Status::InternalError("segment zonemap not exist");
+    }
     // TODO: this work to get min/max value seems should only do once
     FieldType type = _type_info->type();
     std::unique_ptr<WrapperField> min_value(WrapperField::create_by_type(type, _meta_length));

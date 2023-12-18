@@ -71,6 +71,8 @@ public:
 
     Status close(RuntimeState* state) override;
 
+    void try_stop() override;
+
     Status prepare(const VExprContextSPtrs& conjuncts,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
                    const std::unordered_map<std::string, int>* colname_to_slot_id);
@@ -162,9 +164,9 @@ protected:
     std::unique_ptr<io::FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<io::IOContext> _io_ctx;
 
-    std::unique_ptr<std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>>
-            _partition_columns;
-    std::unique_ptr<std::unordered_map<std::string, VExprContextSPtr>> _missing_columns;
+    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
+            _partition_col_descs;
+    std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;

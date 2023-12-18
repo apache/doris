@@ -326,7 +326,7 @@ DECLARE_mString(broken_storage_path);
 // and exit. When config is false, process will only log warning.
 DECLARE_Bool(storage_strict_check_incompatible_old_format);
 
-// BE process will exit if the percentage of error disk reach this value.
+// BE process will exit if the percentage of error disk reaches this value.
 DECLARE_mInt32(max_percentage_of_error_disk);
 DECLARE_mInt32(default_num_rows_per_column_file_block);
 // pending data policy
@@ -942,7 +942,7 @@ DECLARE_mInt64(file_cache_max_size_per_disk); // zero for no limit
 DECLARE_Int32(s3_transfer_executor_pool_size);
 
 DECLARE_Bool(enable_time_lut);
-DECLARE_Bool(enable_simdjson_reader);
+DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
@@ -997,7 +997,8 @@ DECLARE_Bool(enable_fuzzy_mode);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_mInt16(pipeline_short_query_timeout_s);
+DECLARE_mBool(enable_workload_group_for_scan);
+DECLARE_mInt64(workload_group_scan_task_wait_timeout_ms);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -1121,6 +1122,8 @@ DECLARE_mInt64(lookup_connection_cache_bytes_limit);
 DECLARE_mInt64(LZ4_HC_compression_level);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
+// rowid conversion correctness check when compaction for mow table
+DECLARE_mBool(enable_rowid_conversion_correctness_check);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1156,6 +1159,9 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
+
+// whether to enable /api/snapshot api
+DECLARE_Bool(enable_snapshot_action);
 
 #ifdef BE_TEST
 // test s3

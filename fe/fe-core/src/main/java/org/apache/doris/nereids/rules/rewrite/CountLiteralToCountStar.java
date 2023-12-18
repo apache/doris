@@ -57,7 +57,7 @@ public class CountLiteralToCountStar extends OneRewriteRuleFactory {
                     .filter(this::isCountLiteral)
                     .forEach(c -> replaced.put(c, new Count()));
             expr = expr.rewriteUp(s -> replaced.getOrDefault(s, s));
-            changed = !replaced.isEmpty();
+            changed |= !replaced.isEmpty();
             newExprs.add((NamedExpression) expr);
         }
         return changed;

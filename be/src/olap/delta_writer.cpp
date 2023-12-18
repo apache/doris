@@ -179,6 +179,7 @@ Status DeltaWriter::init() {
 
     // check tablet version number
     if (!config::disable_auto_compaction &&
+        !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction() &&
         _tablet->exceed_version_limit(config::max_tablet_version_num - 100) &&
         !MemInfo::is_exceed_soft_mem_limit(GB_EXCHANGE_BYTE)) {
         //trigger compaction
@@ -615,6 +616,7 @@ int64_t DeltaWriter::mem_consumption(MemType mem) {
 }
 
 int64_t DeltaWriter::active_memtable_mem_consumption() {
+    std::lock_guard<std::mutex> l(_lock);
     return _mem_table != nullptr ? _mem_table->memory_usage() : 0;
 }
 

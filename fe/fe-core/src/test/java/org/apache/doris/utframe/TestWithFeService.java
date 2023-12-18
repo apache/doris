@@ -125,6 +125,7 @@ public abstract class TestWithFeService {
     protected String runningDir = "fe/mocked/" + getClass().getSimpleName() + "/" + UUID.randomUUID() + "/";
     protected ConnectContext connectContext;
     protected boolean needCleanDir = true;
+    protected int lastFeRpcPort = 0;
 
     protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
 
@@ -378,6 +379,7 @@ public abstract class TestWithFeService {
         MockedFrontend frontend = new MockedFrontend();
         frontend.init(dorisHome + "/" + runningDir, feConfMap);
         frontend.start(new String[0]);
+        lastFeRpcPort = feRpcPort;
         return feRpcPort;
     }
 
@@ -432,6 +434,10 @@ public abstract class TestWithFeService {
             bes.add(createBackend(host, feRpcPort));
         }
         checkBEHeartbeat(bes);
+    }
+
+    protected Backend addNewBackend() throws IOException, InterruptedException {
+        return createBackend("127.0.0.1", lastFeRpcPort);
     }
 
     protected Backend createBackend(String beHost, int feRpcPort) throws IOException, InterruptedException {
@@ -489,7 +495,7 @@ public abstract class TestWithFeService {
         }
     }
 
-    protected int findValidPort() {
+    public static int findValidPort() {
         int port = 0;
         while (true) {
             try (ServerSocket socket = new ServerSocket(0)) {

@@ -36,7 +36,8 @@ class Arena;
 
 class DataTypeArraySerDe : public DataTypeSerDe {
 public:
-    DataTypeArraySerDe(const DataTypeSerDeSPtr& _nested_serde) : nested_serde(_nested_serde) {}
+    DataTypeArraySerDe(const DataTypeSerDeSPtr& _nested_serde, int nesting_level = 1)
+            : DataTypeSerDe(nesting_level), nested_serde(_nested_serde) {}
 
     void serialize_one_cell_to_json(const IColumn& column, int row_num, BufferWritable& bw,
                                     FormatOptions& options) const override;
@@ -45,23 +46,22 @@ public:
                                   BufferWritable& bw, FormatOptions& options) const override;
 
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options,
-                                          int nesting_level = 1) const override;
+                                          const FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               int* num_deserialized, const FormatOptions& options,
-                                               int nesting_level = 1) const override;
-    Status deserialize_one_cell_from_hive_text(IColumn& column, Slice& slice,
-                                               const FormatOptions& options,
-                                               int nesting_level = 1) const override;
+                                               int* num_deserialized,
+                                               const FormatOptions& options) const override;
+    Status deserialize_one_cell_from_hive_text(
+            IColumn& column, Slice& slice, const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
 
-    Status deserialize_column_from_hive_text_vector(IColumn& column, std::vector<Slice>& slices,
-                                                    int* num_deserialized,
-                                                    const FormatOptions& options,
-                                                    int nesting_level = 1) const override;
-    void serialize_one_cell_to_hive_text(const IColumn& column, int row_num, BufferWritable& bw,
-                                         FormatOptions& options,
-                                         int nesting_level = 1) const override;
+    Status deserialize_column_from_hive_text_vector(
+            IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+            const FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
+    void serialize_one_cell_to_hive_text(
+            const IColumn& column, int row_num, BufferWritable& bw, FormatOptions& options,
+            int hive_text_complex_type_delimiter_level = 1) const override;
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int start,
                               int end) const override {

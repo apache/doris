@@ -37,9 +37,6 @@
 
 namespace doris {
 class RuntimeState;
-namespace taskgroup {
-class TaskGroup;
-} // namespace taskgroup
 } // namespace doris
 
 namespace doris::pipeline {
@@ -402,7 +399,8 @@ std::string PipelineTask::debug_string() {
         _task_profile->pretty_print(&profile_ss, "");
         fmt::format_to(debug_string_buffer, "Profile: {}\n", profile_ss.str());
     }
-    fmt::format_to(debug_string_buffer, "PipelineTask[id = {}, state = {}]\noperators: ", _index,
+    fmt::format_to(debug_string_buffer,
+                   "PipelineTask[this = {}, state = {}]\noperators: ", (void*)this,
                    get_state_name(_cur_state));
     for (size_t i = 0; i < _operators.size(); i++) {
         fmt::format_to(debug_string_buffer, "\n{}{}", std::string(i * 2, ' '),
@@ -422,8 +420,8 @@ std::string PipelineTask::debug_string() {
     return fmt::to_string(debug_string_buffer);
 }
 
-taskgroup::TaskGroup* PipelineTask::get_task_group() const {
-    return _fragment_context->get_task_group();
+taskgroup::TaskGroupPipelineTaskEntity* PipelineTask::get_task_group_entity() const {
+    return _fragment_context->get_task_group_entity();
 }
 
 } // namespace doris::pipeline

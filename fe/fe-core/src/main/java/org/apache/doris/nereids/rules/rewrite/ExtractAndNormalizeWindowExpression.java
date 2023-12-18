@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -34,6 +35,7 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -44,7 +46,22 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
     @Override
     public Rule build() {
         return logicalProject().when(project -> containsWindowExpression(project.getProjects())).then(project -> {
-            List<NamedExpression> outputs = project.getProjects();
+            List<NamedExpression> outputs =
+                    ExpressionUtils.rewriteDownShortCircuit(project.getProjects(), output -> {
+                        if (output instanceof WindowExpression) {
+                            // remove literal partition by and order by keys
+                            WindowExpression windowExpression = (WindowExpression) output;
+                            return windowExpression.withPartitionKeysOrderKeys(
+                                    windowExpression.getPartitionKeys().stream()
+                                            .filter(expression -> !expression.isConstant())
+                                            .collect(Collectors.toList()),
+                                    windowExpression.getOrderKeys().stream()
+                                            .filter(orderExpression -> !orderExpression
+                                                    .getOrderKey().getExpr().isConstant())
+                                            .collect(Collectors.toList()));
+                        }
+                        return output;
+                    });
 
             // 1. handle bottom projects
             Set<Alias> existedAlias = ExpressionUtils.collect(outputs, Alias.class::isInstance);

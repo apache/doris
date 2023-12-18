@@ -98,6 +98,8 @@ public:
         std::unordered_map<std::string, VExprContextSPtr> predicate_missing_columns;
         // lazy read missing columns or all missing columns
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
+        // should turn off filtering by page index, lazy read and dict filter if having complex type
+        bool has_complex_type = false;
     };
 
     /**

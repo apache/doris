@@ -55,7 +55,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         Status st = _reader->read_at(offset, result, bytes_read, io_ctx);
         _statistics.merged_io++;
         _statistics.request_bytes += *bytes_read;
-        _statistics.read_bytes += *bytes_read;
+        _statistics.merged_bytes += *bytes_read;
         return st;
     }
     if (offset + result.size > _random_access_ranges[range_index].end_offset) {
@@ -69,10 +69,10 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     if (cached_data.contains(offset)) {
         // has cached data in box
         _read_in_box(cached_data, offset, result, &has_read);
+        _statistics.request_bytes += has_read;
         if (has_read == result.size) {
             // all data is read in cache
             *bytes_read = has_read;
-            _statistics.request_bytes += has_read;
             return Status::OK();
         }
     } else if (!cached_data.empty()) {
@@ -92,7 +92,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         *bytes_read = has_read + read_size;
         _statistics.merged_io++;
         _statistics.request_bytes += read_size;
-        _statistics.read_bytes += read_size;
+        _statistics.merged_bytes += read_size;
         return Status::OK();
     }
 
@@ -152,7 +152,6 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
     }
     content_size = 0;
     hollow_size = 0;
-    double amplified_ratio = config::max_amplified_read_ratio;
     std::vector<std::pair<double, size_t>> ratio_and_size;
     // Calculate the read amplified ratio for each merge operation and the size of the merged data.
     // Find the largest size of the merged data whose amplified ratio is less than config::max_amplified_read_ratio
@@ -168,9 +167,12 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         }
     }
     size_t best_merged_size = 0;
-    for (const std::pair<double, size_t>& rs : ratio_and_size) {
+    for (int i = 0; i < ratio_and_size.size(); ++i) {
+        const std::pair<double, size_t>& rs = ratio_and_size[i];
+        size_t equivalent_size = rs.second / (i + 1);
         if (rs.second > best_merged_size) {
-            if (rs.first < amplified_ratio || rs.second <= MIN_READ_SIZE) {
+            if (rs.first <= _max_amplified_ratio ||
+                (_max_amplified_ratio < 1 && equivalent_size <= _equivalent_io_size)) {
                 best_merged_size = rs.second;
             }
         }
@@ -185,7 +187,7 @@ Status MergeRangeFileReader::read_at_impl(size_t offset, Slice result, size_t* b
         *bytes_read = has_read + read_size;
         _statistics.merged_io++;
         _statistics.request_bytes += read_size;
-        _statistics.read_bytes += read_size;
+        _statistics.merged_bytes += read_size;
         return Status::OK();
     }
 
@@ -313,7 +315,7 @@ Status MergeRangeFileReader::_fill_box(int range_index, size_t start_offset, siz
         RETURN_IF_ERROR(
                 _reader->read_at(start_offset, Slice(_read_slice, to_read), bytes_read, io_ctx));
         _statistics.merged_io++;
-        _statistics.read_bytes += *bytes_read;
+        _statistics.merged_bytes += *bytes_read;
     }
 
     SCOPED_RAW_TIMER(&_statistics.copy_time);
@@ -474,6 +476,10 @@ void PrefetchBuffer::prefetch_buffer() {
         return;
     }
     if (!s.ok() && _offset < _reader->size()) {
+        // We should print the error msg since this buffer might not be accessed by the consumer
+        // which would result in the status being missed
+        LOG_WARNING("prefetch path {} failed, offset {}, error {}", _reader->path().native(),
+                    _offset, s.to_string());
         _prefetch_status = std::move(s);
     }
     _buffer_status = BufferStatus::PREFETCHED;

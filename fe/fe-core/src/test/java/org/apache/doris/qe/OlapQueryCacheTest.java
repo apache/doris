@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.SqlParser;
@@ -24,6 +25,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -49,13 +51,10 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.privilege.AccessControllerManager;
-import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -76,7 +75,6 @@ import org.apache.doris.qe.cache.RowBatchBuilder;
 import org.apache.doris.qe.cache.SqlCache;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -95,17 +93,15 @@ import org.junit.Test;
 
 import java.io.StringReader;
 import java.net.UnknownHostException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.function.Function;
 
 public class OlapQueryCacheTest {
     private static final Logger LOG = LogManager.getLogger(OlapQueryCacheTest.class);
     public static String clusterName = "testCluster";
-    public static String dbName = "testDb";
     public static String fullDbName = "testCluster:testDb";
-    public static String tableName = "testTbl";
     public static String userName = "testUser";
 
     private static ConnectContext context;
@@ -114,21 +110,12 @@ public class OlapQueryCacheTest {
     private Cache.HitRange hitRange;
     private Analyzer analyzer;
     private Database db;
-
-    @Mocked
-    private AccessControllerManager accessManager;
-    @Mocked
-    private SystemInfoService service;
-    @Mocked
     private Env env;
-    @Mocked
-    private InternalCatalog catalog;
-    @Mocked
     private ConnectContext ctx;
+    private QueryState state;
+    private ConnectScheduler scheduler;
     @Mocked
-    MysqlChannel channel;
-    @Mocked
-    ConnectScheduler scheduler;
+    private MysqlChannel channel = null;
 
     @BeforeClass
     public static void start() {
@@ -149,8 +136,15 @@ public class OlapQueryCacheTest {
 
     @Before
     public void setUp() throws Exception {
-        MockedAuth.mockedAccess(accessManager);
-        MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
+        state = new QueryState();
+        scheduler = new ConnectScheduler(10);
+        ctx = new ConnectContext();
+
+        SessionVariable sessionVariable = new SessionVariable();
+        Deencapsulation.setField(sessionVariable, "beNumberForTest", 1);
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        env = AccessTestUtil.fetchAdminCatalog();
+
         new MockUp<Util>() {
             @Mock
             public boolean showHiddenColumns() {
@@ -159,98 +153,28 @@ public class OlapQueryCacheTest {
         };
         new MockUp<Env>() {
             @Mock
-            public SystemInfoService getCurrentSystemInfo() {
-                return service;
-            }
-        };
-        db = new Database(1L, fullDbName);
-
-        OlapTable tbl1 = createOrderTable();
-        OlapTable tbl2 = createProfileTable();
-        OlapTable tbl3 = createEventTable();
-        db.createTable(tbl1);
-        db.createTable(tbl2);
-        db.createTable(tbl3);
-
-        View view1 = createEventView1();
-        View view2 = createEventView2();
-        View view3 = createEventView3();
-        View view4 = createEventNestedView();
-        db.createTable(view1);
-        db.createTable(view2);
-        db.createTable(view3);
-        db.createTable(view4);
-
-        new Expectations(catalog) {
-            {
-                catalog.getDbNullable(fullDbName);
-                minTimes = 0;
-                result = db;
-
-                catalog.getDbNullable(dbName);
-                minTimes = 0;
-                result = db;
-
-                catalog.getDbNullable(db.getId());
-                minTimes = 0;
-                result = db;
-
-                catalog.getDbNames();
-                minTimes = 0;
-                result = Lists.newArrayList(fullDbName);
+            Env getCurrentEnv() {
+                return env;
             }
         };
 
-        CatalogMgr dsMgr = new CatalogMgr();
-        new Expectations(dsMgr) {
-            {
-                dsMgr.getCatalog((String) any);
-                minTimes = 0;
-                result = catalog;
-
-                dsMgr.getCatalogOrException((String) any, (Function) any);
-                minTimes = 0;
-                result = catalog;
-
-                dsMgr.getCatalogOrAnalysisException((String) any);
-                minTimes = 0;
-                result = catalog;
-            }
-        };
-
-        new Expectations(env) {
-            {
-                env.getAccessManager();
-                minTimes = 0;
-                result = accessManager;
-
-                env.getCurrentCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                env.getInternalCatalog();
-                minTimes = 0;
-                result = catalog;
-
-                env.getCatalogMgr();
-                minTimes = 0;
-                result = dsMgr;
-            }
-        };
         FunctionSet fs = new FunctionSet();
         fs.init();
         Deencapsulation.setField(env, "functionSet", fs);
-        QueryState state = new QueryState();
-        channel.reset();
 
-        SessionVariable sessionVariable = new SessionVariable();
-        Deencapsulation.setField(sessionVariable, "beNumberForTest", 1);
+        channel.reset();
 
         new Expectations(channel) {
             {
+                channel.sendOnePacket((ByteBuffer) any);
+                minTimes = 0;
+
+                channel.reset();
+                minTimes = 0;
+
                 channel.getSerializer();
                 minTimes = 0;
-                result = MysqlSerializer.newInstance();
+                result = serializer;
             }
         };
 
@@ -305,7 +229,7 @@ public class OlapQueryCacheTest {
 
                 ctx.getDatabase();
                 minTimes = 0;
-                result = dbName;
+                result = fullDbName;
 
                 ctx.getSessionVariable();
                 minTimes = 0;
@@ -324,16 +248,50 @@ public class OlapQueryCacheTest {
 
                 ctx.getCurrentCatalog();
                 minTimes = 0;
-                result = catalog;
+                result = env.getCurrentCatalog();
 
                 ctx.getCatalog(anyString);
                 minTimes = 0;
-                result = catalog;
+                result = env.getCurrentCatalog();
+
+                ConnectContext.get();
+                minTimes = 0;
+                result = ctx;
+
+                ctx.getRemoteIP();
+                minTimes = 0;
+                result = "192.168.1.1";
+
+                ctx.getCurrentUserIdentity();
+                minTimes = 0;
+                UserIdentity userIdentity = new UserIdentity(userName, "192.168.1.1");
+                userIdentity.setIsAnalyzed();
+                result = userIdentity;
             }
         };
 
         analyzer = new Analyzer(env, ctx);
         newRangeList = Lists.newArrayList();
+
+        db = ((InternalCatalog) env.getCurrentCatalog()).getDbNullable(fullDbName);
+        // table and view init use analyzer, should init after analyzer build
+        OlapTable tbl1 = createOrderTable();
+        db.createTable(tbl1);
+        OlapTable tbl2 = createProfileTable();
+        db.createTable(tbl2);
+        OlapTable tbl3 = createEventTable();
+        db.createTable(tbl3);
+
+        // build view meta inline sql and create view directly, the originStmt from inline sql
+        // should be analyzed by create view statement analyzer and then to sql
+        View view1 = createEventView1();
+        db.createTable(view1);
+        View view2 = createEventView2();
+        db.createTable(view2);
+        View view3 = createEventView3();
+        db.createTable(view3);
+        View view4 = createEventNestedView();
+        db.createTable(view4);
     }
 
     private OlapTable createOrderTable() {
@@ -584,7 +542,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testCacheNode() throws Exception {
-        Env.getCurrentSystemInfo();
         CacheCoordinator cp = CacheCoordinator.getInstance();
         cp.debugModel = true;
         Backend bd1 = new Backend(1, "", 1000);
@@ -610,7 +567,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testCacheModeNone() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql("select @@version_comment limit 1");
         List<ScanNode> scanNodes = Lists.newArrayList();
         CacheAnalyzer ca = new CacheAnalyzer(context, parseStmt, scanNodes);
@@ -620,7 +576,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testCacheModeTable() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT country, COUNT(userid) FROM userprofile GROUP BY country"
         );
@@ -634,7 +589,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testWithinMinTime() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT country, COUNT(userid) FROM userprofile GROUP BY country"
         );
@@ -648,7 +602,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testPartitionModel() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(DISTINCT userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
@@ -664,7 +617,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testParseByte() throws Exception {
-        Env.getCurrentSystemInfo();
         RowBatchBuilder sb = new RowBatchBuilder(CacheMode.Partition);
         byte[] buffer = new byte[]{10, 50, 48, 50, 48, 45, 48, 51, 45, 49, 48, 1, 51, 2, 67, 78};
         PartitionRange.PartitionKeyType key1 = sb.getKeyFromRow(buffer, 0, Type.DATE);
@@ -677,7 +629,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testPartitionIntTypeSql() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT `date`, COUNT(id) FROM `order` WHERE `date`>=20200112 and `date`<=20200115 GROUP BY date"
         );
@@ -721,7 +672,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSimpleCacheSql() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
@@ -764,7 +714,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testHitSqlCache() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -779,7 +728,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testHitPartPartition() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -825,7 +773,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testNoUpdatePartition() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -867,7 +814,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testUpdatePartition() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-15\" GROUP BY eventdate"
@@ -916,7 +862,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testRewriteMultiPredicate1() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>\"2020-01-11\" and "
                         + "eventdate<\"2020-01-16\""
@@ -960,7 +905,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testRewriteJoin() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT appevent.eventdate, country, COUNT(appevent.userid) FROM appevent"
                         + " INNER JOIN userprofile ON appevent.userid = userprofile.userid"
@@ -1005,7 +949,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSubSelect() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, sum(pv) FROM (SELECT eventdate, COUNT(userid) AS pv FROM appevent WHERE "
                         + "eventdate>\"2020-01-11\" AND eventdate<\"2020-01-16\""
@@ -1058,7 +1001,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testNotHitPartition() throws Exception {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -1087,7 +1029,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSqlCacheKey() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" GROUP BY eventdate"
@@ -1109,7 +1050,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSqlCacheKeyWithChineseChar() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT eventdate, COUNT(userid) FROM appevent WHERE eventdate>=\"2020-01-12\" and "
                         + "eventdate<=\"2020-01-14\" and city=\"北京\" GROUP BY eventdate"
@@ -1129,7 +1069,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSqlCacheKeyWithView() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql("SELECT * from testDb.view1");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1148,7 +1087,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSqlCacheKeyWithViewForNereids() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSqlByNereids("SELECT * from testDb.view1");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1167,7 +1105,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSqlCacheKeyWithSubSelectView() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "select origin.eventdate as eventdate, origin.userid as userid\n"
                         + "from (\n"
@@ -1195,7 +1132,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSqlCacheKeyWithSubSelectViewForNereids() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSqlByNereids(
                 "select origin.eventdate as eventdate, origin.userid as userid\n"
                         + "from (\n"
@@ -1224,7 +1160,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testPartitionCacheKeyWithView() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql("SELECT * from testDb.view3");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L, 20200115L);
@@ -1250,7 +1185,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testPartitionCacheKeyWithSubSelectView() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "select origin.eventdate as eventdate, origin.cnt as cnt\n"
                         + "from (\n"
@@ -1274,7 +1208,8 @@ public class OlapQueryCacheTest {
             Assert.assertEquals(cache.getSqlWithViewStmt(),
                     "SELECT `origin`.`eventdate` AS `eventdate`, `origin`.`cnt` AS `cnt` FROM (SELECT "
                             + "<slot 4> `eventdate` AS `eventdate`, <slot 5> count(`userid`) AS `cnt` FROM "
-                            + "`testDb`.`view2` GROUP BY `eventdate`) origin|select eventdate, userid FROM appevent");
+                            + "`testCluster:testDb`.`view2` GROUP BY `eventdate`) origin|select eventdate, "
+                            + "userid FROM appevent");
         } catch (Exception e) {
             LOG.warn("ex={}", e);
             Assert.fail(e.getMessage());
@@ -1283,7 +1218,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSqlCacheKeyWithNestedView() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql("SELECT * from testDb.view4");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1303,7 +1237,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testSqlCacheKeyWithNestedViewForNereids() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSqlByNereids("SELECT * from testDb.view4");
         ArrayList<Long> selectedPartitionIds
                 = Lists.newArrayList(20200112L, 20200113L, 20200114L);
@@ -1323,7 +1256,6 @@ public class OlapQueryCacheTest {
 
     @Test
     public void testCacheLocalViewMultiOperand() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT COUNT(userid)\n"
                         + "FROM (\n"
@@ -1347,7 +1279,6 @@ public class OlapQueryCacheTest {
     @Test
     // test that some partitions do not exist in the table
     public void testNotExistPartitionSql() {
-        Env.getCurrentSystemInfo();
         StatementBase parseStmt = parseSql(
                 "SELECT `date`, COUNT(id) FROM `order` WHERE `date`>=20200110 and `date`<=20200115 GROUP BY date"
         );

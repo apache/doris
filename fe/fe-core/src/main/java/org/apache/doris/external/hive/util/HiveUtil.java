@@ -24,6 +24,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.BrokerFileSystem;
+import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -188,12 +190,17 @@ public final class HiveUtil {
         }
     }
 
-    public static boolean isSplittable(InputFormat<?, ?> inputFormat, Path path, JobConf jobConf) {
+    public static boolean isSplittable(RemoteFileSystem remoteFileSystem, InputFormat<?, ?> inputFormat,
+                                       String location, JobConf jobConf) throws UserException {
+        if (remoteFileSystem instanceof BrokerFileSystem) {
+            return ((BrokerFileSystem) remoteFileSystem)
+                    .isSplittable(location, inputFormat.getClass().getCanonicalName());
+        }
+
         // ORC uses a custom InputFormat but is always splittable
         if (inputFormat.getClass().getSimpleName().equals("OrcInputFormat")) {
             return true;
         }
-
         // use reflection to get isSplitable method on FileInputFormat
         // ATTN: the method name is actually "isSplitable", but the right spell is "isSplittable"
         Method method = null;
@@ -209,6 +216,7 @@ public final class HiveUtil {
         if (method == null) {
             return false;
         }
+        Path path = new Path(location);
         try {
             method.setAccessible(true);
             return (boolean) method.invoke(inputFormat, FileSystemFactory.getNativeByPath(path, jobConf), path);

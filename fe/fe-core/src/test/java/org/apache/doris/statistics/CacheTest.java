@@ -18,11 +18,17 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.ha.FrontendNodeType;
@@ -31,6 +37,9 @@ import org.apache.doris.system.Frontend;
 import org.apache.doris.thrift.TUpdateFollowerStatsCacheRequest;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.github.benmanes.caffeine.cache.AsyncCacheLoader;
+import com.github.benmanes.caffeine.cache.AsyncLoadingCache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.google.common.collect.Lists;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -40,9 +49,11 @@ import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
+import org.checkerframework.checker.nullness.qual.NonNull;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -50,6 +61,8 @@ import java.util.Date;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.function.Function;
 
 public class CacheTest extends TestWithFeService {
 
@@ -222,24 +235,38 @@ public class CacheTest extends TestWithFeService {
             }
         };
 
+        new MockUp<CatalogMgr>() {
+            @Mock
+            public <E extends Exception> CatalogIf<? extends DatabaseIf<? extends TableIf>>
+                    getCatalogOrException(long id, Function<Long, E> e) throws E {
+                return catalog;
+            }
+        };
+
+        new MockUp<HMSExternalCatalog>() {
+            @Mock
+            public ExternalDatabase<? extends ExternalTable> getDbNullable(long dbId) {
+                return db;
+            }
+        };
+
+        new MockUp<HMSExternalDatabase>() {
+
+            @Mock
+            public HMSExternalTable getTableNullable(long tableId) {
+                return table;
+            }
+        };
+
         new Expectations() {
             {
                 env.getCatalogMgr();
                 result = mgr;
 
-                mgr.getCatalog(1);
-                result = catalog;
-
-                catalog.getDbOrMetaException(1);
-                result = db;
-
-                db.getTableOrMetaException(1);
-                result = table;
-
                 table.getColumnStatistic("col");
                 result = new ColumnStatistic(1, 2,
                         null, 3, 4, 5, 6, 7,
-                        null, null, false, null, new Date().toString(), null);
+                        null, null, false, new Date().toString());
             }
         };
         try {
@@ -349,5 +376,31 @@ public class CacheTest extends TestWithFeService {
                 times = 0;
             }
         };
+    }
+
+    @Test
+    public void testEvict() throws InterruptedException {
+        ThreadPoolExecutor threadPool
+                = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, Integer.MAX_VALUE, "STATS_FETCH", true);
+        AsyncLoadingCache<Integer, Integer> columnStatisticsCache =
+                Caffeine.newBuilder()
+                        .maximumSize(1)
+                        .refreshAfterWrite(Duration.ofHours(StatisticConstants.STATISTICS_CACHE_REFRESH_INTERVAL))
+                        .executor(threadPool)
+                        .buildAsync(new AsyncCacheLoader<Integer, Integer>() {
+                            @Override
+                            public @NonNull CompletableFuture<Integer> asyncLoad(@NonNull Integer integer,
+                                    @NonNull Executor executor) {
+                                return CompletableFuture.supplyAsync(() -> {
+                                    return integer;
+                                }, threadPool);
+                            }
+                        });
+        columnStatisticsCache.get(1);
+        columnStatisticsCache.get(2);
+        Assertions.assertTrue(columnStatisticsCache.synchronous().asMap().containsKey(2));
+        Thread.sleep(100);
+        Assertions.assertEquals(1, columnStatisticsCache.synchronous().asMap().size());
     }
 }

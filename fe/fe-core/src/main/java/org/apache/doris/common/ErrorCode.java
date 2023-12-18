@@ -37,7 +37,7 @@ public enum ErrorCode {
     ERR_BAD_TABLE_ERROR(1051, new byte[]{'4', '2', 'S', '0', '2'}, "Unknown table '%s'"),
     ERR_NON_UNIQ_ERROR(1052, new byte[]{'2', '3', '0', '0', '0'}, "Column '%s' in field list is ambiguous"),
     ERR_BAD_FIELD_ERROR(1054, new byte[]{'4', '2', 'S', '2', '2'}, "Unknown column '%s' in '%s'"),
-    ERR_WRONG_VALUE_COUNT(1058, new byte[]{'2', '1', 'S', '0', '1'}, "Column count doesn't match value count"),
+    ERR_WRONG_VALUE_COUNT(1058, new byte[]{'2', '1', 'S', '0', '1'}, "Column count (%d) doesn't match value count (%d)"),
     ERR_DUP_FIELDNAME(1060, new byte[]{'4', '2', 'S', '2', '1'}, "Duplicate column name '%s'"),
     ERR_NONUNIQ_TABLE(1066, new byte[]{'4', '2', '0', '0', '0'}, "Not unique table/alias: '%s'"),
     ERR_NO_SUCH_THREAD(1094, new byte[]{'H', 'Y', '0', '0', '0'}, "Unknown thread id: %d"),

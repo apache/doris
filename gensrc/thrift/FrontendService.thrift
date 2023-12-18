@@ -1015,6 +1015,7 @@ struct TGetBinlogResult {
     3: optional list<TBinlog> binlogs
     4: optional string fe_version
     5: optional i64 fe_meta_version
+    6: optional Types.TNetworkAddress master_address
 }
 
 struct TGetTabletReplicaInfosRequest {
@@ -1093,11 +1094,16 @@ typedef TGetBinlogRequest TGetBinlogLagRequest
 struct TGetBinlogLagResult {
     1: optional Status.TStatus status
     2: optional i64 lag
+    3: optional Types.TNetworkAddress master_address
 }
 
 struct TUpdateFollowerStatsCacheRequest {
     1: optional string key;
     2: list<string> statsRows;
+}
+
+struct TInvalidateFollowerStatsCacheRequest {
+    1: optional string key;
 }
 
 struct TGetMetaReplica {
@@ -1191,6 +1197,7 @@ struct TGetMetaDBMeta {
 struct TGetMetaResult {
     1: required Status.TStatus status
     2: optional TGetMetaDBMeta db_meta
+    3: optional Types.TNetworkAddress master_address
 }
 
 struct TGetBackendMetaRequest {
@@ -1205,6 +1212,7 @@ struct TGetBackendMetaRequest {
 struct TGetBackendMetaResult {
     1: required Status.TStatus status
     2: optional list<Types.TBackend> backends
+    3: optional Types.TNetworkAddress master_address
 }
 
 service FrontendService {
@@ -1278,4 +1286,6 @@ service FrontendService {
     TGetMetaResult getMeta(1: TGetMetaRequest request)
 
     TGetBackendMetaResult getBackendMeta(1: TGetBackendMetaRequest request)
+
+    Status.TStatus invalidateStatsCache(1: TInvalidateFollowerStatsCacheRequest request)
 }

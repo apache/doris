@@ -22,8 +22,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
@@ -51,7 +52,8 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     public StatisticsAutoCollector() {
         super("Automatic Analyzer",
                 TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
-                new AnalysisTaskExecutor(Config.full_auto_analyze_simultaneously_running_task_num));
+                new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
+                        StatisticConstants.TASK_QUEUE_CAP));
     }
 
     @Override
@@ -77,22 +79,30 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
                     continue;
                 }
-                analyzeDb(databaseIf);
+                try {
+                    analyzeDb(databaseIf);
+                } catch (Throwable t) {
+                    LOG.warn("Failed to analyze database {}.{}", ctl.getName(), databaseIf.getFullName(), t);
+                    continue;
+                }
             }
         }
     }
 
-    public void analyzeDb(DatabaseIf<TableIf> databaseIf) {
+    public void analyzeDb(DatabaseIf<TableIf> databaseIf) throws DdlException {
         List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
         for (AnalysisInfo analysisInfo : analysisInfos) {
-            analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
-            if (analysisInfo == null) {
-                continue;
-            }
             try {
+                analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
+                if (analysisInfo == null) {
+                    continue;
+                }
                 createSystemAnalysisJob(analysisInfo);
-            } catch (Exception e) {
-                LOG.warn("Failed to create analysis job", e);
+            } catch (Throwable t) {
+                analysisInfo.message = t.getMessage();
+                LOG.warn("Failed to auto analyze table {}.{}, reason {}",
+                        databaseIf.getFullName(), analysisInfo.tblId, analysisInfo.message, t);
+                continue;
             }
         }
     }
@@ -100,20 +110,31 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     protected List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         for (TableIf table : db.getTables()) {
-            if (skip(table)) {
+            try {
+                if (skip(table)) {
+                    continue;
+                }
+                createAnalyzeJobForTbl(db, analysisInfos, table);
+            } catch (Throwable t) {
+                LOG.warn("Failed to analyze table {}.{}.{}",
+                        db.getCatalog().getName(), db.getFullName(), table.getName(), t);
                 continue;
             }
-            createAnalyzeJobForTbl(db, analysisInfos, table);
         }
         return analysisInfos;
     }
 
     // return true if skip auto analyze this time.
     protected boolean skip(TableIf table) {
-        if (!(table instanceof OlapTable || table instanceof ExternalTable)) {
+        if (!(table instanceof OlapTable || table instanceof HMSExternalTable)) {
             return true;
         }
-        if (table.getDataSize(true) < Config.huge_table_lower_bound_size_in_bytes) {
+        // For now, only support Hive HMS table auto collection.
+        if (table instanceof HMSExternalTable
+                && !((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+            return true;
+        }
+        if (table.getDataSize(true) < StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5) {
             return false;
         }
         TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(table.getId());
@@ -121,12 +142,13 @@ public class StatisticsAutoCollector extends StatisticsCollector {
         if (tableStats == null) {
             return false;
         }
-        return System.currentTimeMillis() - tableStats.updatedTime < Config.huge_table_auto_analyze_interval_in_millis;
+        return System.currentTimeMillis()
+                - tableStats.updatedTime < StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis();
     }
 
     protected void createAnalyzeJobForTbl(DatabaseIf<? extends TableIf> db,
             List<AnalysisInfo> analysisInfos, TableIf table) {
-        AnalysisMethod analysisMethod = table.getDataSize(true) > Config.huge_table_lower_bound_size_in_bytes
+        AnalysisMethod analysisMethod = table.getDataSize(true) > StatisticsUtil.getHugeTableLowerBoundSizeInBytes()
                 ? AnalysisMethod.SAMPLE : AnalysisMethod.FULL;
         AnalysisInfo jobInfo = new AnalysisInfoBuilder()
                 .setJobId(Env.getCurrentEnv().getNextId())
@@ -135,18 +157,20 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setTblId(table.getId())
                 .setColName(
                         table.getBaseSchema().stream().filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
-                                .map(
-                                        Column::getName).collect(Collectors.joining(","))
+                                .map(Column::getName).collect(Collectors.joining(","))
                 )
                 .setAnalysisType(AnalysisInfo.AnalysisType.FUNDAMENTALS)
                 .setAnalysisMode(AnalysisInfo.AnalysisMode.INCREMENTAL)
                 .setAnalysisMethod(analysisMethod)
-                .setSampleRows(Config.huge_table_default_sample_rows)
+                .setSampleRows(analysisMethod.equals(AnalysisMethod.SAMPLE)
+                        ? StatisticsUtil.getHugeTableSampleRows() : -1)
                 .setScheduleType(ScheduleType.AUTOMATIC)
                 .setState(AnalysisState.PENDING)
                 .setTaskIds(new ArrayList<>())
                 .setLastExecTimeInMs(System.currentTimeMillis())
-                .setJobType(JobType.SYSTEM).build();
+                .setJobType(JobType.SYSTEM)
+                .setTblUpdateTime(table.getUpdateTime())
+                .build();
         analysisInfos.add(jobInfo);
     }
 
@@ -154,9 +178,13 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
+        // Skip tables that are too width.
+        if (table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
+            return null;
+        }
+
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
-
         if (!table.needReAnalyzeTable(tblStats)) {
             return null;
         }
@@ -169,5 +197,4 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
         return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
     }
-
 }

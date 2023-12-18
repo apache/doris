@@ -510,7 +510,11 @@ public class MasterImpl {
         } else {
             LOG.warn("invalid clone task, ignore it. {}", task);
         }
-
+        if (request.isSetReportVersion()) {
+            long reportVersion = request.getReportVersion();
+            Env.getCurrentSystemInfo().updateBackendReportVersion(
+                    task.getBackendId(), reportVersion, task.getDbId(), task.getTableId());
+        }
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CLONE, task.getSignature());
     }
 

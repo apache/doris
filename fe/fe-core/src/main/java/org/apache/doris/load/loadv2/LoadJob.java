@@ -819,8 +819,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(transactionId);
             // error tablets
             jobInfo.add(errorTabletsToJson());
-            // user
-            jobInfo.add(userInfo.getQualifiedUser());
+            // user, some load job may not have user info
+            if (userInfo == null || userInfo.getQualifiedUser() == null) {
+                jobInfo.add(FeConstants.null_string);
+            } else {
+                jobInfo.add(userInfo.getQualifiedUser());
+            }
             // comment
             jobInfo.add(comment);
             return jobInfo;

@@ -571,10 +571,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     private ColumnStatistic getColumnStatistic(TableIf table, String colName) {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getSessionVariable().internalSession) {
+            return ColumnStatistic.UNKNOWN;
+        }
         if (totalColumnStatisticMap.get(table.getName() + colName) != null) {
             return totalColumnStatisticMap.get(table.getName() + colName);
         } else if (isPlayNereidsDump) {
             return ColumnStatistic.UNKNOWN;
+
         } else {
             long catalogId;
             long dbId;
@@ -592,17 +597,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             return Env.getCurrentEnv().getStatisticsCache().getColumnStatistics(
                 catalogId, dbId, table.getId(), colName);
         }
-    }
-
-    private Histogram getColumnHistogram(TableIf table, String colName) {
-        // if (totalHistogramMap.get(table.getName() + colName) != null) {
-        //     return totalHistogramMap.get(table.getName() + colName);
-        // } else if (isPlayNereidsDump) {
-        //     return null;
-        // } else {
-        //     return Env.getCurrentEnv().getStatisticsCache().getHistogram(table.getId(), colName);
-        // }
-        return null;
     }
 
     // TODO: 1. Subtract the pruned partition
@@ -636,17 +630,6 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
             }
             if (!cache.isUnKnown) {
                 rowCount = Math.max(rowCount, cache.count);
-                Histogram histogram = getColumnHistogram(table, colName);
-                if (histogram != null) {
-                    ColumnStatisticBuilder columnStatisticBuilder =
-                            new ColumnStatisticBuilder(cache).setHistogram(histogram);
-                    cache = columnStatisticBuilder.build();
-                    if (ConnectContext.get().getSessionVariable().isEnableMinidump()
-                            && !ConnectContext.get().getSessionVariable().isPlayNereidsDump()) {
-                        totalColumnStatisticMap.put(table.getName() + ":" + colName, cache);
-                        totalHistogramMap.put(table.getName() + colName, histogram);
-                    }
-                }
             }
             columnStatisticMap.put(slotReference, cache);
         }

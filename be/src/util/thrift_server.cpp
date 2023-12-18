@@ -38,6 +38,7 @@
 #include <sstream>
 #include <thread>
 
+#include "common/config.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 

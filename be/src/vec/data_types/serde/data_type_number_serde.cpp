@@ -102,8 +102,7 @@ void DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const 
 
 template <typename T>
 Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                              const FormatOptions& options,
-                                                              int nesting_level) const {
+                                                              const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
     ReadBuffer rb(slice.data, slice.size);
     if constexpr (std::is_same<T, UInt128>::value) {
@@ -166,11 +165,9 @@ void DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, i
 }
 
 template <typename T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(IColumn& column,
-                                                                   std::vector<Slice>& slices,
-                                                                   int* num_deserialized,
-                                                                   const FormatOptions& options,
-                                                                   int nesting_level) const {
+Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
+        IColumn& column, std::vector<Slice>& slices, int* num_deserialized,
+        const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }

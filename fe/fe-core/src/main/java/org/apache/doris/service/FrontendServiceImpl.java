@@ -136,6 +136,7 @@ import org.apache.doris.thrift.TGetTabletReplicaInfosRequest;
 import org.apache.doris.thrift.TGetTabletReplicaInfosResult;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
+import org.apache.doris.thrift.TInvalidateFollowerStatsCacheRequest;
 import org.apache.doris.thrift.TListPrivilegesResult;
 import org.apache.doris.thrift.TListTableMetadataNameIdsResult;
 import org.apache.doris.thrift.TListTableStatusResult;
@@ -977,20 +978,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     try {
                         List<Column> baseSchema = table.getBaseSchemaOrEmpty();
                         for (Column column : baseSchema) {
-                            final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
-                            final Integer precision = column.getOriginType().getPrecision();
-                            if (precision != null) {
-                                desc.setColumnPrecision(precision);
-                            }
-                            final Integer columnLength = column.getOriginType().getColumnSize();
-                            if (columnLength != null) {
-                                desc.setColumnLength(columnLength);
-                            }
-                            final Integer decimalDigits = column.getOriginType().getDecimalDigits();
-                            if (decimalDigits != null) {
-                                desc.setColumnScale(decimalDigits);
-                            }
-                            desc.setIsAllowNull(column.isAllowNull());
+                            final TColumnDesc desc = getColumnDesc(column);
                             final TColumnDef colDef = new TColumnDef(desc);
                             final String comment = column.getComment();
                             if (comment != null) {
@@ -1011,6 +999,31 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
         }
         return result;
+    }
+
+    public TColumnDesc getColumnDesc(Column column) {
+        final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
+        final Integer precision = column.getOriginType().getPrecision();
+        if (precision != null) {
+            desc.setColumnPrecision(precision);
+        }
+        final Integer columnLength = column.getOriginType().getColumnSize();
+        if (columnLength != null) {
+            desc.setColumnLength(columnLength);
+        }
+        final Integer decimalDigits = column.getOriginType().getDecimalDigits();
+        if (decimalDigits != null) {
+            desc.setColumnScale(decimalDigits);
+        }
+        desc.setIsAllowNull(column.isAllowNull());
+        if (column.getChildren().size() > 0) {
+            ArrayList<TColumnDesc> children = new ArrayList<>();
+            for (Column child : column.getChildren()) {
+                children.add(getColumnDesc(child));
+            }
+            desc.setChildren(children);
+        }
+        return desc;
     }
 
     @Override
@@ -2610,6 +2623,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetBinlogResult result = new TGetBinlogResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = getBinlogImpl(request, clientAddr);
         } catch (UserException e) {
@@ -2894,7 +2916,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             ctx.setCluster(cluster);
             ctx.setQualifiedUser(request.getUser());
-            UserIdentity currentUserIdentity = new UserIdentity(request.getUser(), "%");
+            String fullUserName = ClusterNamespace.getFullName(cluster, request.getUser());
+            UserIdentity currentUserIdentity = new UserIdentity(fullUserName, "%");
             currentUserIdentity.setIsAnalyzed();
             ctx.setCurrentUserIdentity(currentUserIdentity);
 
@@ -2902,7 +2925,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             restoreStmt.analyze(analyzer);
             DdlExecutor.execute(Env.getCurrentEnv(), restoreStmt);
         } catch (UserException e) {
-            LOG.warn("failed to get snapshot info: {}", e.getMessage());
+            LOG.warn("failed to restore: {}", e.getMessage(), e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(e.getMessage());
         } catch (Throwable e) {
@@ -2953,6 +2976,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetBinlogLagResult result = new TGetBinlogLagResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
 
         try {
             result = getBinlogLagImpl(request, clientAddr);
@@ -3055,6 +3086,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return new TStatus(TStatusCode.OK);
     }
 
+    @Override
+    public TStatus invalidateStatsCache(TInvalidateFollowerStatsCacheRequest request) throws TException {
+        StatisticsCacheKey k = GsonUtils.GSON.fromJson(request.key, StatisticsCacheKey.class);
+        Env.getCurrentEnv().getStatisticsCache().invalidate(k.tableId, k.idxId, k.colName);
+        return new TStatus(TStatusCode.OK);
+    }
+
     public TGetMetaResult getMeta(TGetMetaRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive get meta request: {}", request);
@@ -3062,6 +3100,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetMetaResult result = new TGetMetaResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = getMetaImpl(request, clientAddr);
         } catch (UserException e) {
@@ -3162,6 +3209,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TGetBackendMetaResult result = new TGetBackendMetaResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
+
+        if (!Env.getCurrentEnv().isMaster()) {
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            result.setMasterAddress(getMasterAddress());
+            LOG.error("failed to get beginTxn: {}", NOT_MASTER_ERR_MSG);
+            return result;
+        }
+
         try {
             result = getBackendMetaImpl(request, clientAddr);
         } catch (UserException e) {

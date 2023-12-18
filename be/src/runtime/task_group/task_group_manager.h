@@ -23,13 +23,14 @@
 
 #include "task_group.h"
 
-namespace doris::taskgroup {
+namespace doris {
+class ExecEnv;
+namespace taskgroup {
 
 class TaskGroupManager {
 public:
     TaskGroupManager();
     ~TaskGroupManager();
-    static TaskGroupManager* instance();
 
     TaskGroupPtr get_or_create_task_group(const TaskGroupInfo& task_group_info);
 
@@ -41,4 +42,5 @@ private:
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
 };
 
-} // namespace doris::taskgroup
+} // namespace taskgroup
+} // namespace doris
