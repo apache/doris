@@ -142,7 +142,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
         return RedirectStatus.FORWARD_NO_SYNC;
     }
 
-    private void checkShowAnalyzePriv(String dbName, String tblName) throws AnalysisException {
+    protected void checkShowAnalyzePriv(String dbName, String tblName) throws AnalysisException {
         if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(

@@ -64,7 +64,8 @@ public class ShowExportStmtTest {
         Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE `label` LIKE 'ab%' LIMIT 10", stmt.toString());
         Assert.assertTrue(stmt.isLabelUseLike());
 
-        BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
+        BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"),
+                new StringLiteral("PENDING"));
         stmt = new ShowExportStmt(null, statePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
         Assert.assertEquals("SHOW EXPORT FROM `testDb` WHERE (`state` = 'PENDING') LIMIT 10", stmt.toString());
@@ -72,7 +73,7 @@ public class ShowExportStmtTest {
 
     @Test
     public void testInvalidWhereClause() {
-        //test:  WHERE label="abc" AND id = 1;  --> AnalysisException
+        // test:  WHERE label="abc" AND id = 1;  --> AnalysisException
         SlotRef slotRef1 = new SlotRef(null, "label");
         StringLiteral stringLiteral1 = new StringLiteral("abc");
         BinaryPredicate binaryPredicate1 = new BinaryPredicate(Operator.EQ, slotRef1, stringLiteral1);
@@ -81,7 +82,8 @@ public class ShowExportStmtTest {
         IntLiteral intLiteral2 = new IntLiteral(1);
         LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef2, intLiteral2);
 
-        CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1, likePredicate);
+        CompoundPredicate compoundPredicate1 = new CompoundPredicate(CompoundPredicate.Operator.AND, binaryPredicate1,
+                likePredicate);
         ShowExportStmt stmt1 = new ShowExportStmt(null, compoundPredicate1, null, null);
 
         ExceptionChecker.expectThrows(AnalysisException.class, () -> stmt1.analyze(analyzer));
