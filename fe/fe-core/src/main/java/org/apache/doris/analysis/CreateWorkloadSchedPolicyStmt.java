@@ -25,6 +25,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadActionMeta;
 import org.apache.doris.resource.workloadschedpolicy.WorkloadConditionMeta;
 
 import java.util.List;
@@ -35,11 +36,11 @@ public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
     private final boolean ifNotExists;
     private final String policyName;
     private final List<WorkloadConditionMeta> conditions;
-    private final Map<String, String> actions;
+    private final List<WorkloadActionMeta> actions;
     private final Map<String, String> properties;
 
     public CreateWorkloadSchedPolicyStmt(boolean ifNotExists, String policyName,
-            List<WorkloadConditionMeta> conditions, Map<String, String> actions, Map<String, String> properties) {
+            List<WorkloadConditionMeta> conditions, List<WorkloadActionMeta> actions, Map<String, String> properties) {
         this.ifNotExists = ifNotExists;
         this.policyName = policyName;
         this.conditions = conditions;
@@ -80,7 +81,7 @@ public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
         return conditions;
     }
 
-    public Map<String, String> getActions() {
+    public List<WorkloadActionMeta> getActions() {
         return actions;
     }
 

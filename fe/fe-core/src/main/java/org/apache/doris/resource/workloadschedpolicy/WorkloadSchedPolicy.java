@@ -27,6 +27,7 @@ import com.esotericsoftware.minlog.Log;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 
+import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -56,7 +57,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     List<WorkloadConditionMeta> conditionMetaList;
     // we regard action as a command, map's key is command, map's value is args, so it's a command list
     @SerializedName(value = "actionMetaList")
-    Map<String, String> actionMetaList;
+    List<WorkloadActionMeta> actionMetaList;
 
     private List<WorkloadCondition> workloadConditionList;
     private List<WorkloadAction> workloadActionList;
@@ -117,8 +118,8 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
                 continue;
             }
 
-            if (currentActionType == WorkloadActionType.move_query_to_group
-                    || currentActionType == WorkloadActionType.cancel_query) {
+            if (currentActionType == WorkloadActionType.MOVE_QUERY_TO_GROUP
+                    || currentActionType == WorkloadActionType.CANCEL_QUERY) {
                 return currentActionType;
             }
         }
@@ -141,7 +142,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         this.conditionMetaList = conditionMeta;
     }
 
-    public void setActionMeta(Map<String, String> actionMeta) {
+    public void setActionMeta(List<WorkloadActionMeta> actionMeta) {
         this.actionMetaList = actionMeta;
     }
 
@@ -161,7 +162,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         return conditionMetaList;
     }
 
-    public Map<String, String> getActionMetaList() {
+    public List<WorkloadActionMeta> getActionMetaList() {
         return actionMetaList;
     }
 
@@ -171,13 +172,17 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         Text.writeString(out, json);
     }
 
+    public static WorkloadSchedPolicy read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, WorkloadSchedPolicy.class);
+    }
+
     @Override
     public void gsonPostProcess() throws IOException {
         List<WorkloadCondition> policyConditionList = new ArrayList<>();
         for (WorkloadConditionMeta cm : conditionMetaList) {
             try {
-                WorkloadCondition cond = WorkloadCondition.createWorkloadCondition(cm.metricName, cm.op,
-                        cm.value);
+                WorkloadCondition cond = WorkloadCondition.createWorkloadCondition(cm);
                 policyConditionList.add(cond);
             } catch (UserException ue) {
                 Log.error("unexpected condition data error when replay log ", ue);
@@ -186,9 +191,9 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
         this.workloadConditionList = policyConditionList;
 
         List<WorkloadAction> actionList = new ArrayList<>();
-        for (Map.Entry<String, String> entry : actionMetaList.entrySet()) {
+        for (WorkloadActionMeta actionMeta : actionMetaList) {
             try {
-                WorkloadAction ret = WorkloadAction.createWorkloadAction(entry.getKey(), entry.getValue());
+                WorkloadAction ret = WorkloadAction.createWorkloadAction(actionMeta);
                 actionList.add(ret);
             } catch (UserException ue) {
                 Log.error("unexpected action data error when replay log ", ue);

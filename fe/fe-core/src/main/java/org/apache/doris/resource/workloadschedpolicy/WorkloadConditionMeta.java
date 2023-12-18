@@ -17,44 +17,35 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
+import org.apache.doris.common.UserException;
 
-import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
-import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.persist.gson.GsonUtils;
-
-import cfjd.com.google.gson.annotations.SerializedName;
-
-import java.io.DataOutput;
-import java.io.IOException;
+import com.google.gson.annotations.SerializedName;
 
 
-public class WorkloadConditionMeta implements Writable, GsonPostProcessable {
+public class WorkloadConditionMeta {
 
     @SerializedName(value = "metricName")
-    public String metricName;
+    public WorkloadMetricType metricName;
 
     @SerializedName(value = "op")
-    public String op;
+    public WorkloadConditionOperator op;
 
     @SerializedName(value = "value")
     public String value;
 
-    public WorkloadConditionMeta(String metricName, String op, String value) {
-        this.metricName = metricName;
-        this.op = op;
+    public WorkloadConditionMeta(String metricName, String op, String value) throws UserException {
+        this.metricName = getMetricType(metricName);
+        this.op = WorkloadConditionCompareUtils.getOperator(op);
         this.value = value;
     }
 
-    @Override
-    public void gsonPostProcess() throws IOException {
-
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        String json = GsonUtils.GSON.toJson(this);
-        Text.writeString(out, json);
+    public static WorkloadMetricType getMetricType(String metricStr) throws UserException {
+        if (WorkloadMetricType.USERNAME.toString().equalsIgnoreCase(metricStr)) {
+            return WorkloadMetricType.USERNAME;
+        } else if (WorkloadMetricType.QUERY_TIME.toString().equalsIgnoreCase(metricStr)) {
+            return WorkloadMetricType.QUERY_TIME;
+        }
+        throw new UserException("invalid metric name:" + metricStr);
     }
 
     public String toString() {

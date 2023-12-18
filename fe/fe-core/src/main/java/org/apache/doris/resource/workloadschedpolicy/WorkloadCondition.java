@@ -27,16 +27,14 @@ public interface WorkloadCondition {
     WorkloadMetricType getMetricType();
 
     // NOTE(wb) currently createPolicyCondition is also used when replay meta, it better not contains heavy check
-    static WorkloadCondition createWorkloadCondition(String metricName, String op, String value)
+    static WorkloadCondition createWorkloadCondition(WorkloadConditionMeta cm)
             throws UserException {
-        if (WorkloadMetricType.username.toString().equals(metricName)) {
-            return WorkloadConditionUsername.createWorkloadCondition(WorkloadConditionCompareUtils.getOperator(op),
-                    value);
-        } else if (WorkloadMetricType.query_time.toString().equals(metricName)) {
-            return WorkloadConditionQueryTime.createWorkloadCondition(WorkloadConditionCompareUtils.getOperator(op),
-                    value);
+        if (WorkloadMetricType.USERNAME.equals(cm.metricName)) {
+            return WorkloadConditionUsername.createWorkloadCondition(cm.op, cm.value);
+        } else if (WorkloadMetricType.QUERY_TIME.toString().equals(cm.metricName)) {
+            return WorkloadConditionQueryTime.createWorkloadCondition(cm.op, cm.value);
         }
-        throw new UserException("invalid metric name:" + metricName);
+        throw new UserException("invalid metric name:" + cm.metricName);
     }
 
 }

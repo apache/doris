@@ -1703,7 +1703,7 @@ public class EditLog {
     }
 
     public void logCreateWorkloadSchedPolicy(WorkloadSchedPolicy workloadSchedPolicy) {
-        logEdit(OperationType.OP_CREATE_WORKLOAD_GROUP, workloadSchedPolicy);
+        logEdit(OperationType.OP_CREATE_WORKLOAD_SCHED_POLICY, workloadSchedPolicy);
     }
 
     public void logAlterWorkloadSchedPolicy(WorkloadSchedPolicy workloadSchedPolicy) {

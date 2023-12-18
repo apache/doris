@@ -46,7 +46,7 @@ public class WorkloadConditionQueryTime implements WorkloadCondition {
 
     @Override
     public WorkloadMetricType getMetricType() {
-        return WorkloadMetricType.query_time;
+        return WorkloadMetricType.QUERY_TIME;
     }
 
 }

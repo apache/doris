@@ -17,10 +17,21 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
+import org.apache.doris.qe.QeProcessorImpl;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 public class WorkloadActionCancelQuery implements WorkloadAction {
+
+    private static final Logger LOG = LogManager.getLogger(WorkloadActionCancelQuery.class);
+
     @Override
     public void exec(WorkloadQueryInfo queryInfo) {
-        if (queryInfo.context != null) {
+        if (queryInfo.context != null && !queryInfo.context.isKilled()
+                && queryInfo.tUniqueId != null
+                && QeProcessorImpl.INSTANCE.getCoordinator(queryInfo.tUniqueId) != null) {
+            LOG.info("cancel query {} triggered by query schedule policy.", queryInfo.queryId);
             queryInfo.context.cancelQuery();
         }
     }
@@ -31,6 +42,6 @@ public class WorkloadActionCancelQuery implements WorkloadAction {
 
     @Override
     public WorkloadActionType getWorkloadActionType() {
-        return WorkloadActionType.cancel_query;
+        return WorkloadActionType.CANCEL_QUERY;
     }
 }

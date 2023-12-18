@@ -183,7 +183,7 @@ struct TWorkloadMoveQueryToGroupAction {
 
 struct TopicInfo {
     1: optional TWorkloadGroupInfo workload_group_info
-    2: optional list<TWorkloadMoveQueryToGroupAction> move_action_list
+    2: optional TWorkloadMoveQueryToGroupAction move_action
 }
 
 struct TPublishTopicRequest {

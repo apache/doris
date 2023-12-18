@@ -17,8 +17,11 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
-import org.apache.doris.common.publish.WorkloadMoveActionPublisherThread;
+import org.apache.doris.common.publish.WorkloadActionPublishThread;
+import org.apache.doris.qe.QeProcessorImpl;
+import org.apache.doris.thrift.TTopicInfoType;
 import org.apache.doris.thrift.TWorkloadMoveQueryToGroupAction;
+import org.apache.doris.thrift.TopicInfo;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -35,16 +38,25 @@ public class WorkloadActionMoveQueryToGroup implements WorkloadAction {
 
     @Override
     public void exec(WorkloadQueryInfo queryInfo) {
-        LOG.info("try move query {} to group {}", queryInfo.queryId, dstWgId);
-        TWorkloadMoveQueryToGroupAction moveQueryToGroupAction = new TWorkloadMoveQueryToGroupAction();
-        moveQueryToGroupAction.setQueryId(queryInfo.tUniqueId);
-        moveQueryToGroupAction.setWorkloadGroupId(dstWgId);
-        WorkloadMoveActionPublisherThread.putMoveAction(moveQueryToGroupAction);
+        if (queryInfo.context != null && !queryInfo.context.isKilled()
+                && queryInfo.tUniqueId != null
+                && QeProcessorImpl.INSTANCE.getCoordinator(queryInfo.tUniqueId) != null) {
+            LOG.info("try move query {} to group {}", queryInfo.queryId, dstWgId);
+
+            TWorkloadMoveQueryToGroupAction moveQueryToGroupAction = new TWorkloadMoveQueryToGroupAction();
+            moveQueryToGroupAction.setQueryId(queryInfo.tUniqueId);
+            moveQueryToGroupAction.setWorkloadGroupId(dstWgId);
+
+            TopicInfo topicInfo = new TopicInfo();
+            topicInfo.setMoveAction(moveQueryToGroupAction);
+
+            WorkloadActionPublishThread.putWorkloadAction(TTopicInfoType.MOVE_QUERY_TO_GROUP, topicInfo);
+        }
     }
 
     @Override
     public WorkloadActionType getWorkloadActionType() {
-        return WorkloadActionType.move_query_to_group;
+        return WorkloadActionType.MOVE_QUERY_TO_GROUP;
     }
 
     public static WorkloadActionMoveQueryToGroup createWorkloadAction(String groupId) {

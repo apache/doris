@@ -2272,7 +2272,7 @@ public class Config extends ConfigBase {
     public static int workload_sched_policy_interval_ms = 10000; // 10s
 
     @ConfField(mutable = true)
-    public static int workload_move_action_interval_ms = 10000; // 10s
+    public static int workload_action_interval_ms = 10000; // 10s
 
     @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})

@@ -112,8 +112,8 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
+import org.apache.doris.common.publish.WorkloadActionPublishThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
-import org.apache.doris.common.publish.WorkloadMoveActionPublisherThread;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.HttpURLUtil;
@@ -509,7 +509,7 @@ public class Env {
 
     private TopicPublisherThread topicPublisherThread;
 
-    private WorkloadMoveActionPublisherThread workloadMoveActionPublisherThread;
+    private WorkloadActionPublishThread workloadMoveActionPublisherThread;
 
     private MTMVService mtmvService;
 
@@ -740,8 +740,8 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
-        this.workloadMoveActionPublisherThread = new WorkloadMoveActionPublisherThread("MoveActionPublisher",
-                Config.workload_move_action_interval_ms, systemInfo);
+        this.workloadMoveActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
+                Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
     }
 

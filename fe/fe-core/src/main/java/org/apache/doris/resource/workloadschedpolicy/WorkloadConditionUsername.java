@@ -38,7 +38,7 @@ public class WorkloadConditionUsername implements WorkloadCondition {
 
     @Override
     public WorkloadMetricType getMetricType() {
-        return WorkloadMetricType.username;
+        return WorkloadMetricType.USERNAME;
     }
 
     public static WorkloadConditionUsername createWorkloadCondition(WorkloadConditionOperator op, String value) {

@@ -52,19 +52,23 @@ public class WorkloadActionSetSessionVar implements WorkloadAction {
             SetExecutor executor = new SetExecutor(queryInfo.context, setStmt);
             executor.execute();
         } catch (Throwable t) {
-            LOG.error("error happens when exec {}", WorkloadActionType.set_session_variable, t);
+            LOG.error("error happens when exec {}", WorkloadActionType.SET_SESSION_VARIABLE, t);
         }
     }
 
     @Override
     public WorkloadActionType getWorkloadActionType() {
-        return WorkloadActionType.set_session_variable;
+        return WorkloadActionType.SET_SESSION_VARIABLE;
+    }
+
+    public String getVarName() {
+        return varName;
     }
 
     public static WorkloadAction createWorkloadAction(String actionCmdArgs) throws UserException {
         String[] strs = actionCmdArgs.split("=");
         if (strs.length != 2 || StringUtils.isEmpty(strs[0].trim()) || StringUtils.isEmpty(strs[1].trim())) {
-            throw new UserException("illegal arguments, it should be like set_session_variable xxx=xxx");
+            throw new UserException("illegal arguments, it should be like set_session_variable \"xxx=xxx\"");
         }
         return new WorkloadActionSetSessionVar(strs[0].trim(), strs[1].trim());
     }

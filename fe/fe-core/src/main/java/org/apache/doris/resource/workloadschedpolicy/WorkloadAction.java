@@ -26,16 +26,16 @@ public interface WorkloadAction {
     WorkloadActionType getWorkloadActionType();
 
     // NOTE(wb) currently createPolicyAction is also used when replay meta, it better not contains heavy check
-    static WorkloadAction createWorkloadAction(String actionCmd, String actionCmdArgs)
+    static WorkloadAction createWorkloadAction(WorkloadActionMeta workloadActionMeta)
             throws UserException {
-        if (WorkloadActionType.cancel_query.toString().equals(actionCmd)) {
+        if (WorkloadActionType.CANCEL_QUERY.equals(workloadActionMeta.action)) {
             return WorkloadActionCancelQuery.createWorkloadAction();
-        } else if (WorkloadActionType.move_query_to_group.toString().equals(actionCmd)) {
-            return WorkloadActionMoveQueryToGroup.createWorkloadAction(actionCmdArgs);
-        } else if (WorkloadActionType.set_session_variable.toString().equals(actionCmd)) {
-            return WorkloadActionSetSessionVar.createWorkloadAction(actionCmdArgs);
+        } else if (WorkloadActionType.MOVE_QUERY_TO_GROUP.equals(workloadActionMeta.action)) {
+            return WorkloadActionMoveQueryToGroup.createWorkloadAction(workloadActionMeta.actionArgs);
+        } else if (WorkloadActionType.SET_SESSION_VARIABLE.equals(workloadActionMeta.action)) {
+            return WorkloadActionSetSessionVar.createWorkloadAction(workloadActionMeta.actionArgs);
         }
-        throw new UserException("invalid action type " + actionCmd);
+        throw new UserException("invalid action type " + workloadActionMeta.action);
     }
 
 }
