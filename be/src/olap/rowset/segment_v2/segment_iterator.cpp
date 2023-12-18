@@ -2070,8 +2070,7 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
         col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
         output_col = col_ptr_nullable->get_nested_column_ptr();
     } else if (!output_col->is_nullable() && input_col_ptr->is_nullable()) {
-        LOG(WARNING) << "nullable mismatch for output_column: "
-                     << output_col->dump_structure()
+        LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
                      << " input_column: " << input_col_ptr->dump_structure()
                      << " select_size: " << select_size;
         return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
