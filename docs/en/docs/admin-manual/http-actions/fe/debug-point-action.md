@@ -44,8 +44,8 @@ FE example
 
 ```java
 private Status foo() {
-	// dbug_fe_foo_do_nothing is the debug point name,
-	// when it's active, DebugPointUtil.isEnable("dbug_fe_foo_do_nothing") returns true.
+	// dbug_fe_foo_do_nothing is the debug point name
+	// when it's active, DebugPointUtil.isEnable("dbug_fe_foo_do_nothing") returns true
 	if (DebugPointUtil.isEnable("dbug_fe_foo_do_nothing")) {
       	return Status.Nothing;
     }
@@ -60,8 +60,8 @@ BE example
 
 ```c++
 void Status foo() {
-     // dbug_be_foo_do_nothing is the debug point name,
-     // when it's active, DBUG_EXECUTE_IF will execute the code block.
+     // dbug_be_foo_do_nothing is the debug point name
+     // when it's active, DBUG_EXECUTE_IF will execute the code block
      DBUG_EXECUTE_IF("dbug_be_foo_do_nothing",  { return Status.Nothing; });
    
      do_foo_action();
@@ -303,11 +303,11 @@ and their group name must be "nonConcurrent", because community CI system will r
 // and the group name must be 'nonConcurrent'
 suite('debugpoint_action', 'nonConcurrent') {
     try {
-        // Activate debug point named "PublishVersionDaemon.stop_publish" in all FE,
-        // and pass timeout=1.
-        // Same as above, "execute" and "timeout" are pre-existing parameters.
+        // Activate debug point named "PublishVersionDaemon.stop_publish" in all FE
+        // and pass timeout=1
+        // Same as above, "execute" and "timeout" are pre-existing parameters
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
-        // Activate debug point named "Tablet.build_tablet_report_info.version_miss" in all BE,
+        // Activate debug point named "Tablet.build_tablet_report_info.version_miss" in all BE
         // and pass: tablet_id='12345', version_miss=true and timeout=1
         GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss',
                                                   [tablet_id:'12345', version_miss:true, timeout:1])
