@@ -27,7 +27,7 @@ import org.apache.doris.qe.ConnectContext;
  * RightAntiJoin -> LeftAntiJoin
  * RightOuterJoin -> LeftOuterJoin
  */
-public class JoinCommute extends OneRewriteRuleFactory {
+public class SemiJoinCommute extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
