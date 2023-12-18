@@ -615,7 +615,8 @@ private:
 
             for (size_t i = 0; i < col_src->size(); ++i) {
                 auto ipv4_str = col_src->get_data_at(i).to_string();
-                if (ipv4_str.size() > IPV4_MAX_TEXT_LENGTH || !IPv4Value::is_valid_string(ipv4_str)) {
+                if (ipv4_str.size() > IPV4_MAX_TEXT_LENGTH ||
+                    !IPv4Value::is_valid_string(ipv4_str)) {
                     col_res->insert_value(0);
                 } else {
                     col_res->insert_value(1);
@@ -625,7 +626,8 @@ private:
             DCHECK_EQ(col_res->size(), col_src->size());
 
             block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_src->size(), 0)));
+                    result, ColumnNullable::create(std::move(col_res),
+                                                   ColumnUInt8::create(col_src->size(), 0)));
             return Status::OK();
         }
 
@@ -635,9 +637,7 @@ private:
 
 public:
     static constexpr auto name = "isipv4string";
-    static FunctionPtr create() {
-        return std::make_shared<FunctionIsIPv4String>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPv4String>(); }
 
     String get_name() const override { return name; }
 
@@ -667,7 +667,8 @@ private:
 
             for (size_t i = 0; i < col_src->size(); ++i) {
                 auto ipv6_str = col_src->get_data_at(i).to_string();
-                if (ipv6_str.size() > IPV6_MAX_TEXT_LENGTH || !IPv6Value::is_valid_string(ipv6_str)) {
+                if (ipv6_str.size() > IPV6_MAX_TEXT_LENGTH ||
+                    !IPv6Value::is_valid_string(ipv6_str)) {
                     col_res->insert_value(0);
                 } else {
                     col_res->insert_value(1);
@@ -677,7 +678,8 @@ private:
             DCHECK_EQ(col_res->size(), col_src->size());
 
             block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_res), ColumnUInt8::create(col_src->size(), 0)));
+                    result, ColumnNullable::create(std::move(col_res),
+                                                   ColumnUInt8::create(col_src->size(), 0)));
             return Status::OK();
         }
 
@@ -687,9 +689,7 @@ private:
 
 public:
     static constexpr auto name = "isipv6string";
-    static FunctionPtr create() {
-        return std::make_shared<FunctionIsIPv6String>();
-    }
+    static FunctionPtr create() { return std::make_shared<FunctionIsIPv6String>(); }
 
     String get_name() const override { return name; }
 
