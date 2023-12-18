@@ -31,6 +31,7 @@ sql 'set enable_stats=false'
     sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
     sql 'SET enable_pipeline_engine = true'
+    sql 'SET enable_fold_constant_by_be = false' //plan shape will be different
 
     qt_ds_shape_21 '''
     explain shape plan

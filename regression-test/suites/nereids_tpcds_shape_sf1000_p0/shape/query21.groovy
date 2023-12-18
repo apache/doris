@@ -27,6 +27,7 @@ suite("query21") {
     sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
+    sql 'SET enable_fold_constant_by_be = false' //plan shape will be different
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=false'
     sql 'set dump_nereids_memo=true'

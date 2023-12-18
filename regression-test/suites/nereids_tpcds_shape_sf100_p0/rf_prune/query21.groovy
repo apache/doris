@@ -24,6 +24,7 @@ suite("query21") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
+    sql 'SET enable_fold_constant_by_be = false' //plan shape will be different
     sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
