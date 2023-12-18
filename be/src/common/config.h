@@ -659,6 +659,10 @@ DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 // might avoid all load jobs hang at the same time.
 DECLARE_Int32(load_process_soft_mem_limit_percent);
 
+// If load memory consumption is within load_process_safe_mem_permit_percent,
+// memtable memory limiter will do nothing.
+DECLARE_Int32(load_process_safe_mem_permit_percent);
+
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
 
