@@ -426,6 +426,8 @@ void MemTable::_aggregate() {
         _output_mutable_block =
                 vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
         _output_mutable_block.clear_column_data();
+        _row_in_blocks = temp_row_in_blocks;
+        _last_sorted_pos = _row_in_blocks.size();
     }
 }
 
