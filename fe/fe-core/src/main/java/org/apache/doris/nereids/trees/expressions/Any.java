@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.trees.TreeNode;
-import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.collect.ImmutableList;
@@ -28,7 +28,7 @@ import java.util.List;
 /**
  * This represents any expression, it means it equals any expression
  */
-public class Any extends Expression {
+public class Any extends Expression implements LeafExpression {
 
     public static final Any INSTANCE = new Any(ImmutableList.of());
 
@@ -42,7 +42,7 @@ public class Any extends Expression {
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return null;
+        return visitor.visitAny(this, context);
     }
 
     @Override

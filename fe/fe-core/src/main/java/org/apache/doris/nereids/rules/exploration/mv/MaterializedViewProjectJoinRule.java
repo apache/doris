@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -41,6 +40,6 @@ public class MaterializedViewProjectJoinRule extends AbstractMaterializedViewJoi
                 logicalProject(logicalJoin(any(), any())).thenApplyMulti(ctx -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_JOIN, RulePromise.EXPLORE));
+                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_JOIN));
     }
 }

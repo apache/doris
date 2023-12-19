@@ -349,7 +349,6 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                     targetToTargetReplacementMapping);
             if (replacedExpression.anyMatch(slotsToRewrite::contains)) {
                 // if contains any slot to rewrite, which means can not be rewritten by target, bail out
-                logger.info(currentClassName + "any slot can not rewrite by view so rewrite expression fail");
                 return ImmutableList.of();
             }
             Expression sourceExpression = sourceExpressionsToWrite.get(index);
