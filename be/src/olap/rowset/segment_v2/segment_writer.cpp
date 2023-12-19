@@ -178,10 +178,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         init_column_meta(opts.meta, cid, column, _tablet_schema);
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
-        // and not support zone map for array type and jsonb type.
-        opts.need_zone_map =
-                (column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS) &&
-                column.type() != FieldType::OLAP_FIELD_TYPE_OBJECT;
+        // except for columns whose type don't support zone map.
+        opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
         opts.need_bloom_filter = column.is_bf_column();
         auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
         if (tablet_index) {
@@ -234,6 +232,9 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
         CHECK_FIELD_TYPE(MAP, "map")
         CHECK_FIELD_TYPE(VARIANT, "variant")
+        CHECK_FIELD_TYPE(OBJECT, "object")
+        CHECK_FIELD_TYPE(HLL, "hll")
+        CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
 
 #undef CHECK_FIELD_TYPE
 
@@ -763,7 +764,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                          _opts.enable_unique_key_merge_on_write);
         bool need_short_key_indexes =
                 !need_primary_key_indexes ||
-                (need_primary_key_indexes && _tablet_schema->cluster_key_idxes().size() > 0);
+                (need_primary_key_indexes && !_tablet_schema->cluster_key_idxes().empty());
         if (need_primary_key_indexes && !need_short_key_indexes) { // mow table without cluster keys
             RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
                                                         num_rows, false));
@@ -1019,8 +1020,8 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     timer.start();
     // check disk capacity
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
-        return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
-                                                        _data_dir->path_hash());
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit, path: {}",
+                                                        _data_dir->path_hash(), _data_dir->path());
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());

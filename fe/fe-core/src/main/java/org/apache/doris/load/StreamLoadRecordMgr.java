@@ -20,7 +20,6 @@ package org.apache.doris.load;
 import org.apache.doris.analysis.ShowStreamLoadStmt.StreamLoadState;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
@@ -33,7 +32,6 @@ import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.plugin.StreamLoadAuditEvent;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStreamLoadRecord;
@@ -297,12 +295,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                     String.valueOf(streamLoadItem.getLoadBytes()),
                                     startTime, finishTime, streamLoadItem.getUser(), streamLoadItem.getComment());
 
-                    String cluster = streamLoadItem.getCluster();
-                    if (Strings.isNullOrEmpty(cluster)) {
-                        cluster = SystemInfoService.DEFAULT_CLUSTER;
-                    }
-
-                    String fullDbName = ClusterNamespace.getFullName(cluster, streamLoadItem.getDb());
+                    String fullDbName = streamLoadItem.getDb();
                     Database db = Env.getCurrentInternalCatalog().getDbNullable(fullDbName);
                     if (db == null) {
                         String dbName = fullDbName;

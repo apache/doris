@@ -62,9 +62,12 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     if (p._is_broadcast_join) {
         profile()->add_info_string("BroadcastJoin", "true");
         if (state->enable_share_hash_table_for_broadcast_join()) {
-            profile()->add_info_string("ShareHashTableEnabled", "true");
-            _should_build_hash_table = p._shared_hashtable_controller->should_build_hash_table(
-                    state->fragment_instance_id(), p.node_id());
+            _should_build_hash_table = info.task_idx == 0;
+            if (_should_build_hash_table) {
+                profile()->add_info_string("ShareHashTableEnabled", "true");
+                CHECK(p._shared_hashtable_controller->should_build_hash_table(
+                        state->fragment_instance_id(), p.node_id()));
+            }
         } else {
             profile()->add_info_string("ShareHashTableEnabled", "false");
         }
@@ -514,10 +517,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer = ADD_TIMER(local_state.profile(), "WaitForSharedHashTableTime");
-        SCOPED_TIMER(wait_timer);
-        RETURN_IF_ERROR(
-                _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
+        CHECK(_shared_hash_table_context->signaled);
 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",

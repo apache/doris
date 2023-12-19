@@ -49,7 +49,6 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -74,7 +73,6 @@ import org.apache.doris.qe.ShowExecutor;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultBeThriftServiceImpl;
 import org.apache.doris.utframe.MockedBackendFactory.DefaultHeartbeatServiceImpl;
@@ -131,7 +129,7 @@ public abstract class TestWithFeService {
     protected boolean needCleanDir = true;
     protected int lastFeRpcPort = 0;
 
-    protected static final String DEFAULT_CLUSTER_PREFIX = "default_cluster:";
+    protected static final String DEFAULT_CLUSTER_PREFIX = "";
 
     private static final MockUp<SessionVariable> mockUp = new MockUp<SessionVariable>() {
         @Mock
@@ -187,7 +185,7 @@ public abstract class TestWithFeService {
     }
 
     // Help to create a mocked ConnectContext.
-    protected ConnectContext createDefaultCtx() throws IOException {
+    public static ConnectContext createDefaultCtx() throws IOException {
         return createCtx(UserIdentity.ROOT, "127.0.0.1");
     }
 
@@ -264,9 +262,8 @@ public abstract class TestWithFeService {
         return adapter;
     }
 
-    protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
+    protected static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
         ctx.setRemoteIP(host);
@@ -593,7 +590,7 @@ public abstract class TestWithFeService {
     }
 
     public void useDatabase(String dbName) {
-        connectContext.setDatabase(ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, dbName));
+        connectContext.setDatabase(dbName);
     }
 
     protected ShowResultSet showCreateTable(String sql) throws Exception {
@@ -727,7 +724,7 @@ public abstract class TestWithFeService {
         UserIdentity user = new UserIdentity(userName, "%");
         user.analyze();
         connectContext.setCurrentUserIdentity(user);
-        connectContext.setQualifiedUser(SystemInfoService.DEFAULT_CLUSTER + ":" + userName);
+        connectContext.setQualifiedUser(userName);
     }
 
     protected void addRollup(String sql) throws Exception {

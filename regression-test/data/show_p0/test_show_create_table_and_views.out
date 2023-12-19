@@ -24,7 +24,7 @@ show_create_table_and_views_table	CREATE TABLE `show_create_table_and_views_tabl
 3	1
 
 -- !show --
-show_create_table_and_views_view	CREATE VIEW `show_create_table_and_views_view` COMMENT 'VIEW' AS SELECT `user_id` AS `user_id`, `cost` AS `cost` FROM `default_cluster:show_create_table_and_views_db`.`show_create_table_and_views_table` WHERE `good_id` = 2;	utf8	utf8_general_ci
+show_create_table_and_views_view	CREATE VIEW `show_create_table_and_views_view` COMMENT 'VIEW' AS SELECT `user_id` AS `user_id`, `cost` AS `cost` FROM `show_create_table_and_views_db`.`show_create_table_and_views_table` WHERE `good_id` = 2;	utf8	utf8_general_ci
 
 -- !select --
 1	47

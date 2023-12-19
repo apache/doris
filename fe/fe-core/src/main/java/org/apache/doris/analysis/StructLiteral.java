@@ -71,10 +71,21 @@ public class StructLiteral extends LiteralExpr {
         return "STRUCT(" + StringUtils.join(list, ", ") + ")";
     }
 
+    private String getStringValue(Expr expr) {
+        String stringValue = expr.getStringValue();
+        if (stringValue.isEmpty()) {
+            return "''";
+        }
+        if (expr instanceof StringLiteral) {
+            return "\"" + stringValue + "\"";
+        }
+        return stringValue;
+    }
+
     @Override
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValue()));
+        children.forEach(v -> list.add(getStringValue(v)));
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 

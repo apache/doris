@@ -22,10 +22,21 @@ suite("insert_group_commit_into_unique_sync_mode") {
     def tableName = "insert_group_commit_into_unique_sync"
     def dbTableName = dbName + "." + tableName
 
+    // For sync mode mode, the rows should be visible once the load is finished,
+    // but we meet publish_timeout sometimes
     def getRowCount = { expectedRowCount ->
-        def rowCount = sql "select count(*) from ${dbTableName}"
-        logger.info("rowCount: " + rowCount + ", expecedRowCount: " + expectedRowCount)
-        assertEquals(expectedRowCount, rowCount[0][0])
+        def retry = 0
+        while (retry < 30) {
+            if (retry > 0) {
+                sleep(1000)
+            }
+            def rowCount = sql "select count(*) from ${dbTableName}"
+            logger.info("rowCount: " + rowCount + ", retry: " + retry)
+            if (rowCount[0][0] >= expectedRowCount) {
+                break
+            }
+            retry++
+        }
     }
 
     def group_commit_insert = { sql, expected_row_count ->

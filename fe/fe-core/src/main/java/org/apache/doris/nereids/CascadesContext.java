@@ -485,9 +485,6 @@ public class CascadesContext implements ScheduleContext {
             case 2: { // db.table
                 String ctlName = getConnectContext().getEnv().getCurrentCatalog().getName();
                 String dbName = nameParts.get(0);
-                if (!dbName.equals(getConnectContext().getDatabase())) {
-                    dbName = getConnectContext().getClusterName() + ":" + dbName;
-                }
                 return getTable(ctlName, dbName, nameParts.get(1), getConnectContext().getEnv());
             }
             case 3: { // catalog.db.table

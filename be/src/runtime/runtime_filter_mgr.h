@@ -83,7 +83,8 @@ public:
 
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    int node_id, bool build_bf_exactly = false);
+                                    int node_id, bool build_bf_exactly = false,
+                                    int merged_rf_num = 0);
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     bool build_bf_exactly = false);
 

@@ -127,7 +127,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         if ("".equals(dbName)) {
             throw new AnalysisException("DB " + dbName + "not found");
         }
-        dbName = ClusterNamespace.getFullName(connectContext.getClusterName(), dbName);
         org.apache.doris.catalog.Database database =
                 Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbName);
         if (database == null) {

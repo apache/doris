@@ -111,6 +111,7 @@
 #include "vec/runtime/vdata_stream_mgr.h"
 
 namespace doris::pipeline {
+bvar::Adder<int64_t> g_pipeline_tasks_count("doris_pipeline_tasks_count");
 
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
@@ -188,7 +189,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 PipelinePtr PipelineFragmentContext::add_pipeline() {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(
+            id, _num_instances,
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
     _pipelines.emplace_back(pipeline);
     return pipeline;
 }
@@ -196,7 +199,9 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
 PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(
+            id, _num_instances,
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
     if (idx >= 0) {
         _pipelines.insert(_pipelines.begin() + idx, pipeline);
     } else {
@@ -212,7 +217,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         return Status::InternalError("Already prepared");
     }
     const auto& local_params = request.local_params[idx];
-    _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
+    _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
     COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
     _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
@@ -230,6 +235,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (local_params.__isset.runtime_filter_params) {
         _runtime_state->set_runtime_filter_params(local_params.runtime_filter_params);
     }
+
+    _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
@@ -342,8 +349,10 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
     if (_sink) {
         _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+        _sink->profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
+    } else {
+        _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     }
-    _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
     _init_next_report_time();
@@ -368,7 +377,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);
     }
-
+    g_pipeline_tasks_count << _total_tasks;
     for (auto& task : _tasks) {
         RETURN_IF_ERROR(task->prepare(_runtime_state.get()));
     }
@@ -882,11 +891,13 @@ void PipelineFragmentContext::_close_fragment_instance() {
             _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
-    _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
+    _exec_env->fragment_mgr()->remove_pipeline_context(
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
     std::lock_guard<std::mutex> l(_task_mutex);
+    g_pipeline_tasks_count << -1;
     ++_closed_tasks;
     if (_closed_tasks == _total_tasks) {
         _close_fragment_instance();
@@ -931,7 +942,7 @@ Status PipelineFragmentContext::send_report(bool done) {
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2),
              _dml_query_statistics()},
-            shared_from_this());
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
 bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {

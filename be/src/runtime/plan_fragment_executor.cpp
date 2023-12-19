@@ -128,6 +128,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state =
             RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
     _runtime_state->set_query_ctx(_query_ctx.get());
+    _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -215,15 +216,15 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
-
+    RuntimeProfile* sink_profile = nullptr;
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
-                obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state(), &_sink, *_desc_tbl));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                DataSink::create_data_sink(_runtime_state->obj_pool(), request.fragment.output_sink,
+                                           request.fragment.output_exprs, params, row_desc(),
+                                           runtime_state(), &_sink, *_desc_tbl));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
-
-        RuntimeProfile* sink_profile = _sink->profile();
+        sink_profile = _sink->profile();
         if (sink_profile != nullptr) {
             profile()->add_child(sink_profile, true, nullptr);
         }
@@ -238,7 +239,11 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
 
     // set up profile counters
-    profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    if (sink_profile != nullptr) {
+        sink_profile->add_child(_plan->runtime_profile(), true, nullptr);
+    } else {
+        profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    }
     profile()->add_info_string("DorisBeVersion", version::doris_build_short_hash());
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);

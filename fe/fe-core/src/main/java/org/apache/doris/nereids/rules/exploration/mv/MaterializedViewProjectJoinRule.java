@@ -42,6 +42,6 @@ public class MaterializedViewProjectJoinRule extends AbstractMaterializedViewJoi
                 logicalProject(logicalJoin(any(), any())).thenApplyMulti(ctx -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_JOIN, RulePromise.EXPLORE));
+                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_JOIN, RulePromise.EXPLORE));
     }
 }

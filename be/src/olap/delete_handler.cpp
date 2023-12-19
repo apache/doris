@@ -31,6 +31,7 @@
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "olap/block_column_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
@@ -63,11 +64,7 @@ Status DeleteHandler::generate_delete_predicate(const TabletSchema& schema,
 
     // Check whether the delete condition meets the requirements
     for (const TCondition& condition : conditions) {
-        if (!check_condition_valid(schema, condition).ok()) {
-            // Error will print log, no need to do it manually.
-            return Status::Error<DELETE_INVALID_CONDITION>("invalid condition. condition={}",
-                                                           ThriftDebugString(condition));
-        }
+        RETURN_IF_ERROR(check_condition_valid(schema, condition));
     }
 
     // Store delete condition

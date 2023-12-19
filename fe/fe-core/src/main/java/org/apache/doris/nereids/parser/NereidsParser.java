@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
@@ -30,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -81,6 +83,10 @@ public class NereidsParser {
     private List<StatementBase> parseSQLWithDialect(String sql,
                                                     @Nullable ParseDialect.Dialect sqlDialect,
                                                     SessionVariable sessionVariable) {
+        if (!Strings.isNullOrEmpty(Config.sql_convertor_service)) {
+            // if sql convertor service is enabled, no need to parse sql again by specific dialect.
+            return parseSQL(sql);
+        }
         switch (sqlDialect) {
             case TRINO:
                 final List<StatementBase> logicalPlans = TrinoParser.parse(sql, sessionVariable);

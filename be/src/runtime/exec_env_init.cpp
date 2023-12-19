@@ -193,6 +193,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_threads(std::numeric_limits<int>::max())
                               .set_max_queue_size(config::fragment_pool_queue_size)
                               .build(&_join_node_thread_pool));
+    static_cast<void>(ThreadPoolBuilder("LazyReleaseMemoryThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(1)
+                              .set_max_queue_size(1000000)
+                              .build(&_lazy_release_obj_pool));
     init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -282,21 +287,22 @@ Status ExecEnv::init_pipeline_task_scheduler() {
 
     // TODO pipeline task group combie two blocked schedulers.
     auto t_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
-    _without_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
+    _without_group_block_scheduler =
+            std::make_shared<pipeline::BlockedTaskScheduler>("PipeNoGSchePool");
     _without_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _without_group_block_scheduler, t_queue, "WithoutGroupTaskSchePool", nullptr);
+            this, _without_group_block_scheduler, t_queue, "PipeNoGSchePool", nullptr);
     RETURN_IF_ERROR(_without_group_task_scheduler->start());
-    RETURN_IF_ERROR(_without_group_block_scheduler->start("WithoutGroupBlockSche"));
+    RETURN_IF_ERROR(_without_group_block_scheduler->start());
 
     auto tg_queue = std::make_shared<pipeline::TaskGroupTaskQueue>(executors_size);
-    _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    _with_group_task_scheduler = new pipeline::TaskScheduler(
-            this, _with_group_block_scheduler, tg_queue, "WithGroupTaskSchePool", nullptr);
+    _with_group_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGSchePool");
+    _with_group_task_scheduler = new pipeline::TaskScheduler(this, _with_group_block_scheduler,
+                                                             tg_queue, "PipeGSchePool", nullptr);
     RETURN_IF_ERROR(_with_group_task_scheduler->start());
-    RETURN_IF_ERROR(_with_group_block_scheduler->start("WithGroupBlockSche"));
+    RETURN_IF_ERROR(_with_group_block_scheduler->start());
 
-    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>();
-    RETURN_IF_ERROR(_global_block_scheduler->start("GlobalBlockSche"));
+    _global_block_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>("PipeGBlockSche");
+    RETURN_IF_ERROR(_global_block_scheduler->start());
     _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
     return Status::OK();
@@ -563,6 +569,7 @@ void ExecEnv::destroy() {
     SAFE_SHUTDOWN(_buffered_reader_prefetch_thread_pool);
     SAFE_SHUTDOWN(_s3_file_upload_thread_pool);
     SAFE_SHUTDOWN(_join_node_thread_pool);
+    SAFE_SHUTDOWN(_lazy_release_obj_pool);
     SAFE_SHUTDOWN(_send_report_thread_pool);
     SAFE_SHUTDOWN(_send_batch_thread_pool);
     SAFE_SHUTDOWN(_serial_download_cache_thread_token);
@@ -623,6 +630,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_runtime_filter_timer_queue);
     // TODO(zhiqiang): Maybe we should call shutdown before release thread pool?
     _join_node_thread_pool.reset(nullptr);
+    _lazy_release_obj_pool.reset(nullptr);
     _send_report_thread_pool.reset(nullptr);
     _buffered_reader_prefetch_thread_pool.reset(nullptr);
     _s3_file_upload_thread_pool.reset(nullptr);
