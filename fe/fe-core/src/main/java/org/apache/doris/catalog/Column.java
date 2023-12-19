@@ -70,7 +70,7 @@ public class Column implements Writable, GsonPostProcessable {
     private static final String COLUMN_MAP_VALUE = "value";
 
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, false,
-            null, "invalid", true, null, -1, null);
+            false, null, "invalid", true, null, -1, null);
 
     @SerializedName(value = "name")
     private String name;
@@ -517,7 +517,7 @@ public class Column implements Writable, GsonPostProcessable {
 
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
-        tcolumn.setEnableDictEncoding(this.enableDictEncoding);
+        tColumn.setEnableDictEncoding(this.enableDictEncoding);
         // keep compatibility
         tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
         tColumn.setVisible(visible);
