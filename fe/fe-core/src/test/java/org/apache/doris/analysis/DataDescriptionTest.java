@@ -29,7 +29,6 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -68,13 +67,10 @@ public class DataDescriptionTest {
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
         new Expectations() {
             {
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = SystemInfoService.DEFAULT_CLUSTER;
 
                 analyzer.getDefaultDb();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 Env.getCurrentEnv();
                 minTimes = 0;
@@ -391,11 +387,11 @@ public class DataDescriptionTest {
                         Lists.newArrayList("k1", "k2", "v1"), new Separator("010203"), new Separator("040506"), 0,
                         Lists.newArrayList(predicate), properties);
         String db = desc.analyzeFullDbName(null, analyzer);
-        Assert.assertEquals("default_cluster:testDb", db);
-        Assert.assertEquals("default_cluster:testDb", desc.getDbName());
-        db = desc.analyzeFullDbName("testCluster:testDb1", analyzer);
-        Assert.assertEquals("testCluster:testDb1", db);
-        Assert.assertEquals("testCluster:testDb1", desc.getDbName());
+        Assert.assertEquals("testDb", db);
+        Assert.assertEquals("testDb", desc.getDbName());
+        db = desc.analyzeFullDbName("testDb1", analyzer);
+        Assert.assertEquals("testDb1", db);
+        Assert.assertEquals("testDb1", desc.getDbName());
 
         desc.analyze("testDb1");
         Assert.assertEquals(1, desc.getFilePaths().size());

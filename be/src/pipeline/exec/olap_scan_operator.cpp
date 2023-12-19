@@ -220,7 +220,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     }
     SCOPED_TIMER(_scanner_init_timer);
 
-    if (!_conjuncts.empty()) {
+    if (!_conjuncts.empty() && RuntimeFilterConsumer::_state->enable_profile()) {
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
@@ -491,8 +491,8 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                     const DescriptorTbl& descs)
-        : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs),
+                                     const DescriptorTbl& descs, int parallel_tasks)
+        : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;

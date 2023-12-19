@@ -45,6 +45,48 @@ namespace doris::vectorized {
 
 using namespace std::chrono_literals;
 
+ScannerContext::ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
+                               const std::list<VScannerSPtr>& scanners_, int64_t limit_,
+                               int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
+                               pipeline::ScanLocalStateBase* local_state,
+                               std::shared_ptr<pipeline::ScanDependency> dependency,
+                               std::shared_ptr<pipeline::Dependency> finish_dependency)
+        : _state(state_),
+          _parent(nullptr),
+          _local_state(local_state),
+          _output_tuple_desc(output_tuple_desc),
+          _process_status(Status::OK()),
+          _batch_size(state_->batch_size()),
+          limit(limit_),
+          _max_bytes_in_queue(std::max(max_bytes_in_blocks_queue_, (int64_t)1024) *
+                              num_parallel_instances),
+          _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
+          _scanners(scanners_),
+          _scanners_ref(scanners_.begin(), scanners_.end()),
+          _num_parallel_instances(num_parallel_instances),
+          _dependency(dependency),
+          _finish_dependency(finish_dependency) {
+    ctx_id = UniqueId::gen_uid().to_string();
+    if (_scanners.empty()) {
+        _is_finished = true;
+        _set_scanner_done();
+    }
+    if (limit < 0) {
+        limit = -1;
+    }
+    _max_thread_num = config::doris_scanner_thread_pool_thread_num / 4;
+    _max_thread_num *= num_parallel_instances;
+    _max_thread_num = _max_thread_num == 0 ? 1 : _max_thread_num;
+    DCHECK(_max_thread_num > 0);
+    _max_thread_num = std::min(_max_thread_num, (int32_t)_scanners.size());
+    // 1. Calculate max concurrency
+    // For select * from table limit 10; should just use one thread.
+    if ((_parent && _parent->should_run_serial()) ||
+        (_local_state && _local_state->should_run_serial())) {
+        _max_thread_num = 1;
+    }
+}
+
 ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::VScanNode* parent,
                                const doris::TupleDescriptor* output_tuple_desc,
                                const std::list<VScannerSPtr>& scanners_, int64_t limit_,
@@ -61,6 +103,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
                               num_parallel_instances),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
           _scanners(scanners_),
+          _scanners_ref(scanners_.begin(), scanners_.end()),
           _num_parallel_instances(num_parallel_instances) {
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
@@ -326,6 +369,11 @@ void ScannerContext::set_should_stop() {
     std::lock_guard l(_transfer_lock);
     _should_stop = true;
     _set_scanner_done();
+    for (const VScannerWPtr& scanner : _scanners_ref) {
+        if (VScannerSPtr sc = scanner.lock()) {
+            sc->try_stop();
+        }
+    }
     _blocks_queue_added_cv.notify_one();
     set_ready_to_finish();
 }

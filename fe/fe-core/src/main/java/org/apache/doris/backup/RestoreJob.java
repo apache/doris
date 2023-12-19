@@ -661,7 +661,6 @@ public class RestoreJob extends AbstractJob {
                                         }
                                         Partition restorePart = resetPartitionForRestore(localOlapTbl, remoteOlapTbl,
                                                 partitionName,
-                                                db.getClusterName(),
                                                 restoreReplicaAlloc);
                                         if (restorePart == null) {
                                             return;
@@ -1061,7 +1060,7 @@ public class RestoreJob extends AbstractJob {
     // reset remote partition.
     // reset all id in remote partition, but DO NOT modify any exist catalog objects.
     private Partition resetPartitionForRestore(OlapTable localTbl, OlapTable remoteTbl, String partName,
-                                               String clusterName, ReplicaAllocation replicaAlloc) {
+                                               ReplicaAllocation replicaAlloc) {
         Preconditions.checkState(localTbl.getPartition(partName) == null);
         Partition remotePart = remoteTbl.getPartition(partName);
         Preconditions.checkNotNull(remotePart);

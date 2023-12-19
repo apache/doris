@@ -24,14 +24,9 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.StructInfoNode;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.Sets;
-
-import java.util.HashSet;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -40,28 +35,23 @@ import java.util.stream.Collectors;
  * This is responsible for common join rewriting
  */
 public abstract class AbstractMaterializedViewJoinRule extends AbstractMaterializedViewRule {
-    private static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET =
-            Sets.newHashSet(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN);
-
     @Override
     protected Plan rewriteQueryByView(MatchMode matchMode,
             StructInfo queryStructInfo,
             StructInfo viewStructInfo,
-            SlotMapping queryToViewSlotMappings,
+            SlotMapping queryToViewSlotMapping,
             Plan tempRewritedPlan,
             MaterializationContext materializationContext) {
-
-        List<? extends Expression> queryShuttleExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                queryStructInfo.getExpressions(),
-                queryStructInfo.getOriginalPlan());
         // Rewrite top projects, represent the query projects by view
         List<Expression> expressionsRewritten = rewriteExpression(
-                queryShuttleExpression,
-                materializationContext.getViewExpressionIndexMapping(),
-                queryToViewSlotMappings
+                queryStructInfo.getExpressions(),
+                queryStructInfo.getOriginalPlan(),
+                materializationContext.getMvExprToMvScanExprMapping(),
+                queryToViewSlotMapping,
+                true
         );
         // Can not rewrite, bail out
-        if (expressionsRewritten == null
+        if (expressionsRewritten.isEmpty()
                 || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
             return null;
         }

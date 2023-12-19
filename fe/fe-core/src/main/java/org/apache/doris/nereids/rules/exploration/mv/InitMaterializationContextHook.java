@@ -24,12 +24,13 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.mtmv.MTMVCacheManager;
+import org.apache.doris.mtmv.MTMVRelationManager;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
@@ -69,10 +70,10 @@ public class InitMaterializationContextHook implements PlannerHook {
         }
         List<BaseTableInfo> baseTableUsed =
                 collectedTables.stream().map(BaseTableInfo::new).collect(Collectors.toList());
-        // TODO the logic should be move to MTMVCacheManager later when getAvailableMaterializedView is ready in
+        // TODO the logic should be move to MTMVRelationManager later when getAvailableMaterializedView is ready in
         //  MV Cache manager
         Env env = cascadesContext.getConnectContext().getEnv();
-        MTMVCacheManager cacheManager = env.getMtmvService().getCacheManager();
+        MTMVRelationManager cacheManager = env.getMtmvService().getRelationManager();
         Set<BaseTableInfo> materializedViews = new HashSet<>();
         for (BaseTableInfo baseTableInfo : baseTableUsed) {
             Set<BaseTableInfo> mtmvsByBaseTable = cacheManager.getMtmvsByBaseTable(baseTableInfo);
@@ -90,19 +91,22 @@ public class InitMaterializationContextHook implements PlannerHook {
                         .getDbOrMetaException(mvBaseTableInfo.getDbId())
                         .getTableOrMetaException(mvBaseTableInfo.getTableId(), TableType.MATERIALIZED_VIEW);
 
-                String qualifiedName = materializedView.getQualifiedName();
                 // generate outside, maybe add partition filter in the future
-                Plan mvScan = new LogicalOlapScan(cascadesContext.getStatementContext().getNextRelationId(),
+                LogicalOlapScan mvScan = new LogicalOlapScan(
+                        cascadesContext.getStatementContext().getNextRelationId(),
                         (OlapTable) materializedView,
-                        ImmutableList.of(qualifiedName),
-                        Lists.newArrayList(materializedView.getId()),
+                        ImmutableList.of(materializedView.getQualifiedDbName()),
+                        // this must be empty, or it will be used to sample
+                        Lists.newArrayList(),
                         Lists.newArrayList(),
                         Optional.empty());
+                mvScan = mvScan.withMaterializedIndexSelected(PreAggStatus.on(), materializedView.getBaseIndexId());
                 List<NamedExpression> mvProjects = mvScan.getOutput().stream().map(NamedExpression.class::cast)
                         .collect(Collectors.toList());
-                mvScan = new LogicalProject<Plan>(mvProjects, mvScan);
+                // todo should force keep consistency to mv sql plan output
+                Plan projectScan = new LogicalProject<Plan>(mvProjects, mvScan);
                 cascadesContext.addMaterializationContext(
-                        MaterializationContext.fromMaterializedView(materializedView, mvScan, cascadesContext));
+                        MaterializationContext.fromMaterializedView(materializedView, projectScan, cascadesContext));
             } catch (MetaNotFoundException metaNotFoundException) {
                 LOG.error(mvBaseTableInfo.toString() + " can not find corresponding materialized view.");
             }

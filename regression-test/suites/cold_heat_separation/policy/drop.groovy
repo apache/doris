@@ -122,9 +122,11 @@ suite("drop_policy") {
             DISTRIBUTED BY HASH (k1) BUCKETS 3
             PROPERTIES(
                 "storage_policy" = "drop_policy_test_has_table_binded",
-                "replication_num" = "1"
+                "replication_num" = "1",
+                "enable_unique_key_merge_on_write" = "false"
             );
         """
+        // storage policy is disabled on mow table
 
         assertEquals(create_table_use_created_policy.size(), 1);
 

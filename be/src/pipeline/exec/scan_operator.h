@@ -61,7 +61,7 @@ class ScanDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ScanDependency);
     ScanDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "ScanDependency", query_ctx), _scanner_ctx(nullptr) {}
+            : Dependency(id, node_id, "ScanDependency", query_ctx) {}
 
     void block() override {
         if (_scanner_done) {
@@ -93,10 +93,7 @@ public:
         return fmt::to_string(debug_string_buffer);
     }
 
-    void set_scanner_ctx(vectorized::ScannerContext* scanner_ctx) { _scanner_ctx = scanner_ctx; }
-
 private:
-    vectorized::ScannerContext* _scanner_ctx = nullptr;
     bool _scanner_done {false};
     std::mutex _always_done_lock;
 };
@@ -429,8 +426,9 @@ public:
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
     bool need_to_local_shuffle() const override {
-        // If _col_distribute_ids is not empty, we prefer to not do local shuffle.
-        return _col_distribute_ids.empty();
+        // 1. `_col_distribute_ids` is empty means storage distribution is not effective, so we prefer to do local shuffle.
+        // 2. `ignore_data_distribution()` returns true means we ignore the distribution.
+        return _col_distribute_ids.empty() || OperatorX<LocalStateType>::ignore_data_distribution();
     }
 
     bool is_bucket_shuffle_scan() const override { return !_col_distribute_ids.empty(); }
@@ -443,7 +441,7 @@ public:
 protected:
     using LocalState = LocalStateType;
     ScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                  const DescriptorTbl& descs);
+                  const DescriptorTbl& descs, int parallel_tasks = 0);
     virtual ~ScanOperatorX() = default;
     template <typename Derived>
     friend class ScanLocalState;
@@ -479,6 +477,7 @@ protected:
 
     // Record the value of the aggregate function 'count' from doris's be
     int64_t _push_down_count = -1;
+    const int _parallel_tasks = 0;
 };
 
 } // namespace doris::pipeline

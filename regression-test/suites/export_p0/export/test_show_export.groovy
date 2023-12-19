@@ -173,7 +173,7 @@ suite("test_show_export", "p0") {
     def show_proc_jobs = sql_return_maparray """show proc "/jobs";"""
     def dbId = ""
     for (def row : show_proc_jobs) {
-        if (row.DbName == "default_cluster:regression_test_export_p0_export") {
+        if (row.DbName == "regression_test_export_p0_export") {
             dbId = row.DbId
             break
         }

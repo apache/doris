@@ -361,24 +361,18 @@ Status DataTypeArraySerDe::write_column_to_orc(const std::string& timezone, cons
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int start,
                                                int end, std::vector<StringRef>& buffer_list) const {
-    orc::ListVectorBatch* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
+    auto* cur_batch = dynamic_cast<orc::ListVectorBatch*>(orc_col_batch);
     cur_batch->offsets[0] = 0;
 
-    const ColumnArray& array_col = assert_cast<const ColumnArray&>(column);
+    const auto& array_col = assert_cast<const ColumnArray&>(column);
     const IColumn& nested_column = array_col.get_data();
-    auto& offsets = array_col.get_offsets();
-
-    cur_batch->elements->resize(nested_column.size());
+    const auto& offsets = array_col.get_offsets();
     for (size_t row_id = start; row_id < end; row_id++) {
         size_t offset = offsets[row_id - 1];
         size_t next_offset = offsets[row_id];
-
-        if (cur_batch->notNull[row_id] == 1) {
-            static_cast<void>(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
-                                                                cur_batch->elements.get(), offset,
-                                                                next_offset, buffer_list));
-        }
-
+        RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, nested_column, nullptr,
+                                                          cur_batch->elements.get(), offset,
+                                                          next_offset, buffer_list));
         cur_batch->offsets[row_id + 1] = next_offset;
     }
     cur_batch->elements->numElements = nested_column.size();

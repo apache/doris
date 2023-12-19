@@ -55,8 +55,8 @@ public class SparkSql3LogicalPlanBuilder extends LogicalPlanBuilder {
     }
 
     @Override
-    public Expression visitFunctionCall(DorisParser.FunctionCallContext ctx) {
-        Expression expression = super.visitFunctionCall(ctx);
+    public Expression visitFunctionCallExpression(DorisParser.FunctionCallExpressionContext ctx) {
+        Expression expression = super.visitFunctionCallExpression(ctx);
         if (!(expression instanceof UnboundFunction)) {
             return expression;
         }

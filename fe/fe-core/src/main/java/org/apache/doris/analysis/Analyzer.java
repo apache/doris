@@ -2314,10 +2314,6 @@ public class Analyzer {
         return globalState.context.getDatabase();
     }
 
-    public String getClusterName() {
-        return globalState.context.getClusterName();
-    }
-
     public String getQualifiedUser() {
         return globalState.context.getQualifiedUser();
     }

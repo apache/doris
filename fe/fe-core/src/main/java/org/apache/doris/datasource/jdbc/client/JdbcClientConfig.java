@@ -18,9 +18,11 @@
 
 package org.apache.doris.datasource.jdbc.client;
 
+import com.google.common.collect.Maps;
+
 import java.util.Map;
 
-public class JdbcClientConfig {
+public class JdbcClientConfig implements Cloneable {
     private String catalog;
     private String user;
     private String password;
@@ -29,8 +31,23 @@ public class JdbcClientConfig {
     private String driverClass;
     private String onlySpecifiedDatabase;
     private String isLowerCaseTableNames;
-    private Map<String, Boolean> includeDatabaseMap;
-    private Map<String, Boolean> excludeDatabaseMap;
+    private Map<String, Boolean> includeDatabaseMap = Maps.newHashMap();
+    private Map<String, Boolean> excludeDatabaseMap = Maps.newHashMap();
+    private Map<String, String> customizedProperties = Maps.newHashMap();
+
+    @Override
+    public JdbcClientConfig clone() {
+        try {
+            JdbcClientConfig cloned = (JdbcClientConfig) super.clone();
+
+            cloned.includeDatabaseMap = Maps.newHashMap(includeDatabaseMap);
+            cloned.excludeDatabaseMap = Maps.newHashMap(excludeDatabaseMap);
+            cloned.customizedProperties = Maps.newHashMap(customizedProperties);
+            return cloned;
+        } catch (CloneNotSupportedException e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     public String getCatalog() {
         return catalog;
@@ -120,5 +137,13 @@ public class JdbcClientConfig {
     public JdbcClientConfig setExcludeDatabaseMap(Map<String, Boolean> excludeDatabaseMap) {
         this.excludeDatabaseMap = excludeDatabaseMap;
         return this;
+    }
+
+    public void setCustomizedProperties(Map<String, String> customizedProperties) {
+        this.customizedProperties = customizedProperties;
+    }
+
+    public Map<String, String> getCustomizedProperties() {
+        return customizedProperties;
     }
 }
