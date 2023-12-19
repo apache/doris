@@ -20,7 +20,8 @@ suite("test_auto_partition_behavior") {
     sql "drop table if exists unique_table"
     sql """
         CREATE TABLE `unique_table` (
-            `str` varchar not null
+            `str` varchar not null,
+            `dummy` int
         ) ENGINE=OLAP
         UNIQUE KEY(`str`)
         COMMENT 'OLAP'
@@ -34,15 +35,15 @@ suite("test_auto_partition_behavior") {
         );
         """
     // special characters
-    sql """ insert into unique_table values (" "), ("  "), ("Xxx"), ("xxX"), (" ! "), (" !  ") """
-    qt_sql1 """ select *,length(str) from unique_table order by `str` """
+    sql """ insert into unique_table values (" ", 1), ("  ", 1), ("Xxx", 1), ("xxX", 1), (" ! ", 1), (" !  ", 1) """
+    qt_sql1 """ select str,length(str) from unique_table order by `str` """
     def result = sql "show partitions from unique_table"
     assertEquals(result.size(), 6)
-    sql """ insert into unique_table values (" "), ("  "), ("Xxx"), ("xxX"), (" ! "), (" !  ") """
-    qt_sql2 """ select *,length(str) from unique_table order by `str` """
+    sql """ insert into unique_table values (" ", 1), ("  ", 1), ("Xxx", 1), ("xxX", 1), (" ! ", 1), (" !  ", 1) """
+    qt_sql2 """ select str,length(str) from unique_table order by `str` """
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 6)
-    sql """ insert into unique_table values ("-"), ("--"), ("- -"), (" - ") """
+    sql """ insert into unique_table values ("-", 1), ("--", 1), ("- -", 1), (" - ", 1) """
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 10)
     // add partition
@@ -58,13 +59,13 @@ suite("test_auto_partition_behavior") {
     sql """ alter table unique_table drop partition ${partition1_name} """ // partition ' '
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 9)
-    qt_sql3 """ select *,length(str) from unique_table order by `str` """
+    qt_sql3 """ select str,length(str) from unique_table order by `str` """
     // modify value 
     sql """ update unique_table set str = "modified" where str in (" ", "  ") """ // only "  "
-    qt_sql4 """ select *,length(str) from unique_table where str = '  ' order by `str` """ // modified
+    qt_sql4 """ select str,length(str) from unique_table where str = '  ' order by `str` """ // modified
     qt_sql5 """ select count() from unique_table where str = 'modified' """
     // crop
-    qt_sql6 """ select * from unique_table where ((str > ' ! ' || str = 'modified') && str != 'Xxx') order by str """
+    qt_sql6 """ select str from unique_table where ((str > ' ! ' || str = 'modified') && str != 'Xxx') order by str """
 
 
     /// duplicate key table

@@ -194,3 +194,7 @@ v.画像.丬文	TEXT	Yes	false	\N
 v.画像.地址	TEXT	Yes	false	\N	
 v.金额	SMALLINT	Yes	false	\N	
 
+-- !sql_12 --
+k	BIGINT	Yes	true	\N	
+v	VARIANT	Yes	false	\N	NONE
+

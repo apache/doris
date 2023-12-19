@@ -33,6 +33,7 @@ public:
 class Exchanger;
 class ShuffleExchanger;
 class PassthroughExchanger;
+class BroadcastExchanger;
 class LocalExchangeSinkOperatorX;
 class LocalExchangeSinkLocalState final
         : public PipelineXSinkLocalState<LocalExchangeSinkDependency> {
@@ -53,6 +54,8 @@ private:
     friend class ShuffleExchanger;
     friend class BucketShuffleExchanger;
     friend class PassthroughExchanger;
+    friend class BroadcastExchanger;
+    friend class AdaptivePassthroughExchanger;
 
     Exchanger* _exchanger = nullptr;
 

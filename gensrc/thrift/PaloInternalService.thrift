@@ -335,7 +335,7 @@ struct TPlanFragmentExecParams {
   11: optional bool send_query_statistics_with_every_batch
   // Used to merge and send runtime filter
   12: optional TRuntimeFilterParams runtime_filter_params
-  13: optional bool group_commit
+  13: optional bool group_commit // deprecated
 }
 
 // Global query parameters assigned by the coordinator.
@@ -691,6 +691,8 @@ struct TPipelineFragmentParams {
   33: optional i32 num_local_sink
   34: optional i32 num_buckets
   35: optional map<i32, i32> bucket_seq_to_instance_idx
+  36: optional map<Types.TPlanNodeId, bool> per_node_shared_scans
+  37: optional i32 parallel_instances
 }
 
 struct TPipelineFragmentParamsList {

@@ -327,10 +327,10 @@ fi
 echo "Finished patching ${ARROW_SOURCE}"
 
 # patch librdkafka to avoid crash
-if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.8.2" ]]; then
+if [[ "${LIBRDKAFKA_SOURCE}" == "librdkafka-1.9.2" ]]; then
     cd "${TP_SOURCE_DIR}/${LIBRDKAFKA_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
-        patch -p0 <"${TP_PATCH_DIR}/librdkafka-1.8.2.patch"
+        patch -p0 <"${TP_PATCH_DIR}/librdkafka-1.9.2.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -

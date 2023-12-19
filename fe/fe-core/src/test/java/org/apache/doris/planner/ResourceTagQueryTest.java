@@ -192,7 +192,7 @@ public class ResourceTagQueryTest {
                 + ")\n"
                 + "distributed by hash(k2) buckets 10;";
         ExceptionChecker.expectThrowsNoException(() -> createTable(createStr));
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
         Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
@@ -306,7 +306,7 @@ public class ResourceTagQueryTest {
                 .parseAndAnalyzeStmt(alterDbStmtStr, connectContext);
         Env.getCurrentEnv().alterDatabaseProperty(alterDbStmt);
         ExceptionChecker.expectThrowsNoException(() -> createTable(createTableStr2));
-        Database propDb = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test_prop");
+        Database propDb = Env.getCurrentInternalCatalog().getDbNullable("test_prop");
         OlapTable tbl2 = (OlapTable) propDb.getTableNullable("tbl2");
         // should same with db
         Map<Tag, Short> tbl2ExpectedAllocMap = Maps.newHashMap();

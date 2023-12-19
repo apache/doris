@@ -83,8 +83,10 @@ bool ExchangeSinkOperator::is_pending_finish() const {
 
 Status ExchangeSinkOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperator::close(state));
-    _sink_buffer->update_profile(_sink->profile());
-    _sink_buffer->close();
+    if (_sink_buffer) {
+        _sink_buffer->update_profile(_sink->profile());
+        _sink_buffer->close();
+    }
     return Status::OK();
 }
 
@@ -125,8 +127,9 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _local_bytes_send_counter = ADD_COUNTER(_profile, "LocalBytesSent", TUnit::BYTES);
     _memory_usage_counter = ADD_LABEL_COUNTER(_profile, "MemoryUsage");
     static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER(_profile, timer_name);
-    _wait_queue_timer = ADD_CHILD_TIMER(_profile, "WaitForRpcBufferQueue", timer_name);
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
+    _wait_queue_timer =
+            ADD_CHILD_TIMER_WITH_LEVEL(_profile, "WaitForRpcBufferQueue", timer_name, 1);
 
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
 

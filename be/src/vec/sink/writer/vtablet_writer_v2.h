@@ -109,7 +109,7 @@ public:
 
     ~VTabletWriterV2() override;
 
-    Status init_properties(ObjectPool* pool, bool group_commit);
+    Status init_properties(ObjectPool* pool);
 
     Status append_block(Block& block) override;
 
@@ -213,7 +213,6 @@ private:
 
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
-    bool _group_commit = false;
 
     std::unordered_set<int64_t> _opened_partitions;
 

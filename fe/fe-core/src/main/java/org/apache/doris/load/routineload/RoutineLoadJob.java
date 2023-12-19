@@ -57,6 +57,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileFormatType;
@@ -157,7 +158,6 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     protected long id;
     protected String name;
-    protected String clusterName;
     protected long dbId;
     protected long tableId;
     // this code is used to verify be task request
@@ -270,12 +270,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         this.dataSourceType = type;
     }
 
-    public RoutineLoadJob(Long id, String name, String clusterName,
+    public RoutineLoadJob(Long id, String name,
                           long dbId, long tableId, LoadDataSourceType dataSourceType,
                           UserIdentity userIdentity) {
         this(id, dataSourceType);
         this.name = name;
-        this.clusterName = clusterName;
         this.dbId = dbId;
         this.tableId = tableId;
         this.authCode = 0;
@@ -292,12 +291,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     /**
      * MultiLoadJob will use this constructor
      */
-    public RoutineLoadJob(Long id, String name, String clusterName,
+    public RoutineLoadJob(Long id, String name,
                           long dbId, LoadDataSourceType dataSourceType,
                           UserIdentity userIdentity) {
         this(id, dataSourceType);
         this.name = name;
-        this.clusterName = clusterName;
         this.dbId = dbId;
         this.authCode = 0;
         this.userIdentity = userIdentity;
@@ -1689,7 +1687,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         out.writeLong(id);
         Text.writeString(out, name);
-        Text.writeString(out, clusterName);
+        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
         out.writeLong(dbId);
         out.writeLong(tableId);
         out.writeInt(desireTaskConcurrentNum);
@@ -1736,7 +1734,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
         id = in.readLong();
         name = Text.readString(in);
-        clusterName = Text.readString(in);
+        // cluster
+        Text.readString(in);
         dbId = in.readLong();
         tableId = in.readLong();
         if (tableId == 0) {

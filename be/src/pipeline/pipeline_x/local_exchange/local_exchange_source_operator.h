@@ -35,6 +35,7 @@ public:
 class Exchanger;
 class ShuffleExchanger;
 class PassthroughExchanger;
+class BroadcastExchanger;
 class LocalExchangeSourceOperatorX;
 class LocalExchangeSourceLocalState final
         : public PipelineXLocalState<LocalExchangeSourceDependency> {
@@ -50,6 +51,8 @@ private:
     friend class LocalExchangeSourceOperatorX;
     friend class ShuffleExchanger;
     friend class PassthroughExchanger;
+    friend class BroadcastExchanger;
+    friend class AdaptivePassthroughExchanger;
 
     Exchanger* _exchanger = nullptr;
     int _channel_id;

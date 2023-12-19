@@ -288,11 +288,13 @@ suite("test_bitmap_index") {
                 "replication_allocation" = "tag.location.default: 1",
                 "is_being_synced" = "false",
                 "storage_format" = "V2",
+                "enable_unique_key_merge_on_write" = "false",
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "false",
                 "enable_single_replica_compaction" = "false"
                 );
             """
+            // test mor table
 
         sql """
                 ALTER TABLE ${tbName4} ADD INDEX vid_bitmap_index (vid) USING BITMAP;

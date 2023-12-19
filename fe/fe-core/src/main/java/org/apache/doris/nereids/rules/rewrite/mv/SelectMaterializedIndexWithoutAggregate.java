@@ -25,8 +25,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
-import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.ReplaceExpressions;
-import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;

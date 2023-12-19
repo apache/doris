@@ -67,8 +67,8 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.util.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -485,9 +485,6 @@ public class CascadesContext implements ScheduleContext {
             case 2: { // db.table
                 String ctlName = getConnectContext().getEnv().getCurrentCatalog().getName();
                 String dbName = nameParts.get(0);
-                if (!dbName.equals(getConnectContext().getDatabase())) {
-                    dbName = getConnectContext().getClusterName() + ":" + dbName;
-                }
                 return getTable(ctlName, dbName, nameParts.get(1), getConnectContext().getEnv());
             }
             case 3: { // catalog.db.table

@@ -193,8 +193,6 @@ public:
     UIntGauge* query_cache_sql_total_count = nullptr;
     UIntGauge* query_cache_partition_total_count = nullptr;
 
-    IntCounter* tablet_schema_cache_count = nullptr;
-    UIntGauge* tablet_schema_cache_memory_bytes = nullptr;
     IntGauge* lru_cache_memory_bytes = nullptr;
 
     UIntGauge* scanner_thread_pool_queue_size = nullptr;

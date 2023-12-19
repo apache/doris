@@ -199,8 +199,8 @@ public class ColocatePlanTest extends TestWithFeService {
 
     @Test
     public void testGlobalColocateGroup() throws Exception {
-        Database db1 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("default_cluster:db1");
-        Database db2 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("default_cluster:db2");
+        Database db1 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("db1");
+        Database db2 = Env.getCurrentEnv().getInternalCatalog().getDbNullable("db2");
         OlapTable tbl1 = (OlapTable) db1.getTableNullable("test_global_colocate1");
         OlapTable tbl2 = (OlapTable) db2.getTableNullable("test_global_colocate2");
         OlapTable tbl3 = (OlapTable) db2.getTableNullable("test_global_colocate3");

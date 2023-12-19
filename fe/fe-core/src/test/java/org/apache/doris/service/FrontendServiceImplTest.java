@@ -94,7 +94,7 @@ public class FrontendServiceImplTest {
                 + "PROPERTIES(\"replication_num\" = \"1\");");
 
         createTable(createOlapTblStmt);
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_range");
 
         List<List<TStringLiteral>> partitionValues = new ArrayList<>();
@@ -133,7 +133,7 @@ public class FrontendServiceImplTest {
                 + "PROPERTIES(\"replication_num\" = \"1\");");
 
         createTable(createOlapTblStmt);
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable table = (OlapTable) db.getTableOrAnalysisException("partition_list");
 
         List<List<TStringLiteral>> partitionValues = new ArrayList<>();

@@ -17,21 +17,21 @@ k14	DATETIME(3)	Yes	false	\N	NONE
 k15	DATETIME(6)	Yes	false	\N	NONE
 
 -- !sql --
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index1		k1						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index2		k2						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index3		k3						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index4		k4						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index5		k5						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index6		k6						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index7		k7						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index8		k8						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index9		k9						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index10		k10						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index11		k11						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index12		k12						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index13		k13						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index14		k14						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_dup		index15		k15						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index1		k1						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index2		k2						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index3		k3						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index4		k4						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index5		k5						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index6		k6						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index7		k7						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index8		k8						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index9		k9						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index10		k10						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index11		k11						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index12		k12						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index13		k13						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index14		k14						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_dup		index15		k15						INVERTED		
 
 -- !sql --
 1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	2022-05-31	2022-05-31T10:00	2022-05-31T10:00:00.111	2022-05-31T10:00:00.111111
@@ -55,21 +55,21 @@ k15	DATETIME(6)	Yes	true	\N
 v1	INT	Yes	false	\N	SUM
 
 -- !sql --
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index1		k1						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index2		k2						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index3		k3						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index4		k4						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index5		k5						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index6		k6						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index7		k7						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index8		k8						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index9		k9						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index10		k10						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index11		k11						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index12		k12						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index13		k13						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index14		k14						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_agg		index15		k15						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index1		k1						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index2		k2						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index3		k3						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index4		k4						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index5		k5						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index6		k6						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index7		k7						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index8		k8						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index9		k9						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index10		k10						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index11		k11						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index12		k12						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index13		k13						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index14		k14						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_agg		index15		k15						INVERTED		
 
 -- !sql --
 1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	2022-05-31	2022-05-31T10:00	2022-05-31T10:00:00.111	2022-05-31T10:00:00.111111	1
@@ -93,22 +93,22 @@ k15	DATETIME(6)	Yes	false	\N	NONE
 v1	INT	Yes	false	\N	NONE
 
 -- !sql --
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index1		k1						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index2		k2						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index3		k3						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index4		k4						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index5		k5						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index6		k6						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index7		k7						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index8		k8						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index9		k9						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index10		k10						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index11		k11						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index12		k12						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index13		k13						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index14		k14						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index15		k15						INVERTED		
-default_cluster:regression_test_inverted_index_p0.test_inverted_index_unique		index16		v1						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index1		k1						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index2		k2						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index3		k3						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index4		k4						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index5		k5						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index6		k6						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index7		k7						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index8		k8						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index9		k9						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index10		k10						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index11		k11						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index12		k12						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index13		k13						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index14		k14						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index15		k15						INVERTED		
+regression_test_inverted_index_p0.test_inverted_index_unique		index16		v1						INVERTED		
 
 -- !sql --
 1	1	1	1	1	1	2022-05-31	2022-05-31T10:00	1	1	true	2022-05-31	2022-05-31T10:00	2022-05-31T10:00:00.111	2022-05-31T10:00:00.111111	1

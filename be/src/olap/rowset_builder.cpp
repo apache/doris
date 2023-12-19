@@ -175,7 +175,8 @@ Status RowsetBuilder::init() {
         RETURN_IF_ERROR(init_mow_context(mow_context));
     }
 
-    if (!config::disable_auto_compaction) {
+    if (!config::disable_auto_compaction &&
+        !_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
         RETURN_IF_ERROR(check_tablet_version_count());
     }
 
