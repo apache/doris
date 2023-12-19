@@ -31,7 +31,6 @@ import org.apache.avro.mapred.AvroJob;
 import org.apache.avro.mapred.AvroRecordReader;
 import org.apache.avro.mapred.AvroWrapper;
 import org.apache.avro.mapred.Pair;
-import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.io.NullWritable;
@@ -72,9 +71,7 @@ public abstract class AvroReader {
     protected void openDataReader(AvroFileMeta avroFileMeta) throws IOException {
         JobConf job = new JobConf();
         projectionSchema(job, avroFileMeta);
-        FileStatus fileStatus = fileSystem.getFileStatus(path);
-        // TODO split file
-        FileSplit fileSplit = new FileSplit(path, 0, fileStatus.getLen(), job);
+        FileSplit fileSplit = new FileSplit(path, avroFileMeta.getSplitStartOffset(), avroFileMeta.getSplitSize(), job);
         dataReader = new AvroRecordReader<>(job, fileSplit);
         LOG.debug("success open avro data reader.");
     }
