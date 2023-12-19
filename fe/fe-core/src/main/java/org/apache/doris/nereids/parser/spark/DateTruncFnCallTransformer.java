@@ -66,12 +66,12 @@ public class DateTruncFnCallTransformer extends ComplexFnCallTransformer {
         if (YEAR.contains(fmtLiteral.getValue().toUpperCase())) {
             return new UnboundFunction(
                     "date_trunc",
-                    ImmutableList.of(sourceFnTransformedArguments.get(0), VarcharLiteral.of("YEAR")));
+                    ImmutableList.of(sourceFnTransformedArguments.get(0), new VarcharLiteral("YEAR")));
         }
         if (MONTH.contains(fmtLiteral.getValue().toUpperCase())) {
             return new UnboundFunction(
                     "date_trunc",
-                    ImmutableList.of(sourceFnTransformedArguments.get(0), VarcharLiteral.of("MONTH")));
+                    ImmutableList.of(sourceFnTransformedArguments.get(0), new VarcharLiteral("MONTH")));
         }
 
         return new UnboundFunction(
