@@ -501,6 +501,12 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
             }
         }
 
+        if (tablet_meta->partition_id() <= 0) {
+            LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
+                        << tablet_meta->tablet_id();
+            // TODO(dx): after fix partition id eq 0 bug, fix it
+            // return nullptr;
+        }
         TabletSharedPtr new_tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
         COUNTER_UPDATE(ADD_CHILD_TIMER(profile, "CreateTabletFromMeta", parent_timer_name),
                        static_cast<int64_t>(watch.reset()));
@@ -826,6 +832,12 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         tablet_meta->set_tablet_state(TABLET_RUNNING);
     }
 
+    if (tablet_meta->partition_id() <= 0) {
+        LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
+                    << tablet_meta->tablet_id();
+        // TODO(dx): after fix partition id eq 0 bug, fix it
+        // return nullptr;
+    }
     TabletSharedPtr tablet = std::make_shared<Tablet>(std::move(tablet_meta), data_dir);
 
     // NOTE: method load_tablet_from_meta could be called by two cases as below
