@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_constant_fold", "query") {
+suite("test_compound_predicate_constant_child", "query") {
     // define a sql table
-    def testTable = "test_constant_fold_fuzzy"
+    def testTable = "test_compound_predicate_constant_child"
+    sql """drop table if exists ${testTable};"""
 
     sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
