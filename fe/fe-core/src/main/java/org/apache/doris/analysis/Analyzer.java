@@ -1149,6 +1149,7 @@ public class Analyzer {
         // result.setLabel(srcSlotDesc.getLabel());
         result.setStats(srcSlotDesc.getStats());
         result.setType(srcSlotDesc.getType());
+        result.setSubColLables(srcSlotDesc.getSubColLables());
         result.setIsNullable(srcSlotDesc.getIsNullable());
         if (srcSlotDesc.getColumn() != null) {
             result.setColumn(srcSlotDesc.getColumn());
