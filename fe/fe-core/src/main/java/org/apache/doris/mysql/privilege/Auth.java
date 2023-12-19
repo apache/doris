@@ -961,6 +961,12 @@ public class Auth implements Writable {
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
             }
             LOG.info("finished to set properties for user: {}", user);
+        } catch (DdlException e) {
+            if (isReplay && e.getMessage().contains("Unknown user property")) {
+                LOG.warn("ReplayUpdateUserProperty failed, maybe FE rolled back version, " + e.getMessage());
+            } else {
+                throw e;
+            }
         } finally {
             writeUnlock();
         }
@@ -997,6 +1003,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxQueryInstances(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getParallelFragmentExecInstanceNum(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getParallelFragmentExecInstanceNum(qualifiedUser);
         } finally {
             readUnlock();
         }
