@@ -470,7 +470,7 @@ public class MTMVUtil {
             try {
                 table = getTable(baseTableInfo);
             } catch (AnalysisException e) {
-                LOG.warn("get table failed, " + baseTableInfo);
+                LOG.warn("get table failed, {}", baseTableInfo, e);
                 return false;
             }
             if (excludedTriggerTables.contains(table.getName())) {
