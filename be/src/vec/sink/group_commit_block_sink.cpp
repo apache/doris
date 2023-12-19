@@ -21,8 +21,8 @@
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/sink/vtablet_finder.h"
 #include "vec/sink/volap_table_sink.h"
+#include "vec/sink/vtablet_finder.h"
 
 namespace doris {
 
