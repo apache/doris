@@ -205,8 +205,7 @@ private:
     // Processes a block from the left child.
     //  dst_columns: left_child_row and now_process_build_block to construct a bundle column of new block
     //  now_process_build_block: right child block now to process
-    void _process_left_child_block(Block& block,
-                                   const Block& now_process_build_block) const;
+    void _process_left_child_block(Block& block, const Block& now_process_build_block) const;
 
     template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
     Status _do_filtering_and_update_visited_flags(Block* block, bool materialize);

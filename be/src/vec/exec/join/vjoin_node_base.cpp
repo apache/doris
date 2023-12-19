@@ -179,7 +179,6 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
     };
 
     if (rows != 0) {
-        auto old_output_rows = output_block->rows();
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
             DCHECK(mutable_columns.size() == row_desc().num_materialized_slots());
@@ -210,7 +209,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
         }
 
         output_block->swap(mutable_block.to_block());
-        DCHECK(output_block->rows() == old_output_rows + rows);
+        DCHECK(output_block->rows() == rows);
     }
 
     return Status::OK();
