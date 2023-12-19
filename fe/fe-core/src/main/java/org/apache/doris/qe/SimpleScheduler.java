@@ -176,7 +176,7 @@ public class SimpleScheduler {
             return;
         }
 
-        blacklistBackends.put(backendID, Pair.of(FeConstants.heartbeat_interval_second + 1, reason));
+        blacklistBackends.put(backendID, Pair.of(Config.blacklist_duration_second + 1, reason));
         LOG.warn("add backend {} to black list. reason: {}", backendID, reason);
     }
 
