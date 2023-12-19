@@ -52,8 +52,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/sink/volap_table_sink.h"
 #include "vec/sink/vrow_distribution.h"
-#include "vec/sink/vtablet_sink.h"
 
 #ifdef DEBUG
 #include <unordered_set>
