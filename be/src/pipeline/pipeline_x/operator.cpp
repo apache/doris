@@ -346,8 +346,8 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
         }
         _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state().get();
         _shared_state->ref();
-        _wait_for_dependency_timer =
-                ADD_TIMER(_runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time");
+        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         _shared_state->source_dep = _dependency;
         _shared_state->sink_dep = deps.front().get();
     }
@@ -414,8 +414,8 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
         if (_dependency) {
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
-            _wait_for_dependency_timer =
-                    ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
+            _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                    _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
         _shared_state->ref();
     } else {
@@ -511,8 +511,8 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
             _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
 
-    _wait_for_dependency_timer =
-            ADD_TIMER(_profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time");
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+            _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
     _finish_dependency->block();
     return Status::OK();
 }
