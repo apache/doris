@@ -58,6 +58,8 @@ MemTableMemoryLimiter::~MemTableMemoryLimiter() {
 Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
+    _load_safe_mem_permit =
+            _load_hard_mem_limit * config::load_process_safe_mem_permit_percent / 100;  
     _load_safe_mem_permit = _load_hard_mem_limit * config::load_process_safe_mem_permit_percent / 100;
     g_load_hard_mem_limit.set_value(_load_hard_mem_limit);
     g_load_soft_mem_limit.set_value(_load_soft_mem_limit);
