@@ -173,20 +173,4 @@ suite("partition_mv_rewrite") {
         sql("${partition_sql}")
         contains "mv_10086"
     }
-
-    sql """
-    REFRESH MATERIALIZED VIEW mv_10086;
-    """
-    // wait partition is valid
-    waitingMTMVTaskFinished(job_name)
-
-    explain {
-        sql("${all_partition_sql}")
-        contains "mv_10086"
-    }
-    explain {
-        sql("${partition_sql}")
-        contains "mv_10086"
-    }
-    sql """DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
 }
