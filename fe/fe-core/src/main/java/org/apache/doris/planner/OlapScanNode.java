@@ -28,6 +28,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -198,6 +199,11 @@ public class OlapScanNode extends ScanNode {
     private Set<Integer> distributionColumnIds;
 
     private boolean shouldColoScan = false;
+
+    // cached for prepared statement to quickly prune partition
+    // only used in short circuit plan at present
+    private final PartitionPruneV2ForShortCircuitPlan cachedPartitionPruner =
+                        new PartitionPruneV2ForShortCircuitPlan();
 
     // Constructs node to scan given data files of table 'tbl'.
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
@@ -674,8 +680,17 @@ public class OlapScanNode extends ScanNode {
         } else {
             keyItemMap = partitionInfo.getIdToItem(false);
         }
-
         if (partitionInfo.getType() == PartitionType.RANGE) {
+            if (isPointQuery() && partitionInfo.getPartitionColumns().size() == 1) {
+                // short circuit, a quick path to find partition
+                ColumnRange filterRange = columnNameToRange.get(partitionInfo.getPartitionColumns().get(0).getName());
+                LiteralExpr lowerBound = filterRange.getRangeSet().get().asRanges().stream()
+                        .findFirst().get().lowerEndpoint().getValue();
+                LiteralExpr upperBound = filterRange.getRangeSet().get().asRanges().stream()
+                        .findFirst().get().upperEndpoint().getValue();
+                cachedPartitionPruner.update(keyItemMap);
+                return cachedPartitionPruner.prune(lowerBound, upperBound);
+            }
             partitionPruner = new RangePartitionPrunerV2(keyItemMap,
                     partitionInfo.getPartitionColumns(), columnNameToRange);
         } else if (partitionInfo.getType() == PartitionType.LIST) {
