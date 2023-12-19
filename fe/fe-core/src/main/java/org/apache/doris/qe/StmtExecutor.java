@@ -1199,11 +1199,21 @@ public class StmtExecutor {
     // Handle kill statement.
     private void handleKill() throws DdlException {
         KillStmt killStmt = (KillStmt) parsedStmt;
+        ConnectContext killCtx = null;
         int id = killStmt.getConnectionId();
-        ConnectContext killCtx = context.getConnectScheduler().getContext(id);
-        if (killCtx == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
+        String queryId = killStmt.getQueryId();
+        if (id == -1) {
+            killCtx = context.getConnectScheduler().getContextWithQueryId(queryId);
+            if (killCtx == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_QUERY, queryId);
+            }
+        } else {
+            killCtx = context.getConnectScheduler().getContext(id);
+            if (killCtx == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
+            }
         }
+
         if (context == killCtx) {
             // Suicide
             context.setKilled();
