@@ -199,4 +199,10 @@ suite("test_from_millisecond_microsecond") {
         from millimicro
         order by id;
     """ 
+
+    qt_sql " select from_second(-62167246602) "
+    qt_sql " select from_second(-62167246603) "
+    qt_sql " select from_microsecond(253402271999999999) "
+    qt_sql " select from_microsecond(253402272000000000) "
+    qt_sql " select from_millisecond(-20) "
 }
