@@ -185,7 +185,7 @@ public abstract class TestWithFeService {
     }
 
     // Help to create a mocked ConnectContext.
-    protected ConnectContext createDefaultCtx() throws IOException {
+    public static ConnectContext createDefaultCtx() throws IOException {
         return createCtx(UserIdentity.ROOT, "127.0.0.1");
     }
 
@@ -262,7 +262,7 @@ public abstract class TestWithFeService {
         return adapter;
     }
 
-    protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
+    protected static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());

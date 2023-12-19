@@ -210,7 +210,6 @@ private:
         void clear() { _build_side_pipelines.clear(); }
     } _pipeline_parent_map;
 
-    std::map<UniqueId, RuntimeState*> _instance_id_to_runtime_state;
     std::mutex _state_map_lock;
 
     int _operator_id = 0;

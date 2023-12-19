@@ -22,6 +22,14 @@
 
 namespace doris {
 
+class DelayReleaseToken : public Runnable {
+public:
+    DelayReleaseToken(std::unique_ptr<ThreadPoolToken>&& token) { token_ = std::move(token); }
+    ~DelayReleaseToken() override = default;
+    void run() override {}
+    std::unique_ptr<ThreadPoolToken> token_;
+};
+
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                            const TQueryOptions& query_options)
         : fragment_num(total_fragment_num),
@@ -55,6 +63,14 @@ QueryContext::~QueryContext() {
     }
 
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
+    // Not release the the thread token in query context's dector method, because the query
+    // conext may be dectored in the thread token it self. It is very dangerous and may core.
+    // And also thread token need shutdown, it may take some time, may cause the thread that
+    // release the token hang, the thread maybe a pipeline task scheduler thread.
+    if (_thread_token) {
+        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+    }
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {
