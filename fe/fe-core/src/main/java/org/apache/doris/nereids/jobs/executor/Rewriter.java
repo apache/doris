@@ -60,6 +60,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
+import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubquery;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
@@ -184,7 +185,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateFilter(),
                             new EliminateAggregate(),
                             new EliminateJoinCondition(),
-                            new EliminateAssertNumRows()
+                            new EliminateAssertNumRows(),
+                            new EliminateSemiJoin()
                     )
             ),
             // please note: this rule must run before NormalizeAggregate
