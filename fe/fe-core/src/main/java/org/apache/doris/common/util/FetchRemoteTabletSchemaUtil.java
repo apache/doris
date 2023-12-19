@@ -72,9 +72,12 @@ public class FetchRemoteTabletSchemaUtil {
         Map<Long, Set<Long>> beIdToTabletId = Maps.newHashMap();
         for (Tablet tablet : tablets) {
             for (Replica replica : tablet.getReplicas()) {
-                Set<Long> tabletIds = beIdToTabletId.computeIfAbsent(
+                // only need alive replica
+                if (replica.isAlive()) {
+                    Set<Long> tabletIds = beIdToTabletId.computeIfAbsent(
                                     replica.getBackendId(), k -> Sets.newHashSet());
-                tabletIds.add(tablet.getId());
+                    tabletIds.add(tablet.getId());
+                }
             }
         }
 
@@ -85,6 +88,10 @@ public class FetchRemoteTabletSchemaUtil {
             Long backendId = entry.getKey();
             Set<Long> tabletIds = entry.getValue();
             Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(backendId);
+            // only need alive be
+            if (!backend.isAlive()) {
+                continue;
+            }
             if (coordinatorBackend.size() < 2) {
                 coordinatorBackend.add(backend);
             }
