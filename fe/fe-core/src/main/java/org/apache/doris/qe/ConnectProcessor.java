@@ -182,7 +182,7 @@ public abstract class ConnectProcessor {
                 .setSqlHash(ctx.getSqlHash());
 
         List<StatementBase> stmts = null;
-
+        Exception nereidsParseException = null;
         // Nereids do not support prepare and execute now, so forbid prepare command, only process query command
         if (mysqlCommand == MysqlCommand.COM_QUERY && ctx.getSessionVariable().isEnableNereidsPlanner()) {
             try {
@@ -195,6 +195,7 @@ public abstract class ConnectProcessor {
                 // TODO: We should catch all exception here until we support all query syntax.
                 LOG.debug("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
                         e.getMessage(), convertedStmt);
+                nereidsParseException = e;
             }
         }
 
@@ -203,6 +204,12 @@ public abstract class ConnectProcessor {
             try {
                 stmts = parse(convertedStmt);
             } catch (Throwable throwable) {
+                // if NereidsParser and oldParser both failed,
+                // prove is a new feature implemented only on the nereids,
+                // so an error message for the new nereids is thrown
+                if (nereidsParseException != null) {
+                    throwable = nereidsParseException;
+                }
                 // Parse sql failed, audit it and return
                 handleQueryException(throwable, convertedStmt, null, null);
                 return;
