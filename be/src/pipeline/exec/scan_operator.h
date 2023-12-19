@@ -211,6 +211,8 @@ class ScanLocalState : public ScanLocalStateBase {
 
     Dependency* dependency() override { return _scan_dependency.get(); }
 
+    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+
 protected:
     template <typename LocalStateType>
     friend class ScanOperatorX;
@@ -405,6 +407,8 @@ protected:
     std::atomic<bool> _eos = false;
 
     std::mutex _block_lock;
+
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 template <typename LocalStateType>

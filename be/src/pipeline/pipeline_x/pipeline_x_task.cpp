@@ -191,6 +191,7 @@ Status PipelineXTask::_open() {
         for (size_t i = 0; i < 2; i++) {
             auto st = local_state->open(_state);
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+                DCHECK(_filter_dependency);
                 _blocked_dep = _filter_dependency->is_blocked_by(this);
                 if (_blocked_dep) {
                     set_state(PipelineTaskState::BLOCKED_FOR_RF);
@@ -375,9 +376,11 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "{}. {}\n", i, _write_dependencies->debug_string(1));
     i++;
 
-    fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");
-    fmt::format_to(debug_string_buffer, "{}. {}\n", i, _filter_dependency->debug_string(1));
-    i++;
+    if (_filter_dependency) {
+        fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i, _filter_dependency->debug_string(1));
+        i++;
+    }
 
     fmt::format_to(debug_string_buffer, "Finish Dependency Information: \n");
     for (size_t j = 0; j < _finish_dependencies.size(); j++, i++) {

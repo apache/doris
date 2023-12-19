@@ -103,7 +103,8 @@ public:
     virtual Dependency* dependency() { return nullptr; }
 
     Dependency* finishdependency() { return _finish_dependency.get(); }
-    RuntimeFilterDependency* filterdependency() { return _filter_dependency.get(); }
+    //  override in Scan  MultiCastSink
+    virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
 
 protected:
     friend class OperatorXBase;
@@ -136,7 +137,6 @@ protected:
     bool _closed = false;
     vectorized::Block _origin_block;
     std::shared_ptr<Dependency> _finish_dependency;
-    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
