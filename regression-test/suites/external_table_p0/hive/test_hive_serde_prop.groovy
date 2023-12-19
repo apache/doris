@@ -19,10 +19,9 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
         String catalog_name = "test_hive_serde_prop"
-        String ex_db_name = "`default`"
+        String ex_db_name = "`stats_test`"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String hms_port = context.config.otherConfigs.get("hms_port")
-        String hdfs_port = context.config.otherConfigs.get("hdfs_port")
 
         sql """drop catalog if exists ${catalog_name} """
 
@@ -32,9 +31,7 @@ suite("test_hive_serde_prop", "external_docker,hive,external_docker_hive,p0,exte
                 'hadoop.username' = 'hive'
             );"""
 
-        sql """switch ${catalog_name}"""
-
-		qt_1 """select * from employee_gz order by name;"""
+		qt_1 """select * from ${catalog_name}.${ex_db_name}.employee_gz order by name;"""
     }
 }
 
