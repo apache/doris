@@ -73,7 +73,7 @@ class Block;
 //
 // Aside from Cancel(), which may be called asynchronously, this class is not
 // thread-safe.
-class PlanFragmentExecutor {
+class PlanFragmentExecutor : public TaskExecutionContext {
 public:
     using report_status_callback = std::function<void(const ReportStatusRequest)>;
     // report_status_cb, if !empty(), is used to report the accumulated profile

@@ -341,11 +341,15 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                     std::vector<std::string> {wal_path}));
             _exec_env->wal_mgr()->add_wal_status_queue(table_id, txn_id,
                                                        WalManager::WAL_STATUS::REPLAY);
+        } else {
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(txn_id));
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
         }
         return st;
     }
     // TODO handle execute and commit error
-    if (!prepare_failed && !result_status.ok()) {
+    if (!prepare_failed && !result_status.ok() &&
+        !(result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         RETURN_IF_ERROR(_exec_env->wal_mgr()->add_wal_path(_db_id, table_id, txn_id, label));
         std::string wal_path;
         RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
@@ -458,7 +462,7 @@ Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                   const std::string& import_label, WalManager* wal_manager,
                                   std::vector<TSlotDescriptor>& slot_desc, int be_exe_version) {
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
-            db_id, tb_id, txn_id, label, wal_manager, slot_desc, be_exe_version);
+            db_id, tb_id, wal_id, import_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();
 }
 

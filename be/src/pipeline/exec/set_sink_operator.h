@@ -86,8 +86,6 @@ public:
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
-    int64_t* mem_used() { return &_shared_state->mem_used; };
-
 private:
     friend class SetSinkOperatorX<is_intersect>;
     template <class HashTableContext, bool is_intersected>
