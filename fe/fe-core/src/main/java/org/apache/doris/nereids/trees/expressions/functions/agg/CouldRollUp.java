@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 
 /**
  * Could roll up trait, if a function could roll up in aggregate, it will implement the interface
