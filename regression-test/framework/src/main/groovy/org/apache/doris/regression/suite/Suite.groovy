@@ -575,6 +575,14 @@ class Suite implements GroovyInterceptable {
         Assert.assertEquals(0, code)
     }
 
+    void mkdirRemote(String username, String host, String path) {
+        String cmd = "ssh ${username}@${host} 'mkdir -p ${path}'"
+        logger.info("Execute: ${cmd}".toString())
+        Process process = cmd.execute()
+        def code = process.waitFor()
+        Assert.assertEquals(0, code)
+    }
+
     void sshExec(String username, String host, String cmd) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
