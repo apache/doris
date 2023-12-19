@@ -27,15 +27,12 @@ import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.PrimitiveObjectInspectorFactory;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 
 @Description(name = "bitmap_or", value = "a _FUNC_ b - Compute"
         + " union of two or more input bitmaps, returns the new bitmap")
 public class BitmapOrUDF extends GenericUDF {
-    private static final Logger LOG = LogManager.getLogger(BitmapOrUDF.class);
     private transient BinaryObjectInspector inputOI0;
     private transient BinaryObjectInspector inputOI1;
 
@@ -68,7 +65,6 @@ public class BitmapOrUDF extends GenericUDF {
             bitmapValue0.or(bitmapValue1);
             return BitmapValueUtil.serializeToBytes(bitmapValue1);
         } catch (IOException ioException) {
-            LOG.warn("", ioException);
             throw new RuntimeException(ioException);
         }
     }

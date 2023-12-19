@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -28,9 +29,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -81,8 +84,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private long id;
     @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
-    @SerializedName(value = "clusterName")
-    private String clusterName;
     private ReentrantReadWriteLock rwLock;
 
     // table family group map
@@ -144,7 +145,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 : Config.default_db_max_running_txn_num;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
-        this.clusterName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
     }
 
@@ -273,24 +273,23 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     public long getUsedDataQuotaWithLock() {
         long usedDataQuota = 0;
         readLock();
-        try {
-            for (Table table : this.idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
+        List<Table> tables = new ArrayList<>(this.idToTable.values());
+        readUnlock();
 
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    usedDataQuota = usedDataQuota + olapTable.getDataSize();
-                } finally {
-                    olapTable.readUnlock();
-                }
+        for (Table table : tables) {
+            if (table.getType() != TableType.OLAP) {
+                continue;
             }
-            return usedDataQuota;
-        } finally {
-            readUnlock();
+
+            OlapTable olapTable = (OlapTable) table;
+            olapTable.readLock();
+            try {
+                usedDataQuota = usedDataQuota + olapTable.getDataSize();
+            } finally {
+                olapTable.readUnlock();
+            }
         }
+        return usedDataQuota;
     }
 
     public long getReplicaCountWithLock() {
@@ -396,6 +395,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 }
                 if (table.getType() == TableType.ELASTICSEARCH) {
                     Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
+                } else if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                    Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
                 }
             }
             return Pair.of(result, isTableExist);
@@ -575,7 +576,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         super.write(out);
 
         out.writeLong(id);
-        Text.writeString(out, fullQualifiedName);
+        Text.writeString(out, ClusterNamespace.getNameFromFullName(fullQualifiedName));
         // write tables
         discardHudiTable();
         int numTables = nameToTable.size();
@@ -585,7 +586,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         out.writeLong(dataQuotaBytes);
-        Text.writeString(out, clusterName);
+        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
         Text.writeString(out, dbState.name());
         Text.writeString(out, attachDbName);
 
@@ -623,11 +624,15 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         id = in.readLong();
         fullQualifiedName = Text.readString(in);
+        fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
         // read groups
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
             Table table = Table.read(in);
             table.setQualifiedDbName(fullQualifiedName);
+            if (table instanceof MTMV) {
+                Env.getCurrentEnv().getMtmvService().registerMTMV((MTMV) table, id);
+            }
             String tableName = table.getName();
             nameToTable.put(tableName, table);
             idToTable.put(table.getId(), table);
@@ -636,7 +641,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         // read quota
         dataQuotaBytes = in.readLong();
-        clusterName = Text.readString(in);
+        // cluster
+        Text.readString(in);
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
 
@@ -684,33 +690,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 && dataQuotaBytes == other.dataQuotaBytes;
     }
 
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setClusterName(String clusterName) {
-        this.clusterName = clusterName;
-    }
-
-    public DbState getDbState() {
-        return dbState;
-    }
-
-    public void setDbState(DbState dbState) {
-        if (dbState == null) {
-            return;
-        }
-        this.dbState = dbState;
-    }
-
-    public void setAttachDb(String name) {
-        this.attachDbName = name;
-    }
-
-    public String getAttachDb() {
-        return this.attachDbName;
-    }
-
     public void setName(String name) {
         this.fullQualifiedName = name;
         for (Table table : nameToTable.values()) {
@@ -739,13 +718,20 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
             FunctionUtil.dropFromNereids(this.getFullName(), function);
+            LOG.info("finished to drop function {}", function.getName().getFunction());
         }
     }
 
     public synchronized void replayDropFunction(FunctionSearchDesc functionSearchDesc) {
         try {
-            FunctionUtil.dropFunctionImpl(functionSearchDesc, false, name2Function);
+            // Set ifExists to true to avoid throw exception if function is not found.
+            // It should not happen but the reason is unknown, so add warn log for debug.
+            if (!FunctionUtil.dropFunctionImpl(functionSearchDesc, true, name2Function)) {
+                LOG.warn("failed to find function to drop: {} when replay, skip",
+                        functionSearchDesc.getName().getFunction());
+            }
             FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
+            LOG.info("finished to replay drop function {}", functionSearchDesc.getName().getFunction());
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -858,33 +844,35 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
     public void replayUpdateDbProperties(Map<String, String> properties) {
         dbProperties.updateProperties(properties);
-        binlogConfig = dbProperties.getBinlogConfig();
+        if (PropertyAnalyzer.hasBinlogConfig(properties)) {
+            binlogConfig = dbProperties.getBinlogConfig();
+        }
     }
 
     public boolean updateDbProperties(Map<String, String> properties) throws DdlException {
-        BinlogConfig oldBinlogConfig = getBinlogConfig();
-        BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
-        if (oldBinlogConfig.equals(newBinlogConfig)) {
-            return false;
-        }
+        if (PropertyAnalyzer.hasBinlogConfig(properties)) {
+            BinlogConfig oldBinlogConfig = getBinlogConfig();
+            BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
 
-        if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
-            // check all tables binlog enable is true
-            for (Table table : idToTable.values()) {
-                if (table.getType() != TableType.OLAP) {
-                    continue;
-                }
-
-                OlapTable olapTable = (OlapTable) table;
-                olapTable.readLock();
-                try {
-                    if (!olapTable.getBinlogConfig().isEnable()) {
-                        String errMsg = String.format("binlog is not enable in table[%s] in db [%s]", table.getName(),
-                                getFullName());
-                        throw new DdlException(errMsg);
+            if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
+                // check all tables binlog enable is true
+                for (Table table : idToTable.values()) {
+                    if (table.getType() != TableType.OLAP) {
+                        continue;
                     }
-                } finally {
-                    olapTable.readUnlock();
+
+                    OlapTable olapTable = (OlapTable) table;
+                    olapTable.readLock();
+                    try {
+                        if (!olapTable.getBinlogConfig().isEnable()) {
+                            String errMsg = String
+                                    .format("binlog is not enable in table[%s] in db [%s]", table.getName(),
+                                            getFullName());
+                            throw new DdlException(errMsg);
+                        }
+                    } finally {
+                        olapTable.readUnlock();
+                    }
                 }
             }
         }

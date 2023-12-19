@@ -53,39 +53,21 @@ public:
 struct ExchangeDataDependency final : public Dependency {
 public:
     ENABLE_FACTORY_CREATOR(ExchangeDataDependency);
-    ExchangeDataDependency(int id, vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
-            : Dependency(id, "DataDependency"), _sender_queue(sender_queue), _always_done(false) {}
-    void* shared_state() override { return nullptr; }
-    [[nodiscard]] Dependency* read_blocked_by() override {
-        if (config::enable_fuzzy_mode && _sender_queue->should_wait() &&
-            _read_dependency_watcher.elapsed_time() > SLOW_DEPENDENCY_THRESHOLD) {
-            LOG(WARNING) << "========Dependency may be blocked by some reasons: " << name() << " "
-                         << id();
-        }
-        return _sender_queue->should_wait() ? this : nullptr;
-    }
+    ExchangeDataDependency(int id, int node_id, QueryContext* query_ctx,
+                           vectorized::VDataStreamRecvr::SenderQueue* sender_queue)
+            : Dependency(id, node_id, "DataDependency", query_ctx), _queue(sender_queue) {}
 
-    void set_always_done() {
-        _always_done = true;
-        if (_ready_for_read) {
-            return;
-        }
-        _read_dependency_watcher.stop();
-        _ready_for_read = true;
-    }
-
-    void set_ready_for_read() override {
-        if (_always_done || !_ready_for_read) {
-            return;
-        }
-        _ready_for_read = false;
-        // ScannerContext is set done outside this function now and only stop watcher here.
-        _read_dependency_watcher.start();
+    std::string debug_string(int indentation_level) override {
+        fmt::memory_buffer debug_string_buffer;
+        fmt::format_to(debug_string_buffer,
+                       "{}, _is_cancelled = {}, _block_queue size = {},_num_remaining_senders = {}",
+                       Dependency::debug_string(indentation_level), _queue->_is_cancelled,
+                       _queue->_block_queue.size(), _queue->_num_remaining_senders);
+        return fmt::to_string(debug_string_buffer);
     }
 
 private:
-    vectorized::VDataStreamRecvr::SenderQueue* _sender_queue;
-    std::atomic<bool> _always_done;
+    vectorized::VDataStreamRecvr::SenderQueue* _queue;
 };
 
 class ExchangeSourceOperatorX;
@@ -96,7 +78,8 @@ class ExchangeLocalState final : public PipelineXLocalState<> {
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-
+    Dependency* dependency() override { return source_dependency.get(); }
+    std::string debug_string(int indentation_level) const override;
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
@@ -110,17 +93,16 @@ class ExchangeLocalState final : public PipelineXLocalState<> {
 
 class ExchangeSourceOperatorX final : public OperatorX<ExchangeLocalState> {
 public:
-    ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
-                            int num_senders);
-    Dependency* wait_for_dependency(RuntimeState* state) override;
-    bool is_pending_finish(RuntimeState* state) const override;
-
+    ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                            const DescriptorTbl& descs, int num_senders);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
     Status open(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override;
+
+    std::string debug_string(int indentation_level = 0) const override;
 
     Status close(RuntimeState* state) override;
     [[nodiscard]] bool is_source() const override { return true; }
@@ -134,10 +116,15 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
+    bool need_to_local_shuffle() const override {
+        return !_is_hash_partition || OperatorX<ExchangeLocalState>::ignore_data_distribution();
+    }
+
 private:
     friend class ExchangeLocalState;
     const int _num_senders;
     const bool _is_merging;
+    const bool _is_hash_partition;
     RowDescriptor _input_row_desc;
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 

@@ -17,17 +17,19 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
+import org.apache.doris.analysis.CreateMTMVStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.DdlStmt;
-import org.apache.doris.analysis.MVRefreshInfo;
-import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
-import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.mtmv.EnvInfo;
+import org.apache.doris.mtmv.MTMVPartitionInfo;
+import org.apache.doris.mtmv.MTMVRefreshInfo;
+import org.apache.doris.mtmv.MTMVRelation;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
+import java.util.Map;
 
 public class OlapTableFactory {
 
@@ -44,16 +46,19 @@ public class OlapTableFactory {
         public TableIndexes indexes;
     }
 
-    public static class MaterializedViewParams extends BuildParams {
-        public MVRefreshInfo.BuildMode buildMode;
-        public MVRefreshInfo mvRefreshInfo;
-        public QueryStmt queryStmt;
+    public static class MTMVParams extends BuildParams {
+        public MTMVRefreshInfo refreshInfo;
+        public EnvInfo envInfo;
+        public String querySql;
+        public Map<String, String> mvProperties;
+        public MTMVPartitionInfo mvPartitionInfo;
+        public MTMVRelation relation;
     }
 
     private BuildParams params;
 
     public static TableType getTableType(DdlStmt stmt) {
-        if (stmt instanceof CreateMultiTableMaterializedViewStmt) {
+        if (stmt instanceof CreateMTMVStmt) {
             return TableType.MATERIALIZED_VIEW;
         } else if (stmt instanceof CreateTableStmt) {
             return TableType.OLAP;
@@ -63,7 +68,7 @@ public class OlapTableFactory {
     }
 
     public OlapTableFactory init(TableType type) {
-        params = (type == TableType.OLAP) ? new OlapTableParams() : new MaterializedViewParams();
+        params = (type == TableType.OLAP) ? new OlapTableParams() : new MTMVParams();
         return this;
     }
 
@@ -82,13 +87,9 @@ public class OlapTableFactory {
                     olapTableParams.indexes
             );
         } else {
-            MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-            return new MaterializedView(materializedViewParams);
+            MTMVParams mtmvParams = (MTMVParams) params;
+            return new MTMV(mtmvParams);
         }
-    }
-
-    public BuildParams getBuildParams() {
-        return params;
     }
 
     public OlapTableFactory withTableId(long tableId) {
@@ -129,38 +130,67 @@ public class OlapTableFactory {
         return this;
     }
 
-    public OlapTableFactory withQueryStmt(QueryStmt queryStmt) {
-        Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
+    public OlapTableFactory withQuerySql(String querySql) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
-        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.queryStmt = queryStmt;
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.querySql = querySql;
         return this;
     }
 
-    private OlapTableFactory withBuildMode(BuildMode buildMode) {
-        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.buildMode = buildMode;
+    public OlapTableFactory withMvProperties(Map<String, String> mvProperties) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.mvProperties = mvProperties;
         return this;
     }
 
-    public OlapTableFactory withRefreshInfo(MVRefreshInfo mvRefreshInfo) {
-        Preconditions.checkState(params instanceof MaterializedViewParams, "Invalid argument for "
+    private OlapTableFactory withRefreshInfo(MTMVRefreshInfo refreshInfo) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
                 + params.getClass().getSimpleName());
-        MaterializedViewParams materializedViewParams = (MaterializedViewParams) params;
-        materializedViewParams.mvRefreshInfo = mvRefreshInfo;
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.refreshInfo = refreshInfo;
+        return this;
+    }
+
+    private OlapTableFactory withEnvInfo(EnvInfo envInfo) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.envInfo = envInfo;
+        return this;
+    }
+
+    private OlapTableFactory withMvPartitionInfo(MTMVPartitionInfo mvPartitionInfo) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.mvPartitionInfo = mvPartitionInfo;
+        return this;
+    }
+
+    private OlapTableFactory withMvRelation(MTMVRelation relation) {
+        Preconditions.checkState(params instanceof MTMVParams, "Invalid argument for "
+                + params.getClass().getSimpleName());
+        MTMVParams mtmvParams = (MTMVParams) params;
+        mtmvParams.relation = relation;
         return this;
     }
 
     public OlapTableFactory withExtraParams(DdlStmt stmt) {
-        boolean isMaterializedView = stmt instanceof CreateMultiTableMaterializedViewStmt;
+        boolean isMaterializedView = stmt instanceof CreateMTMVStmt;
         if (!isMaterializedView) {
             CreateTableStmt createOlapTableStmt = (CreateTableStmt) stmt;
             return withIndexes(new TableIndexes(createOlapTableStmt.getIndexes()));
         } else {
-            CreateMultiTableMaterializedViewStmt createMVStmt = (CreateMultiTableMaterializedViewStmt) stmt;
-            return withBuildMode(createMVStmt.getBuildMode())
-                    .withRefreshInfo(createMVStmt.getRefreshInfo())
-                    .withQueryStmt(createMVStmt.getQueryStmt());
+            CreateMTMVStmt createMTMVStmt = (CreateMTMVStmt) stmt;
+            return withRefreshInfo(createMTMVStmt.getRefreshInfo())
+                    .withQuerySql(createMTMVStmt.getQuerySql())
+                    .withMvProperties(createMTMVStmt.getMvProperties())
+                    .withMvPartitionInfo(createMTMVStmt.getMvPartitionInfo())
+                    .withMvRelation(createMTMVStmt.getRelation())
+                    .withEnvInfo(createMTMVStmt.getEnvInfo());
         }
     }
 }

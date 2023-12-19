@@ -28,13 +28,14 @@ import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
+import java.time.LocalDateTime;
 
 /**
  * date like type.
  */
 public abstract class DateLikeType extends PrimitiveType {
-    private LocalDate toLocalDate(double d) {
+
+    protected LocalDate toLocalDate(double d) {
         // d = (year * 10000 + month * 100 + day) * 1000000L;
         int date = (int) (d / 1000000);
         int day = date % 100;
@@ -43,17 +44,18 @@ public abstract class DateLikeType extends PrimitiveType {
         return LocalDate.of(year, month, day);
     }
 
-    @Override
-    public double rangeLength(double high, double low) {
-        if (high == low) {
-            return 0;
-        }
-        if (Double.isInfinite(high) || Double.isInfinite(low)) {
-            return high - low;
-        }
-        LocalDate to = toLocalDate(high);
-        LocalDate from = toLocalDate(low);
-        return ChronoUnit.DAYS.between(from, to);
+    protected LocalDateTime toLocalDateTime(double d) {
+        // d = (year * 10000 + month * 100 + day) * 1000000L + time
+        // time = (hour * 10000 + minute * 100 + second);
+        int date = (int) (d / 1000000);
+        int day = date % 100;
+        int month = (date / 100) % 100;
+        int year = date / 10000;
+        int time = (int) (d % 1000000);
+        int second = time % 100;
+        int minute = (time / 100) % 100;
+        int hour = time / 10000;
+        return LocalDateTime.of(year, month, day, hour, minute, second);
     }
 
     /**
@@ -61,9 +63,11 @@ public abstract class DateLikeType extends PrimitiveType {
      */
     public DateLiteral fromString(String s) {
         if (this instanceof DateType) {
-            return new DateLiteral(s);
+            DateTimeV2Literal l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            return new DateLiteral(l.getYear(), l.getMonth(), l.getDay());
         } else if (this instanceof DateV2Type) {
-            return new DateV2Literal(s);
+            DateTimeV2Literal l = new DateTimeV2Literal(DateTimeV2Type.MAX, s);
+            return new DateV2Literal(l.getYear(), l.getMonth(), l.getDay());
         } else if (this instanceof DateTimeType) {
             return new DateTimeLiteral(s);
         } else if (this instanceof DateTimeV2Type) {

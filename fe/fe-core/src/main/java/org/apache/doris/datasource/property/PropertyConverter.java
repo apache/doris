@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property;
 
-import org.apache.doris.common.util.S3Util;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InitCatalogLog.Type;
@@ -143,16 +143,17 @@ public class PropertyConverter {
                                                                        CloudCredential credential,
                                                                        Map<String, String> s3Properties) {
         Map<String, String> heteroProps = new HashMap<>(s3Properties);
+        Map<String, String> copiedProps = new HashMap<>(props);
         if (s3CliEndpoint.contains(CosProperties.COS_PREFIX)) {
-            props.putIfAbsent(CosProperties.ENDPOINT, s3CliEndpoint);
+            copiedProps.putIfAbsent(CosProperties.ENDPOINT, s3CliEndpoint);
             // CosN is not compatible with S3, when use s3 properties, will convert to cosn properties.
-            heteroProps.putAll(convertToCOSProperties(props, credential));
+            heteroProps.putAll(convertToCOSProperties(copiedProps, credential));
         } else if (s3CliEndpoint.contains(ObsProperties.OBS_PREFIX)) {
-            props.putIfAbsent(ObsProperties.ENDPOINT, s3CliEndpoint);
-            heteroProps.putAll(convertToOBSProperties(props, credential));
+            copiedProps.putIfAbsent(ObsProperties.ENDPOINT, s3CliEndpoint);
+            heteroProps.putAll(convertToOBSProperties(copiedProps, credential));
         } else if (s3CliEndpoint.contains(OssProperties.OSS_REGION_PREFIX)) {
-            props.putIfAbsent(OssProperties.ENDPOINT, s3CliEndpoint);
-            heteroProps.putAll(convertToOSSProperties(props, credential));
+            copiedProps.putIfAbsent(OssProperties.ENDPOINT, s3CliEndpoint);
+            heteroProps.putAll(convertToOSSProperties(copiedProps, credential));
         }
         return heteroProps;
     }
@@ -300,7 +301,7 @@ public class PropertyConverter {
         ossProperties.put("fs.oss.impl.disable.cache", "true");
         ossProperties.put("fs.oss.impl", getHadoopFSImplByScheme("oss"));
         boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
-        if (S3Util.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
+        if (LocationPath.isHdfsOnOssEndpoint(endpoint) || hdfsEnabled) {
             // use endpoint or enable hdfs
             rewriteHdfsOnOssProperties(ossProperties, endpoint);
         }
@@ -320,7 +321,7 @@ public class PropertyConverter {
     }
 
     private static void rewriteHdfsOnOssProperties(Map<String, String> ossProperties, String endpoint) {
-        if (!S3Util.isHdfsOnOssEndpoint(endpoint)) {
+        if (!LocationPath.isHdfsOnOssEndpoint(endpoint)) {
             // just for robustness here, avoid wrong endpoint when oss-hdfs is enabled.
             // convert "oss-cn-beijing.aliyuncs.com" to "cn-beijing.oss-dls.aliyuncs.com"
             // reference link: https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
@@ -328,11 +329,11 @@ public class PropertyConverter {
             if (endpointSplit.length > 0) {
                 String region = endpointSplit[0].replace("oss-", "").replace("-internal", "");
                 ossProperties.put(org.apache.hadoop.fs.aliyun.oss.Constants.ENDPOINT_KEY,
-                            region + ".oss-dls.aliyuncs.com");
+                        region + ".oss-dls.aliyuncs.com");
             }
         }
-        ossProperties.put("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
-        ossProperties.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.emr.fs.oss.OSS");
+        ossProperties.put("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
+        ossProperties.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.OSS");
     }
 
     private static Map<String, String> convertToCOSProperties(Map<String, String> props, CloudCredential credential) {
@@ -453,7 +454,8 @@ public class PropertyConverter {
         if (!Strings.isNullOrEmpty(region)) {
             boolean hdfsEnabled = Boolean.parseBoolean(props.getOrDefault(OssProperties.OSS_HDFS_ENABLED, "false"));
             if (hdfsEnabled) {
-                props.putIfAbsent("fs.oss.impl", "com.aliyun.emr.fs.oss.JindoOssFileSystem");
+                props.putIfAbsent("fs.oss.impl", "com.aliyun.jindodata.oss.JindoOssFileSystem");
+                props.put("fs.AbstractFileSystem.oss.impl", "com.aliyun.jindodata.oss.OSS");
                 props.putIfAbsent(OssProperties.REGION, region);
                 // example: cn-shanghai.oss-dls.aliyuncs.com
                 // from https://www.alibabacloud.com/help/en/e-mapreduce/latest/oss-kusisurumen
@@ -564,3 +566,4 @@ public class PropertyConverter {
         return props;
     }
 }
+

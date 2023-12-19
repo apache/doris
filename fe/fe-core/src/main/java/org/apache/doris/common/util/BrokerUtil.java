@@ -217,7 +217,8 @@ public class BrokerUtil {
             long fileSize = fileStatuses.get(0).getSize();
 
             // open reader
-            String clientId = FrontendOptions.getLocalHostAddress() + ":" + Config.rpc_port;
+            String clientId = NetUtils
+                    .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
             TBrokerOpenReaderRequest tOpenReaderRequest = new TBrokerOpenReaderRequest(
                     TBrokerVersion.VERSION_ONE, path, 0, clientId, brokerDesc.getProperties());
             TBrokerOpenReaderResponse tOpenReaderResponse = null;
@@ -501,7 +502,8 @@ public class BrokerUtil {
             address = BrokerUtil.getAddress(brokerDesc);
             client = BrokerUtil.borrowClient(address);
             try {
-                String clientId = FrontendOptions.getLocalHostAddress() + ":" + Config.rpc_port;
+                String clientId = NetUtils
+                        .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
                 TBrokerOpenWriterRequest tOpenWriterRequest = new TBrokerOpenWriterRequest(
                         TBrokerVersion.VERSION_ONE, brokerFilePath, TBrokerOpenMode.APPEND,
                         clientId, brokerDesc.getProperties());

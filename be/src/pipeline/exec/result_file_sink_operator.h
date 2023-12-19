@@ -55,9 +55,15 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
-    int sender_id() const { return _sender_id; }
+    [[nodiscard]] int sender_id() const { return _sender_id; }
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
+    RuntimeProfile::Counter* local_send_timer() { return _local_send_timer; }
+    RuntimeProfile::Counter* brpc_send_timer() { return _brpc_send_timer; }
+    RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
+    RuntimeProfile::Counter* split_block_distribute_by_channel_timer() {
+        return _split_block_distribute_by_channel_timer;
+    }
 
 private:
     friend class ResultFileSinkOperatorX;
@@ -65,22 +71,28 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    std::unique_ptr<vectorized::Block> _output_block = nullptr;
+    std::unique_ptr<vectorized::Block> _output_block;
     std::shared_ptr<BufferControlBlock> _sender;
 
     std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
     bool _only_local_exchange = false;
     vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
     std::unique_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
-    RuntimeProfile::Counter* _brpc_wait_timer;
+    RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
+    RuntimeProfile::Counter* _local_send_timer = nullptr;
+    RuntimeProfile::Counter* _brpc_send_timer = nullptr;
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
 
     int _sender_id;
 };
 
 class ResultFileSinkOperatorX final : public DataSinkOperatorX<ResultFileSinkLocalState> {
 public:
-    ResultFileSinkOperatorX(const RowDescriptor& row_desc, const std::vector<TExpr>& t_output_expr);
-    ResultFileSinkOperatorX(const RowDescriptor& row_desc, const TResultFileSink& sink,
+    ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                            const std::vector<TExpr>& t_output_expr);
+    ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
+                            const TResultFileSink& sink,
                             const std::vector<TPlanFragmentDestination>& destinations,
                             bool send_query_statistics_with_every_batch,
                             const std::vector<TExpr>& t_output_expr, DescriptorTbl& descs);
@@ -91,10 +103,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override;
-
-    bool is_pending_finish(RuntimeState* state) const override;
 
 private:
     friend class ResultFileSinkLocalState;

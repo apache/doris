@@ -64,8 +64,10 @@ public:
 
     Status prepare(RuntimeState* state) override;
     Status collect_query_statistics(QueryStatistics* statistics) override;
+    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
 
     std::string get_name() override;
 
@@ -99,6 +101,14 @@ protected:
     Status _init_scanners(std::list<VScannerSPtr>* scanners) override;
 
     void add_filter_info(int id, const PredicateFilterInfo& info);
+
+    // For some conjunct there is chance to elimate cast operator
+    // Eg. Variant's sub column could eliminate cast in storage layer if
+    // cast dst column type equals storage column type
+    void get_cast_types_for_variants() override;
+    void _filter_and_collect_cast_type_for_variant(
+            const VExpr* expr,
+            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
 
 private:
     Status _build_key_ranges_and_filters();
@@ -192,8 +202,7 @@ private:
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 
-    // number of created olap scanners
-    RuntimeProfile::Counter* _num_scanners = nullptr;
+    RuntimeProfile::Counter* _runtime_filter_info = nullptr;
 
     // number of segment filtered by column stat when creating seg iterator
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;

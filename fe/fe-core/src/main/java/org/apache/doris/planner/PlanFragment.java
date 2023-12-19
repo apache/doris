@@ -42,6 +42,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -143,8 +144,14 @@ public class PlanFragment extends TreeNode<PlanFragment> {
     // The runtime filter id that is expected to be used
     private Set<RuntimeFilterId> targetRuntimeFilterIds;
 
+    private int bucketNum;
+
     // has colocate plan node
     private boolean hasColocatePlanNode = false;
+
+    private boolean hasColocateFinalizeAggNode = false;
+
+    private boolean hasNullAwareLeftAntiJoin = false;
 
     private TResultSinkType resultSinkType = TResultSinkType.MYSQL_PROTOCAL;
 
@@ -325,6 +332,8 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");
+        str.append("  HAS_COLO_PLAN_NODE: " + hasColocatePlanNode + "\n");
+        str.append("\n");
         if (sink != null) {
             str.append(sink.getExplainString("  ", explainLevel) + "\n");
         }
@@ -332,6 +341,13 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             str.append(planRoot.getExplainString("  ", "  ", explainLevel));
         }
         return str.toString();
+    }
+
+    public void getExplainStringMap(Map<Integer, String> planNodeMap) {
+        org.apache.doris.thrift.TExplainLevel explainLevel = org.apache.doris.thrift.TExplainLevel.NORMAL;
+        if (planRoot != null) {
+            planRoot.getExplainStringMap(explainLevel, planNodeMap);
+        }
     }
 
     /**
@@ -449,5 +465,29 @@ public class PlanFragment extends TreeNode<PlanFragment> {
 
     public void setFragmentSequenceNum(int seq) {
         fragmentSequenceNum = seq;
+    }
+
+    public int getBucketNum() {
+        return bucketNum;
+    }
+
+    public void setBucketNum(int bucketNum) {
+        this.bucketNum = bucketNum;
+    }
+
+    public boolean isHasColocateFinalizeAggNode() {
+        return hasColocateFinalizeAggNode;
+    }
+
+    public void setHasColocateFinalizeAggNode(boolean hasColocateFinalizeAggNode) {
+        this.hasColocateFinalizeAggNode = hasColocateFinalizeAggNode;
+    }
+
+    public boolean isHasNullAwareLeftAntiJoin() {
+        return hasNullAwareLeftAntiJoin;
+    }
+
+    public void setHasNullAwareLeftAntiJoin(boolean hasNullAwareLeftAntiJoin) {
+        this.hasNullAwareLeftAntiJoin = hasNullAwareLeftAntiJoin;
     }
 }

@@ -109,4 +109,9 @@ public class Sum extends NullableAggregateFunction
     public List<FunctionSignature> getSignatures() {
         return SIGNATURES;
     }
+
+    @Override
+    public Class<? extends AggregateFunction> getRollup() {
+        return Sum.class;
+    }
 }

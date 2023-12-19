@@ -39,7 +39,8 @@ public abstract class DataSink {
     protected PlanFragment fragment;
 
     /**
-     * Return an explain string for the DataSink. Each line of the explain will be prefixed
+     * Return an explain string for the DataSink. Each line of the explain will be
+     * prefixed
      * by "prefix"
      *
      * @param prefix each explain line will be started with the given prefix

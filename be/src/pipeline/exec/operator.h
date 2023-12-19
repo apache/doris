@@ -142,7 +142,7 @@ public:
     NodeType* exec_node() const { return _node; }
 
 protected:
-    NodeType* _node;
+    NodeType* _node = nullptr;
 };
 
 template <typename SinkType>
@@ -160,7 +160,7 @@ public:
     SinkType* exec_node() const { return _sink; }
 
 protected:
-    SinkType* _sink;
+    SinkType* _sink = nullptr;
 };
 
 class OperatorBase {
@@ -173,6 +173,14 @@ public:
     virtual bool is_sink() const;
 
     virtual bool is_source() const;
+
+    virtual Status collect_query_statistics(QueryStatistics* statistics) { return Status::OK(); };
+
+    virtual Status collect_query_statistics(QueryStatistics* statistics, int sender_id) {
+        return Status::OK();
+    };
+
+    virtual void set_query_statistics(std::shared_ptr<QueryStatistics>) {};
 
     virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
@@ -233,12 +241,6 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* block,
                         SourceState source_state) = 0;
 
-    virtual Status finalize(RuntimeState* state) {
-        std::stringstream error_msg;
-        error_msg << " not a sink, can not finalize";
-        return Status::NotSupported(error_msg.str());
-    }
-
     /**
      * pending_finish means we have called `close` and there are still some work to do before finishing.
      * Now it is a pull-based pipeline and operators pull data from its child by this method.
@@ -263,11 +265,11 @@ public:
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
 protected:
-    OperatorBuilderBase* _operator_builder;
+    OperatorBuilderBase* _operator_builder = nullptr;
     OperatorPtr _child;
 
     // Used on pipeline X
-    OperatorXPtr _child_x;
+    OperatorXPtr _child_x = nullptr;
 
     bool _is_closed;
 };
@@ -295,12 +297,7 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
         if (in_block->rows() > 0 || source_state == SourceState::FINISHED) {
-            auto st = _sink->sink(state, in_block, source_state == SourceState::FINISHED);
-            // TODO: improvement: if sink returned END_OF_FILE, pipeline task can be finished
-            if (st.template is<ErrorCode::END_OF_FILE>()) {
-                return Status::OK();
-            }
-            return st;
+            return _sink->sink(state, in_block, source_state == SourceState::FINISHED);
         }
         return Status::OK();
     }
@@ -320,12 +317,13 @@ public:
         return Status::OK();
     }
 
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
-
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
+    void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override {
+        _sink->set_query_statistics(statistics);
+    }
 
 protected:
-    NodeType* _sink;
+    NodeType* _sink = nullptr;
 };
 
 /**
@@ -385,16 +383,24 @@ public:
         return Status::OK();
     }
 
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
-
     bool can_read() override { return _node->can_read(); }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
         return _node->runtime_profile();
     }
 
+    Status collect_query_statistics(QueryStatistics* statistics) override {
+        RETURN_IF_ERROR(_node->collect_query_statistics(statistics));
+        return Status::OK();
+    }
+
+    Status collect_query_statistics(QueryStatistics* statistics, int sender_id) override {
+        RETURN_IF_ERROR(_node->collect_query_statistics(statistics, sender_id));
+        return Status::OK();
+    }
+
 protected:
-    NodeType* _node;
+    NodeType* _node = nullptr;
     bool _use_projection;
 };
 
@@ -438,7 +444,7 @@ public:
 
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<OperatorBuilderType>(builder, node),
-              _child_block(vectorized::Block::create_unique()),
+              _child_block(vectorized::Block::create_shared()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;
@@ -450,12 +456,7 @@ public:
 
         if (node->need_more_input_data()) {
             _child_block->clear_column_data();
-            Status status = child->get_block(state, _child_block.get(), _child_source_state);
-            if (status.is<777>()) {
-                LOG(INFO) << "Scan block nullptr error _source_state:" << int(source_state)
-                          << " query id:" << print_id(state->query_id());
-            }
-            RETURN_IF_ERROR(status);
+            RETURN_IF_ERROR(child->get_block(state, _child_block.get(), _child_source_state));
             source_state = _child_source_state;
             if (_child_block->rows() == 0 && _child_source_state != SourceState::FINISHED) {
                 return Status::OK();
@@ -483,7 +484,7 @@ public:
     }
 
 protected:
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::shared_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
 };
 

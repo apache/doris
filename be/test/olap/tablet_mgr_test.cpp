@@ -69,7 +69,7 @@ public:
         k_engine = new StorageEngine(options);
         ExecEnv::GetInstance()->set_storage_engine(k_engine);
         _data_dir = new DataDir(_engine_data_path, 1000000000);
-        _data_dir->init();
+        static_cast<void>(_data_dir->init());
         _tablet_mgr = k_engine->tablet_manager();
     }
 
@@ -79,8 +79,8 @@ public:
         if (k_engine != nullptr) {
             k_engine->stop();
         }
-        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         SAFE_DELETE(k_engine);
+        ExecEnv::GetInstance()->set_storage_engine(nullptr);
         _tablet_mgr = nullptr;
     }
     StorageEngine* k_engine = nullptr;

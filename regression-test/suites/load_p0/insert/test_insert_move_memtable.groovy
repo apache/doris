@@ -17,6 +17,7 @@
 
 suite("test_insert_move_memtable") {
     sql """ set enable_memtable_on_sink_node=true """
+    sql """ set experimental_enable_pipeline_x_engine=false """
     // todo: test insert, such as insert values, insert select, insert txn
     sql "show load"
     def test_baseall = "test_query_db.baseall";

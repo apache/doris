@@ -21,6 +21,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -31,7 +32,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Sets;
-import lombok.Getter;
 
 import java.util.List;
 import java.util.Map;
@@ -45,26 +45,39 @@ import java.util.Set;
 public class LogicalFileScan extends LogicalCatalogRelation {
 
     // TODO remove this conjuncts when old planner is removed
-    @Getter
     private final Set<Expression> conjuncts;
-    @Getter
     private final SelectedPartitions selectedPartitions;
+    private final Optional<TableSample> tableSample;
 
     /**
      * Constructor for LogicalFileScan.
      */
     public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
-            Set<Expression> conjuncts, SelectedPartitions selectedPartitions) {
+            Set<Expression> conjuncts, SelectedPartitions selectedPartitions, Optional<TableSample> tableSample) {
         super(id, PlanType.LOGICAL_FILE_SCAN, table, qualifier,
                 groupExpression, logicalProperties);
         this.conjuncts = conjuncts;
         this.selectedPartitions = selectedPartitions;
+        this.tableSample = tableSample;
     }
 
-    public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier) {
+    public LogicalFileScan(RelationId id, ExternalTable table, List<String> qualifier,
+                           Optional<TableSample> tableSample) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
-                Sets.newHashSet(), SelectedPartitions.NOT_PRUNED);
+                Sets.newHashSet(), SelectedPartitions.NOT_PRUNED, tableSample);
+    }
+
+    public Set<Expression> getConjuncts() {
+        return conjuncts;
+    }
+
+    public SelectedPartitions getSelectedPartitions() {
+        return selectedPartitions;
+    }
+
+    public Optional<TableSample> getTableSample() {
+        return tableSample;
     }
 
     @Override
@@ -85,24 +98,24 @@ public class LogicalFileScan extends LogicalCatalogRelation {
     @Override
     public LogicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, groupExpression,
-                Optional.of(getLogicalProperties()), conjuncts, selectedPartitions);
+                Optional.of(getLogicalProperties()), conjuncts, selectedPartitions, tableSample);
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
-                groupExpression, logicalProperties, conjuncts, selectedPartitions);
+                groupExpression, logicalProperties, conjuncts, selectedPartitions, tableSample);
     }
 
     public LogicalFileScan withConjuncts(Set<Expression> conjuncts) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, groupExpression,
-                Optional.of(getLogicalProperties()), conjuncts, selectedPartitions);
+                Optional.of(getLogicalProperties()), conjuncts, selectedPartitions, tableSample);
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
         return new LogicalFileScan(relationId, (ExternalTable) table, qualifier, groupExpression,
-                Optional.of(getLogicalProperties()), conjuncts, selectedPartitions);
+                Optional.of(getLogicalProperties()), conjuncts, selectedPartitions, tableSample);
     }
 
     @Override

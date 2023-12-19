@@ -22,7 +22,9 @@ import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.JobType;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.qe.ConnectContext;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -39,9 +41,18 @@ public class OptimizeGroupExpressionJob extends Job {
 
     @Override
     public void execute() {
+        if (groupExpression.isUnused()) {
+            return;
+        }
+
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
         List<Rule> explorationRules = getExplorationRules();
+        ConnectContext connectContext = context.getCascadesContext().getConnectContext();
+        if (connectContext.getSessionVariable().isEnableMaterializedViewRewrite()) {
+            explorationRules = new ArrayList<>(explorationRules);
+            explorationRules.addAll(getRuleSet().getMaterializedViewRules());
+        }
 
         for (Rule rule : explorationRules) {
             if (rule.isInvalid(disableRules, groupExpression)) {
@@ -67,6 +78,9 @@ public class OptimizeGroupExpressionJob extends Job {
         boolean isOtherJoinReorder = context.getCascadesContext().getStatementContext().isOtherJoinReorder();
         boolean isEnableBushyTree = context.getCascadesContext().getConnectContext().getSessionVariable()
                 .isEnableBushyTree();
+        boolean isLeftZigZagTree = context.getCascadesContext().getConnectContext()
+                .getSessionVariable().isEnableLeftZigZag()
+                || (groupExpression.getOwnerGroup() != null && !groupExpression.getOwnerGroup().isStatsReliable());
         int joinNumBushyTree = context.getCascadesContext().getConnectContext()
                 .getSessionVariable().getMaxJoinNumBushyTree();
         if (isDisableJoinReorder) {
@@ -77,6 +91,8 @@ public class OptimizeGroupExpressionJob extends Job {
             } else {
                 return Collections.emptyList();
             }
+        } else if (isLeftZigZagTree) {
+            return getRuleSet().getLeftZigZagTreeJoinReorder();
         } else if (isEnableBushyTree) {
             return getRuleSet().getBushyTreeJoinReorder();
         } else if (context.getCascadesContext().getStatementContext().getMaxNAryInnerJoin() <= joinNumBushyTree) {

@@ -61,7 +61,7 @@ public class ApplyRuleJob extends Job {
     }
 
     @Override
-    public void execute() throws AnalysisException {
+    public final void execute() throws AnalysisException {
         if (groupExpression.hasApplied(rule)
                 || groupExpression.isUnused()) {
             return;
@@ -73,6 +73,9 @@ public class ApplyRuleJob extends Job {
         for (Plan plan : groupExpressionMatching) {
             List<Plan> newPlans = rule.transform(plan, context.getCascadesContext());
             for (Plan newPlan : newPlans) {
+                if (newPlan == plan) {
+                    continue;
+                }
                 CopyInResult result = context.getCascadesContext()
                         .getMemo()
                         .copyIn(newPlan, groupExpression.getOwnerGroup(), false);
@@ -88,7 +91,7 @@ public class ApplyRuleJob extends Job {
                     } else {
                         // The Join Commute rule preserves the operator's expression and children,
                         // thereby not altering the statistics. Hence, there is no need to derive statistics for it.
-                        groupExpression.setStatDerived(true);
+                        newGroupExpression.setStatDerived(true);
                     }
                 } else {
                     pushJob(new CostAndEnforcerJob(newGroupExpression, context));
@@ -100,7 +103,7 @@ public class ApplyRuleJob extends Job {
                         // These implementation rules integrate rules for plan shape transformation.
                         pushJob(new DeriveStatsJob(newGroupExpression, context));
                     } else {
-                        groupExpression.setStatDerived(true);
+                        newGroupExpression.setStatDerived(true);
                     }
                 }
 

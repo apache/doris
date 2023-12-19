@@ -50,7 +50,7 @@ private:
 private:
     hdfsFile _hdfs_file = nullptr;
     // A convenient pointer to _fs
-    HdfsFileSystem* _hdfs_fs;
+    HdfsFileSystem* _hdfs_fs = nullptr;
 };
 
 } // namespace io

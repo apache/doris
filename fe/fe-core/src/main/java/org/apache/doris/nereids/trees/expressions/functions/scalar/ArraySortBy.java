@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
@@ -33,7 +32,7 @@ import java.util.List;
  * ScalarFunction 'array_sortby'.
  */
 public class ArraySortBy extends ScalarFunction
-        implements HighOrderFunction, PropagateNullable {
+        implements HighOrderFunction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.retArgType(0).args(ArrayType.of(AnyDataType.INSTANCE_WITHOUT_INDEX),
@@ -56,6 +55,10 @@ public class ArraySortBy extends ScalarFunction
         }
     }
 
+    public ArraySortBy(Expression arg1, Expression arg2) {
+        super("array_sortby", arg1, arg2);
+    }
+
     @Override
     public ArraySortBy withChildren(List<Expression> children) {
         return new ArraySortBy(children);
@@ -69,5 +72,10 @@ public class ArraySortBy extends ScalarFunction
     @Override
     public List<FunctionSignature> getImplSignature() {
         return SIGNATURES;
+    }
+
+    @Override
+    public boolean nullable() {
+        return child(0).nullable();
     }
 }

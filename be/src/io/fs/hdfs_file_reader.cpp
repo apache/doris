@@ -24,7 +24,6 @@
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "io/fs/err_utils.h"
@@ -70,7 +69,7 @@ HdfsFileReader::HdfsFileReader(Path path, const std::string& name_node,
 }
 
 HdfsFileReader::~HdfsFileReader() {
-    close();
+    static_cast<void>(close());
 }
 
 Status HdfsFileReader::close() {

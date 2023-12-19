@@ -50,13 +50,21 @@ public:
     bool can_write() override { return true; }
 };
 
+class PartitionSortSinkDependency final : public Dependency {
+public:
+    using SharedState = PartitionSortNodeSharedState;
+    PartitionSortSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSinkDependency", true, query_ctx) {}
+    ~PartitionSortSinkDependency() override = default;
+};
+
 class PartitionSortSinkOperatorX;
-class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortDependency> {
+class PartitionSortSinkLocalState : public PipelineXSinkLocalState<PartitionSortSinkDependency> {
     ENABLE_FACTORY_CREATOR(PartitionSortSinkLocalState);
 
 public:
     PartitionSortSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<PartitionSortDependency>(parent, state) {}
+            : PipelineXSinkLocalState<PartitionSortSinkDependency>(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -70,25 +78,21 @@ private:
     std::vector<vectorized::PartitionDataPtr> _value_places;
     int _num_partition = 0;
     std::vector<const vectorized::IColumn*> _partition_columns;
-    std::vector<size_t> _hash_values;
     std::unique_ptr<vectorized::PartitionedHashMapVariants> _partitioned_data;
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
-    std::vector<size_t> _partition_key_sz;
     int _partition_exprs_num = 0;
 
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _emplace_key_timer;
-    RuntimeProfile::Counter* _partition_sort_timer;
-    RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _selector_block_timer;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _emplace_key_timer = nullptr;
+    RuntimeProfile::Counter* _selector_block_timer = nullptr;
 
-    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     void _init_hash_method();
 };
 
 class PartitionSortSinkOperatorX final : public DataSinkOperatorX<PartitionSortSinkLocalState> {
 public:
-    PartitionSortSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    PartitionSortSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                const DescriptorTbl& descs);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -101,14 +105,22 @@ public:
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    ExchangeType get_local_exchange_type() const override {
+        if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
+            return ExchangeType::NOOP;
+        }
+        return ExchangeType::PASSTHROUGH;
+    }
 
 private:
     friend class PartitionSortSinkLocalState;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     const RowDescriptor _row_descriptor;
     int64_t _limit = -1;
     int _partition_exprs_num = 0;
     vectorized::VExprContextSPtrs _partition_expr_ctxs;
+
+    TPartTopNPhase::type _topn_phase;
 
     // Expressions and parameters used for build _sort_description
     vectorized::VSortExecExprs _vsort_exec_exprs;
@@ -123,16 +135,6 @@ private:
     void _emplace_into_hash_table(const vectorized::ColumnRawPtrs& key_columns,
                                   const vectorized::Block* input_block, int batch_size,
                                   PartitionSortSinkLocalState& local_state);
-    template <typename AggState, typename AggMethod>
-    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
-                                    const vectorized::ColumnRawPtrs& key_columns,
-                                    const size_t num_rows) {
-        if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                              AggState>::value) {
-            (agg_method.serialize_keys(key_columns, num_rows));
-            state.set_serialized_keys(agg_method.keys.data());
-        }
-    }
 };
 
 } // namespace pipeline

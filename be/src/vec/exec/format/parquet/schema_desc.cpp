@@ -26,6 +26,7 @@
 #include "common/logging.h"
 #include "runtime/define_primitive_type.h"
 #include "util/slice.h"
+#include "util/string_util.h"
 
 namespace doris::vectorized {
 
@@ -237,6 +238,72 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
         }
     }
     return type;
+}
+
+// Copy from org.apache.iceberg.avro.AvroSchemaUtil#validAvroName
+static bool is_valid_avro_name(const std::string& name) {
+    int length = name.length();
+    char first = name[0];
+    if (!isalpha(first) && first != '_') {
+        return false;
+    }
+
+    for (int i = 1; i < length; i++) {
+        char character = name[i];
+        if (!isalpha(character) && !isdigit(character) && character != '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Copy from org.apache.iceberg.avro.AvroSchemaUtil#sanitize
+static void sanitize_avro_name(std::ostringstream& buf, char character) {
+    if (isdigit(character)) {
+        buf << '_' << character;
+    } else {
+        std::stringstream ss;
+        ss << std::hex << (int)character;
+        std::string hex_str = ss.str();
+        buf << "_x" << doris::to_lower(hex_str);
+    }
+}
+
+// Copy from org.apache.iceberg.avro.AvroSchemaUtil#sanitize
+static std::string sanitize_avro_name(const std::string& name) {
+    std::ostringstream buf;
+    int length = name.length();
+    char first = name[0];
+    if (!isalpha(first) && first != '_') {
+        sanitize_avro_name(buf, first);
+    } else {
+        buf << first;
+    }
+
+    for (int i = 1; i < length; i++) {
+        char character = name[i];
+        if (!isalpha(character) && !isdigit(character) && character != '_') {
+            sanitize_avro_name(buf, character);
+        } else {
+            buf << character;
+        }
+    }
+    return buf.str();
+}
+
+void FieldDescriptor::iceberg_sanitize(const std::vector<std::string>& read_columns) {
+    for (const std::string& col : read_columns) {
+        if (!is_valid_avro_name(col)) {
+            std::string sanitize_name = sanitize_avro_name(col);
+            auto it = _name_to_field.find(sanitize_name);
+            if (it != _name_to_field.end()) {
+                FieldSchema* schema = const_cast<FieldSchema*>(it->second);
+                schema->name = col;
+                _name_to_field.emplace(col, schema);
+                _name_to_field.erase(sanitize_name);
+            }
+        }
+    }
 }
 
 TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logicalType) {
@@ -536,7 +603,7 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     struct_field->type.type = TYPE_STRUCT;
     for (int i = 0; i < num_children; ++i) {
         struct_field->type.add_sub_type(struct_field->children[i].type,
-                                        struct_field->children[0].name);
+                                        struct_field->children[i].name);
     }
     return Status::OK();
 }

@@ -32,9 +32,9 @@ suite("test_javaudf_agg_map") {
              CREATE TABLE IF NOT EXISTS db_agg_map(
                         `id` INT NULL COMMENT "",
                         `i` INT NULL COMMENT "",
-   						`d` Double NULL COMMENT "",
-   					    `mii` Map<INT, INT> NULL COMMENT "",
-   					    `mid` Map<INT, Double> NULL COMMENT ""
+                        `d` Double NULL COMMENT "",
+                        `mii` Map<INT, INT> NULL COMMENT "",
+                        `mid` Map<INT, Double> NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1

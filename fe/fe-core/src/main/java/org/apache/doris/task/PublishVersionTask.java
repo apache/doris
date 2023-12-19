@@ -40,9 +40,9 @@ public class PublishVersionTask extends AgentTask {
     private Map<Long, Long> succTablets;
 
     /**
-     * To collect loaded rows for each tablet from each BE
+     * To collect loaded rows for each table from each BE
      */
-    private final Map<Long, Long> tabletIdToDeltaNumRows = Maps.newHashMap();
+    private final Map<Long, Long> tableIdToDeltaNumRows = Maps.newHashMap();
 
     public PublishVersionTask(long backendId, long transactionId, long dbId,
             List<TPartitionVersionInfo> partitionVersionInfos, long createTime) {
@@ -88,11 +88,11 @@ public class PublishVersionTask extends AgentTask {
         this.errorTablets.addAll(errorTablets);
     }
 
-    public void setTabletIdToDeltaNumRows(Map<Long, Long> tabletIdToDeltaNumRows) {
-        this.tabletIdToDeltaNumRows.putAll(tabletIdToDeltaNumRows);
+    public void setTableIdToDeltaNumRows(Map<Long, Long> tabletIdToDeltaNumRows) {
+        this.tableIdToDeltaNumRows.putAll(tabletIdToDeltaNumRows);
     }
 
-    public Map<Long, Long> getTabletIdToDeltaNumRows() {
-        return tabletIdToDeltaNumRows;
+    public Map<Long, Long> getTableIdToDeltaNumRows() {
+        return tableIdToDeltaNumRows;
     }
 }

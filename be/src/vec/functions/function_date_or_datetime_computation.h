@@ -27,12 +27,15 @@
 #include <type_traits>
 #include <utility>
 
+#include "common/compiler_util.h"
+#include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "fmt/format.h"
 #include "runtime/runtime_state.h"
 #include "udf/udf.h"
 #include "util/binary_cast.hpp"
+#include "util/datetype_cast.hpp"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_const.h"
@@ -84,9 +87,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
     template <typename DateType>                                                                   \
     struct CLASS {                                                                                 \
         using ReturnType = std::conditional_t<                                                     \
-                std::is_same_v<DateType, DataTypeDate> ||                                          \
-                        std::is_same_v<DateType, DataTypeDateTime>,                                \
-                DataTypeDateTime,                                                                  \
+                date_cast::IsV1<DateType>(), DataTypeDateTime,                                     \
                 std::conditional_t<                                                                \
                         std::is_same_v<DateType, DataTypeDateV2>,                                  \
                         std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                     \
@@ -95,32 +96,18 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
                                                    TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND, \
                                            DataTypeDateTimeV2, DataTypeDateV2>,                    \
                         DataTypeDateTimeV2>>;                                                      \
-        using ReturnNativeType = std::conditional_t<                                               \
-                std::is_same_v<DateType, DataTypeDate> ||                                          \
-                        std::is_same_v<DateType, DataTypeDateTime>,                                \
-                Int64,                                                                             \
-                std::conditional_t<                                                                \
-                        std::is_same_v<DateType, DataTypeDateV2>,                                  \
-                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                     \
-                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||           \
-                                                   TimeUnit::UNIT == TimeUnit::SECOND ||           \
-                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND, \
-                                           UInt64, UInt32>,                                        \
-                        UInt64>>;                                                                  \
-        using InputNativeType = std::conditional_t<                                                \
-                std::is_same_v<DateType, DataTypeDate> ||                                          \
-                        std::is_same_v<DateType, DataTypeDateTime>,                                \
-                Int64,                                                                             \
-                std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>, UInt32, UInt64>>;     \
+        using ReturnNativeType =                                                                   \
+                date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<ReturnType>>;               \
+        using InputNativeType = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType>>; \
         static constexpr auto name = #NAME;                                                        \
         static constexpr auto is_nullable = true;                                                  \
         static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta,              \
                                                bool& is_null) {                                    \
             if constexpr (std::is_same_v<DateType, DataTypeDate> ||                                \
                           std::is_same_v<DateType, DataTypeDateTime>) {                            \
-                return date_time_add<TimeUnit::UNIT, doris::vectorized::VecDateTimeValue,          \
-                                     doris::vectorized::VecDateTimeValue, ReturnNativeType>(       \
-                        t, delta, is_null);                                                        \
+                return date_time_add<TimeUnit::UNIT, doris::VecDateTimeValue,                      \
+                                     doris::VecDateTimeValue, ReturnNativeType>(t, delta,          \
+                                                                                is_null);          \
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {                       \
                 if constexpr (TimeUnit::UNIT == TimeUnit::HOUR ||                                  \
                               TimeUnit::UNIT == TimeUnit::MINUTE ||                                \
@@ -176,9 +163,8 @@ struct AddQuartersImpl {
     static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
-            return date_time_add<TimeUnit::MONTH, doris::vectorized::VecDateTimeValue,
-                                 doris::vectorized::VecDateTimeValue, ReturnNativeType>(t, delta,
-                                                                                        is_null);
+            return date_time_add<TimeUnit::MONTH, doris::VecDateTimeValue, doris::VecDateTimeValue,
+                                 ReturnNativeType>(t, delta, is_null);
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
             return date_time_add<TimeUnit::MONTH, DateV2Value<DateV2ValueType>,
                                  DateV2Value<DateV2ValueType>, ReturnNativeType>(t, delta, is_null);
@@ -292,31 +278,19 @@ DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1
 // Expands to
 template <typename DateType1, typename DateType2>
 struct TimeDiffImpl {
-    using ArgType1 = std ::conditional_t<
-            std ::is_same_v<DateType1, DataTypeDateV2>, UInt32,
-            std ::conditional_t<std ::is_same_v<DateType1, DataTypeDateTimeV2>, UInt64, Int64>>;
-    using ArgType2 = std ::conditional_t<
-            std ::is_same_v<DateType2, DataTypeDateV2>, UInt32,
-            std ::conditional_t<std ::is_same_v<DateType2, DataTypeDateTimeV2>, UInt64, Int64>>;
-    using DateValueType1 = std ::conditional_t<
-            std ::is_same_v<DateType1, DataTypeDateV2>, DateV2Value<DateV2ValueType>,
-            std ::conditional_t<std ::is_same_v<DateType1, DataTypeDateTimeV2>,
-                                DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;
-    using DateValueType2 = std ::conditional_t<
-            std ::is_same_v<DateType2, DataTypeDateV2>, DateV2Value<DateV2ValueType>,
-            std ::conditional_t<std ::is_same_v<DateType2, DataTypeDateTimeV2>,
-                                DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;
-    static constexpr bool UsingTimev2 = std::is_same_v<DateType1, DataTypeDateTimeV2> ||
-                                        std::is_same_v<DateType2, DataTypeDateTimeV2> ||
-                                        std::is_same_v<DateType1, DataTypeDateV2> ||
-                                        std::is_same_v<DateType2, DataTypeDateV2>;
+    using DateValueType1 = date_cast::TypeToValueTypeV<DateType1>;
+    using DateValueType2 = date_cast::TypeToValueTypeV<DateType2>;
+    using ArgType1 = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType1>>;
+    using ArgType2 = date_cast::ValueTypeOfColumnV<date_cast::TypeToColumnV<DateType2>>;
+    static constexpr bool UsingTimev2 =
+            date_cast::IsV2<DateType1>() || date_cast::IsV2<DateType2>();
 
     using ReturnType = DataTypeTimeV2;
 
     static constexpr auto name = "timediff";
     static constexpr auto is_nullable = false;
-    static inline ReturnType ::FieldType execute(const ArgType1& t0, const ArgType2& t1,
-                                                 bool& is_null) {
+    static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,
+                                                bool& is_null) {
         const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
         const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
         is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
@@ -370,8 +344,6 @@ TIME_DIFF_FUNCTION_IMPL(MicroSecondsDiffImpl, microseconds_diff, MICROSECOND);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)),
                             DataTypeInt32);
 TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImpl, week, week(mysql_week_mode(mode)), DataTypeInt8);
-/// @TEMPORARY: for be_exec_version=2
-TIME_FUNCTION_TWO_ARGS_IMPL(ToWeekTwoArgsImplOld, week, week(mysql_week_mode(mode)), DataTypeInt32);
 
 template <typename FromType1, typename FromType2, typename ToType, typename Transform>
 struct DateTimeOp {
@@ -403,7 +375,11 @@ struct DateTimeOp {
             // otherwise it will be implicitly converted to bool, causing the rvalue to fail to match the lvalue.
             // the same goes for the following.
             vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
-            DCHECK(!invalid);
+
+            if (UNLIKELY(invalid)) {
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, vec_from0[i], vec_from1[i]);
+            }
         }
     }
 
@@ -428,7 +404,11 @@ struct DateTimeOp {
         bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
             vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
-            DCHECK(!invalid);
+
+            if (UNLIKELY(invalid)) {
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, vec_from0[i], vec_from1[i]);
+            }
         }
     }
 
@@ -452,7 +432,11 @@ struct DateTimeOp {
         bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
             vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
-            DCHECK(!invalid);
+
+            if (UNLIKELY(invalid)) {
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, vec_from[i], delta);
+            }
         }
     }
 
@@ -476,7 +460,11 @@ struct DateTimeOp {
 
         for (size_t i = 0; i < size; ++i) {
             vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
-            DCHECK(!invalid);
+
+            if (UNLIKELY(invalid)) {
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, vec_from[i], delta);
+            }
         }
     }
 
@@ -500,7 +488,11 @@ struct DateTimeOp {
 
         for (size_t i = 0; i < size; ++i) {
             vec_to[i] = Transform::execute(from, delta.get_int(i), invalid);
-            DCHECK(!invalid);
+
+            if (UNLIKELY(invalid)) {
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, from, delta.get_int(i));
+            }
         }
     }
 
@@ -514,6 +506,7 @@ struct DateTimeOp {
             vec_to[i] = Transform::execute(from, delta[i], reinterpret_cast<bool&>(null_map[i]));
         }
     }
+
     static void constant_vector(const FromType1& from, PaddedPODArray<ToType>& vec_to,
                                 const PaddedPODArray<FromType2>& delta) {
         size_t size = delta.size();
@@ -522,7 +515,11 @@ struct DateTimeOp {
 
         for (size_t i = 0; i < size; ++i) {
             vec_to[i] = Transform::execute(from, delta[i], invalid);
-            DCHECK(!invalid);
+
+            if (UNLIKELY(invalid)) {
+                throw Exception(ErrorCode::OUT_OF_BOUND, "Operation {} {} {} out of range",
+                                Transform::name, from, delta[i]);
+            }
         }
     }
 };
@@ -736,7 +733,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& first_arg_type = block.get_by_position(arguments[0]).type;
         const auto& second_arg_type = block.get_by_position(arguments[1]).type;
         WhichDataType which1(remove_nullable(first_arg_type));
@@ -869,7 +866,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         return FunctionImpl::execute(context, block, arguments, result, input_rows_count);
     }
 };
@@ -1036,7 +1033,7 @@ struct CurrentDateImpl {
             if (dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                                   context->state()->timezone_obj())) {
                 reinterpret_cast<VecDateTimeValue*>(&dtv)->set_type(TIME_DATE);
-                auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
+                auto date_packed_int = binary_cast<doris::VecDateTimeValue, int64_t>(
                         *reinterpret_cast<VecDateTimeValue*>(&dtv));
                 col_to->insert_data(
                         const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
@@ -1140,7 +1137,7 @@ struct TimestampToDateTime : IFunction {
     static FunctionPtr create() { return std::make_shared<TimestampToDateTime<Impl>>(); }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         const auto& arg_col = block.get_by_position(arguments[0]).column;
         const auto& column_data = assert_cast<const ColumnInt64&>(*arg_col);
         auto res_col = ColumnUInt64::create();

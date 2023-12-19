@@ -32,10 +32,8 @@ suite("one_row_relation") {
         result([[100, "abc", "ab", "de", null]])
     }
 
-    test {
-        sql """
-            select sum(1);
-        """
-        exception "OneRowRelation can not contains any aggregate function"            
-    }
+    qt_string1 """ select 'A''B', 'A''''B', 'A\\'\\'B', ''; """
+    qt_string2 """ select "A""B", "A\\"\\"B", "";  """
+    qt_string3 """ select 'A""B', 'A\\"\\"B';  """
+    qt_string4 """ select "A''B", "A\\'\\'B";  """
 }

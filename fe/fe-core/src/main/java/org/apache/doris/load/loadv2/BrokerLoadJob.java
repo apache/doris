@@ -230,6 +230,9 @@ public class BrokerLoadJob extends BulkLoadJob {
                     throw new UserException("txn does not exist: " + transactionId);
                 }
                 txnState.addTableIndexes(table);
+                if (isPartialUpdate()) {
+                    txnState.setSchemaForPartialUpdate(table);
+                }
             }
         } finally {
             MetaLockUtils.readUnlockTables(tableList);
@@ -323,7 +326,7 @@ public class BrokerLoadJob extends BulkLoadJob {
             return;
         }
         jobProfile.update(createTimestamp, getSummaryInfo(true), true,
-                Boolean.valueOf(sessionVariables.getOrDefault(SessionVariable.ENABLE_SIMPLY_PROFILE, "true")));
+                Integer.valueOf(sessionVariables.getOrDefault(SessionVariable.PROFILE_LEVEL, "3")), null, false);
     }
 
     private Map<String, String> getSummaryInfo(boolean isFinished) {
@@ -401,7 +404,7 @@ public class BrokerLoadJob extends BulkLoadJob {
     }
 
     @Override
-    protected String getResourceName() {
+    public String getResourceName() {
         StorageBackend.StorageType storageType = brokerDesc.getStorageType();
         if (storageType == StorageBackend.StorageType.BROKER) {
             return brokerDesc.getName();

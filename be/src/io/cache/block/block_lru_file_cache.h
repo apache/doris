@@ -158,6 +158,9 @@ private:
     void remove(FileBlockSPtr file_block, std::lock_guard<std::mutex>& cache_lock,
                 std::lock_guard<std::mutex>& segment_lock) override;
 
+    void change_cache_type(const Key& key, size_t offset, CacheType new_type,
+                           std::lock_guard<std::mutex>& cache_lock) override;
+
     size_t get_available_cache_size(CacheType cache_type) const;
 
     Status load_cache_info_into_memory(std::lock_guard<std::mutex>& cache_lock);
@@ -202,7 +205,7 @@ private:
     size_t _num_hit_segments = 0;
     size_t _num_removed_segments = 0;
 
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::shared_ptr<MetricEntity> _entity;
 
     DoubleGauge* file_cache_hits_ratio = nullptr;
     UIntGauge* file_cache_removed_elements = nullptr;

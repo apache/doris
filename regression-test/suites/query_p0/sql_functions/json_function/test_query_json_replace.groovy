@@ -18,7 +18,7 @@
 suite("test_query_json_replace", "query") {
     qt_sql "select json_replace('{\"a\": 1, \"b\": [2, 3]}', '\$', null);"
     qt_sql "select json_replace('{\"k\": [1, 2]}', '\$.k[0]', null, '\$.[1]', null);"
-    def tableName = "test_query_json_set"
+    def tableName = "test_query_json_replace"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """
             CREATE TABLE ${tableName} (

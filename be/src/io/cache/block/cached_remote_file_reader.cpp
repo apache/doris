@@ -26,7 +26,6 @@
 #include <list>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "io/cache/block/block_file_cache.h"
@@ -68,7 +67,7 @@ CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader
 }
 
 CachedRemoteFileReader::~CachedRemoteFileReader() {
-    close();
+    static_cast<void>(close());
 }
 
 Status CachedRemoteFileReader::close() {

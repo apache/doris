@@ -31,7 +31,8 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
+    void set_scan_ranges(RuntimeState* state,
+                         const std::vector<TScanRangeParams>& scan_ranges) override;
 
     std::string get_name() override;
 

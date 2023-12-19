@@ -331,10 +331,7 @@ TEST_F(ThreadPoolTest, TestDeadlocks) {
 #ifdef NDEBUG
     const char* death_msg = "doris::ThreadPool::check_not_pool_thread_unlocked()";
 #elif defined(__APPLE__)
-    const char* death_msg =
-            "_ZNSt3__1L8__invokeIRNS_6__bindIMN5doris10ThreadPoolEFvvEJPS3_EEEJEEEDTclscT_fp_"
-            "spscT0_fp0_EEOS9_DpOSA_|6__bindIMN5doris10ThreadPoolEFvvEJPS3_"
-            "EEEJEEEDTclclsr3stdE7declvalIT_EEspclsr3stdE7declvalIT0_EEEEOS9_DpOSA_";
+    const char* death_msg = "pthread_start";
 #else
     const char* death_msg =
             "_ZNSt5_BindIFMN5doris10ThreadPoolEFvvEPS1_EE6__callIvJEJLm0EEEET_OSt5tupleIJDpT0_"
@@ -776,17 +773,17 @@ static void MyFunc(int idx, int n) {
 
 TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPool> thread_pool;
-    ThreadPoolBuilder("my_pool")
-            .set_min_threads(0)
-            .set_max_threads(5)
-            .set_max_queue_size(10)
-            .set_idle_timeout(std::chrono::milliseconds(2000))
-            .build(&thread_pool);
+    static_cast<void>(ThreadPoolBuilder("my_pool")
+                              .set_min_threads(0)
+                              .set_max_threads(5)
+                              .set_max_queue_size(10)
+                              .set_idle_timeout(std::chrono::milliseconds(2000))
+                              .build(&thread_pool));
 
     std::unique_ptr<ThreadPoolToken> token1 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 2);
     for (int i = 0; i < 10; i++) {
-        token1->submit_func(std::bind(&MyFunc, i, 1));
+        static_cast<void>(token1->submit_func(std::bind(&MyFunc, i, 1)));
     }
     token1->wait();
     EXPECT_EQ(0, token1->num_tasks());
@@ -794,7 +791,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token2 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
     for (int i = 0; i < 10; i++) {
-        token2->submit_func(std::bind(&MyFunc, i, 1));
+        static_cast<void>(token2->submit_func(std::bind(&MyFunc, i, 1)));
     }
     token2->wait();
     EXPECT_EQ(0, token2->num_tasks());
@@ -802,7 +799,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token3 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 1);
     for (int i = 0; i < 10; i++) {
-        token3->submit_func(std::bind(&MyFunc, i, 1));
+        static_cast<void>(token3->submit_func(std::bind(&MyFunc, i, 1)));
     }
     token3->wait();
     EXPECT_EQ(0, token3->num_tasks());
@@ -810,7 +807,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token4 =
             thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL);
     for (int i = 0; i < 10; i++) {
-        token4->submit_func(std::bind(&MyFunc, i, 1));
+        static_cast<void>(token4->submit_func(std::bind(&MyFunc, i, 1)));
     }
     token4->wait();
     EXPECT_EQ(0, token4->num_tasks());
@@ -818,7 +815,7 @@ TEST_F(ThreadPoolTest, TestNormal) {
     std::unique_ptr<ThreadPoolToken> token5 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 20);
     for (int i = 0; i < 10; i++) {
-        token5->submit_func(std::bind(&MyFunc, i, 1));
+        static_cast<void>(token5->submit_func(std::bind(&MyFunc, i, 1)));
     }
     token5->shutdown();
     EXPECT_EQ(0, token5->num_tasks());
@@ -905,21 +902,21 @@ TEST_F(ThreadPoolTest, TestThreadPoolDynamicAdjustMaximumMinimum) {
 
 TEST_F(ThreadPoolTest, TestThreadTokenSerial) {
     std::unique_ptr<ThreadPool> thread_pool;
-    ThreadPoolBuilder("my_pool")
-            .set_min_threads(0)
-            .set_max_threads(1)
-            .set_max_queue_size(10)
-            .set_idle_timeout(std::chrono::milliseconds(2000))
-            .build(&thread_pool);
+    static_cast<void>(ThreadPoolBuilder("my_pool")
+                              .set_min_threads(0)
+                              .set_max_threads(1)
+                              .set_max_queue_size(10)
+                              .set_idle_timeout(std::chrono::milliseconds(2000))
+                              .build(&thread_pool));
 
     std::unique_ptr<ThreadPoolToken> token1 =
             thread_pool->new_token(ThreadPool::ExecutionMode::SERIAL, 2);
-    token1->submit_func(std::bind(&MyFunc, 0, 1));
+    static_cast<void>(token1->submit_func(std::bind(&MyFunc, 0, 1)));
     std::cout << "after submit 1" << std::endl;
     token1->wait();
     ASSERT_EQ(0, token1->num_tasks());
     for (int i = 0; i < 10; i++) {
-        token1->submit_func(std::bind(&MyFunc, i, 1));
+        static_cast<void>(token1->submit_func(std::bind(&MyFunc, i, 1)));
     }
     std::cout << "after submit 1" << std::endl;
     token1->wait();
@@ -928,17 +925,17 @@ TEST_F(ThreadPoolTest, TestThreadTokenSerial) {
 
 TEST_F(ThreadPoolTest, TestThreadTokenConcurrent) {
     std::unique_ptr<ThreadPool> thread_pool;
-    ThreadPoolBuilder("my_pool")
-            .set_min_threads(0)
-            .set_max_threads(1)
-            .set_max_queue_size(10)
-            .set_idle_timeout(std::chrono::milliseconds(2000))
-            .build(&thread_pool);
+    static_cast<void>(ThreadPoolBuilder("my_pool")
+                              .set_min_threads(0)
+                              .set_max_threads(1)
+                              .set_max_queue_size(10)
+                              .set_idle_timeout(std::chrono::milliseconds(2000))
+                              .build(&thread_pool));
 
     std::unique_ptr<ThreadPoolToken> token1 =
             thread_pool->new_token(ThreadPool::ExecutionMode::CONCURRENT, 2);
     for (int i = 0; i < 10; i++) {
-        token1->submit_func(std::bind(&MyFunc, i, 1));
+        static_cast<void>(token1->submit_func(std::bind(&MyFunc, i, 1)));
     }
     std::cout << "after submit 1" << std::endl;
     token1->wait();

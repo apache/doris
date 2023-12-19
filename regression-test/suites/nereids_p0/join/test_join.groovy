@@ -174,44 +174,44 @@ suite("test_join", "nereids_p0") {
     // join null value
     def table_1 = "join_null_value_left_table"
     def table_2 = "join_null_value_right_table"
-    sql"""drop table if exists ${table_1}"""
-    sql"""drop table if exists ${table_2}"""
-    sql"""create table if not exists ${table_1} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
+    sql"""drop table if exists join_null_value_left_table"""
+    sql"""drop table if exists join_null_value_right_table"""
+    sql"""create table if not exists join_null_value_left_table (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
                     distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
-    sql"""create table if not exists ${table_2} (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
+    sql"""create table if not exists join_null_value_right_table (k1 tinyint, k2 decimal(9,3) NULL, k3 char(5) NULL,
                     k4 date NULL, k5 datetime NULL, 
                     k6 double sum) engine=olap 
                     distributed by hash(k1) buckets 2 properties("storage_type"="column", "replication_num" = "1")"""
-    sql"""insert into ${table_1} values (1, NULL,'null', NULL, NULL, 8.9),
+    sql"""insert into join_null_value_left_table values (1, NULL,'null', NULL, NULL, 8.9),
                     (2, NULL,'2', NULL, NULL, 8.9),
                     (3, NULL,'null', '2019-09-09', NULL, 8.9);"""
-    sql"""insert into ${table_2} values (1, NULL,'null', NULL, NULL, 8.9),
+    sql"""insert into join_null_value_right_table values (1, NULL,'null', NULL, NULL, 8.9),
                     (2, NULL,'2', NULL, NULL, 8.9),
                     (3, NULL,'null', '2019-09-09', NULL, 8.9);"""
-    sql"""insert into ${table_1} values (5, 2.2,"null", NULL, "2019-09-09 00:00:00", 8.9)"""
+    sql"""insert into join_null_value_left_table values (5, 2.2,"null", NULL, "2019-09-09 00:00:00", 8.9)"""
     for (type in join_types) {
         for (index in range(1, 7)) {
-            qt_join_null_value1"""select * from ${table_1} a ${type} join ${table_2} b on a.k${index} = b.k${index} and 
+            qt_join_null_value1"""select * from join_null_value_left_table a ${type} join join_null_value_right_table b on a.k${index} = b.k${index} and 
                 a.k2 = b.k2 and a.k${index} != b.k2 order by a.k1, b.k1"""
-            qt_join_null_value2"""select * from ${table_1} a ${type} join ${table_2} b on a.k${index} = b.k${index} and 
+            qt_join_null_value2"""select * from join_null_value_left_table a ${type} join join_null_value_right_table b on a.k${index} = b.k${index} and 
                 a.k2 = b.k2 and a.k${index} != b.k2 order by a.k1, b.k1"""
         }
     }
     //  <=>, =, is NULL, ifnull
-    qt_join_null1"""select * from ${table_1} a  left join ${table_2} b on a.k2 <=> b.k2 and 
+    qt_join_null1"""select * from join_null_value_left_table a  left join join_null_value_right_table b on a.k2 <=> b.k2 and 
         a.k3 is NULL order by a.k1, b.k1"""
-    qt_join_null2"""select * from ${table_1} a join ${table_2} b on a.k2<=> b.k2 and 
+    qt_join_null2"""select * from join_null_value_left_table a join join_null_value_right_table b on a.k2<=> b.k2 and 
         a.k4<=>NULL order by a.k1,b.k1"""
-    qt_join_null3"""select * from ${table_1} a join ${table_2} b on a.k2<=> b.k2
+    qt_join_null3"""select * from join_null_value_left_table a join join_null_value_right_table b on a.k2<=> b.k2
         and a.k4<=>NULL  and b.k4 is not NULL order by a.k1,b.k1"""
-    qt_join_null4"""select * from ${table_1} a join ${table_2} b on a.k2<=> b.k2 and 
+    qt_join_null4"""select * from join_null_value_left_table a join join_null_value_right_table b on a.k2<=> b.k2 and 
        a.k4<=>NULL  and b.k4 is not NULL and a.k3=2 order by a.k1,b.k1"""
-    qt_join_null5"""select * from ${table_1} a join ${table_2} b on ifnull(a.k4,null)
+    qt_join_null5"""select * from join_null_value_left_table a join join_null_value_right_table b on ifnull(a.k4,null)
        <=> ifnull(b.k5,null) order by a.k1, a.k2, a.k3, b.k1, b.k2"""
-    sql"drop table ${table_1}"
-    sql"drop table ${table_2}"
+    sql"drop table join_null_value_left_table"
+    sql"drop table join_null_value_right_table"
 
 
 

@@ -131,7 +131,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         auto left_column =
                 block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
         auto right_column =
@@ -139,17 +139,16 @@ public:
         ColumnArrayExecutionData left_exec_data;
         ColumnArrayExecutionData right_exec_data;
 
-        Status ret = Status::RuntimeError(
-                fmt::format("execute failed, unsupported types for function {}({}, {})", get_name(),
-                            block.get_by_position(arguments[0]).type->get_name(),
-                            block.get_by_position(arguments[1]).type->get_name()));
+        Status ret = Status::InvalidArgument(
+                "execute failed, unsupported types for function {}({}, {})", get_name(),
+                block.get_by_position(arguments[0]).type->get_name(),
+                block.get_by_position(arguments[1]).type->get_name());
 
         // extract array column
         if (!extract_column_array_info(*left_column, left_exec_data) ||
             !extract_column_array_info(*right_column, right_exec_data)) {
             return ret;
         }
-
         // prepare return column
         auto dst_nested_col = ColumnVector<UInt8>::create(input_rows_count, 0);
         auto dst_null_map = ColumnVector<UInt8>::create(input_rows_count, 0);
@@ -160,77 +159,76 @@ public:
         RETURN_IF_ERROR(_execute_nullable(right_exec_data, dst_null_map_data));
 
         // execute overlap check
-        if (left_exec_data.nested_col->is_column_string()) {
+        auto array_type = remove_nullable(block.get_by_position(arguments[0]).type);
+        auto left_element_type =
+                remove_nullable(assert_cast<const DataTypeArray&>(*array_type).get_nested_type());
+        WhichDataType left_which_type(left_element_type);
+        if (left_which_type.is_string()) {
             ret = _execute_internal<ColumnString>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,
                                                   dst_nested_col->get_data().data());
-        } else if (left_exec_data.nested_col->is_date_type()) {
+        } else if (left_which_type.is_date()) {
             ret = _execute_internal<ColumnDate>(left_exec_data, right_exec_data, dst_null_map_data,
                                                 dst_nested_col->get_data().data());
-        } else if (left_exec_data.nested_col->is_datetime_type()) {
+        } else if (left_which_type.is_date_time()) {
             ret = _execute_internal<ColumnDateTime>(left_exec_data, right_exec_data,
                                                     dst_null_map_data,
                                                     dst_nested_col->get_data().data());
-        } else if (check_column<ColumnDateV2>(left_exec_data.nested_col)) {
+        } else if (left_which_type.is_date_v2()) {
             ret = _execute_internal<ColumnDateV2>(left_exec_data, right_exec_data,
                                                   dst_null_map_data,
                                                   dst_nested_col->get_data().data());
-        } else if (check_column<ColumnDateTimeV2>(left_exec_data.nested_col)) {
+        } else if (left_which_type.is_date_time_v2()) {
             ret = _execute_internal<ColumnDateTimeV2>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
-        } else if (left_exec_data.nested_col->is_numeric()) {
-            if (check_column<ColumnUInt8>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data,
+        } else if (left_which_type.is_uint8()) {
+            ret = _execute_internal<ColumnUInt8>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                 dst_nested_col->get_data().data());
+        } else if (left_which_type.is_int8()) {
+            ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                dst_nested_col->get_data().data());
+        } else if (left_which_type.is_int16()) {
+            ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                 dst_nested_col->get_data().data());
+        } else if (left_which_type.is_int32()) {
+            ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                 dst_nested_col->get_data().data());
+        } else if (left_which_type.is_int64()) {
+            ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data, dst_null_map_data,
+                                                 dst_nested_col->get_data().data());
+        } else if (left_which_type.is_int128()) {
+            ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
+                                                  dst_null_map_data,
+                                                  dst_nested_col->get_data().data());
+        } else if (left_which_type.is_float32()) {
+            ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
+                                                   dst_null_map_data,
+                                                   dst_nested_col->get_data().data());
+        } else if (left_which_type.is_float64()) {
+            ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
+                                                   dst_null_map_data,
+                                                   dst_nested_col->get_data().data());
+        } else if (left_which_type.is_decimal32()) {
+            ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
                                                      dst_null_map_data,
                                                      dst_nested_col->get_data().data());
-            } else if (check_column<ColumnInt8>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnInt8>(left_exec_data, right_exec_data,
-                                                    dst_null_map_data,
-                                                    dst_nested_col->get_data().data());
-            } else if (check_column<ColumnInt16>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnInt16>(left_exec_data, right_exec_data,
+        } else if (left_which_type.is_decimal64()) {
+            ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
                                                      dst_null_map_data,
                                                      dst_nested_col->get_data().data());
-            } else if (check_column<ColumnInt32>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnInt32>(left_exec_data, right_exec_data,
-                                                     dst_null_map_data,
-                                                     dst_nested_col->get_data().data());
-            } else if (check_column<ColumnInt64>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnInt64>(left_exec_data, right_exec_data,
-                                                     dst_null_map_data,
-                                                     dst_nested_col->get_data().data());
-            } else if (check_column<ColumnInt128>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnInt128>(left_exec_data, right_exec_data,
+        } else if (left_which_type.is_decimal128i()) {
+            ret = _execute_internal<ColumnDecimal128I>(left_exec_data, right_exec_data,
+                                                       dst_null_map_data,
+                                                       dst_nested_col->get_data().data());
+        } else if (left_which_type.is_decimal128()) {
+            ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
                                                       dst_null_map_data,
                                                       dst_nested_col->get_data().data());
-            } else if (check_column<ColumnFloat32>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnFloat32>(left_exec_data, right_exec_data,
-                                                       dst_null_map_data,
-                                                       dst_nested_col->get_data().data());
-            } else if (check_column<ColumnFloat64>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnFloat64>(left_exec_data, right_exec_data,
-                                                       dst_null_map_data,
-                                                       dst_nested_col->get_data().data());
-            }
-        } else if (left_exec_data.nested_col->is_column_decimal()) {
-            if (check_column<ColumnDecimal32>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
-                                                         dst_null_map_data,
-                                                         dst_nested_col->get_data().data());
-            } else if (check_column<ColumnDecimal64>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
-                                                         dst_null_map_data,
-                                                         dst_nested_col->get_data().data());
-            } else if (check_column<ColumnDecimal128I>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnDecimal128I>(left_exec_data, right_exec_data,
-                                                           dst_null_map_data,
-                                                           dst_nested_col->get_data().data());
-            } else if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
-                ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
-                                                          dst_null_map_data,
-                                                          dst_nested_col->get_data().data());
-            }
+        } else if (left_which_type.is_decimal256()) {
+            ret = _execute_internal<ColumnDecimal256>(left_exec_data, right_exec_data,
+                                                      dst_null_map_data,
+                                                      dst_nested_col->get_data().data());
         }
 
         if (ret.ok()) {
@@ -242,7 +240,7 @@ public:
     }
 
 private:
-    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
+    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) const {
         for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {
                 continue;
@@ -271,7 +269,7 @@ private:
     template <typename T>
     Status _execute_internal(const ColumnArrayExecutionData& left_data,
                              const ColumnArrayExecutionData& right_data,
-                             const UInt8* dst_nullmap_data, UInt8* dst_data) {
+                             const UInt8* dst_nullmap_data, UInt8* dst_data) const {
         using ExecutorImpl = OverlapSetImpl<T>;
         for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
             if (dst_nullmap_data[row]) {

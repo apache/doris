@@ -104,6 +104,7 @@ public:
         int64_t vm_size = 0;
         int64_t vm_peak = 0;
         int64_t vm_rss = 0;
+        int64_t vm_hwm = 0;
     };
 
     static int parse_int(const std::string& state_key);
@@ -118,6 +119,9 @@ public:
     // Return the process actual physical memory in bytes.
     static inline int64_t get_vm_rss() { return _vm_rss; }
     static inline std::string get_vm_rss_str() { return _vm_rss_str; }
+    static inline int64_t get_vm_hwm() { return _vm_hwm; }
+    static inline int64_t get_vm_size() { return _vm_size; }
+    static inline int64_t get_vm_peak() { return _vm_peak; }
 
 private:
     // Copy constructor and assignment not allowed
@@ -164,6 +168,9 @@ private:
 
     static int64_t _vm_rss;
     static std::string _vm_rss_str;
+    static int64_t _vm_hwm;
+    static int64_t _vm_size;
+    static int64_t _vm_peak;
 };
 
 } // namespace doris

@@ -38,11 +38,13 @@ import org.apache.doris.regression.action.HttpCliAction
 import org.apache.doris.regression.util.JdbcUtils
 import org.apache.doris.regression.util.Hdfs
 import org.apache.doris.regression.util.SuiteUtils
+import org.apache.doris.regression.util.DebugPoint
 import org.junit.jupiter.api.Assertions
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import groovy.util.logging.Slf4j
 
+import java.sql.Connection
 import java.util.concurrent.Callable
 import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicBoolean
@@ -58,6 +60,9 @@ import org.junit.Assert
 @Slf4j
 class Suite implements GroovyInterceptable {
     final SuiteContext context
+    final SuiteCluster cluster
+    final DebugPoint debugPoint
+
     final String name
     final String group
     final Logger logger = LoggerFactory.getLogger(this.class)
@@ -68,18 +73,21 @@ class Suite implements GroovyInterceptable {
     final List<Throwable> lazyCheckExceptions = new Vector<>()
     final List<Future> lazyCheckFutures = new Vector<>()
 
-    SuiteCluster cluster
-
-    Suite(String name, String group, SuiteContext context) {
+    Suite(String name, String group, SuiteContext context, SuiteCluster cluster) {
         this.name = name
         this.group = group
         this.context = context
-        this.cluster = null
+        this.cluster = cluster;
+        this.debugPoint = new DebugPoint(this)
     }
 
     String getConf(String key, String defaultValue = null) {
         String value = context.config.otherConfigs.get(key)
         return value == null ? defaultValue : value
+    }
+
+    String getSuiteConf(String key, String defaultValue = null) {
+        return getConf("suites." + name + "." + key, defaultValue)
     }
 
     Properties getConfs(String prefix) {
@@ -154,11 +162,15 @@ class Suite implements GroovyInterceptable {
     }
 
     public <T> ListenableFuture<T> thread(String threadName = null, Closure<T> actionSupplier) {
+        def connInfo = context.threadLocalConn.get()
         return MoreExecutors.listeningDecorator(context.actionExecutors).submit((Callable<T>) {
             long startTime = System.currentTimeMillis()
             def originThreadName = Thread.currentThread().name
             try {
                 Thread.currentThread().setName(threadName == null ? originThreadName : threadName)
+                if (connInfo != null) {
+                    context.connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
+                }
                 context.scriptContext.eventListeners.each { it.onThreadStarted(context) }
 
                 return actionSupplier.call()
@@ -202,13 +214,12 @@ class Suite implements GroovyInterceptable {
             return
         }
 
-        cluster = new SuiteCluster(name, context.config)
         try {
             cluster.destroy(true)
             cluster.init(options)
 
-            def user = "root"
-            def password = ""
+            def user = context.config.jdbcUser
+            def password = context.config.jdbcPassword
             def masterFe = cluster.getMasterFe()
             def url = String.format(
                     "jdbc:mysql://%s:%s/?useLocalSessionState=false&allowLoadLocalInfile=false",
@@ -247,13 +258,98 @@ class Suite implements GroovyInterceptable {
         return context.getSyncer(this)
     }
 
-    List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
+    List<List<Object>> sql_impl(Connection conn, String sqlStr, boolean isOrder = false) {
         logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
-        def (result, meta) = JdbcUtils.executeToList(context.getConnection(), sqlStr)
+        def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
         }
         return result
+    }
+
+    List<List<Object>> jdbc_sql(String sqlStr, boolean isOrder = false) {
+        return sql_impl(context.getConnection(), sqlStr, isOrder)
+    }
+
+    List<List<Object>> arrow_flight_sql(String sqlStr, boolean isOrder = false) {
+        return sql_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr), isOrder)
+    }
+
+    List<List<Object>> sql(String sqlStr, boolean isOrder = false) {
+        if (context.useArrowFlightSql()) {
+            return arrow_flight_sql(sqlStr, isOrder)
+        } else {
+            return jdbc_sql(sqlStr, isOrder)
+        }
+    }
+
+    List<List<Object>> arrow_flight_sql_no_prepared (String sqlStr, boolean isOrder = false){
+        logger.info("Execute ${isOrder ? "order_" : ""}sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeQueryToList(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr))
+        if (isOrder) {
+            result = DataUtils.sortByToString(result)
+        }
+        return result
+    }
+
+    List<List<Object>> insert_into_sql_impl(Connection conn, String sqlStr, int num) {
+        logger.info("insert into " + num + " records")
+        def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
+        return result
+    }
+
+    List<List<Object>> jdbc_insert_into_sql(String sqlStr, int num) {
+        return insert_into_sql_impl(context.getConnection(), sqlStr, num)
+    }
+
+    List<List<Object>> arrow_flight_insert_into_sql(String sqlStr, int num) {
+        return insert_into_sql_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr), num)
+    }
+
+    List<List<Object>> insert_into_sql(String sqlStr, int num) {
+        if (context.useArrowFlightSql()) {
+            return arrow_flight_insert_into_sql(sqlStr, num)
+        } else {
+            return jdbc_insert_into_sql(sqlStr, num)
+        }
+    }
+
+    def sql_return_maparray_impl(Connection conn, String sqlStr) {
+        logger.info("Execute sql: ${sqlStr}".toString())
+        def (result, meta) = JdbcUtils.executeToList(conn, sqlStr)
+
+        // get all column names as list
+        List<String> columnNames = new ArrayList<>()
+        for (int i = 0; i < meta.getColumnCount(); i++) {
+            columnNames.add(meta.getColumnName(i + 1))
+        }
+
+        // add result to res map list, each row is a map with key is column name
+        List<Map<String, Object>> res = new ArrayList<>()
+        for (int i = 0; i < result.size(); i++) {
+            Map<String, Object> row = new HashMap<>()
+            for (int j = 0; j < columnNames.size(); j++) {
+                row.put(columnNames.get(j), result.get(i).get(j))
+            }
+            res.add(row)
+        }
+        return res;
+    }
+
+    def jdbc_sql_return_maparray(String sqlStr) {
+        return sql_return_maparray_impl(context.getConnection(), sqlStr)
+    }
+
+    def arrow_flight_sql_return_maparray(String sqlStr) {
+        return sql_return_maparray_impl(context.getArrowFlightSqlConnection(), (String) ("USE ${context.dbName};" + sqlStr))
+    }
+
+    def sql_return_maparray(String sqlStr) {
+        if (context.useArrowFlightSql()) {
+            return arrow_flight_sql_return_maparray(sqlStr)
+        } else {
+            return jdbc_sql_return_maparray(sqlStr)
+        }
     }
 
     List<List<Object>> target_sql(String sqlStr, boolean isOrder = false) {
@@ -280,6 +376,22 @@ class Suite implements GroovyInterceptable {
             result.add(item);
         }
         return result;
+    }
+
+
+    long getTableId(String tableName) {
+        def dbInfo = sql "show proc '/dbs'"
+        for(List<Object> row : dbInfo) {
+            if (row[1].equals(context.dbName)) {
+                def tbInfo = sql "show proc '/dbs/${row[0]}' "
+                for (List<Object> tb : tbInfo) {
+                    if (tb[1].equals(tableName)) {
+                        println(tb[0])
+                        return tb[0].toLong()
+                    }
+                }
+            }
+        }
     }
 
     List<List<Object>> order_sql(String sqlStr) {
@@ -334,7 +446,11 @@ class Suite implements GroovyInterceptable {
     }
 
     void explain(Closure actionSupplier) {
-        runAction(new ExplainAction(context), actionSupplier)
+        if (context.useArrowFlightSql()) {
+            runAction(new ExplainAction(context, "ARROW_FLIGHT_SQL"), actionSupplier)
+        } else {
+            runAction(new ExplainAction(context), actionSupplier)
+        }
     }
 
     void createMV(String sql) {
@@ -447,7 +563,7 @@ class Suite implements GroovyInterceptable {
         String s3Url = "http://${s3BucketName}.${s3Endpoint}"
         return s3Url
     }
-    
+
     void scpFiles(String username, String host, String files, String filePath, boolean fromDst=true) {
         String cmd = "scp -r ${username}@${host}:${files} ${filePath}"
         if (!fromDst) {
@@ -458,7 +574,7 @@ class Suite implements GroovyInterceptable {
         def code = process.waitFor()
         Assert.assertEquals(0, code)
     }
-    
+
     void sshExec(String username, String host, String cmd) {
         String command = "ssh ${username}@${host} '${cmd}'"
         def cmds = ["/bin/bash", "-c", command]
@@ -470,7 +586,10 @@ class Suite implements GroovyInterceptable {
         assert errMsg.length() == 0: "error occurred!" + errMsg
         assert p.exitValue() == 0
     }
-    
+
+    List<String> getFrontendIpHttpPort() {
+        return sql_return_maparray("show frontends").collect { it.Host + ":" + it.HttpPort };
+    }
 
     void getBackendIpHttpPort(Map<String, String> backendId_to_backendIP, Map<String, String> backendId_to_backendHttpPort) {
         List<List<Object>> backends = sql("show backends");
@@ -480,7 +599,7 @@ class Suite implements GroovyInterceptable {
             backendId_to_backendHttpPort.put(String.valueOf(backend[0]), String.valueOf(backend[4]));
         }
         return;
-    } 
+    }
 
     int getTotalLine(String filePath) {
         def file = new File(filePath)
@@ -494,29 +613,6 @@ class Suite implements GroovyInterceptable {
     boolean deleteFile(String filePath) {
         def file = new File(filePath)
         file.delete()
-    }
-
-    void waitingMTMVTaskFinished(String mvName) {
-        String showTasks = "SHOW MTMV TASK ON " + mvName
-        List<List<String>> showTaskMetaResult = sql_meta(showTasks)
-        int index = showTaskMetaResult.indexOf(['State', 'CHAR'])
-        String status = "PENDING"
-        List<List<Object>> result
-        long startTime = System.currentTimeMillis()
-        long timeoutTimestamp = startTime + 30 * 60 * 1000 // 30 min
-        do {
-            result = sql(showTasks)
-            if (!result.isEmpty()) {
-                status = result.last().get(index)
-            }
-            println "The state of ${showTasks} is ${status}"
-            Thread.sleep(1000);
-        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING'))
-        if (status != "SUCCESS") {
-            println "status is not success"
-            println result.toString()
-        }
-        Assert.assertEquals("SUCCESS", status)
     }
 
     List<String> downloadExportFromHdfs(String label) {
@@ -552,7 +648,7 @@ class Suite implements GroovyInterceptable {
     }
 
     List<List<Object>> hive_docker(String sqlStr, boolean isOrder = false){
-        String cleanedSqlStr = sqlStr.replaceAll(/;+$/, '')
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveDockerConnection(), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
@@ -561,7 +657,7 @@ class Suite implements GroovyInterceptable {
     }
 
     List<List<Object>> hive_remote(String sqlStr, boolean isOrder = false){
-        String cleanedSqlStr = sqlStr.replaceAll(/;+$/, '')
+        String cleanedSqlStr = sqlStr.replaceAll("\\s*;\\s*\$", "")
         def (result, meta) = JdbcUtils.executeToList(context.getHiveRemoteConnection(), cleanedSqlStr)
         if (isOrder) {
             result = DataUtils.sortByToString(result)
@@ -573,9 +669,28 @@ class Suite implements GroovyInterceptable {
         if (context.config.generateOutputFile || context.config.forceGenerateOutputFile) {
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
-                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+                if (tag.contains("hive_docker")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
+                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
+                } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
+                }
+                else{
+                    tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+                }
             } else {
-                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+                if (tag.contains("hive_docker")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
+                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
+                } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(),
+                            (String) ("USE ${context.dbName};" + (String) arg))
+                }
+                else{
+                    tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+                }
             }
             def (result, meta) = tupleResult
             if (isOrder) {
@@ -597,9 +712,28 @@ class Suite implements GroovyInterceptable {
             OutputUtils.TagBlockIterator expectCsvResults = context.getOutputIterator().next()
             Tuple2<List<List<Object>>, ResultSetMetaData> tupleResult = null
             if (arg instanceof PreparedStatement) {
-                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+                if (tag.contains("hive_docker")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(),  (PreparedStatement) arg)
+                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(),  (PreparedStatement) arg)
+                } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(), (PreparedStatement) arg)
+                }
+                else{
+                    tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (PreparedStatement) arg)
+                }
             } else {
-                tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+                if (tag.contains("hive_docker")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveDockerConnection(), (String) arg)
+                }else if (tag.contains("hive_remote")) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getHiveRemoteConnection(), (String) arg)
+                } else if (tag.contains("arrow_flight_sql") || context.useArrowFlightSql()) {
+                    tupleResult = JdbcUtils.executeToStringList(context.getArrowFlightSqlConnection(),
+                            (String) ("USE ${context.dbName};" + (String) arg))
+                }
+                else{
+                    tupleResult = JdbcUtils.executeToStringList(context.getConnection(),  (String) arg)
+                }
             }
             def (realResults, meta) = tupleResult
             if (isOrder) {
@@ -628,14 +762,22 @@ class Suite implements GroovyInterceptable {
 
     void quickTest(String tag, String sql, boolean isOrder = false) {
         logger.info("Execute tag: ${tag}, ${isOrder ? "order_" : ""}sql: ${sql}".toString())
-        quickRunTest(tag, sql, isOrder) 
+        if (tag.contains("hive_docker")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
+        if (tag.contains("hive_remote")) {
+            String cleanedSqlStr = sql.replaceAll("\\s*;\\s*\$", "")
+            sql = cleanedSqlStr
+        }
+        quickRunTest(tag, sql, isOrder)
     }
 
     void quickExecute(String tag, PreparedStatement stmt) {
         logger.info("Execute tag: ${tag}, sql: ${stmt}".toString())
-        quickRunTest(tag, stmt) 
+        quickRunTest(tag, stmt)
     }
-    
+
     @Override
     Object invokeMethod(String name, Object args) {
         // qt: quick test
@@ -695,6 +837,64 @@ class Suite implements GroovyInterceptable {
         }
         // set server side prepared statement url
         return "jdbc:mysql://" + sql_ip + ":" + sql_port + "/" + database + "?&useServerPrepStmts=true"
+    }
+
+    DebugPoint GetDebugPoint() {
+        return debugPoint
+    }
+
+    void waitingMTMVTaskFinished(String jobName) {
+        Thread.sleep(2000);
+        String showTasks = "select Status from tasks('type'='mv') where JobName = '${jobName}'"
+        String status = "NULL"
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 5 * 60 * 1000 // 5 min
+        do {
+            result = sql(showTasks)
+            logger.info("result: " + result.toString())
+            if (!result.isEmpty()) {
+                status = result.last().get(0)
+            }
+            logger.info("The state of ${showTasks} is ${status}")
+            Thread.sleep(1000);
+        } while (timeoutTimestamp > System.currentTimeMillis() && (status == 'PENDING' || status == 'RUNNING' || status == 'NULL'))
+        if (status != "SUCCESS") {
+            logger.info("status is not success")
+        }
+        Assert.assertEquals("SUCCESS", status)
+    }
+
+    String getJobName(String dbName, String mtmvName) {
+        String showMTMV = "select JobName from mv_infos('database'='${dbName}') where Name = '${mtmvName}'";
+	    logger.info(showMTMV)
+        List<List<Object>> result = sql(showMTMV)
+        logger.info("result: " + result.toString())
+        if (result.isEmpty()) {
+            Assert.fail();
+        }
+        return result.last().get(0);
+    }
+
+    void waiteCreateTableFinished(String tableName) {
+        Thread.sleep(2000);
+        String showCreateTable = "SHOW CREATE TABLE ${tableName}"
+        String createdTableName = "";
+        List<List<Object>> result
+        long startTime = System.currentTimeMillis()
+        long timeoutTimestamp = startTime + 1 * 60 * 1000 // 1 min
+        do {
+            result = sql(showCreateTable)
+            if (!result.isEmpty()) {
+                createdTableName = result.last().get(0)
+            }
+            logger.info("create table result of ${showCreateTable} is ${createdTableName}")
+            Thread.sleep(500);
+        } while (timeoutTimestamp > System.currentTimeMillis() && createdTableName.isEmpty())
+        if (createdTableName.isEmpty()) {
+            logger.info("create table is not success")
+        }
+        Assert.assertEquals(true, !createdTableName.isEmpty())
     }
 }
 

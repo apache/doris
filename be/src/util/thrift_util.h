@@ -135,8 +135,14 @@ Status deserialize_thrift_msg(const uint8_t* buf, uint32_t* len, bool compact,
     // Deserialize msg bytes into c++ thrift msg using memory
     // transport. TMemoryBuffer is not const-safe, although we use it in
     // a const-safe way, so we have to explicitly cast away the const.
+    auto conf = std::make_shared<apache::thrift::TConfiguration>();
+    // On Thrift 0.14.0+, need use TConfiguration to raise the max message size.
+    // max message size is 100MB default, so make it unlimited.
+    conf->setMaxMessageSize(std::numeric_limits<int>::max());
     std::shared_ptr<apache::thrift::transport::TMemoryBuffer> tmem_transport(
-            new apache::thrift::transport::TMemoryBuffer(const_cast<uint8_t*>(buf), *len));
+            new apache::thrift::transport::TMemoryBuffer(
+                    const_cast<uint8_t*>(buf), *len,
+                    apache::thrift::transport::TMemoryBuffer::OBSERVE, conf));
     std::shared_ptr<apache::thrift::protocol::TProtocol> tproto =
             create_deserialize_protocol(tmem_transport, compact);
 

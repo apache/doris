@@ -35,4 +35,5 @@ suite("basic_agg_test", "types") {
     qt_sql_quantile_state """select * from quantile_state_basic_agg;"""
 
     qt_sql_quantile_state_percent """select k1, quantile_percent(quantile_union(k2), 0.5) from quantile_state_basic_agg group by k1 order by k1;"""
+    qt_sql_quantile_state_percent2 """ select k1, quantile_state_empty(), quantile_percent(quantile_union(k2),0.5) from quantile_state_basic_agg group by k1 order by k1;  """
 }

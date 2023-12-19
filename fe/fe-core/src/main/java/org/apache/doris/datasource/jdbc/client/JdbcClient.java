@@ -67,10 +67,15 @@ public abstract class JdbcClient {
     // only used when isLowerCaseTableNames = true.
     protected final ConcurrentHashMap<String, String> lowerDBToRealDB = new ConcurrentHashMap<>();
     // only used when isLowerCaseTableNames = true.
-    protected final ConcurrentHashMap<String, String> lowerTableToRealTable = new ConcurrentHashMap<>();
+    protected final ConcurrentHashMap<String, ConcurrentHashMap<String, String>> lowerTableToRealTable
+            = new ConcurrentHashMap<>();
+    // only used when isLowerCaseTableNames = true.
+    protected final ConcurrentHashMap<String, ConcurrentHashMap<String, ConcurrentHashMap<String, String>>>
+            lowerColumnToRealColumn = new ConcurrentHashMap<>();
 
     private final AtomicBoolean dbNamesLoaded = new AtomicBoolean(false);
     private final AtomicBoolean tableNamesLoaded = new AtomicBoolean(false);
+    private final AtomicBoolean columnNamesLoaded = new AtomicBoolean(false);
 
     public static JdbcClient createJdbcClient(JdbcClientConfig jdbcClientConfig) {
         String dbType = parseDbType(jdbcClientConfig.getJdbcUrl());
@@ -149,7 +154,7 @@ public abstract class JdbcClient {
         }
     }
 
-    private static String parseDbType(String jdbcUrl) {
+    public static String parseDbType(String jdbcUrl) {
         try {
             return JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -178,7 +183,7 @@ public abstract class JdbcClient {
             if (closeable != null) {
                 try {
                     closeable.close();
-                } catch (Exception  e) {
+                } catch (Exception e) {
                     throw new JdbcClientException("Can not close : ", e);
                 }
             }
@@ -186,8 +191,10 @@ public abstract class JdbcClient {
     }
 
     // This part used to process meta-information of database, table and column.
+
     /**
      * get all database name through JDBC
+     *
      * @return list of database names
      */
     public List<String> getDatabaseNameList() {
@@ -208,6 +215,8 @@ public abstract class JdbcClient {
                 if (isLowerCaseTableNames) {
                     lowerDBToRealDB.put(databaseName.toLowerCase(), databaseName);
                     databaseName = databaseName.toLowerCase();
+                } else {
+                    lowerDBToRealDB.put(databaseName, databaseName);
                 }
                 tempDatabaseNames.add(databaseName);
             }
@@ -237,20 +246,20 @@ public abstract class JdbcClient {
      * get all tables of one database
      */
     public List<String> getTablesNameList(String dbName) {
-        String currentDbName = dbName;
         List<String> tablesName = Lists.newArrayList();
         String[] tableTypes = getTableTypes();
-        if (isLowerCaseTableNames) {
-            currentDbName = getRealDatabaseName(dbName);
-        }
-        String finalDbName = currentDbName;
+        String finalDbName = getRealDatabaseName(dbName);
         processTable(finalDbName, null, tableTypes, (rs) -> {
             try {
                 while (rs.next()) {
                     String tableName = rs.getString("TABLE_NAME");
                     if (isLowerCaseTableNames) {
-                        lowerTableToRealTable.put(tableName.toLowerCase(), tableName);
+                        lowerTableToRealTable.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
+                        lowerTableToRealTable.get(finalDbName).put(tableName.toLowerCase(), tableName);
                         tableName = tableName.toLowerCase();
+                    } else {
+                        lowerTableToRealTable.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
+                        lowerTableToRealTable.get(finalDbName).put(tableName, tableName);
                     }
                     tablesName.add(tableName);
                 }
@@ -262,16 +271,10 @@ public abstract class JdbcClient {
     }
 
     public boolean isTableExist(String dbName, String tableName) {
-        String currentDbName = dbName;
-        String currentTableName = tableName;
         final boolean[] isExist = {false};
-        if (isLowerCaseTableNames) {
-            currentDbName = getRealDatabaseName(dbName);
-            currentTableName = getRealTableName(dbName, tableName);
-        }
         String[] tableTypes = getTableTypes();
-        String finalTableName = currentTableName;
-        String finalDbName = currentDbName;
+        String finalDbName = getRealDatabaseName(dbName);
+        String finalTableName = getRealTableName(dbName, tableName);
         processTable(finalDbName, finalTableName, tableTypes, (rs) -> {
             try {
                 if (rs.next()) {
@@ -292,23 +295,25 @@ public abstract class JdbcClient {
         Connection conn = getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
-        // if isLowerCaseTableNames == true, tableName is lower case
-        // but databaseMetaData.getColumns() is case sensitive
-        String currentDbName = dbName;
-        String currentTableName = tableName;
-        if (isLowerCaseTableNames) {
-            currentDbName = getRealDatabaseName(dbName);
-            currentTableName = getRealTableName(dbName, tableName);
-        }
-        String finalDbName = currentDbName;
-        String finalTableName = currentTableName;
+        String finalDbName = getRealDatabaseName(dbName);
+        String finalTableName = getRealTableName(dbName, tableName);
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             String catalogName = getCatalogName(conn);
             rs = getColumns(databaseMetaData, catalogName, finalDbName, finalTableName);
             while (rs.next()) {
+                lowerColumnToRealColumn.putIfAbsent(finalDbName, new ConcurrentHashMap<>());
+                lowerColumnToRealColumn.get(finalDbName).putIfAbsent(finalTableName, new ConcurrentHashMap<>());
                 JdbcFieldSchema field = new JdbcFieldSchema();
-                field.setColumnName(rs.getString("COLUMN_NAME"));
+                String columnName = rs.getString("COLUMN_NAME");
+                if (isLowerCaseTableNames) {
+                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName)
+                            .put(columnName.toLowerCase(), columnName);
+                    columnName = columnName.toLowerCase();
+                } else {
+                    lowerColumnToRealColumn.get(finalDbName).get(finalTableName).put(columnName, columnName);
+                }
+                field.setColumnName(columnName);
                 field.setDataType(rs.getInt("DATA_TYPE"));
                 field.setDataTypeName(rs.getString("TYPE_NAME"));
                 /*
@@ -352,11 +357,9 @@ public abstract class JdbcClient {
     }
 
     public String getRealDatabaseName(String dbname) {
-        if (!isLowerCaseTableNames) {
-            return dbname;
-        }
-
-        if (lowerDBToRealDB.isEmpty() || !lowerDBToRealDB.containsKey(dbname)) {
+        if (lowerDBToRealDB == null
+                || lowerDBToRealDB.isEmpty()
+                || !lowerDBToRealDB.containsKey(dbname)) {
             loadDatabaseNamesIfNeeded();
         }
 
@@ -364,15 +367,34 @@ public abstract class JdbcClient {
     }
 
     public String getRealTableName(String dbName, String tableName) {
-        if (!isLowerCaseTableNames) {
-            return tableName;
-        }
-
-        if (lowerTableToRealTable.isEmpty() || !lowerTableToRealTable.containsKey(tableName)) {
+        String realDbName = getRealDatabaseName(dbName);
+        if (lowerTableToRealTable == null
+                || lowerTableToRealTable.isEmpty()
+                || !lowerTableToRealTable.containsKey(realDbName)
+                || lowerTableToRealTable.get(realDbName) == null
+                || lowerTableToRealTable.get(realDbName).isEmpty()
+                || !lowerTableToRealTable.get(realDbName).containsKey(tableName)
+                || lowerTableToRealTable.get(realDbName).get(tableName) == null) {
             loadTableNamesIfNeeded(dbName);
         }
 
-        return lowerTableToRealTable.get(tableName);
+        return lowerTableToRealTable.get(realDbName).get(tableName);
+    }
+
+    public Map<String, String> getRealColumnNames(String dbName, String tableName) {
+        String realDbName = getRealDatabaseName(dbName);
+        String realTableName = getRealTableName(dbName, tableName);
+        if (lowerColumnToRealColumn == null
+                || lowerColumnToRealColumn.isEmpty()
+                || !lowerColumnToRealColumn.containsKey(realDbName)
+                || lowerColumnToRealColumn.get(realDbName) == null
+                || lowerColumnToRealColumn.get(realDbName).isEmpty()
+                || !lowerColumnToRealColumn.get(realDbName).containsKey(realTableName)
+                || lowerColumnToRealColumn.get(realDbName).get(realTableName) == null
+                || lowerColumnToRealColumn.get(realDbName).get(realTableName).isEmpty()) {
+            loadColumnNamesIfNeeded(dbName, tableName);
+        }
+        return lowerColumnToRealColumn.get(realDbName).get(realTableName);
     }
 
     private void loadDatabaseNamesIfNeeded() {
@@ -384,6 +406,12 @@ public abstract class JdbcClient {
     private void loadTableNamesIfNeeded(String dbName) {
         if (tableNamesLoaded.compareAndSet(false, true)) {
             getTablesNameList(dbName);
+        }
+    }
+
+    private void loadColumnNamesIfNeeded(String dbName, String tableName) {
+        if (columnNamesLoaded.compareAndSet(false, true)) {
+            getJdbcColumnsInfo(dbName, tableName);
         }
     }
 
@@ -411,7 +439,7 @@ public abstract class JdbcClient {
     }
 
     protected void processTable(String dbName, String tableName, String[] tableTypes,
-                                Consumer<ResultSet> resultSetConsumer) {
+            Consumer<ResultSet> resultSetConsumer) {
         Connection conn = getConnection();
         ResultSet rs = null;
         try {
@@ -435,8 +463,26 @@ public abstract class JdbcClient {
     }
 
     protected ResultSet getColumns(DatabaseMetaData databaseMetaData, String catalogName, String schemaName,
-                                   String tableName) throws SQLException {
+            String tableName) throws SQLException {
         return databaseMetaData.getColumns(catalogName, schemaName, tableName, null);
+    }
+
+    /**
+     * Execute stmt direct via jdbc
+     * @param origStmt, the raw stmt string
+     */
+    public void executeStmt(String origStmt) {
+        Connection conn = getConnection();
+        Statement stmt = null;
+        try {
+            stmt = conn.createStatement();
+            int effectedRows = stmt.executeUpdate(origStmt);
+            LOG.debug("finished to execute dml stmt: {}, effected rows: {}", origStmt, effectedRows);
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to execute stmt. error: " + e.getMessage(), e);
+        } finally {
+            close(stmt, conn);
+        }
     }
 
     @Data
@@ -473,3 +519,4 @@ public abstract class JdbcClient {
         return ScalarType.createStringType();
     }
 }
+

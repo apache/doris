@@ -20,6 +20,7 @@ package org.apache.doris.clone;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.clone.SchedException.SubCode;
 import org.apache.doris.clone.TabletScheduler.PathSlot;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
@@ -254,7 +255,7 @@ public class PartitionRebalancer extends Rebalancer {
             if (slot.takeBalanceSlot(srcReplica.getPathHash()) != -1) {
                 tabletCtx.setSrc(srcReplica);
             } else {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                         "no slot for src replica " + srcReplica + ", pathHash " + srcReplica.getPathHash());
             }
 
@@ -272,7 +273,7 @@ public class PartitionRebalancer extends Rebalancer {
                     .map(RootPathLoadStatistic::getPathHash).collect(Collectors.toSet());
             long pathHash = slot.takeAnAvailBalanceSlotFrom(availPath);
             if (pathHash == -1) {
-                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SchedException.SubCode.WAITING_SLOT,
+                throw new SchedException(SchedException.Status.SCHEDULE_FAILED, SubCode.WAITING_SLOT,
                         "paths has no available balance slot: " + availPath);
             }
 
@@ -300,12 +301,17 @@ public class PartitionRebalancer extends Rebalancer {
     }
 
     @Override
+    public void onTabletFailed(TabletSchedCtx tabletCtx) {
+        movesCacheMap.invalidateTablet(tabletCtx);
+    }
+
+    @Override
     public Long getToDeleteReplicaId(TabletSchedCtx tabletCtx) {
         // We don't invalidate the cached move here, cuz the redundant repair progress is just started.
         // The move should be invalidated by TTL or Algo.CheckMoveCompleted()
         Pair<TabletMove, Long> pair = movesCacheMap.getTabletMove(tabletCtx);
         if (pair != null) {
-            Preconditions.checkState(pair.second != -1L);
+            //Preconditions.checkState(pair.second != -1L);
             return pair.second;
         } else {
             return (long) -1;

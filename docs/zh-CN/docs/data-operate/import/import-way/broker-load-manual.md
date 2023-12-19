@@ -351,7 +351,8 @@ Broker Load 需要借助 Broker 进程访问远端存储，不同的 Broker 需�
      
      比如一个 100G 的文件，集群的 BE 个数为 10 个
      max_broker_concurrency = 10
-     max_bytes_per_broker_scanner >= 10G = 100G / 10
+     # >= 10G = 100G / 10
+     max_bytes_per_broker_scanner = 1069547520
      ```
 
      修改后，所有的 BE 会并发的处理导入任务，每个 BE 处理原始文件的一部分。
@@ -364,7 +365,8 @@ Broker Load 需要借助 Broker 进程访问远端存储，不同的 Broker 需�
      当前导入任务单个 BE 处理的数据量 / 用户 Doris 集群最慢导入速度(MB/s) >= 当前导入任务的 timeout 时间 >= 当前导入任务单个 BE 处理的数据量 / 10M/s
      
      比如一个 100G 的文件，集群的 BE 个数为 10个
-     timeout >= 1000s = 10G / 10M/s
+     # >= 1000s = 10G / 10M/s
+     timeout = 1000
      ```
 
   3. 当用户发现第二步计算出的 timeout 时间超过系统默认的导入最大超时时间 4小时

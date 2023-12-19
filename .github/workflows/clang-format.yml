@@ -19,7 +19,7 @@
 ---
 name: BE Code Formatter
 
-on: [push, pull_request]
+on: [push, pull_request_target]
 
 jobs:
   clang-format:
@@ -27,10 +27,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
+        if: ${{ github.event_name != 'pull_request_target' }}
         uses: actions/checkout@v3
         with:
           persist-credentials: false
-          submodules: recursive
+
+      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
+        if: ${{ github.event_name == 'pull_request_target' }}
+        uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Checkout paths-filter
+        run: |
+          rm -rf ./.github/actions/paths-filter
+          git clone https://github.com/dorny/paths-filter .github/actions/paths-filter
+
+          pushd .github/actions/paths-filter &>/dev/null
+          git checkout 4512585405083f25c027a35db413c2b3b9006d50
+          popd &>/dev/null
 
       - name: Paths filter
         uses: ./.github/actions/paths-filter
@@ -40,6 +55,15 @@ jobs:
             be_changes:
               - 'be/src/**'
               - 'be/test/**'
+
+      - name: Checkout clang-format-lint-action
+        run: |
+          rm -rf ./.github/actions/clang-format-lint-action
+          git clone https://github.com/DoozyX/clang-format-lint-action .github/actions/clang-format-lint-action
+
+          pushd .github/actions/clang-format-lint-action &>/dev/null
+          git checkout 6adbe14579e5b8e19eb3e31e5ff2479f3bd302c7
+          popd &>/dev/null
 
       - name: "Format it!"
         if: ${{ steps.filter.outputs.be_changes == 'true' }}

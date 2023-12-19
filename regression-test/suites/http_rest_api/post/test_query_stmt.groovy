@@ -49,7 +49,7 @@ suite("test_query_stmt") {
     def url= "/api/query/default_cluster/" + context.config.defaultDb
 
     // test select
-    def stmt1 = """ select * from numbers('number' = '10', 'backend_num' = '1') """ 
+    def stmt1 = """ select * from numbers('number' = '10') """ 
     def stmt1_json = JsonOutput.toJson(new Stmt(stmt: stmt1));
 
     def resJson = http_post(url, stmt1_json)

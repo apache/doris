@@ -89,7 +89,7 @@ suite("test_insert") {
     
     qt_select """ select k1, k2, k3, k4, k5, k6, k8, k10, k11, k12 from ${insert_tbl_dft} """
     
-    sql 'drop table if exists f3'
+    sql 'drop table if exists t3'
     sql '''
         create table t3 (
             id int default "10"

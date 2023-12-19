@@ -252,5 +252,130 @@ suite("test_ctas") {
         sql 'drop table c'
         sql 'drop table test_date_v2'
     }
+
+    try {
+        sql '''set enable_nereids_planner=true;'''
+        sql'''CREATE TABLE `test_ctas_of_view` (
+            `l_varchar` varchar(65533) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`l_varchar`)
+        COMMENT 'OLAP\'
+        DISTRIBUTED BY HASH(`l_varchar`) BUCKETS 10
+        PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1",
+                "is_being_synced" = "false",
+                "storage_format" = "V2",
+                "light_schema_change" = "true",
+                "disable_auto_compaction" = "false",
+                "enable_single_replica_compaction" = "false"
+        );'''
+
+        sql '''insert into test_ctas_of_view values ('a');'''
+
+        sql '''CREATE VIEW `ctas_view` COMMENT 'VIEW' 
+        AS SELECT `l_varchar` AS `l_varchar_1`, 
+        CAST(row_number() OVER (ORDER BY `l_varchar` ASC NULLS FIRST) AS CHARACTER) AS `l_varchar_2` 
+        FROM test_ctas_of_view;'''
+
+        sql '''create table test_ctas 
+        PROPERTIES ( "replication_allocation" = "tag.location.default: 1") 
+        as select  l_varchar_1 
+        from ctas_view;'''
+
+        String desc = sql 'desc test_ctas'
+        assertTrue(desc.contains('Yes'))
+
+    } finally {
+        sql 'drop table test_ctas'
+        sql 'drop table test_ctas_of_view'
+        sql 'drop view ctas_view'
+    }
+
+    try {
+        sql '''set enable_nereids_planner=false;'''
+        sql '''
+            CREATE TABLE IF NOT EXISTS `ctas1` (
+                `k1` varchar(5) NULL,
+                `k2` varchar(5) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            CREATE TABLE IF NOT EXISTS `ctas2` (
+                `k1` varchar(10) NULL,
+                `k2` varchar(10) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            insert into ctas1 values('11111','11111');
+        '''
+        sql '''
+            insert into ctas2 values('1111111111','1111111111');
+        '''
+        sql '''
+            create table `ctas3`(k1, k2) 
+            PROPERTIES("replication_num" = "1") 
+            as select * from ctas1
+                union all 
+                select * from ctas2;
+        '''
+    } finally {
+        sql '''DROP TABLE IF EXISTS ctas1'''
+        sql '''DROP TABLE IF EXISTS ctas2'''
+        sql '''DROP TABLE IF EXISTS ctas3'''
+    }
+
+    try {
+        sql '''set enable_nereids_planner=true;'''
+        sql '''set enable_fallback_to_original_planner=false;'''
+        sql '''
+            CREATE TABLE IF NOT EXISTS `ctas1` (
+                `k1` varchar(5) NULL,
+                `k2` varchar(5) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            CREATE TABLE IF NOT EXISTS `ctas2` (
+                `k1` varchar(10) NULL,
+                `k2` varchar(10) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 10
+            PROPERTIES (
+                "replication_allocation" = "tag.location.default: 1"
+            );
+        '''
+        sql '''
+            insert into ctas1 values('11111','11111');
+        '''
+        sql '''
+            insert into ctas2 values('1111111111','1111111111');
+        '''
+        sql '''
+            create table `ctas3`(k1, k2) 
+            PROPERTIES("replication_num" = "1") 
+            as select * from ctas1
+                union all 
+                select * from ctas2;
+        '''
+    } finally {
+        sql '''DROP TABLE IF EXISTS ctas1'''
+        sql '''DROP TABLE IF EXISTS ctas2'''
+        sql '''DROP TABLE IF EXISTS ctas3'''
+    }
 }
 

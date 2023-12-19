@@ -31,20 +31,36 @@
 #include "vec/columns/column_const.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
+#include "vec/data_types/serde/data_type_nullable_serde.h"
 
 namespace doris {
 
 namespace vectorized {
 class IColumn;
 
-void DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
-                                                BufferWritable& bw, FormatOptions& options) const {
-    SERIALIZE_COLUMN_TO_JSON()
-}
-
-void DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+Status DataTypeHLLSerDe::serialize_column_to_json(const IColumn& column, int start_idx, int end_idx,
                                                   BufferWritable& bw,
                                                   FormatOptions& options) const {
+    SERIALIZE_COLUMN_TO_JSON();
+}
+
+Status DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row_num,
+                                                    BufferWritable& bw,
+                                                    FormatOptions& options) const {
+    if (!options._output_object_data) {
+        /**
+         * For null values in ordinary types, we use \N to represent them;
+         * for null values in nested types, we use null to represent them, just like the json format.
+         */
+        if (_nesting_level >= 2) {
+            bw.write(DataTypeNullableSerDe::NULL_IN_COMPLEX_TYPE.c_str(),
+                     strlen(NULL_IN_COMPLEX_TYPE.c_str()));
+        } else {
+            bw.write(DataTypeNullableSerDe::NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str(),
+                     strlen(NULL_IN_CSV_FOR_ORDINARY_TYPE.c_str()));
+        }
+        return Status::OK();
+    }
     auto col_row = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = col_row.first;
     row_num = col_row.second;
@@ -52,20 +68,19 @@ void DataTypeHLLSerDe::serialize_one_cell_to_json(const IColumn& column, int row
     std::unique_ptr<char[]> buf = std::make_unique<char[]>(data.max_serialized_size());
     size_t size = data.serialize((uint8*)buf.get());
     bw.write(buf.get(), size);
+    return Status::OK();
 }
 
 Status DataTypeHLLSerDe::deserialize_column_from_json_vector(IColumn& column,
                                                              std::vector<Slice>& slices,
                                                              int* num_deserialized,
-                                                             const FormatOptions& options,
-                                                             int nesting_level) const {
+                                                             const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 Status DataTypeHLLSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                        const FormatOptions& options,
-                                                        int nesting_level) const {
+                                                        const FormatOptions& options) const {
     auto& data_column = assert_cast<ColumnHLL&>(column);
 
     HyperLogLog hyper_log_log(slice);
@@ -169,6 +184,25 @@ Status DataTypeHLLSerDe::write_column_to_mysql(const IColumn& column,
                                                MysqlRowBuffer<false>& row_buffer, int row_idx,
                                                bool col_const) const {
     return _write_column_to_mysql(column, row_buffer, row_idx, col_const);
+}
+
+Status DataTypeHLLSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
+                                             const NullMap* null_map,
+                                             orc::ColumnVectorBatch* orc_col_batch, int start,
+                                             int end, std::vector<StringRef>& buffer_list) const {
+    auto& col_data = assert_cast<const ColumnHLL&>(column);
+    orc::StringVectorBatch* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
+
+    for (size_t row_id = start; row_id < end; row_id++) {
+        if (cur_batch->notNull[row_id] == 1) {
+            const auto& ele = col_data.get_data_at(row_id);
+            cur_batch->data[row_id] = const_cast<char*>(ele.data);
+            cur_batch->length[row_id] = ele.size;
+        }
+    }
+
+    cur_batch->numElements = end - start;
+    return Status::OK();
 }
 
 } // namespace vectorized

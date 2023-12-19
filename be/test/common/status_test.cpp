@@ -73,4 +73,14 @@ TEST_F(StatusTest, Error) {
     }
 }
 
+TEST_F(StatusTest /*unused*/, Format /*unused*/) {
+    // status == ok
+    Status st_ok = Status::OK();
+    EXPECT_TRUE(fmt::format("{}", st_ok).compare(fmt::format("{}", st_ok.to_string())) == 0);
+
+    // status == error
+    Status st_error = Status::InternalError("123");
+    EXPECT_TRUE(fmt::format("{}", st_error).compare(fmt::format("{}", st_error.to_string())) == 0);
+}
+
 } // namespace doris

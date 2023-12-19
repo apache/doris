@@ -22,4 +22,4 @@
 # this 'version' must be set !!!
 # otherwise the adapters will not be found after the 'dbt init xxx' command 
 
-version = "0.3.3"
+version = "0.3.4"

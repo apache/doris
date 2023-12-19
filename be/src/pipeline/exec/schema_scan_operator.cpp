@@ -40,14 +40,14 @@ Status SchemaScanOperator::open(RuntimeState* state) {
 
 Status SchemaScanOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(SourceOperator::close(state));
-    _node->close(state);
+    static_cast<void>(_node->close(state));
     return Status::OK();
 }
 
 Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
 
-    SCOPED_TIMER(profile()->total_time_counter());
+    SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<SchemaScanOperatorX>();
     _scanner_param.common_param = p._common_scanner_param;
@@ -65,13 +65,16 @@ Status SchemaScanLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         return Status::InternalError("schema scanner get nullptr pointer.");
     }
 
-    RETURN_IF_ERROR(_schema_scanner->init(&_scanner_param, state->obj_pool()));
+    return _schema_scanner->init(&_scanner_param, state->obj_pool());
+}
+
+Status SchemaScanLocalState::open(RuntimeState* state) {
     return _schema_scanner->start(state);
 }
 
-SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+SchemaScanOperatorX::SchemaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                          const DescriptorTbl& descs)
-        : Base(pool, tnode, descs),
+        : Base(pool, tnode, operator_id, descs),
           _table_name(tnode.schema_scan_node.table_name),
           _common_scanner_param(new SchemaScannerCommonParam()),
           _tuple_id(tnode.schema_scan_node.tuple_id),
@@ -208,8 +211,8 @@ Status SchemaScanOperatorX::prepare(RuntimeState* state) {
 
 Status SchemaScanOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                       SourceState& source_state) {
-    CREATE_LOCAL_STATE_RETURN_IF_ERROR(local_state);
-    SCOPED_TIMER(local_state.profile()->total_time_counter());
+    auto& local_state = get_local_state(state);
+    SCOPED_TIMER(local_state.exec_time_counter());
     RETURN_IF_CANCELLED(state);
     bool schema_eos = false;
 

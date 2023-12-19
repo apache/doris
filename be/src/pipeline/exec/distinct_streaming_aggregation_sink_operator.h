@@ -78,17 +78,12 @@ private:
 class DistinctStreamingAggSinkOperatorX;
 
 class DistinctStreamingAggSinkLocalState final
-        : public AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState> {
+        : public AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState> {
 public:
     using Parent = DistinctStreamingAggSinkOperatorX;
-    using Base = AggSinkLocalState<AggDependency, DistinctStreamingAggSinkLocalState>;
+    using Base = AggSinkLocalState<AggSinkDependency, DistinctStreamingAggSinkLocalState>;
     ENABLE_FACTORY_CREATOR(DistinctStreamingAggSinkLocalState);
     DistinctStreamingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
-    Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
-        RETURN_IF_ERROR(Base::init(state, info));
-        _shared_state->data_queue.reset(new DataQueue(1, _dependency));
-        return Status::OK();
-    }
 
     Status close(RuntimeState* state, Status exec_status) override;
     Status _distinct_pre_agg_with_serialized_key(vectorized::Block* in_block,
@@ -101,24 +96,20 @@ private:
                                               const size_t num_rows);
 
     std::unique_ptr<vectorized::Block> _output_block = vectorized::Block::create_unique();
-    std::shared_ptr<char> dummy_mapped_data = nullptr;
+    std::shared_ptr<char> dummy_mapped_data;
     vectorized::IColumn::Selector _distinct_row;
+    vectorized::Arena _arena;
     int64_t _output_distinct_rows = 0;
 };
 
 class DistinctStreamingAggSinkOperatorX final
         : public AggSinkOperatorX<DistinctStreamingAggSinkLocalState> {
 public:
-    DistinctStreamingAggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    DistinctStreamingAggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
                                       const DescriptorTbl& descs);
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-
-    WriteDependency* wait_for_dependency(RuntimeState* state) override {
-        CREATE_SINK_LOCAL_STATE_RETURN_NULL_IF_ERROR(local_state);
-        return local_state._dependency->write_blocked_by();
-    }
 };
 
 } // namespace pipeline

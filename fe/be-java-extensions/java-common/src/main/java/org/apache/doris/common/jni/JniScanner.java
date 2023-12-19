@@ -81,7 +81,7 @@ public abstract class JniScanner {
 
     public long getNextBatchMeta() throws IOException {
         if (vectorTable == null) {
-            vectorTable = new VectorTable(types, fields, predicates, batchSize);
+            vectorTable = VectorTable.createWritableTable(types, fields, batchSize);
         }
         int numRows;
         try {
@@ -107,7 +107,7 @@ public abstract class JniScanner {
     }
 
     private long getMetaAddress(int numRows) {
-        vectorTable.setNumRows(numRows);
+        assert (numRows == vectorTable.getNumRows());
         return vectorTable.getMetaAddress();
     }
 

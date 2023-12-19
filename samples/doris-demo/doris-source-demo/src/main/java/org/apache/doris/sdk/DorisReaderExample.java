@@ -166,7 +166,7 @@ public class DorisReaderExample {
                 if(!eos){
                     int i = convertArrow(next, selectedColumns);
                     offset += i;
-                    readRowCount += offset;
+                    readRowCount = offset;
                 }
             }
             //close

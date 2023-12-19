@@ -329,6 +329,10 @@ public class TableRef implements ParseNode, Writable {
         return tableSnapshot;
     }
 
+    public Boolean haveDesc() {
+        return desc != null;
+    }
+
     /**
      * This method should only be called after the TableRef has been analyzed.
      */
@@ -475,11 +479,6 @@ public class TableRef implements ParseNode, Writable {
                 && desc.getTable().getType() != TableIf.TableType.HMS_EXTERNAL_TABLE) {
             throw new AnalysisException("Sample table " + desc.getTable().getName()
                 + " type " + desc.getTable().getType() + " is not supported");
-        }
-        if (tableSample != null && TableIf.TableType.HMS_EXTERNAL_TABLE.equals(desc.getTable().getType())) {
-            if (!tableSample.isPercent()) {
-                throw new AnalysisException("HMS table doesn't support sample rows, use percent instead.");
-            }
         }
     }
 

@@ -154,7 +154,7 @@ Status BlockSpillReader::close() {
     ExecEnv::GetInstance()->block_spill_mgr()->remove(stream_id_);
     file_reader_.reset();
     if (delete_after_read_) {
-        io::global_local_filesystem()->delete_file(file_path_);
+        static_cast<void>(io::global_local_filesystem()->delete_file(file_path_));
     }
     return Status::OK();
 }

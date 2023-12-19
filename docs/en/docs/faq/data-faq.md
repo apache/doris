@@ -169,9 +169,14 @@ FROM kafka
  "property.group.id" = "xxx"
 );
 ```
+
 ### Q12. ERROR 1105 (HY000): errCode = 2, detailMessage = (192.168.90.91)[CANCELLED][INTERNAL_ERROR]error setting certificate verify locations:  CAfile: /etc/ssl/certs/ca-certificates.crt CApath: none
 
 ```
 yum install -y ca-certificates
 ln -s /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt /etc/ssl/certs/ca-certificates.crt
 ```
+
+### Q13. create partition failed. partition numbers will exceed limit variable max_auto_partition_num
+
+To prevent accidental creation of too many partitions when importing data for auto-partitioned tables, we use the FE configuration item `max_auto_partition_num` to control the maximum number of partitions to be created automatically for such tables. If you really need to create more partitions, please modify this config item of FE Master node.

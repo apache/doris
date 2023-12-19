@@ -48,8 +48,6 @@ constexpr uint8_t KEY_MINIMAL_MARKER = 0x00;
 constexpr uint8_t KEY_NULL_FIRST_MARKER = 0x01;
 // Used to represent a normal field, which content is encoded after this marker
 constexpr uint8_t KEY_NORMAL_MARKER = 0x02;
-// Used to represent
-constexpr uint8_t KEY_NULL_LAST_MARKER = 0xFE;
 // Used to represent maximal value for that field
 constexpr uint8_t KEY_MAXIMAL_MARKER = 0xFF;
 
@@ -61,7 +59,7 @@ constexpr uint8_t KEY_MAXIMAL_MARKER = 0xFF;
 // If all num_keys are found in row, no marker will be added.
 // if padding_minimal is false and padding_normal_marker is true,
 // KEY_NORMAL_MARKER will be added.
-template <typename RowType, bool null_first = true, bool full_encode = false>
+template <typename RowType, bool full_encode = false>
 void encode_key_with_padding(std::string* buf, const RowType& row, size_t num_keys,
                              bool padding_minimal, bool padding_normal_marker = false) {
     for (auto cid = 0; cid < num_keys; cid++) {
@@ -80,11 +78,7 @@ void encode_key_with_padding(std::string* buf, const RowType& row, size_t num_ke
 
         auto cell = row.cell(cid);
         if (cell.is_null()) {
-            if (null_first) {
-                buf->push_back(KEY_NULL_FIRST_MARKER);
-            } else {
-                buf->push_back(KEY_NULL_LAST_MARKER);
-            }
+            buf->push_back(KEY_NULL_FIRST_MARKER);
             continue;
         }
         buf->push_back(KEY_NORMAL_MARKER);
@@ -99,16 +93,12 @@ void encode_key_with_padding(std::string* buf, const RowType& row, size_t num_ke
 // Encode one row into binary according given num_keys.
 // Client call this function must assure that row contains the first
 // num_keys columns.
-template <typename RowType, bool null_first = true, bool full_encode = false>
+template <typename RowType, bool full_encode = false>
 void encode_key(std::string* buf, const RowType& row, size_t num_keys) {
     for (auto cid = 0; cid < num_keys; cid++) {
         auto cell = row.cell(cid);
         if (cell.is_null()) {
-            if (null_first) {
-                buf->push_back(KEY_NULL_FIRST_MARKER);
-            } else {
-                buf->push_back(KEY_NULL_LAST_MARKER);
-            }
+            buf->push_back(KEY_NULL_FIRST_MARKER);
             continue;
         }
         buf->push_back(KEY_NORMAL_MARKER);

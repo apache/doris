@@ -18,6 +18,7 @@
 package org.apache.doris.task;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.datasource.property.constants.S3Properties;
@@ -62,8 +63,9 @@ public class PushStoragePolicyTask extends AgentTask {
                 StoragePolicy storagePolicy = (StoragePolicy) p;
                 String resourceName = storagePolicy.getStorageResource();
                 Resource resource = Env.getCurrentEnv().getResourceMgr().getResource(resourceName);
-                if (resource == null || resource.getType() != ResourceType.S3) {
-                    LOG.warn("can't find s3 resource by name {}", resourceName);
+                if (resource == null || (resource.getType() != ResourceType.S3
+                        && resource.getType() != ResourceType.HDFS)) {
+                    LOG.warn("can't find s3 resource or hdfs resource by name {}", resourceName);
                     return;
                 }
                 item.setResourceId(resource.getId());
@@ -85,7 +87,11 @@ public class PushStoragePolicyTask extends AgentTask {
             item.setId(r.getId());
             item.setName(r.getName());
             item.setVersion(r.getVersion());
-            item.setS3StorageParam(S3Properties.getS3TStorageParam(r.getCopiedProperties()));
+            if (r.getType() == ResourceType.S3) {
+                item.setS3StorageParam(S3Properties.getS3TStorageParam(r.getCopiedProperties()));
+            } else if (r.getType() == ResourceType.HDFS) {
+                item.setHdfsStorageParam(HdfsResource.generateHdfsParam(r.getCopiedProperties()));
+            }
             r.readUnlock();
             tStorageResources.add(item);
         });

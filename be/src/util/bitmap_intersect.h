@@ -54,8 +54,7 @@ public:
 };
 
 template <>
-char* Helper::write_to<vectorized::VecDateTimeValue>(const vectorized::VecDateTimeValue& v,
-                                                     char* dest) {
+char* Helper::write_to<VecDateTimeValue>(const VecDateTimeValue& v, char* dest) {
     *(int64_t*)dest = v.to_int64_datetime_packed();
     dest += DATETIME_PACKED_TIME_BYTE_SIZE;
     *(int*)dest = v.type();
@@ -91,8 +90,7 @@ char* Helper::write_to<std::string>(const std::string& v, char* dest) {
 // write_to end
 
 template <>
-int32_t Helper::serialize_size<vectorized::VecDateTimeValue>(
-        const vectorized::VecDateTimeValue& v) {
+int32_t Helper::serialize_size<VecDateTimeValue>(const VecDateTimeValue& v) {
     return Helper::DATETIME_PACKED_TIME_BYTE_SIZE + Helper::DATETIME_TYPE_BYTE_SIZE;
 }
 
@@ -113,8 +111,7 @@ int32_t Helper::serialize_size<std::string>(const std::string& v) {
 // serialize_size end
 
 template <>
-void Helper::read_from<vectorized::VecDateTimeValue>(const char** src,
-                                                     vectorized::VecDateTimeValue* result) {
+void Helper::read_from<VecDateTimeValue>(const char** src, VecDateTimeValue* result) {
     result->from_packed_time(*(int64_t*)(*src));
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
     if (*(int*)(*src) == TIME_DATE) {

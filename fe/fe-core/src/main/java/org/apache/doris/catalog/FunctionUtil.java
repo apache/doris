@@ -19,8 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.SetType;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -216,15 +216,13 @@ public class FunctionUtil {
      * @return
      * @throws AnalysisException
      */
-    public static String reAcquireDbName(Analyzer analyzer, String dbName, String clusterName)
+    public static String reAcquireDbName(Analyzer analyzer, String dbName)
             throws AnalysisException {
         if (Strings.isNullOrEmpty(dbName)) {
             dbName = analyzer.getDefaultDb();
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(clusterName, dbName);
         }
         return dbName;
     }
@@ -256,5 +254,17 @@ public class FunctionUtil {
                     function.getName(), e);
         }
         return false;
+    }
+
+    public static void checkEnableJavaUdf() throws AnalysisException {
+        if (!Config.enable_java_udf) {
+            throw new AnalysisException("java_udf has been disabled.");
+        }
+    }
+
+    public static void checkEnableJavaUdfForNereids() {
+        if (!Config.enable_java_udf) {
+            throw new org.apache.doris.nereids.exceptions.AnalysisException("java_udf has been disabled.");
+        }
     }
 }

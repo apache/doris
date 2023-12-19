@@ -69,3 +69,29 @@
 -- !sql --
 2	[20, 30, 40]	["i", "love", "north korea"]
 
+-- !sql --
+1	[10, 20, 30]	["i", "love", "china"]
+
+-- !sql --
+1	[10, 20, 30]	["i", "love", "china"]
+2	[20, 30, 40]	["i", "love", "north korea"]
+
+-- !sql --
+2	[20, 30, 40]	["i", "love", "north korea"]
+
+-- !sql --
+2	[20, 30, 40]	["i", "love", "north korea"]
+
+-- !sql --
+1	[10, 20, 30]	["i", "love", "china"]
+
+-- !sql --
+1	[10, 20, 30]	["i", "love", "china"]
+2	[20, 30, 40]	["i", "love", "north korea"]
+
+-- !sql --
+2	[20, 30, 40]	["i", "love", "north korea"]
+
+-- !sql --
+2	[20, 30, 40]	["i", "love", "north korea"]
+

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 import org.apache.doris.planner.PlanNodeId;
@@ -221,7 +222,8 @@ public class HudiScanNode extends HiveScanNode {
 
         List<String> columnNames = new ArrayList<>();
         List<String> columnTypes = new ArrayList<>();
-        List<FieldSchema> allFields = hmsTable.getRemoteTable().getSd().getCols();
+        List<FieldSchema> allFields = Lists.newArrayList();
+        allFields.addAll(hmsTable.getRemoteTable().getSd().getCols());
         allFields.addAll(hmsTable.getRemoteTable().getPartitionKeys());
 
         for (Schema.Field hudiField : hudiSchema.getFields()) {
@@ -284,8 +286,11 @@ public class HudiScanNode extends HiveScanNode {
                     noLogsSplitNum.incrementAndGet();
                     String filePath = baseFile.getPath();
                     long fileSize = baseFile.getFileSize();
-                    splits.add(new FileSplit(new Path(filePath), 0, fileSize, fileSize, new String[0],
-                            partition.getPartitionValues()));
+                    // Need add hdfs host to location
+                    LocationPath locationPath = new LocationPath(filePath, hmsTable.getCatalogProperties());
+                    Path splitFilePath = locationPath.toScanRangeLocation();
+                    splits.add(new FileSplit(splitFilePath, 0, fileSize, fileSize,
+                            new String[0], partition.getPartitionValues()));
                 });
             } else {
                 fileSystemView.getLatestMergedFileSlicesBeforeOrOn(partitionName, queryInstant).forEach(fileSlice -> {

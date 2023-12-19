@@ -29,30 +29,20 @@ import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.property.constants.HMSProperties;
-import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.RemoteFiles;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
-import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Queues;
 import org.apache.avro.Schema;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
@@ -60,11 +50,9 @@ import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.MetaException;
-import org.apache.hadoop.hive.metastore.api.Partition;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.exec.FunctionRegistry;
-import org.apache.hadoop.hive.ql.exec.SerializationUtilities;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
 import org.apache.hadoop.hive.ql.plan.ExprNodeConstantDesc;
@@ -94,7 +82,6 @@ import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -173,123 +160,6 @@ public class HiveMetaStoreClientHelper {
             throw new DdlException("Create HiveMetaStoreClient failed: " + e.getMessage());
         }
         return metaStoreClient;
-    }
-
-    /**
-     * Get data files of partitions in hive table, filter by partition predicate.
-     *
-     * @param hiveTable
-     * @param hivePartitionPredicate
-     * @param fileStatuses
-     * @param remoteHiveTbl
-     * @return
-     * @throws DdlException
-     */
-    public static String getHiveDataFiles(HiveTable hiveTable, ExprNodeGenericFuncDesc hivePartitionPredicate,
-            List<TBrokerFileStatus> fileStatuses, Table remoteHiveTbl, StorageBackend.StorageType type)
-            throws DdlException {
-        RemoteFileSystem fs = FileSystemFactory.get("HiveMetaStore", type, hiveTable.getHiveProperties());
-        List<RemoteFiles> remoteLocationsList = new ArrayList<>();
-        try {
-            if (remoteHiveTbl.getPartitionKeys().size() > 0) {
-                String metaStoreUris = hiveTable.getHiveProperties().get(HMSProperties.HIVE_METASTORE_URIS);
-                // hive partitioned table, get file iterator from table partition sd info
-                List<Partition> hivePartitions = getHivePartitions(metaStoreUris, remoteHiveTbl,
-                        hivePartitionPredicate);
-                for (Partition p : hivePartitions) {
-                    String location = normalizeS3LikeSchema(p.getSd().getLocation());
-                    remoteLocationsList.add(fs.listLocatedFiles(location));
-                }
-            } else {
-                // hive non-partitioned table, get file iterator from table sd info
-                String location = normalizeS3LikeSchema(remoteHiveTbl.getSd().getLocation());
-                remoteLocationsList.add(fs.listLocatedFiles(location));
-            }
-            return getAllFileStatus(fileStatuses, remoteLocationsList, fs);
-        } catch (UserException e) {
-            throw new DdlException(e.getMessage(), e);
-        }
-    }
-
-    public static String normalizeS3LikeSchema(String location) {
-        String[] objectStorages = Config.s3_compatible_object_storages.split(",");
-        for (String objectStorage : objectStorages) {
-            if (location.startsWith(objectStorage + "://")) {
-                location = location.replaceFirst(objectStorage, "s3");
-                break;
-            }
-        }
-        return location;
-    }
-
-    private static String getAllFileStatus(List<TBrokerFileStatus> fileStatuses,
-            List<RemoteFiles> remoteLocationsList, RemoteFileSystem fs)
-            throws UserException {
-        String hdfsUrl = "";
-        Queue<RemoteFiles> queue = Queues.newArrayDeque(remoteLocationsList);
-        while (queue.peek() != null) {
-            RemoteFiles locs = queue.poll();
-            try {
-                for (RemoteFile fileLocation : locs.files()) {
-                    Path filePath = fileLocation.getPath();
-                    // hdfs://host:port/path/to/partition/file_name
-                    String fullUri = filePath.toString();
-                    if (fileLocation.isDirectory()) {
-                        // recursive visit the directory to get the file path.
-                        queue.add(fs.listLocatedFiles(fullUri));
-                        continue;
-                    }
-                    TBrokerFileStatus brokerFileStatus = new TBrokerFileStatus();
-                    brokerFileStatus.setIsDir(fileLocation.isDirectory());
-                    brokerFileStatus.setIsSplitable(true);
-                    brokerFileStatus.setSize(fileLocation.getSize());
-                    brokerFileStatus.setModificationTime(fileLocation.getModificationTime());
-                    // filePath.toUri().getPath() = "/path/to/partition/file_name"
-                    // eg: /home/work/dev/hive/apache-hive-2.3.7-bin/data/warehouse
-                    //     + /dae.db/customer/state=CA/city=SanJose/000000_0
-                    // fullUri: Backend need full s3 path (with s3://bucket at the beginning) to read the data on s3.
-                    // path = "s3://bucket/path/to/partition/file_name"
-                    // eg: s3://hive-s3-test/region/region.tbl
-                    String path = fs.needFullPath() ? fullUri : filePath.toUri().getPath();
-                    brokerFileStatus.setPath(path);
-                    fileStatuses.add(brokerFileStatus);
-                    if (StringUtils.isEmpty(hdfsUrl)) {
-                        // hdfs://host:port
-                        hdfsUrl = fullUri.replace(path, "");
-                    }
-                }
-            } catch (UserException e) {
-                LOG.warn("List HDFS file IOException: {}", e.getMessage());
-                throw new DdlException("List HDFS file failed. Error: " + e.getMessage());
-            }
-        }
-        return hdfsUrl;
-    }
-
-    /**
-     * list partitions from hiveMetaStore.
-     *
-     * @param metaStoreUris hiveMetaStore uris
-     * @param remoteHiveTbl Hive table
-     * @param hivePartitionPredicate filter when list partitions
-     * @return a list of hive partitions
-     * @throws DdlException when connect hiveMetaStore failed.
-     */
-    public static List<Partition> getHivePartitions(String metaStoreUris, Table remoteHiveTbl,
-            ExprNodeGenericFuncDesc hivePartitionPredicate) throws DdlException {
-        List<Partition> hivePartitions = new ArrayList<>();
-        IMetaStoreClient client = getClient(metaStoreUris);
-        try {
-            client.listPartitionsByExpr(remoteHiveTbl.getDbName(), remoteHiveTbl.getTableName(),
-                    SerializationUtilities.serializeExpressionToKryo(hivePartitionPredicate),
-                    null, (short) -1, hivePartitions);
-        } catch (TException e) {
-            LOG.warn("Hive metastore thrift exception: {}", e.getMessage());
-            throw new DdlException("Connect hive metastore failed: " + e.getMessage());
-        } finally {
-            client.close();
-        }
-        return hivePartitions;
     }
 
     public static Table getTable(HiveTable hiveTable) throws DdlException {

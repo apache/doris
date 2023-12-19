@@ -98,9 +98,11 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
                     toString() + " does not fit tablet with size: " + tabletSize + ", offline");
         }
 
+        double newUsagePerc = (usedCapacityB + tabletSize) / (double) capacityB;
+        long newLeftCapacity = capacityB - usedCapacityB - tabletSize;
         if (isSupplement) {
-            if ((usedCapacityB + tabletSize) / (double) capacityB > (Config.storage_flood_stage_usage_percent / 100.0)
-                    && capacityB - usedCapacityB - tabletSize < Config.storage_flood_stage_left_capacity_bytes) {
+            if (newUsagePerc > (Config.storage_flood_stage_usage_percent / 100.0)
+                    || newLeftCapacity < Config.storage_flood_stage_left_capacity_bytes) {
                 return new BalanceStatus(ErrCode.COMMON_ERROR,
                         toString() + " does not fit tablet with size: " + tabletSize + ", limitation reached");
             } else {
@@ -108,8 +110,8 @@ public class RootPathLoadStatistic implements Comparable<RootPathLoadStatistic> 
             }
         }
 
-        if ((usedCapacityB + tabletSize) / (double) capacityB > (Config.storage_high_watermark_usage_percent / 100.0)
-                || capacityB - usedCapacityB - tabletSize < Config.storage_min_left_capacity_bytes) {
+        if (newUsagePerc > (Config.storage_high_watermark_usage_percent / 100.0)
+                || newLeftCapacity < Config.storage_min_left_capacity_bytes) {
             return new BalanceStatus(ErrCode.COMMON_ERROR,
                     toString() + " does not fit tablet with size: " + tabletSize);
         }

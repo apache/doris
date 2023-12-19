@@ -37,7 +37,7 @@ Status Pipeline::build_operators() {
     for (auto& operator_t : _operator_builders) {
         auto o = operator_t->build_operator();
         if (pre) {
-            o->set_child(pre);
+            static_cast<void>(o->set_child(pre));
         }
         _operators.emplace_back(o);
         pre = std::move(o);

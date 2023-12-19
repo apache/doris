@@ -75,16 +75,16 @@ if [[ "$(uname -s)" != 'Darwin' ]]; then
         echo "Please set vm.max_map_count to be 2000000 under root using 'sysctl -w vm.max_map_count=2000000'."
         exit 1
     fi
+
+    if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
+        echo "Please disable swap memory before installation."
+        exit 1
+    fi
 fi
 
 MAX_FILE_COUNT="$(ulimit -n)"
-if [[ "${MAX_FILE_COUNT}" -lt 65536 ]]; then
-    echo "Please set the maximum number of open file descriptors to be 65536 using 'ulimit -n 65536'."
-    exit 1
-fi
-
-if [[ "$(swapon -s | wc -l)" -gt 1 ]]; then
-    echo "Please disable swap memory before installation."
+if [[ "${MAX_FILE_COUNT}" -lt 60000 ]]; then
+    echo "Please set the maximum number of open file descriptors larger than 60000, eg: 'ulimit -n 60000'."
     exit 1
 fi
 
@@ -118,7 +118,7 @@ if [[ -d "${DORIS_HOME}/lib/hadoop_hdfs/" ]]; then
     done
 fi
 
-# add custome_libs to CLASSPATH
+# add custom_libs to CLASSPATH
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then
     for f in "${DORIS_HOME}/custom_lib"/*.jar; do
         DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
@@ -208,6 +208,13 @@ if [[ -z "${JAVA_HOME}" ]]; then
     echo "You can set it in be.conf"
     exit 1
 fi
+
+for var in http_proxy HTTP_PROXY https_proxy HTTPS_PROXY; do
+    if [[ -n ${!var} ]]; then
+        echo "env '${var}' = '${!var}', need unset it using 'unset ${var}'"
+        exit 1
+    fi
+done
 
 if [[ ! -d "${LOG_DIR}" ]]; then
     mkdir -p "${LOG_DIR}"

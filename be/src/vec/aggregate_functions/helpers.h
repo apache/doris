@@ -45,7 +45,8 @@
     M(Decimal32)             \
     M(Decimal64)             \
     M(Decimal128)            \
-    M(Decimal128I)
+    M(Decimal128I)           \
+    M(Decimal256)
 
 /** If the serialized type is not the default type(string),
  * aggregation function need to override these functions:
@@ -112,17 +113,17 @@ struct creator_without_type {
     }
 
     template <typename AggregateFunctionTemplate, typename... TArgs>
-    static AggregateFunctionPtr create(const DataTypes& argument_types,
+    static AggregateFunctionPtr create(const DataTypes& argument_types_,
                                        const bool result_is_nullable, TArgs&&... args) {
         IAggregateFunction* result(new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
-                                                                 remove_nullable(argument_types)));
-        if (have_nullable(argument_types)) {
+                                                                 remove_nullable(argument_types_)));
+        if (have_nullable(argument_types_)) {
             std::visit(
                     [&](auto multi_arguments, auto result_is_nullable) {
                         result = new NullableT<multi_arguments, result_is_nullable,
-                                               AggregateFunctionTemplate>(result, argument_types);
+                                               AggregateFunctionTemplate>(result, argument_types_);
                     },
-                    make_bool_variant(argument_types.size() > 1),
+                    make_bool_variant(argument_types_.size() > 1),
                     make_bool_variant(result_is_nullable));
         }
 
@@ -133,11 +134,11 @@ struct creator_without_type {
     /// AggregateFunctionTemplate will handle the nullable arguments, no need to use
     /// AggregateFunctionNullVariadicInline/AggregateFunctionNullUnaryInline
     template <typename AggregateFunctionTemplate, typename... TArgs>
-    static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types,
+    static AggregateFunctionPtr create_ignore_nullable(const DataTypes& argument_types_,
                                                        const bool /*result_is_nullable*/,
                                                        TArgs&&... args) {
         IAggregateFunction* result(
-                new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types));
+                new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types_));
         CHECK_AGG_FUNCTION_SERIALIZED_TYPE(AggregateFunctionTemplate);
         return AggregateFunctionPtr(result);
     }

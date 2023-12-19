@@ -52,7 +52,7 @@ There are two ways to view the configuration items of FE:
 
 1. FE web page
 
-    Open the FE web page `http://fe_host:fe_http_port/variable` in the browser. You can see the currently effective FE configuration items in `Configure Info`.
+    Open the FE web page `http://fe_host:fe_http_port/Configure` in the browser. You can see the currently effective FE configuration items in `Configure Info`.
 
 2. View by command
 

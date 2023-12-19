@@ -26,6 +26,8 @@
 namespace doris {
 
 class TaskWorkerPool;
+class PriorTaskWorkerPool;
+class ReportWorker;
 class TopicSubscriber;
 class ExecEnv;
 class TAgentPublishRequest;
@@ -52,7 +54,11 @@ public:
     // [[deprecated]]
     void publish_cluster_state(TAgentResult& agent_result, const TAgentPublishRequest& request);
 
+    TopicSubscriber* get_topic_subscriber() { return _topic_subscriber.get(); }
+
 private:
+    void start_workers(ExecEnv* exec_env);
+
     DISALLOW_COPY_AND_ASSIGN(AgentServer);
 
     // Reference to the ExecEnv::_master_info
@@ -60,7 +66,7 @@ private:
 
     std::unique_ptr<TaskWorkerPool> _create_tablet_workers;
     std::unique_ptr<TaskWorkerPool> _drop_tablet_workers;
-    std::unique_ptr<TaskWorkerPool> _push_load_workers;
+    std::unique_ptr<PriorTaskWorkerPool> _push_load_workers;
     std::unique_ptr<TaskWorkerPool> _publish_version_workers;
     std::unique_ptr<TaskWorkerPool> _clear_transaction_task_workers;
     std::unique_ptr<TaskWorkerPool> _push_delete_workers;
@@ -73,9 +79,9 @@ private:
 
     // These 3 worker-pool do not accept tasks from FE.
     // It is self triggered periodically and reports to Fe master
-    std::unique_ptr<TaskWorkerPool> _report_task_workers;
-    std::unique_ptr<TaskWorkerPool> _report_disk_state_workers;
-    std::unique_ptr<TaskWorkerPool> _report_tablet_workers;
+    std::unique_ptr<ReportWorker> _report_task_workers;
+    std::unique_ptr<ReportWorker> _report_disk_state_workers;
+    std::unique_ptr<ReportWorker> _report_tablet_workers;
 
     std::unique_ptr<TaskWorkerPool> _upload_workers;
     std::unique_ptr<TaskWorkerPool> _download_workers;

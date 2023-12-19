@@ -26,11 +26,13 @@ RuntimeFilterConsumer::RuntimeFilterConsumer(const int32_t filter_id,
         : _filter_id(filter_id),
           _runtime_filter_descs(runtime_filters),
           _row_descriptor_ref(row_descriptor),
-          _conjuncts_ref(conjuncts) {}
+          _conjuncts_ref(conjuncts) {
+    _blocked_by_rf = std::make_shared<std::atomic_bool>(false);
+}
 
-Status RuntimeFilterConsumer::init(RuntimeState* state) {
+Status RuntimeFilterConsumer::init(RuntimeState* state, int parallel_tasks) {
     _state = state;
-    RETURN_IF_ERROR(_register_runtime_filter());
+    RETURN_IF_ERROR(_register_runtime_filter(parallel_tasks));
     return Status::OK();
 }
 
@@ -43,7 +45,7 @@ void RuntimeFilterConsumer::_init_profile(RuntimeProfile* profile) {
     profile->add_info_string("RuntimeFilters: ", ss.str());
 }
 
-Status RuntimeFilterConsumer::_register_runtime_filter() {
+Status RuntimeFilterConsumer::_register_runtime_filter(int parallel_tasks) {
     int filter_size = _runtime_filter_descs.size();
     _runtime_filter_ctxs.reserve(filter_size);
     _runtime_filter_ready_flag.reserve(filter_size);
@@ -72,7 +74,7 @@ Status RuntimeFilterConsumer::_register_runtime_filter() {
 }
 
 bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
-    if (!_blocked_by_rf) {
+    if (!*_blocked_by_rf) {
         return true;
     }
     for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
@@ -81,8 +83,17 @@ bool RuntimeFilterConsumer::runtime_filters_are_ready_or_timeout() {
             return false;
         }
     }
-    _blocked_by_rf = false;
+    *_blocked_by_rf = false;
     return true;
+}
+
+void RuntimeFilterConsumer::init_runtime_filter_dependency(
+        doris::pipeline::RuntimeFilterDependency* _runtime_filter_dependency) {
+    _runtime_filter_dependency->set_blocked_by_rf(_blocked_by_rf);
+    for (size_t i = 0; i < _runtime_filter_descs.size(); ++i) {
+        IRuntimeFilter* runtime_filter = _runtime_filter_ctxs[i].runtime_filter;
+        _runtime_filter_dependency->add_filters(runtime_filter);
+    }
 }
 
 Status RuntimeFilterConsumer::_acquire_runtime_filter() {
@@ -99,14 +110,14 @@ Status RuntimeFilterConsumer::_acquire_runtime_filter() {
             _runtime_filter_ctxs[i].apply_mark = true;
         } else if (runtime_filter->current_state() == RuntimeFilterState::NOT_READY &&
                    !_runtime_filter_ctxs[i].apply_mark) {
-            _blocked_by_rf = true;
+            *_blocked_by_rf = true;
         } else if (!_runtime_filter_ctxs[i].apply_mark) {
             DCHECK(runtime_filter->current_state() != RuntimeFilterState::NOT_READY);
             _is_all_rf_applied = false;
         }
     }
     RETURN_IF_ERROR(_append_rf_into_conjuncts(vexprs));
-    if (_blocked_by_rf) {
+    if (*_blocked_by_rf) {
         return Status::WaitForRf("Runtime filters are neither not ready nor timeout");
     }
 

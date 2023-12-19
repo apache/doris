@@ -30,7 +30,7 @@ Status MysqlScanOperator::open(RuntimeState* state) {
 
 Status MysqlScanOperator::close(RuntimeState* state) {
     RETURN_IF_ERROR(SourceOperator::close(state));
-    _node->close(state);
+    static_cast<void>(_node->close(state));
     return Status::OK();
 }
 

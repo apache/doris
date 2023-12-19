@@ -26,6 +26,7 @@
 #include <ostream>
 #include <vector>
 
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
@@ -124,7 +125,8 @@ std::string get_content_type(const std::string& file_name) {
     return "";
 }
 
-void do_file_response(const std::string& file_path, HttpRequest* req) {
+void do_file_response(const std::string& file_path, HttpRequest* req,
+                      bufferevent_rate_limit_group* rate_limit_group) {
     if (file_path.find("..") != std::string::npos) {
         LOG(WARNING) << "Not allowed to read relative path: " << file_path;
         HttpChannel::send_error(req, HttpStatus::FORBIDDEN);
@@ -165,7 +167,7 @@ void do_file_response(const std::string& file_path, HttpRequest* req) {
         return;
     }
 
-    HttpChannel::send_file(req, fd, 0, file_size);
+    HttpChannel::send_file(req, fd, 0, file_size, rate_limit_group);
 }
 
 void do_dir_response(const std::string& dir_path, HttpRequest* req) {
@@ -186,6 +188,22 @@ void do_dir_response(const std::string& dir_path, HttpRequest* req) {
 
     std::string result_str = result.str();
     HttpChannel::send_reply(req, result_str);
+}
+
+bool load_size_smaller_than_wal_limit(HttpRequest* req) {
+    // 1. req->header(HttpHeaders::CONTENT_LENGTH) will return streamload content length. If it is empty or equels to 0, it means this streamload
+    // is a chunked streamload and we are not sure its size.
+    // 2. if streamload content length is too large, like larger than 80% of the WAL constrain.
+    //
+    // This two cases, we are not certain that the Write-Ahead Logging (WAL) constraints allow for writing down
+    // these blocks within the limited space. So we need to set group_commit = false to avoid dead lock.
+    if (!req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+        size_t body_bytes = std::stol(req->header(HttpHeaders::CONTENT_LENGTH));
+        // TODO(Yukang): change it to WalManager::wal_limit
+        return (body_bytes <= config::wal_max_disk_size * 0.8) && (body_bytes != 0);
+    } else {
+        return false;
+    }
 }
 
 } // namespace doris

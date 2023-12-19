@@ -95,6 +95,7 @@ clean_be() {
 
     rm -rf "${CMAKE_BUILD_DIR}"
     rm -rf "${DORIS_HOME}/be/output"
+    rm -rf "${DORIS_HOME}/zoneinfo"
     popd
 }
 
@@ -280,6 +281,13 @@ update_submodule() {
     echo "Update ${submodule_name} submodule ..."
     git submodule update --init --recursive "${submodule_path}"
     exit_code=$?
+    if [[ "${exit_code}" -eq 0 ]]; then
+        cd "${submodule_path}"
+        submodule_commit_id=$(git rev-parse HEAD)
+        cd -
+        expect_submodule_commit_id=$(git ls-tree HEAD "${submodule_path}" | awk '{print $3}')
+        echo "Current commit ID of ${submodule_name} submodule: ${submodule_commit_id}, expected is ${expect_submodule_commit_id}"
+    fi
     set -e
     if [[ "${exit_code}" -ne 0 ]]; then
         set +e
@@ -298,9 +306,6 @@ update_submodule() {
         curl -L "${commit_specific_url}" | tar -xz -C "${DORIS_HOME}/${submodule_path}" --strip-components=1
     fi
 }
-
-update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
-update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
     clean_gensrc
@@ -477,6 +482,8 @@ FE_MODULES="$(
 
 # Clean and build Backend
 if [[ "${BUILD_BE}" -eq 1 ]]; then
+    update_submodule "be/src/apache-orc" "apache-orc" "https://github.com/apache/doris-thirdparty/archive/refs/heads/orc.tar.gz"
+    update_submodule "be/src/clucene" "clucene" "https://github.com/apache/doris-thirdparty/archive/refs/heads/clucene.tar.gz"
     if [[ -e "${DORIS_HOME}/gensrc/build/gen_cpp/version.h" ]]; then
         rm -f "${DORIS_HOME}/gensrc/build/gen_cpp/version.h"
     fi
@@ -518,7 +525,6 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DENABLE_PCH="${ENABLE_PCH}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
-        -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
@@ -584,9 +590,9 @@ if [[ "${FE_MODULES}" != '' ]]; then
         clean_fe
     fi
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}}
     else
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}}
     fi
     cd "${DORIS_HOME}"
 fi
@@ -634,6 +640,12 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/be/output/bin"/* "${DORIS_OUTPUT}/be/bin"/
     cp -r -p "${DORIS_HOME}/be/output/conf"/* "${DORIS_OUTPUT}/be/conf"/
     cp -r -p "${DORIS_HOME}/be/output/dict" "${DORIS_OUTPUT}/be/"
+    if [[ ! -r "${DORIS_HOME}/zoneinfo/Africa/Abidjan" ]]; then
+        rm -rf "${DORIS_HOME}/zoneinfo"
+        echo "Generating zoneinfo files"
+        tar -xzf "${DORIS_HOME}/resource/zoneinfo.tar.gz" -C "${DORIS_HOME}"/
+    fi
+    cp -r -p "${DORIS_HOME}/zoneinfo" "${DORIS_OUTPUT}/be/"
 
     if [[ -d "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" ]]; then
         cp -r -p "${DORIS_THIRDPARTY}/installed/lib/hadoop_hdfs/" "${DORIS_OUTPUT}/be/lib/"
@@ -656,6 +668,10 @@ EOF
     # See: https://stackoverflow.com/questions/67378106/mac-m1-cping-binary-over-another-results-in-crash
     rm -f "${DORIS_OUTPUT}/be/lib/doris_be"
     cp -r -p "${DORIS_HOME}/be/output/lib/doris_be" "${DORIS_OUTPUT}/be/lib"/
+    if [[ -d "${DORIS_HOME}/be/output/lib/doris_be.dSYM" ]]; then
+        rm -rf "${DORIS_OUTPUT}/be/lib/doris_be.dSYM"
+        cp -r "${DORIS_HOME}/be/output/lib/doris_be.dSYM" "${DORIS_OUTPUT}/be/lib"/
+    fi
     if [[ -f "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" ]]; then
         cp -r -p "${DORIS_HOME}/be/output/lib/fs_benchmark_tool" "${DORIS_OUTPUT}/be/lib"/
     fi

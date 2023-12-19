@@ -56,7 +56,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.SqlModeHelper;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -84,7 +83,6 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.TimeUnit;
@@ -133,10 +131,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     // optional
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
-
-    // The rollup job will wait all transactions before this txn id finished, then send the rollup tasks.
-    @SerializedName(value = "watershedTxnId")
-    protected long watershedTxnId = -1;
 
     // save all create rollup tasks
     private AgentBatchTask rollupBatchTask = new AgentBatchTask();
@@ -197,15 +191,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         } catch (MetaNotFoundException e) {
             throw new AnalysisException("error happens when parsing create materialized view stmt: " + origStmt, e);
         }
-        String clusterName = db.getClusterName();
-        // It's almost impossible that db's cluster name is null, just in case
-        // because before user want to create database, he must first enter a cluster
-        // which means that cluster is set to current ConnectContext
-        // then when createDBStmt is executed, cluster name is set to Database
-        if (clusterName == null || clusterName.length() == 0) {
-            clusterName = SystemInfoService.DEFAULT_CLUSTER;
-        }
-        connectContext.setCluster(clusterName);
         connectContext.setDatabase(db.getFullName());
         analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
     }
@@ -473,6 +458,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
                     List<Replica> rollupReplicas = rollupTablet.getReplicas();
 
+
                     for (Replica rollupReplica : rollupReplicas) {
                         AlterReplicaTask rollupTask = new AlterReplicaTask(rollupReplica.getBackendId(), dbId, tableId,
                                 partitionId, rollupIndexId, baseIndexId, rollupTabletId, baseTabletId,
@@ -525,7 +511,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                 if (task.getFailedTimes() > 0) {
                     task.setFinished(true);
                     AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
-                    LOG.warn("rollup task failed after try three times: " + task.getErrorMsg());
+                    LOG.warn("rollup task failed: " + task.getErrorMsg());
                     if (!failedAgentTasks.containsKey(task.getTabletId())) {
                         failedAgentTasks.put(task.getTabletId(), Lists.newArrayList(task));
                     } else {

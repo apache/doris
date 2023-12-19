@@ -99,15 +99,15 @@ Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& versi
         return Status::InternalError("Input version {} exists", version.to_string());
     }
 
-    std::unique_ptr<RowsetWriter> writer;
     RowsetWriterContext ctx;
     ctx.version = version;
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = tablet->tablet_schema();
     ctx.newest_write_timestamp = UnixSeconds();
-    RETURN_IF_ERROR(tablet->create_rowset_writer(ctx, &writer));
-    auto rowset = writer->build();
+    auto writer = DORIS_TRY(tablet->create_rowset_writer(ctx, false));
+    RowsetSharedPtr rowset;
+    RETURN_IF_ERROR(writer->build(rowset));
     rowset->make_visible(version);
 
     std::vector<RowsetSharedPtr> to_add {rowset};
@@ -115,7 +115,7 @@ Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& versi
     {
         std::unique_lock wlock(tablet->get_header_lock());
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        tablet->modify_rowsets(to_add, to_delete);
+        RETURN_IF_ERROR(tablet->modify_rowsets(to_add, to_delete));
         tablet->save_meta();
     }
 

@@ -317,7 +317,7 @@ struct MergeSortCursor {
 
 /// For easy copying.
 struct MergeSortBlockCursor {
-    MergeSortCursorImpl* impl;
+    MergeSortCursorImpl* impl = nullptr;
 
     MergeSortBlockCursor(MergeSortCursorImpl* impl_) : impl(impl_) {}
     MergeSortCursorImpl* operator->() const { return impl; }

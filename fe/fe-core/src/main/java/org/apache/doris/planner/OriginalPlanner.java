@@ -42,6 +42,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.PlannerHook;
 import org.apache.doris.qe.CommonResultSet;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ResultSet;
@@ -211,7 +212,7 @@ public class OriginalPlanner extends Planner {
         }
         checkAndSetTopnOpt(singleNodePlan);
 
-        if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
+        if ((queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) && !(statement instanceof InsertStmt)) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
             fragments.add(new PlanFragment(plannerContext.getNextFragmentId(), singleNodePlan,
@@ -257,6 +258,7 @@ public class OriginalPlanner extends Planner {
             LOG.debug("substitute result Exprs {}", resExprs);
             rootFragment.setOutputExprs(resExprs);
         }
+        rootFragment.setResultSinkType(ConnectContext.get().getResultSinkType());
         LOG.debug("finalize plan fragments");
         for (PlanFragment fragment : fragments) {
             fragment.finalize(queryStmt);
@@ -669,7 +671,7 @@ public class OriginalPlanner extends Planner {
             String columnName = columnLabels.get(i);
             if (expr instanceof LiteralExpr) {
                 columns.add(new Column(columnName, expr.getType()));
-                super.handleLiteralInFe((LiteralExpr) expr, data);
+                data.add(((LiteralExpr) expr).getStringValueInFe());
             } else {
                 return Optional.empty();
             }
@@ -678,4 +680,7 @@ public class OriginalPlanner extends Planner {
         ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
         return Optional.of(resultSet);
     }
+
+    @Override
+    public void addHook(PlannerHook hook) {}
 }

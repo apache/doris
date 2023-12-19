@@ -49,6 +49,7 @@
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
+#include "runtime/group_commit_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/plan_fragment_executor.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -139,9 +140,21 @@ Status HttpStreamAction::_handle(HttpRequest* http_req, std::shared_ptr<StreamLo
     // wait stream load finish
     RETURN_IF_ERROR(ctx->future.get());
 
-    int64_t commit_and_publish_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
-    ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
+    if (ctx->group_commit) {
+        LOG(INFO) << "skip commit because this is group commit, pipe_id=" << ctx->id.to_string();
+        return Status::OK();
+    }
+
+    if (ctx->two_phase_commit) {
+        int64_t pre_commit_start_time = MonotonicNanos();
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->pre_commit_txn(ctx.get()));
+        ctx->pre_commit_txn_cost_nanos = MonotonicNanos() - pre_commit_start_time;
+    } else {
+        // If put file success we need commit this load
+        int64_t commit_and_publish_start_time = MonotonicNanos();
+        RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
+        ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
+    }
     return Status::OK();
 }
 
@@ -154,15 +167,43 @@ int HttpStreamAction::on_header(HttpRequest* req) {
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
-    ctx->label = req->header(HTTP_LABEL_KEY);
-    if (ctx->label.empty()) {
-        ctx->label = generate_uuid_string();
+    Status st = Status::OK();
+    std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
+    if (iequal(group_commit_mode, "off_mode")) {
+        group_commit_mode = "";
+    }
+    if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
+        !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
+        st = Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
+        if (iequal(group_commit_mode, "off_mode")) {
+            group_commit_mode = "";
+        }
+    }
+    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
+    auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
+    auto partitions = !req->header(HTTP_PARTITIONS).empty();
+    if (!temp_partitions && !partitions && !ctx->two_phase_commit &&
+        (!group_commit_mode.empty() || config::wait_internal_group_commit_finish)) {
+        if (config::wait_internal_group_commit_finish) {
+            ctx->group_commit = true;
+        } else {
+            ctx->group_commit = load_size_smaller_than_wal_limit(req);
+            if (!ctx->group_commit) {
+                LOG(WARNING) << "The data size for this http load("
+                             << req->header(HttpHeaders::CONTENT_LENGTH)
+                             << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                             << config::wal_max_disk_size * 0.8
+                             << " Bytes). Please set this load to \"group commit\"=false.";
+                st = Status::InternalError("Http load size too large.");
+            }
+        }
     }
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
-              << " sql : " << req->header(HTTP_SQL);
-
-    auto st = _on_header(req, ctx);
+              << " sql : " << req->header(HTTP_SQL) << ", group_commit=" << ctx->group_commit;
+    if (st.ok()) {
+        st = _on_header(req, ctx);
+    }
     if (!st.ok()) {
         ctx->status = std::move(st);
         if (ctx->body_sink != nullptr) {
@@ -242,13 +283,13 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
             if (ctx->schema_buffer->pos + remove_bytes < config::stream_tvf_buffer_size) {
                 ctx->schema_buffer->put_bytes(bb->ptr, remove_bytes);
             } else {
-                ctx->need_schema = true;
+                LOG(INFO) << "use a portion of data to request fe to obtain column information";
                 ctx->is_read_schema = false;
                 ctx->status = _process_put(req, ctx);
             }
         }
 
-        if (!st.ok()) {
+        if (!st.ok() && !ctx->status.ok()) {
             LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
             ctx->status = st;
             return;
@@ -257,7 +298,8 @@ void HttpStreamAction::on_chunk_data(HttpRequest* req) {
     }
     // after all the data has been read and it has not reached 1M, it will execute here
     if (ctx->is_read_schema) {
-        ctx->need_schema = true;
+        LOG(INFO) << "after all the data has been read and it has not reached 1M, it will execute "
+                  << "here";
         ctx->is_read_schema = false;
         ctx->status = _process_put(req, ctx);
     }
@@ -284,6 +326,13 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     request.__set_load_sql(http_req->header(HTTP_SQL));
     request.__set_loadId(ctx->id.to_thrift());
     request.__set_label(ctx->label);
+    if (ctx->group_commit) {
+        if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
+            request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
+        } else {
+            request.__set_group_commit_mode("sync_mode");
+        }
+    }
     if (_exec_env->master_info()->__isset.backend_id) {
         request.__set_backend_id(_exec_env->master_info()->backend_id);
     } else {
@@ -307,7 +356,9 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->db = ctx->put_result.params.db_name;
     ctx->table = ctx->put_result.params.table_name;
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
+    ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
+
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 

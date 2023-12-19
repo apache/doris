@@ -20,6 +20,7 @@ package org.apache.doris.fs.operations;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
 import org.apache.doris.thrift.TBrokerCloseWriterRequest;
@@ -53,7 +54,8 @@ public class BrokerFileOperations implements FileOperations {
     }
 
     public static String clientId() {
-        return FrontendOptions.getLocalHostAddress() + ":" + Config.edit_log_port;
+        return NetUtils
+                .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.edit_log_port);
     }
 
     @Override

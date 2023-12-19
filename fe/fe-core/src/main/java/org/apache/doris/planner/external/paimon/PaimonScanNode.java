@@ -40,7 +40,7 @@ import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
-import avro.shaded.com.google.common.base.Preconditions;
+import com.google.common.base.Preconditions;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.source.ReadBuilder;
@@ -102,6 +102,10 @@ public class PaimonScanNode extends FileQueryScanNode {
         fileDesc.setDbName(((PaimonExternalTable) source.getTargetTable()).getDbName());
         fileDesc.setPaimonOptions(((PaimonExternalCatalog) source.getCatalog()).getPaimonOptionsMap());
         fileDesc.setTableName(source.getTargetTable().getName());
+        fileDesc.setCtlId(source.getCatalog().getId());
+        fileDesc.setDbId(((PaimonExternalTable) source.getTargetTable()).getDbId());
+        fileDesc.setTblId(source.getTargetTable().getId());
+        fileDesc.setLastUpdateTime(source.getTargetTable().getLastUpdateTime());
         tableFormatFileDesc.setPaimonParams(fileDesc);
         rangeDesc.setTableFormatParams(tableFormatFileDesc);
     }

@@ -18,7 +18,6 @@
 #include "vec/function/function_test_util.h"
 
 #include <glog/logging.h>
-#include <opentelemetry/common/threadlocal.h>
 
 #include <iostream>
 
@@ -357,10 +356,7 @@ Block* process_table_function(TableFunction* fn, Block* input_block,
 
     // process table function for all rows
     for (size_t row = 0; row < input_block->rows(); ++row) {
-        if (fn->process_row(row) != Status::OK()) {
-            LOG(WARNING) << "TableFunction process_row failed";
-            return nullptr;
-        }
+        fn->process_row(row);
 
         // consider outer
         if (!fn->is_outer() && fn->current_empty()) {

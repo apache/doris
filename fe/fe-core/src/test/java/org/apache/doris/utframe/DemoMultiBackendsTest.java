@@ -82,8 +82,8 @@ public class DemoMultiBackendsTest {
     public static void beforeClass() throws EnvVarNotSetException, IOException,
             FeStartException, NotInitException, DdlException, InterruptedException {
         FeConstants.runningUnitTest = true;
-        FeConstants.tablet_checker_interval_ms = 1000;
         FeConstants.default_scheduler_interval_millisecond = 100;
+        Config.tablet_checker_interval_ms = 1000;
         Config.tablet_repair_delay_factor_second = 1;
 
         UtFrameUtils.createDorisClusterWithMultiTag(runningDir, 3);
@@ -140,7 +140,7 @@ public class DemoMultiBackendsTest {
         updateReplicaPathHash();
 
         // 4. get and test the created db and table
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:db1");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("db1");
         Assert.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         tbl.readLock();

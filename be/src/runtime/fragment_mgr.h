@@ -92,18 +92,21 @@ public:
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
-    // This method can only be used to cancel a fragment of non-pipeline query.
-    void cancel_fragment(const TUniqueId& fragment_id, const PPlanFragmentCancelReason& reason,
-                         const std::string& msg = "");
-    void cancel_fragment_unlocked(const TUniqueId& instance_id,
-                                  const PPlanFragmentCancelReason& reason,
-                                  const std::unique_lock<std::mutex>& state_lock,
-                                  const std::string& msg = "");
+    Status trigger_pipeline_context_report(const ReportStatusRequest,
+                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&);
 
-    // Pipeline version, cancel a fragment instance.
+    // Cancel instance (pipeline or nonpipeline).
     void cancel_instance(const TUniqueId& instance_id, const PPlanFragmentCancelReason& reason,
                          const std::string& msg = "");
     void cancel_instance_unlocked(const TUniqueId& instance_id,
+                                  const PPlanFragmentCancelReason& reason,
+                                  const std::unique_lock<std::mutex>& state_lock,
+                                  const std::string& msg = "");
+    // Cancel fragment (only pipelineX).
+    // {query id fragment} -> PipelineXFragmentContext
+    void cancel_fragment(const TUniqueId& query_id, int32_t fragment_id,
+                         const PPlanFragmentCancelReason& reason, const std::string& msg = "");
+    void cancel_fragment_unlocked(const TUniqueId& query_id, int32_t fragment_id,
                                   const PPlanFragmentCancelReason& reason,
                                   const std::unique_lock<std::mutex>& state_lock,
                                   const std::string& msg = "");
@@ -148,6 +151,8 @@ public:
         return _query_ctx_map.size();
     }
 
+    std::string dump_pipeline_tasks();
+
 private:
     void cancel_unlocked_impl(const TUniqueId& id, const PPlanFragmentCancelReason& reason,
                               const std::unique_lock<std::mutex>& state_lock, bool is_pipeline,
@@ -174,7 +179,7 @@ private:
                           std::shared_ptr<QueryContext>& query_ctx);
 
     // This is input params
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     // The lock should only be used to protect the structures in fragment manager. Has to be
     // used in a very small scope because it may dead lock. For example, if the _lock is used
@@ -186,7 +191,7 @@ private:
     std::condition_variable _cv;
 
     // Make sure that remove this before no data reference PlanFragmentExecutor
-    std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_map;
+    std::unordered_map<TUniqueId, std::shared_ptr<PlanFragmentExecutor>> _fragment_instance_map;
 
     std::unordered_map<TUniqueId, std::shared_ptr<pipeline::PipelineFragmentContext>> _pipeline_map;
 
@@ -199,10 +204,12 @@ private:
     // every job is a pool
     std::unique_ptr<ThreadPool> _thread_pool;
 
-    std::shared_ptr<MetricEntity> _entity = nullptr;
+    std::shared_ptr<MetricEntity> _entity;
     UIntGauge* timeout_canceled_fragment_count = nullptr;
 
     RuntimeFilterMergeController _runtimefilter_controller;
+    std::unique_ptr<ThreadPool> _async_report_thread_pool =
+            nullptr; // used for pipeliine context report
 };
 
 } // namespace doris

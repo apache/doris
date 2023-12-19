@@ -92,6 +92,8 @@ public class OlapTableSinkTest {
 
         new Expectations() {
             {
+                dstTable.getIndexNumber();
+                result = 1;
                 dstTable.getId();
                 result = 1;
                 dstTable.getPartitionInfo();
@@ -128,6 +130,8 @@ public class OlapTableSinkTest {
 
         new Expectations() {
             {
+                dstTable.getIndexNumber();
+                result = 1;
                 dstTable.getId();
                 result = 1;
                 dstTable.getPartitionInfo();
@@ -190,6 +194,8 @@ public class OlapTableSinkTest {
 
         new Expectations() {
             {
+                dstTable.getIndexNumber();
+                result = 1;
                 dstTable.getId();
                 result = 1;
                 dstTable.getPartitionInfo();

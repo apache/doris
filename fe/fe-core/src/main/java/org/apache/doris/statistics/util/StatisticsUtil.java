@@ -31,6 +31,7 @@ import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.analysis.VariableExpr;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -72,7 +73,6 @@ import org.apache.doris.statistics.Histogram;
 import org.apache.doris.statistics.ResultRow;
 import org.apache.doris.statistics.StatisticConstants;
 import org.apache.doris.system.Frontend;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -89,12 +89,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
@@ -177,18 +179,19 @@ public class StatisticsUtil {
         sessionVariable.enablePageCache = false;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
-        sessionVariable.setEnableNereidsPlanner(false);
+        sessionVariable.setEnableNereidsPlanner(true);
+        sessionVariable.setEnablePipelineEngine(false);
         sessionVariable.enableProfile = false;
         sessionVariable.enableScanRunSerial = limitScan;
-        sessionVariable.queryTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
-        sessionVariable.insertTimeoutS = Config.analyze_task_timeout_in_hours * 60 * 60;
+        sessionVariable.setQueryTimeoutS(StatisticsUtil.getAnalyzeTimeout());
+        sessionVariable.insertTimeoutS = StatisticsUtil.getAnalyzeTimeout();
         sessionVariable.enableFileCache = false;
+        sessionVariable.forbidUnknownColStats = false;
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setDatabase(FeConstants.INTERNAL_DB_NAME);
         connectContext.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         connectContext.setCurrentUserIdentity(UserIdentity.ROOT);
         connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);
     }
 
@@ -226,6 +229,7 @@ public class StatisticsUtil {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
+            case DECIMAL256:
                 DecimalLiteral decimalLiteral = new DecimalLiteral(columnValue);
                 decimalLiteral.checkPrecisionAndScale(scalarType.getScalarPrecision(), scalarType.getScalarScale());
                 return decimalLiteral;
@@ -271,6 +275,7 @@ public class StatisticsUtil {
                 case DECIMAL32:
                 case DECIMAL64:
                 case DECIMAL128:
+                case DECIMAL256:
                     return Double.parseDouble(columnValue);
                 case DATE:
                 case DATEV2:
@@ -301,13 +306,13 @@ public class StatisticsUtil {
 
     }
 
-
     public static DBObjects convertTableNameToObjects(TableName tableName) {
-        CatalogIf<DatabaseIf> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(tableName.getCtl());
         if (catalogIf == null) {
             throw new IllegalStateException(String.format("Catalog:%s doesn't exist", tableName.getCtl()));
         }
-        DatabaseIf<TableIf> databaseIf = catalogIf.getDbNullable(tableName.getDb());
+        DatabaseIf<? extends TableIf> databaseIf = catalogIf.getDbNullable(tableName.getDb());
         if (databaseIf == null) {
             throw new IllegalStateException(String.format("DB:%s doesn't exist", tableName.getDb()));
         }
@@ -318,12 +323,17 @@ public class StatisticsUtil {
         return new DBObjects(catalogIf, databaseIf, tableIf);
     }
 
+    public static DBObjects convertIdToObjects(long catalogId, long dbId, long tblId) {
+        return new DBObjects(findCatalog(catalogId), findDatabase(catalogId, dbId), findTable(catalogId, dbId, tblId));
+    }
+
     public static Column findColumn(long catalogId, long dbId, long tblId, long idxId, String columnName) {
-        CatalogIf<DatabaseIf<TableIf>> catalogIf = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalogIf =
+                Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogId);
         if (catalogIf == null) {
             return null;
         }
-        DatabaseIf<TableIf> db = catalogIf.getDb(dbId).orElse(null);
+        DatabaseIf<? extends TableIf> db = catalogIf.getDb(dbId).orElse(null);
         if (db == null) {
             return null;
         }
@@ -361,6 +371,16 @@ public class StatisticsUtil {
         }
     }
 
+    public static TableIf findTable(long catalogId, long dbId, long tblId) {
+        try {
+            DatabaseIf<? extends TableIf> db = findDatabase(catalogId, dbId);
+            return db.getTableOrException(tblId,
+                    t -> new RuntimeException("Table: " + t + " not exists"));
+        } catch (Throwable t) {
+            throw new RuntimeException("Table: `" + catalogId + "." + dbId + "." + tblId + "` not exists");
+        }
+    }
+
     /**
      * Throw RuntimeException if database not exists.
      */
@@ -368,6 +388,12 @@ public class StatisticsUtil {
     public static DatabaseIf findDatabase(String catalogName, String dbName) throws Throwable {
         CatalogIf catalog = findCatalog(catalogName);
         return catalog.getDbOrException(dbName,
+                d -> new RuntimeException("DB: " + d + " not exists"));
+    }
+
+    public static DatabaseIf<? extends TableIf> findDatabase(long catalogId, long dbId)  {
+        CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog = findCatalog(catalogId);
+        return catalog.getDbOrException(dbId,
                 d -> new RuntimeException("DB: " + d + " not exists"));
     }
 
@@ -380,6 +406,11 @@ public class StatisticsUtil {
                 .getCatalogOrException(catalogName, c -> new RuntimeException("Catalog: " + c + " not exists"));
     }
 
+    public static CatalogIf<? extends DatabaseIf<? extends TableIf>> findCatalog(long catalogId) {
+        return Env.getCurrentEnv().getCatalogMgr().getCatalogOrException(catalogId,
+                c -> new RuntimeException("Catalog: " + c + " not exists"));
+    }
+
     public static boolean isNullOrEmpty(String str) {
         return Optional.ofNullable(str)
                 .map(String::trim)
@@ -389,7 +420,7 @@ public class StatisticsUtil {
     }
 
     public static boolean statsTblAvailable() {
-        String dbName = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+        String dbName = FeConstants.INTERNAL_DB_NAME;
         List<OlapTable> statsTbls = new ArrayList<>();
         try {
             statsTbls.add(
@@ -491,10 +522,13 @@ public class StatisticsUtil {
      *
      * @param updatedRows The number of rows updated by the table
      * @param totalRows The current number of rows in the table
-     *         the healthier the statistics of the table
-     * @return Health, the value range is [0, 100], the larger the value,
+     * @return Health, the value range is [0, 100], the larger the value, the healthier the statistics of the table.
      */
     public static int getTableHealth(long totalRows, long updatedRows) {
+        // Avoid analyze empty table every time.
+        if (totalRows == 0 && updatedRows == 0) {
+            return 100;
+        }
         if (updatedRows >= totalRows) {
             return 0;
         } else {
@@ -540,6 +574,19 @@ public class StatisticsUtil {
     }
 
     /**
+     * Get total size parameter from HMS.
+     * @param table Hive HMSExternalTable to get HMS total size parameter.
+     * @return Long value of table total size, return 0 if not found.
+     */
+    public static long getTotalSizeFromHMS(HMSExternalTable table) {
+        Map<String, String> parameters = table.getRemoteTable().getParameters();
+        if (parameters == null) {
+            return 0;
+        }
+        return parameters.containsKey(TOTAL_SIZE) ? Long.parseLong(parameters.get(TOTAL_SIZE)) : 0;
+    }
+
+    /**
      * Estimate iceberg table row count.
      * Get the row count by adding all task file recordCount.
      *
@@ -574,13 +621,47 @@ public class StatisticsUtil {
         if (table.isView()) {
             return 0;
         }
+        HiveMetaStoreCache.HivePartitionValues partitionValues = getPartitionValuesForTable(table);
+        int totalPartitionSize = partitionValues == null ? 1 : partitionValues.getIdToPartitionItem().size();
+
+        // Get files for all partitions.
+        int samplePartitionSize = Config.hive_stats_partition_sample_size;
+        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions
+                = getFilesForPartitions(table, partitionValues, samplePartitionSize);
+        long totalSize = 0;
+        // Calculate the total file size.
+        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
+            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
+                totalSize += file.getLength();
+            }
+        }
+        // Estimate row count: totalSize/estimatedRowSize
+        long estimatedRowSize = 0;
+        List<Column> partitionColumns = table.getPartitionColumns();
+        for (Column column : table.getFullSchema()) {
+            // Partition column shouldn't count to the row size, because it is not in the data file.
+            if (partitionColumns != null && partitionColumns.contains(column)) {
+                continue;
+            }
+            estimatedRowSize += column.getDataType().getSlotSize();
+        }
+        if (estimatedRowSize == 0) {
+            return 1;
+        }
+        if (samplePartitionSize < totalPartitionSize) {
+            totalSize = totalSize * totalPartitionSize / samplePartitionSize;
+        }
+        return totalSize / estimatedRowSize;
+    }
+
+    public static HiveMetaStoreCache.HivePartitionValues getPartitionValuesForTable(HMSExternalTable table) {
+        if (table.isView()) {
+            return null;
+        }
         HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
                 .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
         List<Type> partitionColumnTypes = table.getPartitionColumnTypes();
         HiveMetaStoreCache.HivePartitionValues partitionValues = null;
-        List<HivePartition> hivePartitions = Lists.newArrayList();
-        int samplePartitionSize = Config.hive_stats_partition_sample_size;
-        int totalPartitionSize = 1;
         // Get table partitions from cache.
         if (!partitionColumnTypes.isEmpty()) {
             // It is ok to get partition values from cache,
@@ -588,17 +669,28 @@ public class StatisticsUtil {
             // because it has enough space to keep partition info of all tables in cache.
             partitionValues = cache.getPartitionValues(table.getDbName(), table.getName(), partitionColumnTypes);
         }
+        return partitionValues;
+    }
+
+    public static List<HiveMetaStoreCache.FileCacheValue> getFilesForPartitions(
+            HMSExternalTable table, HiveMetaStoreCache.HivePartitionValues partitionValues, int sampleSize) {
+        if (table.isView()) {
+            return Lists.newArrayList();
+        }
+        HiveMetaStoreCache cache = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getMetaStoreCache((HMSExternalCatalog) table.getCatalog());
+        List<HivePartition> hivePartitions = Lists.newArrayList();
         if (partitionValues != null) {
             Map<Long, PartitionItem> idToPartitionItem = partitionValues.getIdToPartitionItem();
-            totalPartitionSize = idToPartitionItem.size();
+            int totalPartitionSize = idToPartitionItem.size();
             Collection<PartitionItem> partitionItems;
             List<List<String>> partitionValuesList;
             // If partition number is too large, randomly choose part of them to estimate the whole table.
-            if (samplePartitionSize < totalPartitionSize) {
+            if (sampleSize > 0 && sampleSize < totalPartitionSize) {
                 List<PartitionItem> items = new ArrayList<>(idToPartitionItem.values());
                 Collections.shuffle(items);
-                partitionItems = items.subList(0, samplePartitionSize);
-                partitionValuesList = Lists.newArrayListWithCapacity(samplePartitionSize);
+                partitionItems = items.subList(0, sampleSize);
+                partitionValuesList = Lists.newArrayListWithCapacity(sampleSize);
             } else {
                 partitionItems = idToPartitionItem.values();
                 partitionValuesList = Lists.newArrayListWithCapacity(totalPartitionSize);
@@ -609,34 +701,15 @@ public class StatisticsUtil {
             // get partitions without cache, so that it will not invalid the cache when executing
             // non query request such as `show table status`
             hivePartitions = cache.getAllPartitionsWithoutCache(table.getDbName(), table.getName(),
-                    partitionValuesList);
+                partitionValuesList);
         } else {
             hivePartitions.add(new HivePartition(table.getDbName(), table.getName(), true,
                     table.getRemoteTable().getSd().getInputFormat(),
                     table.getRemoteTable().getSd().getLocation(), null));
         }
         // Get files for all partitions.
-        List<HiveMetaStoreCache.FileCacheValue> filesByPartitions = cache.getFilesByPartitionsWithoutCache(
-                hivePartitions, true);
-        long totalSize = 0;
-        // Calculate the total file size.
-        for (HiveMetaStoreCache.FileCacheValue files : filesByPartitions) {
-            for (HiveMetaStoreCache.HiveFileStatus file : files.getFiles()) {
-                totalSize += file.getLength();
-            }
-        }
-        // Estimate row count: totalSize/estimatedRowSize
-        long estimatedRowSize = 0;
-        for (Column column : table.getFullSchema()) {
-            estimatedRowSize += column.getDataType().getSlotSize();
-        }
-        if (estimatedRowSize == 0) {
-            return 1;
-        }
-        if (samplePartitionSize < totalPartitionSize) {
-            totalSize = totalSize * totalPartitionSize / samplePartitionSize;
-        }
-        return totalSize / estimatedRowSize;
+        String bindBrokerName = table.getCatalog().bindBrokerName();
+        return cache.getFilesByPartitionsWithoutCache(hivePartitions, true, bindBrokerName);
     }
 
     /**
@@ -650,8 +723,8 @@ public class StatisticsUtil {
         TableScan tableScan = table.newScan().includeColumnStats();
         ColumnStatisticBuilder columnStatisticBuilder = new ColumnStatisticBuilder();
         columnStatisticBuilder.setCount(0);
-        columnStatisticBuilder.setMaxValue(Double.MAX_VALUE);
-        columnStatisticBuilder.setMinValue(Double.MIN_VALUE);
+        columnStatisticBuilder.setMaxValue(Double.POSITIVE_INFINITY);
+        columnStatisticBuilder.setMinValue(Double.NEGATIVE_INFINITY);
         columnStatisticBuilder.setDataSize(0);
         columnStatisticBuilder.setAvgSizeByte(0);
         columnStatisticBuilder.setNumNulls(0);
@@ -692,7 +765,8 @@ public class StatisticsUtil {
         return type instanceof ArrayType
                 || type instanceof StructType
                 || type instanceof MapType
-                || type instanceof VariantType;
+                || type instanceof VariantType
+                || type instanceof AggStateType;
     }
 
     public static void sleep(long millis) {
@@ -716,7 +790,8 @@ public class StatisticsUtil {
         if (str == null) {
             return null;
         }
-        return org.apache.commons.lang3.StringUtils.replace(str, "'", "''");
+        return str.replace("'", "''")
+                .replace("\\", "\\\\");
     }
 
     public static boolean isExternalTable(String catalogName, String dbName, String tblName) {
@@ -730,9 +805,20 @@ public class StatisticsUtil {
         return table instanceof ExternalTable;
     }
 
+    public static boolean isExternalTable(long catalogId, long dbId, long tblId) {
+        TableIf table;
+        try {
+            table = findTable(catalogId, dbId, tblId);
+        } catch (Throwable e) {
+            LOG.warn(e.getMessage());
+            return false;
+        }
+        return table instanceof ExternalTable;
+    }
+
     public static boolean inAnalyzeTime(LocalTime now) {
         try {
-            Pair<LocalTime, LocalTime> range = findRangeFromGlobalSessionVar();
+            Pair<LocalTime, LocalTime> range = findConfigFromGlobalSessionVar();
             if (range == null) {
                 return false;
             }
@@ -749,17 +835,17 @@ public class StatisticsUtil {
         }
     }
 
-    private static Pair<LocalTime, LocalTime> findRangeFromGlobalSessionVar() {
+    private static Pair<LocalTime, LocalTime> findConfigFromGlobalSessionVar() {
         try {
             String startTime =
-                    findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_START_TIME)
-                            .fullAutoAnalyzeStartTime;
+                    findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_START_TIME)
+                            .autoAnalyzeStartTime;
             // For compatibility
             if (StringUtils.isEmpty(startTime)) {
                 startTime = StatisticConstants.FULL_AUTO_ANALYZE_START_TIME;
             }
-            String endTime = findRangeFromGlobalSessionVar(SessionVariable.FULL_AUTO_ANALYZE_END_TIME)
-                    .fullAutoAnalyzeEndTime;
+            String endTime = findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_END_TIME)
+                    .autoAnalyzeEndTime;
             if (StringUtils.isEmpty(startTime)) {
                 endTime = StatisticConstants.FULL_AUTO_ANALYZE_END_TIME;
             }
@@ -770,7 +856,7 @@ public class StatisticsUtil {
         }
     }
 
-    private static SessionVariable findRangeFromGlobalSessionVar(String varName) throws Exception {
+    protected static SessionVariable findConfigFromGlobalSessionVar(String varName) throws Exception {
         SessionVariable sessionVariable =  VariableMgr.newSessionVariable();
         VariableExpr variableExpr = new VariableExpr(varName, SetType.GLOBAL);
         VariableMgr.getValue(sessionVariable, variableExpr);
@@ -779,10 +865,106 @@ public class StatisticsUtil {
 
     public static boolean enableAutoAnalyze() {
         try {
-            return findRangeFromGlobalSessionVar(SessionVariable.ENABLE_FULL_AUTO_ANALYZE).enableFullAutoAnalyze;
+            return findConfigFromGlobalSessionVar(SessionVariable.ENABLE_AUTO_ANALYZE).enableAutoAnalyze;
         } catch (Exception e) {
             LOG.warn("Fail to get value of enable auto analyze, return false by default", e);
         }
         return false;
     }
+
+    public static int getInsertMergeCount() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.STATS_INSERT_MERGE_ITEM_COUNT)
+                    .statsInsertMergeItemCount;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of insert_merge_item_count, return default", e);
+        }
+        return StatisticConstants.INSERT_MERGE_ITEM_COUNT;
+    }
+
+    public static long getHugeTableSampleRows() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_DEFAULT_SAMPLE_ROWS)
+                    .hugeTableDefaultSampleRows;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_default_sample_rows, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_DEFAULT_SAMPLE_ROWS;
+    }
+
+    public static long getHugeTableLowerBoundSizeInBytes() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES)
+                    .hugeTableLowerBoundSizeInBytes;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_lower_bound_size_in_bytes, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES;
+    }
+
+    public static long getHugeTableAutoAnalyzeIntervalInMillis() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
+                    .hugeTableAutoAnalyzeIntervalInMillis;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of huge_table_auto_analyze_interval_in_millis, return default", e);
+        }
+        return StatisticConstants.HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
+    }
+
+    public static long getExternalTableAutoAnalyzeIntervalInMillis() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS)
+                .externalTableAutoAnalyzeIntervalInMillis;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of externalTableAutoAnalyzeIntervalInMillis, return default", e);
+        }
+        return StatisticConstants.EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS;
+    }
+
+    public static long getTableStatsHealthThreshold() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.TABLE_STATS_HEALTH_THRESHOLD)
+                    .tableStatsHealthThreshold;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
+        }
+        return StatisticConstants.TABLE_STATS_HEALTH_THRESHOLD;
+    }
+
+    public static int getAnalyzeTimeout() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.ANALYZE_TIMEOUT)
+                    .analyzeTimeoutS;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of table_stats_health_threshold, return default", e);
+        }
+        return StatisticConstants.ANALYZE_TIMEOUT_IN_SEC;
+    }
+
+    public static int getAutoAnalyzeTableWidthThreshold() {
+        try {
+            return findConfigFromGlobalSessionVar(SessionVariable.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD)
+                .autoAnalyzeTableWidthThreshold;
+        } catch (Exception e) {
+            LOG.warn("Failed to get value of auto_analyze_table_width_threshold, return default", e);
+        }
+        return StatisticConstants.AUTO_ANALYZE_TABLE_WIDTH_THRESHOLD;
+    }
+
+    public static String encodeValue(ResultRow row, int index) {
+        if (row == null || row.getValues().size() <= index) {
+            return "NULL";
+        }
+        return encodeString(row.get(index));
+    }
+
+    public static String encodeString(String value) {
+        if (value == null) {
+            return "NULL";
+        } else {
+            return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+        }
+    }
+
 }

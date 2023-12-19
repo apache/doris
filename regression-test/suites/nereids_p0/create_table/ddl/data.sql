@@ -70,3 +70,8 @@ insert into test_rollup values
     (1, true, 2, 3, 4, 5, 6),
     (5, false, 3, 4, 5, 6, 7),
     (13, true, 4, 5, 6, 7, 8);
+
+insert into test_default_value values
+    (1, true, 2, '2023-02-13'),
+    (5, false, 3, '2023-02-13'),
+    (13, true, 4, '2023-02-13');

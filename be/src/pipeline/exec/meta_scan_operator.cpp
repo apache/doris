@@ -22,7 +22,7 @@
 namespace doris::pipeline {
 
 Status MetaScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
-    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+    if (Base::_eos) {
         return Status::OK();
     }
 
@@ -39,18 +39,22 @@ Status MetaScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     return Status::OK();
 }
 
-void MetaScanLocalState::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {
+void MetaScanLocalState::set_scan_ranges(RuntimeState* state,
+                                         const std::vector<TScanRangeParams>& scan_ranges) {
     _scan_ranges = scan_ranges;
 }
 
-MetaScanOperatorX::MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+Status MetaScanLocalState::_process_conjuncts() {
+    return Status::OK();
+}
+
+MetaScanOperatorX::MetaScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                      const DescriptorTbl& descs)
-        : ScanOperatorX<MetaScanLocalState>(pool, tnode, descs),
-          _tuple_id(tnode.meta_scan_node.tuple_id),
-          _scan_params(tnode.meta_scan_node) {
+        : ScanOperatorX<MetaScanLocalState>(pool, tnode, operator_id, descs),
+          _tuple_id(tnode.meta_scan_node.tuple_id) {
     _output_tuple_id = _tuple_id;
-    if (_scan_params.__isset.current_user_ident) {
-        _user_identity = _scan_params.current_user_ident;
+    if (tnode.meta_scan_node.__isset.current_user_ident) {
+        _user_identity = tnode.meta_scan_node.current_user_ident;
     }
 }
 

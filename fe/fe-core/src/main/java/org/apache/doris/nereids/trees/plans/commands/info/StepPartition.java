@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands.info;
 import org.apache.doris.analysis.MultiPartitionDesc;
 import org.apache.doris.analysis.PartitionKeyDesc;
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.catalog.ReplicaAllocation;
-import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 
@@ -39,7 +37,6 @@ public class StepPartition extends PartitionDefinition {
     private final List<Expression> toExpression;
     private final long unit;
     private final String unitString;
-    private ReplicaAllocation replicaAllocation = ReplicaAllocation.DEFAULT_ALLOCATION;
 
     public StepPartition(List<Expression> fromExpression, List<Expression> toExpression, long unit,
             String unitString) {
@@ -51,14 +48,10 @@ public class StepPartition extends PartitionDefinition {
 
     @Override
     public void validate(Map<String, String> properties) {
+        super.validate(properties);
         if (fromExpression.stream().anyMatch(MaxValue.class::isInstance)
                 || toExpression.stream().anyMatch(MaxValue.class::isInstance)) {
             throw new AnalysisException("MAXVALUE cannot be used in step partition");
-        }
-        try {
-            replicaAllocation = PropertyAnalyzer.analyzeReplicaAllocation(properties, "");
-        } catch (Exception e) {
-            throw new AnalysisException(e.getMessage(), e.getCause());
         }
     }
 

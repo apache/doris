@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -61,7 +60,6 @@ public class AlterDatabasePropertyStmt extends DdlStmt {
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
         }
-        dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
 
         if (properties == null || properties.isEmpty()) {
             throw new UserException("Properties is null or empty");
@@ -70,9 +68,6 @@ public class AlterDatabasePropertyStmt extends DdlStmt {
         // clone properties for analyse
         Map<String, String> analysisProperties = new HashMap<String, String>(properties);
         PropertyAnalyzer.analyzeBinlogConfig(analysisProperties);
-        if (!analysisProperties.isEmpty()) {
-            throw new UserException("Invalid property name or value: " + analysisProperties);
-        }
     }
 
     @Override

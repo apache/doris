@@ -67,7 +67,7 @@ private:
 class DistinctStreamingAggSourceOperatorX final : public AggSourceOperatorX {
 public:
     using Base = AggSourceOperatorX;
-    DistinctStreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode,
+    DistinctStreamingAggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                                         const DescriptorTbl& descs);
     ~DistinctStreamingAggSourceOperatorX() = default;
 

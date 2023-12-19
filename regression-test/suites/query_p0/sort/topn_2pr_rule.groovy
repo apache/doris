@@ -42,7 +42,7 @@ suite("topn_2pr_rule") {
                 contains "OPT TWO PHASE"
             } 
             explain {
-                sql("select * from ${table_name}  where k = 1 order by k limit 1;")
+                sql("select * from ${table_name}  where k > 1 order by k limit 1;")
                 contains "OPT TWO PHASE"
             } 
             explain {

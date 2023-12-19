@@ -25,7 +25,7 @@ import argparse
 
 FE_HOST = "http://127.0.0.1:8030"
 MYSQL = "mysql -h:: -P9030 -u root "
-DB = "tpcds_sf1"
+DB = "tpcds_sf100"
 WORK_DIR="./tmp/"
 
 
@@ -290,9 +290,9 @@ def print_usage():
 if __name__ == '__main__':
     USAGE ="""
     1. execute a sql file, and draw its profile  
-          python3 profile_viewer.py -f [path to sql file] -o [output png file]
+          python3 profile_viewer.py -f [path to sql file] -t [png title]
     2. draw a given profile
-          python3 profile_viewer.py -qid [query_id] -o [output png file]
+          python3 profile_viewer.py -qid [query_id] -t [png title]
     
     graphviz is required(https://graphviz.org/)
     on linux: apt install graphviz

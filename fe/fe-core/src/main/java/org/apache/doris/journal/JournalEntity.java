@@ -44,6 +44,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.InitTableLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteInfo;
 import org.apache.doris.load.ExportJob;
@@ -55,15 +56,10 @@ import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.sync.SyncJob;
-import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
-import org.apache.doris.mtmv.metadata.DropMTMVJob;
-import org.apache.doris.mtmv.metadata.DropMTMVTask;
-import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AlterLightSchemaChangeInfo;
-import org.apache.doris.persist.AlterMultiMaterializedView;
+import org.apache.doris.persist.AlterMTMV;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
@@ -89,6 +85,7 @@ import org.apache.doris.persist.DropPartitionInfo;
 import org.apache.doris.persist.DropResourceOperationLog;
 import org.apache.doris.persist.DropSqlBlockRuleOperationLog;
 import org.apache.doris.persist.DropWorkloadGroupOperationLog;
+import org.apache.doris.persist.DropWorkloadSchedPolicyOperatorLog;
 import org.apache.doris.persist.GlobalVarPersistInfo;
 import org.apache.doris.persist.HbPackage;
 import org.apache.doris.persist.LdapInfo;
@@ -116,16 +113,16 @@ import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
+import org.apache.doris.persist.TableStatsDeletionLog;
 import org.apache.doris.persist.TruncateTableInfo;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.job.JobTask;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
-import org.apache.doris.statistics.TableStats;
+import org.apache.doris.statistics.TableStatsMeta;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
@@ -222,8 +219,7 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_CREATE_TABLE: {
-                data = new CreateTableInfo();
-                ((CreateTableInfo) data).readFields(in);
+                data = CreateTableInfo.read(in);
                 isRead = true;
                 break;
             }
@@ -469,6 +465,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_COLOCATE_MOD_REPLICA_ALLOC:
             case OperationType.OP_COLOCATE_ADD_TABLE:
             case OperationType.OP_COLOCATE_REMOVE_TABLE:
             case OperationType.OP_COLOCATE_BACKENDS_PER_BUCKETSEQ:
@@ -542,16 +539,14 @@ public class JournalEntity implements Writable {
             case OperationType.OP_UPDATE_SCHEDULER_JOB:
             case OperationType.OP_DELETE_SCHEDULER_JOB:
             case OperationType.OP_CREATE_SCHEDULER_JOB: {
-                Job job = Job.readFields(in);
+                AbstractJob job = AbstractJob.readFields(in);
                 data = job;
                 isRead = true;
                 break;
             }
             case OperationType.OP_CREATE_SCHEDULER_TASK:
             case OperationType.OP_DELETE_SCHEDULER_TASK: {
-                JobTask task = JobTask.readFields(in);
-                data = task;
-                isRead = true;
+                //todo improve
                 break;
             }
             case OperationType.OP_CREATE_LOAD_JOB: {
@@ -732,6 +727,7 @@ public class JournalEntity implements Writable {
             case OperationType.OP_CREATE_CATALOG:
             case OperationType.OP_DROP_CATALOG:
             case OperationType.OP_ALTER_CATALOG_NAME:
+            case OperationType.OP_ALTER_CATALOG_COMMENT:
             case OperationType.OP_ALTER_CATALOG_PROPS:
             case OperationType.OP_REFRESH_CATALOG: {
                 data = CatalogLog.read(in);
@@ -786,38 +782,13 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_CREATE_MTMV_JOB: {
-                data = MTMVJob.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_DROP_MTMV_JOB: {
-                data = DropMTMVJob.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_CHANGE_MTMV_JOB: {
-                data = ChangeMTMVJob.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_CREATE_MTMV_TASK: {
-                data = MTMVTask.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_DROP_MTMV_TASK: {
-                data = DropMTMVTask.read(in);
-                isRead = true;
-                break;
-            }
-            case OperationType.OP_CHANGE_MTMV_TASK: {
-                Text.readString(in);
-                isRead = true;
-                break;
-            }
+            case OperationType.OP_CREATE_MTMV_JOB:
+            case OperationType.OP_CHANGE_MTMV_JOB:
+            case OperationType.OP_DROP_MTMV_JOB:
+            case OperationType.OP_CREATE_MTMV_TASK:
+            case OperationType.OP_CHANGE_MTMV_TASK:
+            case OperationType.OP_DROP_MTMV_TASK:
             case OperationType.OP_ALTER_MTMV_STMT: {
-                data = AlterMultiMaterializedView.read(in);
                 isRead = true;
                 break;
             }
@@ -834,6 +805,17 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_DROP_WORKLOAD_GROUP: {
                 data = DropWorkloadGroupOperationLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_CREATE_WORKLOAD_SCHED_POLICY:
+            case OperationType.OP_ALTER_WORKLOAD_SCHED_POLICY: {
+                data = WorkloadSchedPolicy.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DROP_WORKLOAD_SCHED_POLICY: {
+                data = DropWorkloadSchedPolicyOperatorLog.read(in);
                 isRead = true;
                 break;
             }
@@ -887,12 +869,22 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_UPDATE_TABLE_STATS: {
-                data = TableStats.read(in);
+                data = TableStatsMeta.read(in);
                 isRead = true;
                 break;
             }
             case OperationType.OP_PERSIST_AUTO_JOB: {
                 data = AnalysisInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_DELETE_TABLE_STATS: {
+                data = TableStatsDeletionLog.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_MTMV: {
+                data = AlterMTMV.read(in);
                 isRead = true;
                 break;
             }

@@ -43,6 +43,8 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_CHAR_FILTER_CHAR_REPLACE = "char_replace";
 
+    public static String INVERTED_INDEX_PARSER_IGNORE_ABOVE = "ignore_above";
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
         // default is "none" if not set
@@ -52,7 +54,7 @@ public class InvertedIndexUtil {
     public static String getInvertedIndexParserMode(Map<String, String> properties) {
         String mode = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_MODE_KEY);
         // default is "none" if not set
-        return mode != null ? mode : INVERTED_INDEX_PARSER_FINE_GRANULARITY;
+        return mode != null ? mode : INVERTED_INDEX_PARSER_COARSE_GRANULARITY;
     }
 
     public static Map<String, String> getInvertedIndexCharFilter(Map<String, String> properties) {
@@ -98,6 +100,17 @@ public class InvertedIndexUtil {
             if (parser == null && !properties.isEmpty()) {
                 throw new AnalysisException("invalid index properties, please check the properties");
             }
+            String ignoreAbove = properties.get(INVERTED_INDEX_PARSER_IGNORE_ABOVE);
+            if (ignoreAbove != null) {
+                try {
+                    int ignoreAboveValue = Integer.parseInt(ignoreAbove);
+                    if (ignoreAboveValue <= 0) {
+                        throw new AnalysisException("invalid index properties, ignore_above must be positive");
+                    }
+                } catch (NumberFormatException e) {
+                    throw new AnalysisException("invalid index properties, ignore_above must be integer");
+                }
+            }
         }
 
         // default is "none" if not set
@@ -105,7 +118,7 @@ public class InvertedIndexUtil {
             parser = INVERTED_INDEX_PARSER_NONE;
         }
 
-        if (colType.isStringType()) {
+        if (colType.isStringType() || colType.isVariantType()) {
             if (!(parser.equals(INVERTED_INDEX_PARSER_NONE)
                     || parser.equals(INVERTED_INDEX_PARSER_STANDARD)
                         || parser.equals(INVERTED_INDEX_PARSER_UNICODE)

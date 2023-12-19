@@ -211,6 +211,10 @@ admin set frontend config("disable_tablet_scheduler" = "true");
 
 一般而言，Doris 只需要升级 FE 目录下的 `/bin` 和 `/lib` 以及 BE 目录下的  `/bin` 和 `/lib`
 
+在 2.0.2 及之后的版本，FE 和 BE 部署路径下新增了 `custom_lib/` 目录（如没有可以手动创建）。`custom_lib/` 目录用于存放一些用户自定义的第三方 jar 包，如 `hadoop-lzo-*.jar`，`orai18n.jar` 等。
+
+这个目录在升级时不需要替换。
+
 但是在大版本升级时，可能会有新的特性增加或者老功能的重构，这些修改可能会需要升级时**替换/新增**更多的目录来保证所有新功能的可用性，请大版本升级时仔细关注该版本的 Release-Note，以免出现升级故障
 
 :::

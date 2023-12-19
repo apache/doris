@@ -41,6 +41,7 @@ public:
     }
 
     inline void commit() {
+        ColumnString::check_chars_length(_offsets.back() + _now_offset, 0);
         _offsets.push_back(_offsets.back() + _now_offset);
         _now_offset = 0;
     }

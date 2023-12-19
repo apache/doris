@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -42,7 +43,6 @@ class SharedHashTableDependency;
 namespace vectorized {
 
 class Arena;
-class Block;
 
 struct SharedRuntimeFilterContext {
     std::shared_ptr<MinMaxFuncBase> minmax_func;
@@ -53,17 +53,15 @@ struct SharedRuntimeFilterContext {
 
 struct SharedHashTableContext {
     SharedHashTableContext()
-            : hash_table_variants(nullptr),
-              signaled(false),
-              short_circuit_for_null_in_probe_side(false) {}
+            : hash_table_variants(nullptr), block(std::make_shared<vectorized::Block>()) {}
 
     Status status;
     std::shared_ptr<Arena> arena;
     std::shared_ptr<void> hash_table_variants;
-    std::shared_ptr<std::vector<Block>> blocks;
+    std::shared_ptr<Block> block;
     std::map<int, SharedRuntimeFilterContext> runtime_filters;
-    bool signaled;
-    bool short_circuit_for_null_in_probe_side;
+    std::atomic<bool> signaled = false;
+    bool short_circuit_for_null_in_probe_side = false;
 };
 
 using SharedHashTableContextPtr = std::shared_ptr<SharedHashTableContext>;

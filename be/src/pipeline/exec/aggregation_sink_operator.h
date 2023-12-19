@@ -45,6 +45,41 @@ public:
     bool can_write() override { return true; }
 };
 
+class AggSinkDependency final : public Dependency {
+public:
+    using SharedState = AggSharedState;
+    AggSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AggSinkDependency", true, query_ctx) {}
+    ~AggSinkDependency() override = default;
+
+    void set_ready() override {
+        if (_is_streaming_agg_state()) {
+            if (((SharedState*)Dependency::_shared_state.get())
+                        ->data_queue->has_enough_space_to_push()) {
+                Dependency::set_ready();
+            }
+        } else {
+            Dependency::set_ready();
+        }
+    }
+
+    void block() override {
+        if (_is_streaming_agg_state()) {
+            if (!((SharedState*)Dependency::_shared_state.get())
+                         ->data_queue->has_enough_space_to_push()) {
+                Dependency::block();
+            }
+        } else {
+            Dependency::block();
+        }
+    }
+
+private:
+    bool _is_streaming_agg_state() {
+        return ((SharedState*)Dependency::_shared_state.get())->data_queue != nullptr;
+    }
+};
+
 template <typename LocalStateType>
 class AggSinkOperatorX;
 
@@ -77,22 +112,6 @@ protected:
     Status _execute_with_serialized_key_helper(vectorized::Block* block);
     void _find_in_hash_table(vectorized::AggregateDataPtr* places,
                              vectorized::ColumnRawPtrs& key_columns, size_t num_rows);
-
-    template <typename AggState, typename AggMethod>
-    void _pre_serialize_key_if_need(AggState& state, AggMethod& agg_method,
-                                    const vectorized::ColumnRawPtrs& key_columns,
-                                    const size_t num_rows) {
-        if constexpr (vectorized::ColumnsHashing::IsPreSerializedKeysHashMethodTraits<
-                              AggState>::value) {
-            auto old_keys_memory = agg_method.keys_memory_usage;
-            SCOPED_TIMER(_serialize_key_timer);
-            int64_t row_size = (int64_t)(agg_method.serialize_keys(key_columns, num_rows));
-            COUNTER_SET(_max_row_size_counter, std::max(_max_row_size_counter->value(), row_size));
-            state.set_serialized_keys(agg_method.keys.data());
-
-            _serialize_key_arena_memory_usage->add(agg_method.keys_memory_usage - old_keys_memory);
-        }
-    }
     void _emplace_into_hash_table(vectorized::AggregateDataPtr* places,
                                   vectorized::ColumnRawPtrs& key_columns, const size_t num_rows);
     size_t _get_hash_table_size();
@@ -123,7 +142,7 @@ protected:
                                        ->create_serialize_column();
         }
 
-        context.init_once();
+        context.init_iterator();
         const auto size = hash_table.size();
         std::vector<KeyType> keys(size);
         if (Base::_shared_state->values.size() < size) {
@@ -143,10 +162,7 @@ protected:
             }
         }
 
-        {
-            context.insert_keys_into_columns(keys, key_columns, num_rows,
-                                             Base::_shared_state->probe_key_sz);
-        }
+        { context.insert_keys_into_columns(keys, key_columns, num_rows); }
 
         if (hash_table.has_null_key_data()) {
             // only one key of group by support wrap null key
@@ -156,14 +172,15 @@ protected:
             key_columns[0]->insert_data(nullptr, 0);
 
             // Here is no need to set `keys[num_rows]`, keep it as default value.
-            Base::_shared_state->values[num_rows] = hash_table.get_null_key_data();
+            Base::_shared_state->values[num_rows] =
+                    hash_table.template get_null_key_data<vectorized::AggregateDataPtr>();
             ++num_rows;
         }
 
         for (size_t i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
             Base::_shared_state->aggregate_evaluators[i]->function()->serialize_to_column(
                     Base::_shared_state->values,
-                    Base::_dependency->offsets_of_aggregate_states()[i], value_columns[i],
+                    Base::_shared_state->offsets_of_aggregate_states[i], value_columns[i],
                     num_rows);
         }
 
@@ -185,6 +202,7 @@ protected:
         return Status::OK();
     }
 
+    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
     template <typename HashTableCtxType, typename HashTableType>
     Status _spill_hash_table(HashTableCtxType& agg_method, HashTableType& hash_table) {
         vectorized::Block block;
@@ -205,7 +223,7 @@ protected:
                 Base::_shared_state->spill_context.runtime_profile));
         Defer defer {[&]() {
             // redundant call is ok
-            writer->close();
+            static_cast<void>(writer->close());
         }};
         Base::_shared_state->spill_context.stream_ids.emplace_back(writer->get_id());
 
@@ -234,7 +252,7 @@ protected:
             if (blocks_rows[i] == 0) {
                 /// Here write one empty block to ensure there are enough blocks in the file,
                 /// blocks' count should be equal with partition_count.
-                writer->write(block_to_write);
+                static_cast<void>(writer->write(block_to_write));
                 continue;
             }
 
@@ -272,27 +290,29 @@ protected:
 
         return Status::OK();
     }
+    Status _create_agg_status(vectorized::AggregateDataPtr data);
+    Status _reset_hash_table();
     // We should call this function only at 1st phase.
     // 1st phase: is_merge=true, only have one SlotRef.
     // 2nd phase: is_merge=false, maybe have multiple exprs.
     int _get_slot_column_id(const vectorized::AggFnEvaluator* evaluator);
     size_t _memory_usage() const;
 
-    RuntimeProfile::Counter* _hash_table_compute_timer;
-    RuntimeProfile::Counter* _hash_table_emplace_timer;
-    RuntimeProfile::Counter* _hash_table_input_counter;
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _expr_timer;
-    RuntimeProfile::Counter* _exec_timer;
-    RuntimeProfile::Counter* _build_table_convert_timer;
-    RuntimeProfile::Counter* _serialize_key_timer;
-    RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _serialize_data_timer;
-    RuntimeProfile::Counter* _deserialize_data_timer;
-    RuntimeProfile::Counter* _max_row_size_counter;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _hash_table_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage;
+    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
+    RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_limit_output = false;
     bool _reach_limit = false;
@@ -302,9 +322,8 @@ protected:
 
     vectorized::Block _preagg_block = vectorized::Block();
 
-    vectorized::AggregatedDataVariants* _agg_data;
-    vectorized::Arena* _agg_arena_pool;
-    std::vector<size_t> _hash_values;
+    vectorized::AggregatedDataVariants* _agg_data = nullptr;
+    vectorized::Arena* _agg_arena_pool = nullptr;
 
     using vectorized_execute = std::function<Status(vectorized::Block* block)>;
     using vectorized_update_memusage = std::function<void()>;
@@ -318,20 +337,21 @@ protected:
 };
 
 class BlockingAggSinkLocalState
-        : public AggSinkLocalState<AggDependency, BlockingAggSinkLocalState> {
+        : public AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState> {
 public:
     ENABLE_FACTORY_CREATOR(BlockingAggSinkLocalState);
     using Parent = AggSinkOperatorX<BlockingAggSinkLocalState>;
 
     BlockingAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : AggSinkLocalState<AggDependency, BlockingAggSinkLocalState>(parent, state) {}
-    ~BlockingAggSinkLocalState() = default;
+            : AggSinkLocalState<AggSinkDependency, BlockingAggSinkLocalState>(parent, state) {}
+    ~BlockingAggSinkLocalState() override = default;
 };
 
 template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
-    AggSinkOperatorX(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
+    AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
+                     const DescriptorTbl& descs, bool is_streaming = false);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -346,7 +366,20 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
+    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
+    ExchangeType get_local_exchange_type() const override {
+        if (_probe_expr_ctxs.empty()) {
+            return _needs_finalize || DataSinkOperatorX<LocalStateType>::_child_x
+                                              ->ignore_data_distribution()
+                           ? ExchangeType::PASSTHROUGH
+                           : ExchangeType::NOOP;
+        }
+        return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+    }
+
     using DataSinkOperatorX<LocalStateType>::id;
+    using DataSinkOperatorX<LocalStateType>::operator_id;
+    using DataSinkOperatorX<LocalStateType>::get_local_state;
 
 protected:
     using LocalState = LocalStateType;
@@ -359,14 +392,14 @@ protected:
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
-    TupleDescriptor* _intermediate_tuple_desc;
+    TupleDescriptor* _intermediate_tuple_desc = nullptr;
 
     TupleId _output_tuple_id;
-    TupleDescriptor* _output_tuple_desc;
+    TupleDescriptor* _output_tuple_desc = nullptr;
 
     bool _needs_finalize;
     bool _is_merge;
-    bool _is_first_phase;
+    const bool _is_first_phase;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
@@ -377,11 +410,15 @@ protected:
     size_t _external_agg_bytes_threshold;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<size_t> _make_nullable_keys;
     size_t _spill_partition_count_bits;
     int64_t _limit; // -1: no limit
     bool _have_conjuncts;
+    const bool _is_streaming;
+
+    const std::vector<TExpr> _partition_exprs;
+    const bool _is_colocate;
 };
 
 } // namespace pipeline

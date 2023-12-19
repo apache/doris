@@ -46,7 +46,7 @@ namespace doris::pipeline {
 
 class BlockedTaskScheduler {
 public:
-    explicit BlockedTaskScheduler(std::shared_ptr<TaskQueue> task_queue);
+    explicit BlockedTaskScheduler(std::string name);
 
     ~BlockedTaskScheduler() = default;
 
@@ -55,9 +55,8 @@ public:
     Status add_blocked_task(PipelineTask* task);
 
 private:
-    std::shared_ptr<TaskQueue> _task_queue;
-
     std::mutex _task_mutex;
+    std::string _name;
     std::condition_variable _task_cond;
     std::list<PipelineTask*> _blocked_tasks;
 
@@ -67,7 +66,6 @@ private:
 
     static constexpr auto EMPTY_TIMES_TO_YIELD = 64;
 
-private:
     void _schedule();
     void _make_task_run(std::list<PipelineTask*>& local_tasks,
                         std::list<PipelineTask*>::iterator& task_itr,

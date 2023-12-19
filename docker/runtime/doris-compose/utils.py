@@ -19,6 +19,7 @@ import docker
 import json
 import logging
 import os
+import pwd
 import subprocess
 import time
 import yaml
@@ -264,6 +265,13 @@ def enable_dir_with_rw_perm(dir):
                           entrypoint="chmod a+rw -R {}".format("/opt/mount"))
 
 
+def get_path_owner(path):
+    try:
+        return pwd.getpwuid(os.stat(path).st_uid).pw_name
+    except:
+        return ""
+
+
 def read_compose_file(file):
     with open(file, "r") as f:
         return yaml.safe_load(f.read())
@@ -280,3 +288,7 @@ def pretty_json(json_data):
 
 def is_true(val):
     return str(val) == "true" or str(val) == "1"
+
+
+def escape_null(val):
+    return "" if val == "\\N" else val

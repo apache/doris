@@ -63,10 +63,12 @@ suite("test_build_index", "inverted_index"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
-            def last_job_state = alter_res[alter_res.size()-1][7];
-            if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
-                logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
-                return last_job_state;
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "FINISHED" || last_job_state == "CANCELLED") {
+                    logger.info(table_name + " last index job finished, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
             }
             useTime = t
             sleep(delta_time)
@@ -79,10 +81,12 @@ suite("test_build_index", "inverted_index"){
         for(int t = delta_time; t <= OpTimeout; t += delta_time){
             alter_res = sql """SHOW BUILD INDEX WHERE TableName = "${table_name}" ORDER BY JobId """
 
-            def last_job_state = alter_res[alter_res.size()-1][7];
-            if (last_job_state == "RUNNING") {
-                logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
-                return last_job_state;
+            if (alter_res.size() > 0) {
+                def last_job_state = alter_res[alter_res.size()-1][7];
+                if (last_job_state == "RUNNING") {
+                    logger.info(table_name + " last index job running, state: " + last_job_state + ", detail: " + alter_res)
+                    return last_job_state;
+                }
             }
             useTime = t
             sleep(delta_time)
@@ -156,6 +160,8 @@ suite("test_build_index", "inverted_index"){
 
     // ADD INDEX
     sql """ ALTER TABLE ${tableName} ADD INDEX idx_comment (`comment`) USING INVERTED PROPERTIES("parser" = "english") """
+
+    wait_for_latest_op_on_table_finish(tableName, timeout)
 
     // BUILD INDEX and expect state is RUNNING
     sql """ BUILD INDEX idx_comment ON ${tableName} """

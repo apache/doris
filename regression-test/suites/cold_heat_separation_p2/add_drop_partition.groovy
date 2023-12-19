@@ -175,7 +175,7 @@ suite("add_drop_partition") {
         log.info( "test remote size is same with origin size, sleep 10s")
         sleep(10000)
         tablets = sql """
-        SHOW TABLETS FROM
+        SHOW TABLETS FROM ${tableName}
         """
         fetchDataSize(sizes, tablets[0])
         LocalDataSize1 = sizes[0]
@@ -251,7 +251,7 @@ suite("add_drop_partition") {
     
     sql """
         alter table ${tableName} ADD PARTITION np
-        VALUES LESS THAN ("2016-01-01");
+        VALUES LESS THAN ("2017-01-01");
     """
 
     sql """
@@ -264,7 +264,7 @@ suite("add_drop_partition") {
     }
 
     sql """
-    sql * from ${tableName}
+    select * from ${tableName}
     """
 
     sql """

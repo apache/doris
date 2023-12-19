@@ -19,13 +19,16 @@
 #include <CLucene/config/repl_wchar.h>
 #include <gflags/gflags.h>
 
+#include <cstdint>
 #include <filesystem>
 #include <iostream>
+#include <roaring/roaring.hh>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/segment_v2/inverted_index/query/conjunction_query.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_compound_reader.h"
 
@@ -60,6 +63,16 @@ std::string get_usage(const std::string& progname) {
     return ss.str();
 }
 
+std::vector<std::string> split(const std::string& s, char delimiter) {
+    std::vector<std::string> tokens;
+    std::string token;
+    std::istringstream tokenStream(s);
+    while (getline(tokenStream, token, delimiter)) {
+        tokens.push_back(token);
+    }
+    return tokens;
+}
+
 void search(lucene::store::Directory* dir, std::string& field, std::string& token,
             std::string& pred) {
     IndexReader* reader = IndexReader::open(dir);
@@ -72,36 +85,59 @@ void search(lucene::store::Directory* dir, std::string& field, std::string& toke
     IndexSearcher s(reader);
     std::unique_ptr<lucene::search::Query> query;
 
+    std::cout << "version: " << (int32_t)(reader->getIndexVersion()) << std::endl;
+
     std::wstring field_ws(field.begin(), field.end());
-    std::wstring token_ws(token.begin(), token.end());
-    lucene::index::Term* term = _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
-    if (pred == "eq" || pred == "match") {
-        query.reset(new lucene::search::TermQuery(term));
-    } else if (pred == "lt") {
-        query.reset(new lucene::search::RangeQuery(nullptr, term, false));
-    } else if (pred == "gt") {
-        query.reset(new lucene::search::RangeQuery(term, nullptr, false));
-    } else if (pred == "le") {
-        query.reset(new lucene::search::RangeQuery(nullptr, term, true));
-    } else if (pred == "ge") {
-        query.reset(new lucene::search::RangeQuery(term, nullptr, true));
-    } else {
-        std::cout << "invalid predicate type:" << pred << std::endl;
-        exit(-1);
-    }
-    _CLDECDELETE(term);
-
-    std::vector<uint32_t> result;
-    int total = 0;
-
-    s._search(query.get(), [&result, &total](const int32_t docid, const float_t /*score*/) {
-        // docid equal to rowid in segment
-        result.push_back(docid);
-        if (FLAGS_print_row_id) {
-            printf("RowID is %d\n", docid);
+    if (pred == "match_all") {
+    } else if (pred == "match_phrase") {
+        std::vector<std::string> terms = split(token, '|');
+        auto* phrase_query = new lucene::search::PhraseQuery();
+        for (auto& term : terms) {
+            std::wstring term_ws = StringUtil::string_to_wstring(term);
+            auto* t = _CLNEW lucene::index::Term(field_ws.c_str(), term_ws.c_str());
+            phrase_query->add(t);
+            _CLDECDELETE(t);
         }
-        total += 1;
-    });
+        query.reset(phrase_query);
+    } else {
+        std::wstring token_ws(token.begin(), token.end());
+        lucene::index::Term* term = _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
+        if (pred == "eq" || pred == "match") {
+            query.reset(new lucene::search::TermQuery(term));
+        } else if (pred == "lt") {
+            query.reset(new lucene::search::RangeQuery(nullptr, term, false));
+        } else if (pred == "gt") {
+            query.reset(new lucene::search::RangeQuery(term, nullptr, false));
+        } else if (pred == "le") {
+            query.reset(new lucene::search::RangeQuery(nullptr, term, true));
+        } else if (pred == "ge") {
+            query.reset(new lucene::search::RangeQuery(term, nullptr, true));
+        } else {
+            std::cout << "invalid predicate type:" << pred << std::endl;
+            exit(-1);
+        }
+        _CLDECDELETE(term);
+    }
+
+    int32_t total = 0;
+    if (pred == "match_all") {
+        roaring::Roaring result;
+        std::vector<std::string> terms = split(token, '|');
+        doris::ConjunctionQuery query(s.getReader());
+        query.add(field_ws, terms);
+        query.search(result);
+        total += result.cardinality();
+    } else {
+        roaring::Roaring result;
+        s._search(query.get(), [&result](const int32_t docid, const float_t /*score*/) {
+            // docid equal to rowid in segment
+            result.add(docid);
+            if (FLAGS_print_row_id) {
+                printf("RowID is %d\n", docid);
+            }
+        });
+        total += result.cardinality();
+    }
     std::cout << "Term queried count:" << total << std::endl;
 
     s.close();
@@ -196,7 +232,7 @@ int main(int argc, char** argv) {
                 std::vector<FileInfo> files;
                 bool exists = false;
                 std::filesystem::path root_dir(FLAGS_directory);
-                fs->list(root_dir, true, &files, &exists);
+                static_cast<void>(fs->list(root_dir, true, &files, &exists));
                 if (!exists) {
                     std::cout << FLAGS_directory << " is not exists" << std::endl;
                     return -1;

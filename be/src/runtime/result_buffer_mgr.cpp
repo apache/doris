@@ -92,7 +92,7 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
         // details see issue https://github.com/apache/doris/issues/16203
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + exec_timout + 5;
-        cancel_at_time(max_timeout, query_id);
+        static_cast<void>(cancel_at_time(max_timeout, query_id));
     }
     *sender = control_block;
     return Status::OK();
@@ -109,21 +109,21 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     return std::shared_ptr<BufferControlBlock>();
 }
 
-void ResultBufferMgr::register_row_descriptor(const TUniqueId& query_id,
-                                              const RowDescriptor& row_desc) {
-    std::unique_lock<std::shared_mutex> wlock(_row_descriptor_map_lock);
-    _row_descriptor_map.insert(std::make_pair(query_id, row_desc));
+void ResultBufferMgr::register_arrow_schema(const TUniqueId& query_id,
+                                            const std::shared_ptr<arrow::Schema>& arrow_schema) {
+    std::unique_lock<std::shared_mutex> wlock(_arrow_schema_map_lock);
+    _arrow_schema_map.insert(std::make_pair(query_id, arrow_schema));
 }
 
-RowDescriptor ResultBufferMgr::find_row_descriptor(const TUniqueId& query_id) {
-    std::shared_lock<std::shared_mutex> rlock(_row_descriptor_map_lock);
-    RowDescriptorMap::iterator iter = _row_descriptor_map.find(query_id);
+std::shared_ptr<arrow::Schema> ResultBufferMgr::find_arrow_schema(const TUniqueId& query_id) {
+    std::shared_lock<std::shared_mutex> rlock(_arrow_schema_map_lock);
+    auto iter = _arrow_schema_map.find(query_id);
 
-    if (_row_descriptor_map.end() != iter) {
+    if (_arrow_schema_map.end() != iter) {
         return iter->second;
     }
 
-    return RowDescriptor();
+    return nullptr;
 }
 
 void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {
@@ -156,17 +156,17 @@ Status ResultBufferMgr::cancel(const TUniqueId& query_id) {
         BufferMap::iterator iter = _buffer_map.find(query_id);
 
         if (_buffer_map.end() != iter) {
-            iter->second->cancel();
+            static_cast<void>(iter->second->cancel());
             _buffer_map.erase(iter);
         }
     }
 
     {
-        std::unique_lock<std::shared_mutex> wlock(_row_descriptor_map_lock);
-        RowDescriptorMap::iterator row_desc_iter = _row_descriptor_map.find(query_id);
+        std::unique_lock<std::shared_mutex> wlock(_arrow_schema_map_lock);
+        auto arrow_schema_iter = _arrow_schema_map.find(query_id);
 
-        if (_row_descriptor_map.end() != row_desc_iter) {
-            _row_descriptor_map.erase(row_desc_iter);
+        if (_arrow_schema_map.end() != arrow_schema_iter) {
+            _arrow_schema_map.erase(arrow_schema_iter);
         }
     }
 
@@ -209,7 +209,7 @@ void ResultBufferMgr::cancel_thread() {
 
         // cancel query
         for (int i = 0; i < query_to_cancel.size(); ++i) {
-            cancel(query_to_cancel[i]);
+            static_cast<void>(cancel(query_to_cancel[i]));
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(1)));
 

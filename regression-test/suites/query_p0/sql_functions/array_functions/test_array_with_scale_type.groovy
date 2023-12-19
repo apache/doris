@@ -37,6 +37,28 @@ suite("test_array_with_scale_type") {
         )
         """
 
+        // load with same insert into data
+        streamLoad {
+            table "${tableName}"
+
+            set 'column_separator', '|'
+
+            file 'test_array_with_scale_type.csv'
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(2, json.NumberTotalRows)
+                assertEquals(2, json.NumberLoadedRows)
+                assertEquals(0, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
         sql """INSERT INTO ${tableName} values
         (1,"2022-12-01 22:23:24.999999",22.6789,33.6789,["2022-12-01 22:23:24.999999","2022-12-01 23:23:24.999999"],[22.6789,33.6789],[22.6789,33.6789]),
         (2,"2022-12-02 22:23:24.999999",23.6789,34.6789,["2022-12-02 22:23:24.999999","2022-12-02 23:23:24.999999"],[23.6789,34.6789],[22.6789,34.6789])
@@ -78,24 +100,24 @@ suite("test_array_with_scale_type") {
         qt_select """select array_apply(c_array_decimal, ">=", 22.1) from ${tableName}"""
         qt_select """select array_apply(c_array_decimal, ">=", null) from ${tableName}"""
 
-        qt_select """select array_concat(array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))) from ${tableName}"""
+        qt_select """select array_concat(array(cast ('2022-12-02 22:23:24.123123' as datetimev2(3)),cast ('2022-12-02 22:23:23.123123' as datetimev2(3)))) from ${tableName}"""
         qt_select """select array_concat(c_array_datetimev2) from ${tableName}"""
-        qt_select """select array_concat(c_array_datetimev2, array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))) from ${tableName}"""
+        qt_select """select array_concat(c_array_datetimev2, array(cast ('2022-12-02 22:23:24.123123' as datetimev2(3)),cast ('2022-12-02 22:23:23.123123' as datetimev2(3)))) from ${tableName}"""
         qt_select """select array_concat(c_array_decimal, c_array_decimal, c_array_decimal) from ${tableName}"""
         qt_select """select array_zip(c_array_decimal, c_array_decimal, c_array_datetimev2, c_array_decimal) from ${tableName}"""
 
-        qt_select """select array_zip(array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))) from ${tableName}"""
+        qt_select """select array_zip(array(cast ('2022-12-02 22:23:24.123123' as datetimev2(3)),cast ('2022-12-02 22:23:23.123123' as datetimev2(3)))) from ${tableName}"""
         qt_select """select array_zip(c_array_datetimev2) from ${tableName}"""
-        qt_select """select array_zip(c_array_datetimev2, array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))) from ${tableName}"""
+        qt_select """select array_zip(c_array_datetimev2, array(cast ('2022-12-02 22:23:24.123123' as datetimev2(3)),cast ('2022-12-02 22:23:23.123123' as datetimev2(3)))) from ${tableName}"""
 
-        qt_select "select array_pushfront(array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3))),cast ('2022-12-02 22:23:23.997799' as datetimev2(3))) from ${tableName}"
-        qt_select "select array_pushfront(c_array_datetimev2, cast ('2023-03-08 23:23:23.997799' as datetimev2(3))) from ${tableName}"
+        qt_select "select array_pushfront(array(cast ('2022-12-02 22:23:24.123123' as datetimev2(3))),cast ('2022-12-02 22:23:23.123123' as datetimev2(3))) from ${tableName}"
+        qt_select "select array_pushfront(c_array_datetimev2, cast ('2023-03-08 23:23:23.123123' as datetimev2(3))) from ${tableName}"
         qt_select "select c_datetimev2, c_array_datetimev2, array_pushfront(c_array_datetimev2, c_datetimev2) from ${tableName}"
         qt_select "select array_pushfront(c_array_decimal, cast (25.99 as decimalv3(10,3))) from ${tableName}"
         qt_select "select c_decimal, c_array_decimal, array_pushfront(c_array_decimal, c_decimal) from ${tableName}"
 
-        qt_select "select array_pushback(array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3))),cast ('2022-12-02 22:23:23.997799' as datetimev2(3))) from ${tableName}"
-        qt_select "select array_pushback(c_array_datetimev2, cast ('2023-03-08 23:23:23.997799' as datetimev2(3))) from ${tableName}"
+        qt_select "select array_pushback(array(cast ('2022-12-02 22:23:24.123123' as datetimev2(3))),cast ('2022-12-02 22:23:23.123123' as datetimev2(3))) from ${tableName}"
+        qt_select "select array_pushback(c_array_datetimev2, cast ('2023-03-08 23:23:23.123123' as datetimev2(3))) from ${tableName}"
         qt_select "select c_datetimev2, c_array_datetimev2, array_pushback(c_array_datetimev2, c_datetimev2) from ${tableName}"
         qt_select "select array_pushback(c_array_decimal, cast (25.99 as decimalv3(10,3))) from ${tableName}"
         qt_select "select c_decimal, c_array_decimal, array_pushback(c_array_decimal, c_decimal) from ${tableName}"

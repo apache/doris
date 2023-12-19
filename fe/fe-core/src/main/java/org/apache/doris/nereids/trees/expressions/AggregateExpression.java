@@ -24,11 +24,13 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VarcharType;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 /**
  * AggregateExpression.
@@ -115,6 +117,14 @@ public class AggregateExpression extends Expression implements UnaryExpression {
         } else {
             return prefix + child().toString();
         }
+    }
+
+    @Override
+    public String getExpressionName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(function.getName(), DEFAULT_EXPRESSION_NAME));
+        }
+        return this.exprName.get();
     }
 
     @Override

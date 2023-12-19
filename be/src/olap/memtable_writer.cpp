@@ -24,7 +24,6 @@
 #include <string>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h"
@@ -39,6 +38,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_schema.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/backend_options.h"
@@ -63,10 +63,13 @@ MemTableWriter::~MemTableWriter() {
 }
 
 Status MemTableWriter::init(std::shared_ptr<RowsetWriter> rowset_writer,
-                            TabletSchemaSPtr tablet_schema, bool unique_key_mow) {
+                            TabletSchemaSPtr tablet_schema,
+                            std::shared_ptr<PartialUpdateInfo> partial_update_info,
+                            bool unique_key_mow) {
     _rowset_writer = rowset_writer;
     _tablet_schema = tablet_schema;
     _unique_key_mow = unique_key_mow;
+    _partial_update_info = partial_update_info;
 
     _reset_mem_table();
 
@@ -85,7 +88,7 @@ Status MemTableWriter::append(const vectorized::Block* block) {
     return write(block, {}, true);
 }
 
-Status MemTableWriter::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+Status MemTableWriter::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                              bool is_append) {
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
@@ -195,8 +198,8 @@ void MemTableWriter::_reset_mem_table() {
         _mem_table_flush_trackers.push_back(mem_table_flush_tracker);
     }
     _mem_table.reset(new MemTable(_req.tablet_id, _tablet_schema.get(), _req.slots, _req.tuple_desc,
-                                  _unique_key_mow, mem_table_insert_tracker,
-                                  mem_table_flush_tracker));
+                                  _unique_key_mow, _partial_update_info.get(),
+                                  mem_table_insert_tracker, mem_table_flush_tracker));
 
     _segment_num++;
 }
@@ -354,20 +357,8 @@ int64_t MemTableWriter::mem_consumption(MemType mem) {
 }
 
 int64_t MemTableWriter::active_memtable_mem_consumption() {
-    if (_flush_token == nullptr) {
-        // This method may be called before this writer is initialized.
-        // So _flush_token may be null.
-        return 0;
-    }
-    int64_t mem_usage = 0;
-    {
-        std::lock_guard<SpinLock> l(_mem_table_tracker_lock);
-        if (_mem_table_insert_trackers.size() > 0) {
-            mem_usage += (*_mem_table_insert_trackers.rbegin())->consumption();
-            mem_usage += (*_mem_table_flush_trackers.rbegin())->consumption();
-        }
-    }
-    return mem_usage;
+    std::lock_guard<std::mutex> l(_lock);
+    return _mem_table != nullptr ? _mem_table->memory_usage() : 0;
 }
 
 } // namespace doris

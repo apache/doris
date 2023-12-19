@@ -21,21 +21,33 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 
+import java.time.DateTimeException;
+import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+
 /**
  * Date type in Nereids.
  */
 public class DateType extends DateLikeType {
 
     public static final DateType INSTANCE = new DateType();
+    public static final DateType NOT_CONVERSION = new DateType(false);
 
     private static final int WIDTH = 16;
 
+    private final boolean shouldConversion;
+
     private DateType() {
+        this.shouldConversion = true;
+    }
+
+    private DateType(boolean shouldConversion) {
+        this.shouldConversion = shouldConversion;
     }
 
     @Override
     public DataType conversion() {
-        if (Config.enable_date_conversion) {
+        if (Config.enable_date_conversion && shouldConversion) {
             return DateV2Type.INSTANCE;
         }
         return this;
@@ -49,6 +61,23 @@ public class DateType extends DateLikeType {
     @Override
     public int width() {
         return WIDTH;
+    }
+
+    @Override
+    public double rangeLength(double high, double low) {
+        if (high == low) {
+            return 0;
+        }
+        if (Double.isInfinite(high) || Double.isInfinite(low)) {
+            return Double.POSITIVE_INFINITY;
+        }
+        try {
+            LocalDate to = toLocalDate(high);
+            LocalDate from = toLocalDate(low);
+            return ChronoUnit.DAYS.between(from, to);
+        } catch (DateTimeException e) {
+            return Double.POSITIVE_INFINITY;
+        }
     }
 }
 

@@ -1,1 +1,1 @@
-delete from  lineorder where lo_orderkey >= 240001 and lo_orderkey <= 360000;
+delete from  lineorder where lo_orderkey >= 300013154;

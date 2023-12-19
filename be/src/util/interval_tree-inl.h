@@ -194,10 +194,10 @@ private:
     IntervalVector overlapping_by_desc_right_;
 
     // Tree node for intervals fully left of split_point_, or NULL.
-    ITNode* left_;
+    ITNode* left_ = nullptr;
 
     // Tree node for intervals fully right of split_point_, or NULL.
-    ITNode* right_;
+    ITNode* right_ = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(ITNode);
 };

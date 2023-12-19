@@ -33,13 +33,20 @@
 #include "runtime/exec_env.h"
 
 namespace doris {
+namespace {
+static const std::string FILE_PARAMETER = "file";
+static const std::string TOKEN_PARAMETER = "token";
+static const std::string CHANNEL_PARAMETER = "channel";
+static const std::string CHANNEL_INGEST_BINLOG_TYPE = "ingest_binlog";
+} // namespace
 
-const std::string FILE_PARAMETER = "file";
-const std::string TOKEN_PARAMETER = "token";
-
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs,
-                               int32_t num_workers)
-        : _exec_env(exec_env), _download_type(NORMAL), _num_workers(num_workers) {
+DownloadAction::DownloadAction(ExecEnv* exec_env,
+                               std::shared_ptr<bufferevent_rate_limit_group> rate_limit_group,
+                               const std::vector<std::string>& allow_dirs, int32_t num_workers)
+        : _exec_env(exec_env),
+          _download_type(NORMAL),
+          _num_workers(num_workers),
+          _rate_limit_group(std::move(rate_limit_group)) {
     for (auto& dir : allow_dirs) {
         std::string p;
         Status st = io::global_local_filesystem()->canonicalize(dir, &p);
@@ -50,17 +57,18 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
     }
     if (_num_workers > 0) {
         // for single-replica-load
-        ThreadPoolBuilder("DownloadThreadPool")
-                .set_min_threads(num_workers)
-                .set_max_threads(num_workers)
-                .build(&_download_workers);
+        static_cast<void>(ThreadPoolBuilder("DownloadThreadPool")
+                                  .set_min_threads(num_workers)
+                                  .set_max_threads(num_workers)
+                                  .build(&_download_workers));
     }
 }
 
 DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
         : _exec_env(exec_env), _download_type(ERROR_LOG), _num_workers(0) {
 #ifndef BE_TEST
-    io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir);
+    static_cast<void>(
+            io::global_local_filesystem()->canonicalize(error_log_root_dir, &_error_log_root_dir));
 #endif
 }
 
@@ -106,7 +114,13 @@ void DownloadAction::handle_normal(HttpRequest* req, const std::string& file_par
     if (is_dir) {
         do_dir_response(file_param, req);
     } else {
-        do_file_response(file_param, req);
+        const auto& channel = req->param(CHANNEL_PARAMETER);
+        bool ingest_binlog = (channel == CHANNEL_INGEST_BINLOG_TYPE);
+        if (ingest_binlog) {
+            do_file_response(file_param, req, _rate_limit_group.get());
+        } else {
+            do_file_response(file_param, req);
+        }
     }
 }
 

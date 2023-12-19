@@ -33,6 +33,12 @@ import java.util.List;
 public interface IdenticalSignature extends ComputeSignature {
     /** isIdentical */
     static boolean isIdentical(DataType signatureType, DataType realType) {
+        return ComputeSignature.processComplexType(
+                signatureType, realType, IdenticalSignature::isPrimitiveIdentical);
+    }
+
+    /** isIdentical */
+    static boolean isPrimitiveIdentical(DataType signatureType, DataType realType) {
         try {
             // TODO: copy matchesType to DataType
             // TODO: resolve AnyDataType invoke toCatalogDataType

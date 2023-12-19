@@ -35,7 +35,7 @@ TEST(NullIfTest, Int_Test) {
     InputTypeSet input_types = {TypeIndex::Int32, TypeIndex::Int32};
     DataSet data_set = {{{4, 10}, 4}, {{-4, -4}, Null()}, {{5, Null()}, 5}};
 
-    check_function<DataTypeInt32, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeInt32, true>(func_name, input_types, data_set));
 }
 
 TEST(NullIfTest, Float_Test) {
@@ -43,7 +43,7 @@ TEST(NullIfTest, Float_Test) {
     InputTypeSet input_types = {TypeIndex::Float64, TypeIndex::Float64};
     DataSet data_set = {{{4.0, 10.0}, 4.0}, {{-4.0, -4.0}, Null()}, {{5.0, Null()}, 5.0}};
 
-    check_function<DataTypeFloat64, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeFloat64, true>(func_name, input_types, data_set));
 }
 
 TEST(NullIfTest, String_Int_Test) {
@@ -56,7 +56,7 @@ TEST(NullIfTest, String_Int_Test) {
             {{std::string("2021-10-24 13:00:01"), Null()},
              str_to_date_time("2021-10-24 13:00:01")}};
 
-    check_function<DataTypeDateTime, true>(func_name, input_types, data_set);
+    static_cast<void>(check_function<DataTypeDateTime, true>(func_name, input_types, data_set));
 }
 
 } // namespace doris::vectorized

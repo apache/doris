@@ -24,7 +24,7 @@ namespace doris::vectorized {
 
 Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                                        const ColumnNumbers& arguments, size_t result,
-                                       size_t input_rows_count) {
+                                       size_t input_rows_count) const {
     ColumnPtr& column_ptr = block.get_by_position(arguments[1]).column;
     DataTypePtr& type_ptr = block.get_by_position(arguments[1]).type;
     auto match_query_str = type_ptr->to_string(*column_ptr, 0);
@@ -46,7 +46,12 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
         const auto* values = check_and_get_column<ColumnString>(source_col.get());
         const ColumnArray* array_col = nullptr;
         if (source_col->is_column_array()) {
-            array_col = check_and_get_column<ColumnArray>(source_col.get());
+            if (source_col->is_nullable()) {
+                auto* nullable = check_and_get_column<ColumnNullable>(source_col.get());
+                array_col = check_and_get_column<ColumnArray>(*nullable->get_nested_column_ptr());
+            } else {
+                array_col = check_and_get_column<ColumnArray>(source_col.get());
+            }
             if (array_col && !array_col->get_data().is_column_string()) {
                 return Status::NotSupported(
                         fmt::format("unsupported nested array of type {} for function {}",
@@ -62,10 +67,19 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
                 values = check_and_get_column<ColumnString>(
                         *(array_nested_null_column.get_nested_column_ptr()));
             } else {
+                // array column element is always set Nullable for now.
                 values = check_and_get_column<ColumnString>(*(array_col->get_data_ptr()));
             }
         } else if (auto* nullable = check_and_get_column<ColumnNullable>(source_col.get())) {
-            values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            // match null
+            if (type_ptr->is_nullable()) {
+                if (column_ptr->only_null()) {
+                    block.get_by_position(result).column = nullable->get_null_map_column_ptr();
+                    return Status::OK();
+                }
+            } else {
+                values = check_and_get_column<ColumnString>(*nullable->get_nested_column_ptr());
+            }
         }
 
         if (!values) {
@@ -90,7 +104,8 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
     return Status::OK();
 }
 
-inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_type_from_fn_name() {
+inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_type_from_fn_name()
+        const {
     std::string fn_name = get_name();
     if (fn_name == MATCH_ANY_FUNCTION) {
         return doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY;
@@ -105,7 +120,7 @@ inline doris::segment_v2::InvertedIndexQueryType FunctionMatchBase::get_query_ty
 inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         const std::string& column_name, InvertedIndexCtx* inverted_index_ctx,
         const ColumnString* string_col, int32_t current_block_row_idx,
-        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) {
+        const ColumnArray::Offsets64* array_offsets, int32_t& current_src_array_offset) const {
     std::vector<std::string> data_tokens;
     auto query_type = get_query_type_from_fn_name();
     if (array_offsets) {
@@ -137,7 +152,7 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
                                        const ColumnString* string_col,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
-                                       ColumnUInt8::Container& result) {
+                                       ColumnUInt8::Container& result) const {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -182,7 +197,7 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                                        const ColumnString* string_col,
                                        InvertedIndexCtx* inverted_index_ctx,
                                        const ColumnArray::Offsets64* array_offsets,
-                                       ColumnUInt8::Container& result) {
+                                       ColumnUInt8::Container& result) const {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -233,7 +248,7 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                                           size_t input_rows_count, const ColumnString* string_col,
                                           InvertedIndexCtx* inverted_index_ctx,
                                           const ColumnArray::Offsets64* array_offsets,
-                                          ColumnUInt8::Container& result) {
+                                          ColumnUInt8::Container& result) const {
     doris::InvertedIndexParserType parser_type = doris::InvertedIndexParserType::PARSER_UNKNOWN;
     if (inverted_index_ctx) {
         parser_type = inverted_index_ctx->parser_type;
@@ -299,6 +314,7 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchAny>();
     factory.register_function<FunctionMatchAll>();
     factory.register_function<FunctionMatchPhrase>();
+    factory.register_function<FunctionMatchPhrasePrefix>();
     factory.register_function<FunctionMatchElementEQ>();
     factory.register_function<FunctionMatchElementLT>();
     factory.register_function<FunctionMatchElementGT>();

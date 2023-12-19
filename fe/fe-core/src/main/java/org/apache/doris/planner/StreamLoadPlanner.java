@@ -48,6 +48,7 @@ import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.task.StreamLoadTask;
 import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -149,6 +150,9 @@ public class StreamLoadPlanner {
         if (isPartialUpdate) {
             for (Column col : destTable.getFullSchema()) {
                 boolean existInExpr = false;
+                if (col.hasOnUpdateDefaultValue()) {
+                    partialUpdateInputColumns.add(col.getName());
+                }
                 for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                     if (importColumnDesc.getColumnName() != null
                             && importColumnDesc.getColumnName().equals(col.getName())) {
@@ -254,10 +258,16 @@ public class StreamLoadPlanner {
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
-                Config.enable_single_replica_load);
-        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
-                taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
+        OlapTableSink olapTableSink;
+        if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
+            olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
+                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    taskInfo.getMaxFilterRatio());
+        } else {
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+        }
+        olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout, taskInfo.getSendBatchParallelism(),
+                taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
         olapTableSink.complete(analyzer);
 
@@ -292,10 +302,16 @@ public class StreamLoadPlanner {
         perNodeScanRange.put(scanNode.getId().asInt(), scanRangeParams);
         execParams.setPerNodeScanRanges(perNodeScanRange);
         params.setParams(execParams);
+        params.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        params.setTotalLoadStreams(taskInfo.getStreamPerNode());
+        params.setNumLocalSink(1);
         TQueryOptions queryOptions = new TQueryOptions();
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
         queryOptions.setExecutionTimeout(timeout);
+        if (timeout < 1) {
+            LOG.info("try set timeout less than 1", new RuntimeException(""));
+        }
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
@@ -463,8 +479,14 @@ public class StreamLoadPlanner {
 
         // create dest sink
         List<Long> partitionIds = getAllPartitionIds();
-        OlapTableSink olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds,
-                Config.enable_single_replica_load);
+        OlapTableSink olapTableSink;
+        if (taskInfo instanceof StreamLoadTask && ((StreamLoadTask) taskInfo).getGroupCommit() != null) {
+            olapTableSink = new GroupCommitBlockSink(destTable, tupleDesc, partitionIds,
+                    Config.enable_single_replica_load, ((StreamLoadTask) taskInfo).getGroupCommit(),
+                    taskInfo.getMaxFilterRatio());
+        } else {
+            olapTableSink = new OlapTableSink(destTable, tupleDesc, partitionIds, Config.enable_single_replica_load);
+        }
         olapTableSink.init(loadId, taskInfo.getTxnId(), db.getId(), timeout,
                 taskInfo.getSendBatchParallelism(), taskInfo.isLoadToSingleTablet(), taskInfo.isStrictMode());
         olapTableSink.setPartialUpdateInputColumns(isPartialUpdate, partialUpdateInputColumns);
@@ -488,6 +510,9 @@ public class StreamLoadPlanner {
         pipParams.per_exch_num_senders = Maps.newHashMap();
         pipParams.destinations = Lists.newArrayList();
         pipParams.setNumSenders(1);
+        pipParams.setLoadStreamPerNode(taskInfo.getStreamPerNode());
+        pipParams.setTotalLoadStreams(taskInfo.getStreamPerNode());
+        pipParams.setNumLocalSink(1);
 
         TPipelineInstanceParams localParams = new TPipelineInstanceParams();
         localParams.setFragmentInstanceId(new TUniqueId(loadId.hi, loadId.lo + fragmentInstanceIdIndex));
@@ -507,6 +532,9 @@ public class StreamLoadPlanner {
         queryOptions.setQueryType(TQueryType.LOAD);
         queryOptions.setQueryTimeout(timeout);
         queryOptions.setExecutionTimeout(timeout);
+        if (timeout < 1) {
+            LOG.info("try set timeout less than 1", new RuntimeException(""));
+        }
         queryOptions.setMemLimit(taskInfo.getMemLimit());
         // for stream load, we use exec_mem_limit to limit the memory usage of load channel.
         queryOptions.setLoadMemLimit(taskInfo.getMemLimit());
@@ -555,7 +583,7 @@ public class StreamLoadPlanner {
                 if (null == slotDesc) {
                     continue;
                 }
-                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts);
+                ColumnRange columnRange = ScanNode.createColumnRange(slotDesc, conjuncts, partitionInfo);
                 if (columnRange != null) {
                     columnNameToRange.put(column.getName(), columnRange);
                 }

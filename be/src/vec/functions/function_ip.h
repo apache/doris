@@ -26,8 +26,11 @@
 #include "vec/columns/column_vector.h"
 #include "vec/common/format_ip.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/data_types/data_type_ipv6.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function.h"
+#include "vec/functions/function_helpers.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -95,7 +98,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        size_t result, size_t input_rows_count) override {
+                        size_t result, size_t input_rows_count) const override {
         ColumnWithTypeAndName& argument = block.get_by_position(arguments[0]);
 
         switch (argument.type->get_type_id()) {
@@ -117,4 +120,232 @@ public:
                 argument.name, get_name());
     }
 };
+
+enum class IPStringToNumExceptionMode : uint8_t { Throw, Default, Null };
+
+static inline bool tryParseIPv4(const char* pos, Int64& result_value) {
+    return parseIPv4whole(pos, reinterpret_cast<unsigned char*>(&result_value));
+}
+
+template <IPStringToNumExceptionMode exception_mode, typename ToColumn>
+ColumnPtr convertToIPv4(ColumnPtr column, const PaddedPODArray<UInt8>* null_map = nullptr) {
+    const ColumnString* column_string = check_and_get_column<ColumnString>(column.get());
+
+    if (!column_string) {
+        throw Exception(ErrorCode::INVALID_ARGUMENT,
+                        "Illegal column {} of argument of function {}, expected String",
+                        column->get_name());
+    }
+
+    size_t column_size = column_string->size();
+
+    ColumnUInt8::MutablePtr col_null_map_to;
+    ColumnUInt8::Container* vec_null_map_to = nullptr;
+
+    if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+        col_null_map_to = ColumnUInt8::create(column_size, false);
+        vec_null_map_to = &col_null_map_to->get_data();
+    }
+
+    auto col_res = ToColumn::create();
+
+    auto& vec_res = col_res->get_data();
+    vec_res.resize(column_size);
+
+    const ColumnString::Chars& vec_src = column_string->get_chars();
+    const ColumnString::Offsets& offsets_src = column_string->get_offsets();
+    size_t prev_offset = 0;
+
+    for (size_t i = 0; i < vec_res.size(); ++i) {
+        if (null_map && (*null_map)[i]) {
+            vec_res[i] = 0;
+            prev_offset = offsets_src[i];
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+                (*vec_null_map_to)[i] = true;
+            }
+            continue;
+        }
+
+        const char* src_start = reinterpret_cast<const char*>(&vec_src[prev_offset]);
+        size_t src_length = (i < vec_res.size() - 1) ? (offsets_src[i] - prev_offset)
+                                                     : (vec_src.size() - prev_offset);
+        std::string src(src_start, src_length);
+        bool parse_result = tryParseIPv4(src.c_str(), vec_res[i]);
+
+        if (!parse_result) {
+            if constexpr (exception_mode == IPStringToNumExceptionMode::Throw) {
+                throw Exception(ErrorCode::INVALID_ARGUMENT, "Invalid IPv4 value");
+            } else if constexpr (exception_mode == IPStringToNumExceptionMode::Default) {
+                vec_res[i] = 0;
+            } else if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+                (*vec_null_map_to)[i] = true;
+                vec_res[i] = 0;
+            }
+        }
+
+        prev_offset = offsets_src[i];
+    }
+
+    if constexpr (exception_mode == IPStringToNumExceptionMode::Null)
+        return ColumnNullable::create(std::move(col_res), std::move(col_null_map_to));
+
+    return col_res;
+}
+
+template <IPStringToNumExceptionMode exception_mode>
+class FunctionIPv4StringToNum : public IFunction {
+public:
+    static constexpr auto name = exception_mode == IPStringToNumExceptionMode::Throw
+                                         ? "ipv4stringtonum"
+                                         : (exception_mode == IPStringToNumExceptionMode::Default
+                                                    ? "ipv4stringtonumordefault"
+                                                    : "ipv4stringtonumornull");
+
+    static FunctionPtr create() {
+        return std::make_shared<FunctionIPv4StringToNum<exception_mode>>();
+    }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        if (!is_string(remove_nullable(arguments[0]))) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal type {} of argument of function {}", arguments[0]->get_name(),
+                            get_name());
+        }
+        auto result_type = std::make_shared<DataTypeInt64>();
+
+        if constexpr (exception_mode == IPStringToNumExceptionMode::Null) {
+            return make_nullable(result_type);
+        }
+
+        return arguments[0]->is_nullable() ? make_nullable(result_type) : result_type;
+    }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        ColumnPtr column = block.get_by_position(arguments[0]).column;
+        ColumnPtr null_map_column;
+        const NullMap* null_map = nullptr;
+        if (column->is_nullable()) {
+            const auto* column_nullable = assert_cast<const ColumnNullable*>(column.get());
+            column = column_nullable->get_nested_column_ptr();
+            null_map_column = column_nullable->get_null_map_column_ptr();
+            null_map = &column_nullable->get_null_map_data();
+        }
+
+        auto col_res = convertToIPv4<exception_mode, ColumnInt64>(column, null_map);
+
+        if (null_map && !col_res->is_nullable()) {
+            block.replace_by_position(result,
+                                      ColumnNullable::create(IColumn::mutate(col_res),
+                                                             IColumn::mutate(null_map_column)));
+            return Status::OK();
+        }
+
+        block.replace_by_position(result, col_res);
+        return Status::OK();
+    }
+};
+
+template <typename T>
+void process_ipv6_column(const ColumnPtr& column, size_t input_rows_count,
+                         ColumnString::Chars& vec_res, ColumnString::Offsets& offsets_res,
+                         ColumnUInt8::MutablePtr& null_map, unsigned char* ipv6_address_data) {
+    auto* begin = reinterpret_cast<char*>(vec_res.data());
+    auto* pos = begin;
+
+    const auto* col = check_and_get_column<T>(column.get());
+
+    for (size_t i = 0; i < input_rows_count; ++i) {
+        bool is_empty = false;
+
+        if constexpr (std::is_same_v<T, ColumnIPv6>) {
+            const auto& vec_in = col->get_data();
+            memcpy(ipv6_address_data, reinterpret_cast<const unsigned char*>(&vec_in[i]),
+                   IPV6_BINARY_LENGTH);
+        } else {
+            const auto str_ref = col->get_data_at(i);
+            const char* value = str_ref.data;
+            size_t value_size = str_ref.size;
+
+            if (value_size > IPV6_BINARY_LENGTH || value == nullptr || value_size == 0) {
+                is_empty = true;
+            } else {
+                memcpy(ipv6_address_data, value, value_size);
+                memset(ipv6_address_data + value_size, 0, IPV6_BINARY_LENGTH - value_size);
+            }
+        }
+
+        if (is_empty) {
+            offsets_res[i] = pos - begin;
+            null_map->get_data()[i] = 1;
+        } else {
+            formatIPv6(ipv6_address_data, pos);
+            offsets_res[i] = pos - begin;
+        }
+    }
+}
+
+class FunctionIPv6NumToString : public IFunction {
+public:
+    static constexpr auto name = "ipv6numtostring";
+    static FunctionPtr create() { return std::make_shared<FunctionIPv6NumToString>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        const auto* arg_string = check_and_get_data_type<DataTypeString>(arguments[0].get());
+        const auto* arg_ipv6 = check_and_get_data_type<DataTypeIPv6>(arguments[0].get());
+        if (!arg_ipv6 && !(arg_string))
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal type {} of argument of function {}, expected IPv6 or String",
+                            arguments[0]->get_name(), get_name());
+
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    bool use_default_implementation_for_nulls() const override { return true; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        size_t result, size_t input_rows_count) const override {
+        const ColumnPtr& column = block.get_by_position(arguments[0]).column;
+        const auto* col_ipv6 = check_and_get_column<ColumnIPv6>(column.get());
+        const auto* col_string = check_and_get_column<ColumnString>(column.get());
+
+        if (!col_ipv6 && !col_string)
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "Illegal column {} of argument of function {}, expected IPv6 or String",
+                            column->get_name(), get_name());
+
+        auto col_res = ColumnString::create();
+        ColumnString::Chars& vec_res = col_res->get_chars();
+        ColumnString::Offsets& offsets_res = col_res->get_offsets();
+        vec_res.resize(input_rows_count * (IPV6_MAX_TEXT_LENGTH + 1));
+        offsets_res.resize(input_rows_count);
+
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+
+        unsigned char ipv6_address_data[IPV6_BINARY_LENGTH];
+
+        if (col_ipv6) {
+            process_ipv6_column<ColumnIPv6>(column, input_rows_count, vec_res, offsets_res,
+                                            null_map, ipv6_address_data);
+        } else {
+            process_ipv6_column<ColumnString>(column, input_rows_count, vec_res, offsets_res,
+                                              null_map, ipv6_address_data);
+        }
+
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(col_res), std::move(null_map)));
+        return Status::OK();
+    }
+};
+
 } // namespace doris::vectorized

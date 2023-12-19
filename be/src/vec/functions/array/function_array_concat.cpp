@@ -68,7 +68,7 @@ public:
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                        const size_t result, size_t input_rows_count) override {
+                        const size_t result, size_t input_rows_count) const override {
         DataTypePtr column_type = block.get_by_position(arguments[0]).type;
         auto nested_type = assert_cast<const DataTypeArray&>(*column_type).get_nested_type();
         auto result_column = ColumnArray::create(nested_type->create_column(),

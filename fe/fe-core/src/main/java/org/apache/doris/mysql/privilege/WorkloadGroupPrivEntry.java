@@ -70,6 +70,11 @@ public class WorkloadGroupPrivEntry extends PrivEntry {
     }
 
     @Override
+    protected PrivEntry copy() throws AnalysisException, PatternMatcherException {
+        return WorkloadGroupPrivEntry.create(this.getOrigWorkloadGroupName(), this.getPrivSet().copy());
+    }
+
+    @Override
     public boolean keyMatch(PrivEntry other) {
         if (!(other instanceof WorkloadGroupPrivEntry)) {
             return false;

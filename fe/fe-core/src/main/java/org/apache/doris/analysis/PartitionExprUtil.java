@@ -34,6 +34,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 public class PartitionExprUtil {
@@ -57,9 +58,9 @@ public class PartitionExprUtil {
             throw new AnalysisException("now range partition only support FunctionCallExpr");
         }
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) e;
-        String fnName = functionCallExpr.getFnName().getFunction();
+        String fnName = functionCallExpr.getFnName().getFunction().toLowerCase();
         String timeUnit;
-        int interval;
+        long interval;
         if ("date_trunc".equalsIgnoreCase(fnName)) {
             List<Expr> paramsExprs = functionCallExpr.getParams().exprs();
             if (paramsExprs.size() != 2) {
@@ -70,9 +71,22 @@ public class PartitionExprUtil {
                 throw new AnalysisException("date_trunc param of time unit is not string literal.");
             }
             timeUnit = ((StringLiteral) param).getStringValue().toLowerCase();
-            interval = 1;
+            interval = 1L;
+        } else if (PartitionDesc.RANGE_PARTITION_FUNCTIONS.contains(fnName)) {
+            List<Expr> paramsExprs = functionCallExpr.getParams().exprs();
+            if (paramsExprs.size() != 3) {
+                throw new AnalysisException("date_floor/date_ceil params exprs size should be 3.");
+            }
+            Expr param = paramsExprs.get(1);
+            if (!(param instanceof IntLiteral)) {
+                throw new AnalysisException("date_floor/date_ceil param of interval must be int literal.");
+            }
+            //date_floor(event_day,interval 5 day) ---> day_floor(`event_day`, 5, '0001-01-01 00:00:00')
+            String[] splits = fnName.split("_");
+            timeUnit = splits[0]; //day
+            interval = ((IntLiteral) param).getLongValue(); //5
         } else {
-            throw new AnalysisException("now range partition only support date_trunc.");
+            throw new AnalysisException("now range partition only support date_trunc/date_floor/date_ceil.");
         }
         return partitionExprUtil.new FunctionIntervalInfo(timeUnit, interval);
     }
@@ -80,7 +94,7 @@ public class PartitionExprUtil {
     public static DateLiteral getRangeEnd(DateLiteral beginTime, FunctionIntervalInfo intervalInfo)
             throws AnalysisException {
         String timeUnit = intervalInfo.timeUnit;
-        int interval = intervalInfo.interval;
+        long interval = intervalInfo.interval;
         switch (timeUnit) {
             case "year":
                 return beginTime.plusYears(interval);
@@ -101,26 +115,33 @@ public class PartitionExprUtil {
     }
 
     public static Map<String, AddPartitionClause> getAddPartitionClauseFromPartitionValues(OlapTable olapTable,
-            ArrayList<TStringLiteral> partitionValues, PartitionInfo partitionInfo)
+            ArrayList<List<TStringLiteral>> partitionValues, PartitionInfo partitionInfo)
             throws AnalysisException {
         Map<String, AddPartitionClause> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
-        List<Column> partiitonColumn = partitionInfo.getPartitionColumns();
-        Type partitionColumnType = partiitonColumn.get(0).getType();
+        List<Column> partitionColumn = partitionInfo.getPartitionColumns();
+        boolean hasStringType = partitionColumn.stream().anyMatch(column -> column.getType().isStringType());
         FunctionIntervalInfo intervalInfo = getFunctionIntervalInfo(partitionExprs, partitionType);
         Set<String> filterPartitionValues = new HashSet<String>();
 
-        for (TStringLiteral partitionValue : partitionValues) {
+        for (List<TStringLiteral> partitionValueList : partitionValues) {
             PartitionKeyDesc partitionKeyDesc = null;
             String partitionName = "p";
-            String value = partitionValue.value;
-            if (filterPartitionValues.contains(value)) {
+            ArrayList<String> curPartitionValues = new ArrayList<>();
+            for (TStringLiteral tStringLiteral : partitionValueList) {
+                curPartitionValues.add(tStringLiteral.value);
+            }
+            String filterStr = curPartitionValues.stream()
+                    .map(s -> s + s.length()) // Concatenate each string with its length
+                    .reduce("", (s1, s2) -> s1 + s2);
+            if (filterPartitionValues.contains(filterStr)) {
                 continue;
             }
-            filterPartitionValues.add(value);
+            filterPartitionValues.add(filterStr);
             if (partitionType == PartitionType.RANGE) {
-                String beginTime = value;
+                String beginTime = curPartitionValues.get(0); // have check range type size must be 1
+                Type partitionColumnType = partitionColumn.get(0).getType();
                 DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
                 partitionName += String.format(DATETIME_NAME_FORMATTER,
                         beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
@@ -129,14 +150,19 @@ public class PartitionExprUtil {
                 partitionKeyDesc = createPartitionKeyDescWithRange(beginDateTime, endDateTime, partitionColumnType);
             } else if (partitionType == PartitionType.LIST) {
                 List<List<PartitionValue>> listValues = new ArrayList<>();
-                String pointValue = value;
-                PartitionValue lowerValue = new PartitionValue(pointValue);
-                listValues.add(Collections.singletonList(lowerValue));
+                List<PartitionValue> inValues = new ArrayList<>();
+                for (String value : curPartitionValues) {
+                    inValues.add(new PartitionValue(value));
+                }
+                listValues.add(inValues);
                 partitionKeyDesc = PartitionKeyDesc.createIn(
                         listValues);
-                partitionName += getFormatPartitionValue(lowerValue.getStringValue());
-                if (partitionColumnType.isStringType()) {
-                    partitionName += "_" + System.currentTimeMillis();
+                partitionName += getFormatPartitionValue(filterStr);
+                if (hasStringType) {
+                    if (partitionName.length() > 50) {
+                        partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
+                                + "_" + System.currentTimeMillis();
+                    }
                 }
             } else {
                 throw new AnalysisException("now only support range and list partition");
@@ -193,8 +219,6 @@ public class PartitionExprUtil {
             char ch = value.charAt(i);
             if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9')) {
                 sb.append(ch);
-            } else if (ch == '-' || ch == ':' || ch == ' ' || ch == '*') {
-                // Main user remove characters in time
             } else {
                 int unicodeValue = value.codePointAt(i);
                 String unicodeString = Integer.toHexString(unicodeValue);
@@ -206,9 +230,9 @@ public class PartitionExprUtil {
 
     public class FunctionIntervalInfo {
         public String timeUnit;
-        public int interval;
+        public long interval;
 
-        public FunctionIntervalInfo(String timeUnit, int interval) {
+        public FunctionIntervalInfo(String timeUnit, long interval) {
             this.timeUnit = timeUnit;
             this.interval = interval;
         }
