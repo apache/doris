@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/daemon.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "runtime/exec_env.h"
@@ -129,7 +130,7 @@ bool MemInfo::process_minor_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        je_purge_all_arena_dirty_pages();
+        Daemon::count_down_je_purge_dirty_pages_thread_latch();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -139,7 +140,7 @@ bool MemInfo::process_minor_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    je_purge_all_arena_dirty_pages();
+    Daemon::count_down_je_purge_dirty_pages_thread_latch();
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
     }
@@ -180,7 +181,7 @@ bool MemInfo::process_full_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        je_purge_all_arena_dirty_pages();
+        Daemon::count_down_je_purge_dirty_pages_thread_latch();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -190,7 +191,7 @@ bool MemInfo::process_full_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    je_purge_all_arena_dirty_pages();
+    Daemon::count_down_je_purge_dirty_pages_thread_latch();
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }

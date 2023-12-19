@@ -36,6 +36,10 @@ public:
     // Stop background threads
     void stop();
 
+    static void count_down_je_purge_dirty_pages_thread_latch() {
+        _je_purge_dirty_pages_thread_latch.count_down();
+    }
+
 private:
     void tcmalloc_gc_thread();
     void memory_maintenance_thread();
@@ -43,8 +47,11 @@ private:
     void memtable_memory_limiter_tracker_refresh_thread();
     void calculate_metrics_thread();
     void block_spill_gc_thread();
+    void je_purge_dirty_pages_thread() const;
 
     CountDownLatch _stop_background_threads_latch;
+    static CountDownLatch _je_purge_dirty_pages_thread_latch;
+    bool _is_stopped {};
     std::vector<scoped_refptr<Thread>> _threads;
 };
 } // namespace doris

@@ -63,6 +63,8 @@
 
 namespace doris {
 
+CountDownLatch Daemon::_je_purge_dirty_pages_thread_latch {1};
+
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
@@ -352,6 +354,18 @@ void Daemon::block_spill_gc_thread() {
     }
 }
 
+void Daemon::je_purge_dirty_pages_thread() const {
+    _je_purge_dirty_pages_thread_latch.reset(1);
+    do {
+        _je_purge_dirty_pages_thread_latch.wait();
+        if (_is_stopped) {
+            break;
+        }
+        doris::MemInfo::je_purge_all_arena_dirty_pages();
+        _je_purge_dirty_pages_thread_latch.reset(1);
+    } while (true);
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -381,6 +395,9 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
             &_threads.emplace_back());
+    st = Thread::create(
+            "Daemon", "je_purge_dirty_pages_thread",
+            [this]() { this->je_purge_dirty_pages_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }
 
@@ -390,7 +407,9 @@ void Daemon::stop() {
         LOG(INFO) << "Doris daemon stop returned since no bg threads latch.";
         return;
     }
+    _is_stopped = true;
     _stop_background_threads_latch.count_down();
+    _je_purge_dirty_pages_thread_latch.count_down();
     for (auto&& t : _threads) {
         if (t) {
             t->join();
