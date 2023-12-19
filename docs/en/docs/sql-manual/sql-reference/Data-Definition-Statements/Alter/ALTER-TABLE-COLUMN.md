@@ -34,6 +34,12 @@ ALTER TABLE COLUMN
 
 This statement is used to perform a schema change operation on an existing table. The schema change is asynchronous, and the task is returned when the task is submitted successfully. After that, you can use the [SHOW ALTER TABLE COLUMN](../../Show-Statements/SHOW-ALTER.md) command to view the progress.
 
+Doris has the concept of materialized index after table construction. After successful table construction, it is the base table and the materialized index is the base index. rollup index can be created based on the base table. Both base index and rollup index are materialized indexes. If rollup_index_name is not specified during the schema change operation, the operation is based on the base table by default.
+
+ Notice:
+
+- Doris 1.2.0 supports light schema change for light scale structure changes, and addition and subtraction operations for value columns can be completed more quickly and synchronously. You can manually specify "light_schema_change" = 'true' when creating a table. This parameter is enabled by default for versions 2.0.0 and later.
+
 grammar:
 
 ```sql
@@ -53,6 +59,59 @@ ADD COLUMN column_name column_type [KEY | agg_type] [DEFAULT "default_value"]
 [PROPERTIES ("key"="value", ...)]
 ```
 
+  - `[KEY | agg_type]`
+
+    If you want to add a KEY column, you need to add keyword KEY after column_type.
+
+  - `[DEFAULT "default_value"]`
+ 
+    If the DEFAULT value needs to be specified after the column is added, you can add the DEFAULT keyword to the column_type and specify default_value (if the column is a KEY column, it must be placed after the KEY keyword).
+
+  - `[TO rollup_index_name]`
+ 
+    If you need TO add columns to rollup index, you can add TO rollup_index_name at the end. For details about how to create rollup index, see [ALTER TABLE ROLLUP](./ALTER-TABLE-ROLLUP.md).
+
+  - `[PROPERTIES ("key"="value", ...)]`
+ 
+    If the table PROPERTIES need to be modified simultaneously when a column is added, you can set the table properties to be modified together.
+
+  ### Example
+
+  1. Add a key column new_col to example_db.my_table after key_1 (non-aggregated model)
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN new_col INT KEY DEFAULT "0" AFTER key_1;
+  ```
+
+  2. Add a value column new_col to example_db.my_table after value_1 (non-aggregate model)
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN new_col INT DEFAULT "0" AFTER value_1;
+  ```
+
+  3. Add a key column new_col (aggregate model) to example_db.my_table after key_1
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN new_col INT KEY DEFAULT "0" AFTER key_1;
+  ```
+
+  4. Add a value column to example_db.my_table after value_1 new_col SUM Aggregation type (aggregation model)
+
+  ```sql
+  ALTER TABLE example_db.my_table   
+  ADD COLUMN new_col INT SUM DEFAULT "0" AFTER value_1; 
+  ```
+
+  5. Add new_col to the first column position of the example_db.my_table table (non-aggregated model)
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN new_col INT KEY DEFAULT "0" FIRST;
+  ```
+
  Notice:
 
 - If you add a value column to the aggregation model, you need to specify agg_type
@@ -69,7 +128,23 @@ ADD COLUMN (column_name1 column_type [KEY | agg_type] DEFAULT "default_value", .
 [PROPERTIES ("key"="value", ...)]
 ```
 
-Notice:
+  ### Example
+
+  1. Add multiple columns to example_db.my_table, where new_col and new_col2 are SUM aggregate types (aggregate model)
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN (new_col1 INT SUM DEFAULT "0" ,new_col2 INT SUM DEFAULT "0");
+  ```
+
+  2. Add multiple columns to example_db.my_table (non-aggregated model), where new_col1 is the KEY column and new_col2 is the value column
+
+  ```sql
+  ALTER TABLE example_db.my_table
+  ADD COLUMN (new_col1 INT key DEFAULT "0" , new_col2 INT DEFAULT "0");
+  ```
+
+ Notice:
 
 - If you add a value column to the aggregation model, you need to specify agg_type
 - If you add a key column to the aggregation model, you need to specify the KEY keyword
@@ -84,14 +159,23 @@ DROP COLUMN column_name
 [FROM rollup_index_name]
 ```
 
-Notice:
+  ### Example
+ 
+  1. Delete column col1 from example_db.my_table
+
+  ```sql
+  ALTER TABLE example_db.my_table DROP COLUMN col1;
+  ```
+
+ Notice:
 
 - Cannot drop partition column
+- The aggregate model cannot delete KEY columns
 - If the column is removed from the base index, it will also be removed if it is included in the rollup index
 
 4. Modify the column type and column position of the specified index
 
- grammar:
+grammar:
 
 ```sql
 MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAULT "default_value"]
@@ -99,6 +183,33 @@ MODIFY COLUMN column_name column_type [KEY | agg_type] [NULL | NOT NULL] [DEFAUL
 [FROM rollup_index_name]
 [PROPERTIES ("key"="value", ...)]
 ```
+
+  ### Example
+
+  1. Modify the type of the key column col1 of the base index to BIGINT and move it to the back of the col2 column
+
+  ```sql
+  ALTER TABLE example_db.my_table 
+  MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
+  ```
+
+  Note: Whether you modify the key column or the value column, you need to declare complete column information
+
+  2. Modify the maximum length of the val1 column of base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
+
+  ```sql
+  ALTER TABLE example_db.my_table 
+  MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
+  ```
+
+  Note: You can only modify the column's data type; other attributes of the column must remain unchanged.
+
+  3. Modify the length of a field in the Key column of the Duplicate key table
+
+  ```sql
+  ALTER TABLE example_db.my_table 
+  MODIFY COLUMN k3 VARCHAR(50) KEY NULL COMMENT 'to 50';
+  ```
 
 Notice:
 
@@ -128,99 +239,82 @@ ORDER BY (column_name1, column_name2, ...)
 [PROPERTIES ("key"="value", ...)]
 ```
 
-Notice:
+  - `ORDER BY`
+
+    Column sorting keyword, you can change the sorting of the base table columns
+
+  ### Example
+
+  1. Adjust the order of the key and value columns of example_db.my_table (non-aggregate model)
+
+  ```sql
+  CREATE TABLE `my_table`(
+  `k_1` INT NULL,
+  `k_2` INT NULL,
+  `v_1` INT NULL,
+  `v_2` varchar NULL,
+  `v_3` varchar NULL
+  ) ENGINE=OLAP
+  DUPLICATE KEY(`k_1`, `k_2`)
+  COMMENT 'OLAP'
+  DISTRIBUTED BY HASH(`k_1`) BUCKETS 5
+  PROPERTIES (
+  "replication_allocation" = "tag.location.default: 1"
+  );
+
+  ALTER TABLE example_db.my_table ORDER BY (k_2,k_1,v_3,v_2,v_1);
+
+  mysql> desc my_table;
+  +-------+------------+------+-------+---------+-------+
+  | Field | Type       | Null | Key   | Default | Extra |
+  +-------+------------+------+-------+---------+-------+
+  | k_2   | INT        | Yes  | true  | NULL    |       |
+  | k_1   | INT        | Yes  | true  | NULL    |       |
+  | v_3   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+  | v_2   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+  | v_1   | INT        | Yes  | false | NULL    | NONE  |
+  +-------+------------+------+-------+---------+-------+
+  ```
+
+  2. Do Two Actions Simultaneously
+
+  ```sql
+  CREATE TABLE `my_table` (
+  `k_1` INT NULL,
+  `k_2` INT NULL,
+  `v_1` INT NULL,
+  `v_2` varchar NULL,
+  `v_3` varchar NULL
+  ) ENGINE=OLAP
+  DUPLICATE KEY(`k_1`, `k_2`)
+  COMMENT 'OLAP'
+  DISTRIBUTED BY HASH(`k_1`) BUCKETS 5
+  PROPERTIES (
+  "replication_allocation" = "tag.location.default: 1"
+  );
+
+  ALTER TABLE example_db.my_table
+  ADD COLUMN col INT DEFAULT "0" AFTER v_1,
+  ORDER BY (k_2,k_1,v_3,v_2,v_1,col);
+
+  mysql> desc my_table;
+  +-------+------------+------+-------+---------+-------+
+  | Field | Type       | Null | Key   | Default | Extra |
+  +-------+------------+------+-------+---------+-------+
+  | k_2   | INT        | Yes  | true  | NULL    |       |
+  | k_1   | INT        | Yes  | true  | NULL    |       |
+  | v_3   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+  | v_2   | VARCHAR(*) | Yes  | false | NULL    | NONE  |
+  | v_1   | INT        | Yes  | false | NULL    | NONE  |
+  | col   | INT        | Yes  | false | 0       | NONE  |
+  +-------+------------+------+-------+---------+-------+
+  ```
+
+注意：
 
 - All columns in index are written out
 - the value column comes after the key column
-
-### Example
-
-1. Add a key column new_col after col1 of example_rollup_index (non-aggregated model)
-
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT KEY DEFAULT "0" AFTER col1
-TO example_rollup_index;
-```
-
-2. Add a value column new_col after col1 of example_rollup_index (non-aggregation model)
-
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT DEFAULT "0" AFTER col1
-TO example_rollup_index;
-```
-
-3. Add a key column new_col (aggregation model) after col1 of example_rollup_index
-
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT DEFAULT "0" AFTER col1
-TO example_rollup_index;
-```
-
-4. Add a value column new_col SUM aggregation type (aggregation model) after col1 of example_rollup_index
-
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN new_col INT SUM DEFAULT "0" AFTER col1
-TO example_rollup_index;
-```
-
-5. Add multiple columns to example_rollup_index (aggregation model)
-
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN (col1 INT DEFAULT "1", col2 FLOAT SUM DEFAULT "2.3")
-TO example_rollup_index;
-```
-
-6. Remove a column from example_rollup_index
-
-```sql
-ALTER TABLE example_db.my_table
-DROP COLUMN col2
-FROM example_rollup_index;
-```
-
-7. Modify the type of the key column col1 of the base index to BIGINT and move it to the back of the col2 column.
-
-```sql
-ALTER TABLE example_db.my_table
-MODIFY COLUMN col1 BIGINT KEY DEFAULT "1" AFTER col2;
-```
-
-Note: Whether you modify the key column or the value column, you need to declare complete column information
-
-8. Modify the maximum length of the val1 column of base index. The original val1 is (val1 VARCHAR(32) REPLACE DEFAULT "abc")
-
-```sql
-ALTER TABLE example_db.my_table
-MODIFY COLUMN val1 VARCHAR(64) REPLACE DEFAULT "abc";
-```
-Note: You can only modify the column's data type; other attributes of the column must remain unchanged.
-
-9. Reorder the columns in example_rollup_index (set the original column order as: k1,k2,k3,v1,v2)
-
-```sql
-ALTER TABLE example_db.my_table
-ORDER BY (k3,k1,k2,v2,v1)
-FROM example_rollup_index;
-```
-
-10. Do Two Actions Simultaneously
-
-```sql
-ALTER TABLE example_db.my_table
-ADD COLUMN v2 INT MAX DEFAULT "0" AFTER k2 TO example_rollup_index,
-ORDER BY (k3,k1,k2,v2,v1) FROM example_rollup_index;
-```
-
-11. Modify the length of a field in the Key column of the Duplicate key table
-
-```sql
-alter table example_tbl modify column k3 varchar(50) key null comment 'to 50'
-````
+- You can adjust the key column only within the range of the key column. The same applies to the value column
 
 ### Keywords
 
