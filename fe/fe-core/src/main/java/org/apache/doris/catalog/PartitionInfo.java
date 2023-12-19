@@ -147,6 +147,17 @@ public class PartitionInfo implements Writable {
         return item;
     }
 
+    public PartitionItem getItemOrAnalysisException(long partitionId) throws AnalysisException {
+        PartitionItem item = idToItem.get(partitionId);
+        if (item == null) {
+            item = idToTempItem.get(partitionId);
+        }
+        if (item == null) {
+            throw new AnalysisException("PartitionItem not found: " + partitionId);
+        }
+        return item;
+    }
+
     public void setItem(long partitionId, boolean isTemp, PartitionItem item) {
         setItemInternal(partitionId, isTemp, item);
     }

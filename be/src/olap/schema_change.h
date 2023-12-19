@@ -101,7 +101,7 @@ private:
 
 class SchemaChange {
 public:
-    SchemaChange() : _filtered_rows(0), _merged_rows(0) {}
+    SchemaChange() = default;
     virtual ~SchemaChange() = default;
 
     virtual Status process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
@@ -118,7 +118,6 @@ public:
 
         RETURN_IF_ERROR(_inner_process(rowset_reader, rowset_writer, new_tablet, base_tablet_schema,
                                        new_tablet_schema));
-        _add_filtered_rows(rowset_reader->filtered_rows());
 
         // Check row num changes
         if (!_check_row_nums(rowset_reader, *rowset_writer)) {
@@ -147,21 +146,23 @@ protected:
     }
 
     virtual bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
-        if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {
+        if (reader->rowset()->num_rows() - reader->filtered_rows() !=
+            writer.num_rows() + writer.num_rows_filtered() + _merged_rows + _filtered_rows) {
             LOG(WARNING) << "fail to check row num! "
                          << "source_rows=" << reader->rowset()->num_rows()
-                         << ", writer rows=" << writer.num_rows()
+                         << ", source_filtered_rows=" << reader->filtered_rows()
+                         << ", written_rows=" << writer.num_rows()
+                         << ", writer_filtered_rows=" << writer.num_rows_filtered()
                          << ", merged_rows=" << merged_rows()
-                         << ", filtered_rows=" << filtered_rows()
-                         << ", new_index_rows=" << writer.num_rows();
+                         << ", filtered_rows=" << filtered_rows();
             return false;
         }
         return true;
     }
 
 private:
-    uint64_t _filtered_rows;
-    uint64_t _merged_rows;
+    uint64_t _filtered_rows {};
+    uint64_t _merged_rows {};
 };
 
 class LinkedSchemaChange : public SchemaChange {

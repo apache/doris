@@ -31,6 +31,9 @@ doris_jdbc_catalog
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
 
+-- !all_null --
+\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+
 -- !arr1 --
 1	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1.00000]	[1.0000000000]	["2021-01-01"]	["2021-01-01 00:00:00.000"]	["a"]	["a"]	["a"]
 2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
@@ -61,6 +64,9 @@ doris_jdbc_catalog
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
 true	1	1	1	1	1	1.0	1.0	1.00000	1.0000000000	2021-01-01	2021-01-01T00:00	a	a	{"a":1}
 
+-- !all_null2 --
+\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
+
 -- !arr2 --
 1	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1]	[1.00000]	[1.0000000000]	["2021-01-01"]	["2021-01-01 00:00:00.000"]	["a"]	["a"]	["a"]
 2	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N
@@ -90,21 +96,21 @@ json_col	JSON	Yes	false	\N	NONE
 
 -- !desc_ctas_arr --
 int_col	INT	Yes	true	\N	
-arr_bool_col	ARRAY<BOOLEAN>	Yes	false	[]	NONE
-arr_tinyint_col	ARRAY<TINYINT>	Yes	false	[]	NONE
-arr_smallint_col	ARRAY<SMALLINT>	Yes	false	[]	NONE
-arr_int_col	ARRAY<INT>	Yes	false	[]	NONE
-arr_bigint_col	ARRAY<BIGINT>	Yes	false	[]	NONE
-arr_largeint_col	ARRAY<LARGEINT>	Yes	false	[]	NONE
-arr_float_col	ARRAY<FLOAT>	Yes	false	[]	NONE
-arr_double_col	ARRAY<DOUBLE>	Yes	false	[]	NONE
-arr_decimal1_col	ARRAY<DECIMALV3(10, 5)>	Yes	false	[]	NONE
-arr_decimal2_col	ARRAY<DECIMALV3(30, 10)>	Yes	false	[]	NONE
-arr_date_col	ARRAY<DATEV2>	Yes	false	[]	NONE
-arr_datetime_col	ARRAY<DATETIMEV2(3)>	Yes	false	[]	NONE
-arr_char_col	ARRAY<CHAR(10)>	Yes	false	[]	NONE
-arr_varchar_col	ARRAY<VARCHAR(10)>	Yes	false	[]	NONE
-arr_string_col	ARRAY<TEXT>	Yes	false	[]	NONE
+arr_bool_col	ARRAY<BOOLEAN>	Yes	false	\N	NONE
+arr_tinyint_col	ARRAY<TINYINT>	Yes	false	\N	NONE
+arr_smallint_col	ARRAY<SMALLINT>	Yes	false	\N	NONE
+arr_int_col	ARRAY<INT>	Yes	false	\N	NONE
+arr_bigint_col	ARRAY<BIGINT>	Yes	false	\N	NONE
+arr_largeint_col	ARRAY<LARGEINT>	Yes	false	\N	NONE
+arr_float_col	ARRAY<FLOAT>	Yes	false	\N	NONE
+arr_double_col	ARRAY<DOUBLE>	Yes	false	\N	NONE
+arr_decimal1_col	ARRAY<DECIMALV3(10, 5)>	Yes	false	\N	NONE
+arr_decimal2_col	ARRAY<DECIMALV3(30, 10)>	Yes	false	\N	NONE
+arr_date_col	ARRAY<DATEV2>	Yes	false	\N	NONE
+arr_datetime_col	ARRAY<DATETIMEV2(3)>	Yes	false	\N	NONE
+arr_char_col	ARRAY<CHAR(10)>	Yes	false	\N	NONE
+arr_varchar_col	ARRAY<VARCHAR(10)>	Yes	false	\N	NONE
+arr_string_col	ARRAY<TEXT>	Yes	false	\N	NONE
 
 -- !query_ctas_base --
 \N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N

@@ -30,7 +30,7 @@ Status OlapTableSinkV2LocalState::init(RuntimeState* state, LocalSinkStateInfo& 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<Parent>();
-    RETURN_IF_ERROR(_writer->init_properties(p._pool, p._group_commit));
+    RETURN_IF_ERROR(_writer->init_properties(p._pool));
     return Status::OK();
 }
 

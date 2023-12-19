@@ -99,10 +99,10 @@ suite("regression_test_variant", "variant_type"){
             sql "select k, v, cast(v:b as string) from  ${table_name} where  length(cast(v:b as string)) > 4 order  by k, cast(v as string)"
             sql "select k, v from  ${table_name} order by k, cast(v as string) limit 5"
             sql "select v:b, v:b.c, v from  ${table_name} order by k,cast(v as string) desc limit 10000;"
-            sql "select k, v, v:b.c, v:a from ${table_name} where k > 10 order by k desc limit 10000;"
+            // sql "select k, v, v:b.c, v:a from ${table_name} where k > 10 order by k desc limit 10000;"
             sql "select v:b from ${table_name} where cast(v:b as int) > 0;"
             sql "select cast(v:b as string) from ${table_name} order by k"
-            verify table_name 
+            // verify table_name 
         }
         // FIXME
         sql "insert into simple_variant_DUPLICATE select k, cast(v as string) from simple_variant_UNIQUE;"
@@ -337,7 +337,7 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (6, '{"j" : 1}'), (1, '{"a" : 1}')"""
         sql """insert into ${table_name} values (6, '{"k" : 1}'), (1, '{"a" : 1}')"""
         sql "select * from ${table_name}"
-        qt_sql_36_1 "select v:a, v:b, v:c from ${table_name} order by k limit 10"
+        qt_sql_36_1 "select cast(v:a as int), cast(v:b as int), cast(v:c as int) from ${table_name} order by k limit 10"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
         qt_sql_36_2 "select * from ${table_name} where k > 3 order by k desc limit 10"

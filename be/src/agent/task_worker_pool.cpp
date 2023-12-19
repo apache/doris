@@ -1458,6 +1458,11 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
         }
 
         if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+            // there are too many missing versions, it has been be added to async
+            // publish task, so no need to retry here.
+            if (discontinuous_version_tablets.empty()) {
+                break;
+            }
             LOG_EVERY_SECOND(INFO) << "wait for previous publish version task to be done, "
                                    << "transaction_id: " << publish_version_req.transaction_id;
 
@@ -1488,7 +1493,6 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .tag("retry_time", retry_time)
                 .error(status);
         ++retry_time;
-        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     for (auto& item : discontinuous_version_tablets) {
@@ -1511,17 +1515,19 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
             for (auto [tablet_id, _] : succ_tablets) {
                 TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
                 if (tablet != nullptr) {
-                    int64_t published_count =
-                            tablet->published_count.fetch_add(1, std::memory_order_relaxed);
-                    if (published_count % 10 == 0) {
-                        auto st = _engine.submit_compaction_task(
-                                tablet, CompactionType::CUMULATIVE_COMPACTION, true);
-                        if (!st.ok()) [[unlikely]] {
-                            LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
-                                         << ", published=" << published_count << " : " << st;
-                        } else {
-                            LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
-                                      << ", published:" << published_count;
+                    if (!tablet->tablet_meta()->tablet_schema()->disable_auto_compaction()) {
+                        tablet->published_count.fetch_add(1);
+                        int64_t published_count = tablet->published_count.load();
+                        if (published_count % 10 == 0) {
+                            auto st = _engine.submit_compaction_task(
+                                    tablet, CompactionType::CUMULATIVE_COMPACTION, true);
+                            if (!st.ok()) [[unlikely]] {
+                                LOG(WARNING) << "trigger compaction failed, tablet_id=" << tablet_id
+                                             << ", published=" << published_count << " : " << st;
+                            } else {
+                                LOG(INFO) << "trigger compaction succ, tablet_id:" << tablet_id
+                                          << ", published:" << published_count;
+                            }
                         }
                     }
                 } else {

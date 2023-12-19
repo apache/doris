@@ -154,7 +154,7 @@ public abstract class JdbcClient {
         }
     }
 
-    private static String parseDbType(String jdbcUrl) {
+    public static String parseDbType(String jdbcUrl) {
         try {
             return JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -467,6 +467,24 @@ public abstract class JdbcClient {
         return databaseMetaData.getColumns(catalogName, schemaName, tableName, null);
     }
 
+    /**
+     * Execute stmt direct via jdbc
+     * @param origStmt, the raw stmt string
+     */
+    public void executeStmt(String origStmt) {
+        Connection conn = getConnection();
+        Statement stmt = null;
+        try {
+            stmt = conn.createStatement();
+            int effectedRows = stmt.executeUpdate(origStmt);
+            LOG.debug("finished to execute dml stmt: {}, effected rows: {}", origStmt, effectedRows);
+        } catch (SQLException e) {
+            throw new JdbcClientException("Failed to execute stmt. error: " + e.getMessage(), e);
+        } finally {
+            close(stmt, conn);
+        }
+    }
+
     @Data
     protected static class JdbcFieldSchema {
         protected String columnName;
@@ -501,3 +519,4 @@ public abstract class JdbcClient {
         return ScalarType.createStringType();
     }
 }
+

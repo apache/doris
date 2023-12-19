@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -50,36 +51,36 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
     private final boolean temporaryPartition;
     private final List<String> partitions;
     private final boolean isPartialUpdate;
-    private final boolean isFromNativeInsertStmt;
+    private final DMLCommandType dmlCommandType;
 
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, CHILD_TYPE child) {
         this(nameParts, colNames, hints, false, partitions,
-                false, false, Optional.empty(), Optional.empty(), child);
+                false, DMLCommandType.NONE, Optional.empty(), Optional.empty(), child);
     }
 
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             boolean temporaryPartition, List<String> partitions, CHILD_TYPE child) {
         this(nameParts, colNames, hints, temporaryPartition, partitions,
-                false, false, Optional.empty(), Optional.empty(), child);
+                false, DMLCommandType.NONE, Optional.empty(), Optional.empty(), child);
     }
 
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, false, partitions, isPartialUpdate, false,
+        this(nameParts, colNames, hints, false, partitions, isPartialUpdate, DMLCommandType.NONE,
                 Optional.empty(), Optional.empty(), child);
     }
 
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             boolean temporaryPartition, List<String> partitions, boolean isPartialUpdate, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate, false,
+        this(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate, DMLCommandType.NONE,
                 Optional.empty(), Optional.empty(), child);
     }
 
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             boolean temporaryPartition, List<String> partitions,
-            boolean isPartialUpdate, boolean isFromNativeInsertStmt, CHILD_TYPE child) {
-        this(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate, isFromNativeInsertStmt,
+            boolean isPartialUpdate, DMLCommandType dmlCommandType, CHILD_TYPE child) {
+        this(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate, dmlCommandType,
                 Optional.empty(), Optional.empty(), child);
     }
 
@@ -88,7 +89,7 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
      */
     public UnboundTableSink(List<String> nameParts, List<String> colNames, List<String> hints,
             boolean temporaryPartition, List<String> partitions,
-            boolean isPartialUpdate, boolean isFromNativeInsertStmt,
+            boolean isPartialUpdate, DMLCommandType dmlCommandType,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties,
             CHILD_TYPE child) {
         super(PlanType.LOGICAL_UNBOUND_OLAP_TABLE_SINK, ImmutableList.of(), groupExpression, logicalProperties, child);
@@ -98,7 +99,7 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
         this.temporaryPartition = temporaryPartition;
         this.partitions = Utils.copyRequiredList(partitions);
         this.isPartialUpdate = isPartialUpdate;
-        this.isFromNativeInsertStmt = isFromNativeInsertStmt;
+        this.dmlCommandType = dmlCommandType;
     }
 
     public List<String> getColNames() {
@@ -125,15 +126,15 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
         return isPartialUpdate;
     }
 
-    public boolean isFromNativeInsertStmt() {
-        return isFromNativeInsertStmt;
+    public DMLCommandType getDMLCommandType() {
+        return dmlCommandType;
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "UnboundOlapTableSink only accepts one child");
         return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate,
-                isFromNativeInsertStmt, groupExpression, Optional.empty(), children.get(0));
+                dmlCommandType, groupExpression, Optional.empty(), children.get(0));
     }
 
     @Override
@@ -169,14 +170,14 @@ public class UnboundTableSink<CHILD_TYPE extends Plan> extends LogicalSink<CHILD
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions, isPartialUpdate,
-                isFromNativeInsertStmt, groupExpression, Optional.of(getLogicalProperties()), child());
+                dmlCommandType, groupExpression, Optional.of(getLogicalProperties()), child());
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         return new UnboundTableSink<>(nameParts, colNames, hints, temporaryPartition, partitions,
-                isPartialUpdate, isFromNativeInsertStmt, groupExpression, logicalProperties, children.get(0));
+                isPartialUpdate, dmlCommandType, groupExpression, logicalProperties, children.get(0));
     }
 
     @Override

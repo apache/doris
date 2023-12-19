@@ -57,7 +57,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -431,6 +430,19 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
     public List<List<String>> getResourcesInfo(TUserIdentity tcurrentUserIdentity) {
         UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
         return procNode.fetchResult(currentUserIdentity).getRows();
+    }
+
+    public Long getWorkloadGroupIdByName(String name) {
+        readLock();
+        try {
+            WorkloadGroup wg = nameToWorkloadGroup.get(name);
+            if (wg == null) {
+                return null;
+            }
+            return wg.getId();
+        } finally {
+            readUnlock();
+        }
     }
 
     // for ut

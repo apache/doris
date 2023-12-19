@@ -244,6 +244,9 @@ public:
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
+    // Don't use.
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
+    // In some places, temporarily use num_columns() as TabletSchema size.
     int64_t mem_size() const { return _mem_size; }
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
@@ -330,6 +333,12 @@ public:
     void merge_dropped_columns(const TabletSchema& src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
+
+    // copy extracted columns from src_schema
+    void copy_extracted_columns(const TabletSchema& src_schema);
+
+    // only reserve extracted columns
+    void reserve_extracted_columns();
 
     string get_all_field_names() const {
         string str = "[";

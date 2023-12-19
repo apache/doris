@@ -1434,4 +1434,71 @@ PARTITION `p599` VALUES IN (599)
     assertEquals("0.0", result[0][5])
     assertEquals("N/A", result[0][6])
     assertEquals("N/A", result[0][7])
+
+    // Test analyze column with special character in name.
+    sql """
+      CREATE TABLE region  (
+       `r_regionkey`      int NOT NULL,
+       `r'name`     VARCHAR(25) NOT NULL,
+       `r_comment`    VARCHAR(152)
+      )ENGINE=OLAP
+      DUPLICATE KEY(`r_regionkey`)
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`r_regionkey`) BUCKETS 1
+      PROPERTIES (
+       "replication_num" = "1"
+      );
+   """
+   sql """insert into region values(1,'name1', 'comment1') """
+   sql """insert into region values(2,'name2', 'comment2') """
+   sql """insert into region values(3,'name3', 'comment3') """
+   sql """ANALYZE TABLE region WITH SYNC"""
+   result = sql """show column stats region (`r'name`);"""
+   assertEquals(1, result.size())
+   assertEquals("r'name", result[0][0])
+   assertEquals("3.0", result[0][1])
+   assertEquals("3.0", result[0][2])
+   assertEquals("0.0", result[0][3])
+   assertEquals("\'name1\'", result[0][6])
+   assertEquals("\'name3\'", result[0][7])
+
+   // Test trigger type.
+   sql """DROP DATABASE IF EXISTS trigger"""
+   sql """CREATE DATABASE IF NOT EXISTS trigger"""
+   sql """USE trigger"""
+   sql """
+     CREATE TABLE if not exists trigger_test(
+      `id`      int NOT NULL,
+      `name`    VARCHAR(152)
+     )ENGINE=OLAP
+     DUPLICATE KEY(`id`)
+     COMMENT "OLAP"
+     DISTRIBUTED BY HASH(`id`) BUCKETS 1
+     PROPERTIES (
+      "replication_num" = "1"
+     );
+   """
+   sql """insert into trigger_test values(1,'name1') """
+   sql """analyze database trigger PROPERTIES("use.auto.analyzer"="true")"""
+
+   int i = 0;
+   for (0; i < 10; i++) {
+       def result = sql """show column stats trigger_test"""
+       if (result.size() != 2) {
+	   Thread.sleep(1000)
+           continue;
+       }
+       assertEquals(result[0][10], "SYSTEM")
+       assertEquals(result[1][10], "SYSTEM")
+       break
+   }
+   if (i < 10) {
+       sql """analyze table trigger_test with sync"""
+       def result = sql """show column stats trigger_test"""
+       assertEquals(result.size(), 2)
+       assertEquals(result[0][10], "MANUAL")
+       assertEquals(result[1][10], "MANUAL")
+   }
+   sql """DROP DATABASE IF EXISTS trigger"""
+
 }

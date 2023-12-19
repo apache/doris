@@ -269,9 +269,10 @@ namespace ErrorCode {
     E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006, true);       \
     E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007, false);        \
     E(INVERTED_INDEX_BUILD_WAITTING, -6008, false);          \
-    E(KEY_NOT_FOUND, -6009, false);                          \
-    E(KEY_ALREADY_EXISTS, -6010, false);                     \
-    E(ENTRY_NOT_FOUND, -6011, false);
+    E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
+    E(KEY_NOT_FOUND, -7000, false);                          \
+    E(KEY_ALREADY_EXISTS, -7001, false);                     \
+    E(ENTRY_NOT_FOUND, -7002, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -534,6 +535,14 @@ inline std::string Status::to_string_no_stack() const {
         Status _status_ = (stmt);       \
         if (UNLIKELY(!_status_.ok())) { \
             return _status_;            \
+        }                               \
+    } while (false)
+
+#define THROW_IF_ERROR(stmt)            \
+    do {                                \
+        Status _status_ = (stmt);       \
+        if (UNLIKELY(!_status_.ok())) { \
+            throw Exception(_status_);  \
         }                               \
     } while (false)
 

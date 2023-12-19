@@ -791,9 +791,10 @@ Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** hol
     return Status::OK();
 }
 
-void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer) {
+void VDataStreamSender::register_pipeline_channels(
+        pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer) {
     for (auto channel : _channels) {
-        ((PipChannel<VDataStreamSender>*)channel)->registe(buffer);
+        ((PipChannel<VDataStreamSender>*)channel)->register_exchange_buffer(buffer);
     }
 }
 

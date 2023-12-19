@@ -340,14 +340,14 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
         auto& deps = info.upstream_dependencies;
         if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
-            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()]);
+            _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first);
         } else {
             _dependency->set_shared_state(deps.front()->shared_state());
         }
         _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state().get();
         _shared_state->ref();
-        _wait_for_dependency_timer =
-                ADD_TIMER(_runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time");
+        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         _shared_state->source_dep = _dependency;
         _shared_state->sink_dep = deps.front().get();
     }
@@ -409,13 +409,13 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
         auto& deps = info.dependencys;
         _dependency = (DependencyType*)deps.front().get();
         if constexpr (std::is_same_v<LocalExchangeSinkDependency, DependencyType>) {
-            _dependency->set_shared_state(info.le_state_map[_parent->dests_id().front()]);
+            _dependency = info.le_state_map[_parent->dests_id().front()].second.get();
         }
         if (_dependency) {
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
-            _wait_for_dependency_timer =
-                    ADD_TIMER(_profile, "WaitForDependency[" + _dependency->name() + "]Time");
+            _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                    _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
         _shared_state->ref();
     } else {
@@ -511,8 +511,8 @@ Status AsyncWriterSink<Writer, Parent>::init(RuntimeState* state, LocalSinkState
             _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _writer->set_dependency(_async_writer_dependency.get(), _finish_dependency.get());
 
-    _wait_for_dependency_timer =
-            ADD_TIMER(_profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time");
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+            _profile, "WaitForDependency[" + _async_writer_dependency->name() + "]Time", 1);
     _finish_dependency->block();
     return Status::OK();
 }

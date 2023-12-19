@@ -1469,11 +1469,6 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
-                <artifactId>grpc-core</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
                 <artifactId>grpc-context</artifactId>
                 <version>${grpc.version}</version>
             </dependency>

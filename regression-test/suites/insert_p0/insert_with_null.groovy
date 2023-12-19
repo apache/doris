@@ -67,10 +67,10 @@ suite("insert_with_null") {
         if (write_mode == "txn_insert") {
             sql "begin"
         } else if (write_mode == "group_commit_legacy") {
-            sql """ set enable_insert_group_commit = true; """
+            sql """ set group_commit = async_mode; """
             sql """ set enable_nereids_dml = false; """
         } else if (write_mode == "group_commit_nereids") {
-            sql """ set enable_insert_group_commit = true; """
+            sql """ set group_commit = async_mode; """
             sql """ set enable_nereids_dml = true; """
             sql """ set enable_nereids_planner=true; """
             //sql """ set enable_fallback_to_original_planner=false; """
@@ -78,16 +78,21 @@ suite("insert_with_null") {
 
         sql """ insert into ${table} values(1, '"b"', ["k1=v1, k2=v2"]); """
         sql """ insert into ${table} values(2, "\\N", ['k3=v3, k4=v4']); """
-        // sql """ insert into ${table} values(3, "\\\\N", []); """
-        sql """ insert into ${table} values(4, 'null', []); """
-        sql """ insert into ${table} values(5, 'NULL', ['k5, k6']); """
-        sql """ insert into ${table} values(6, null, ["k7", "k8"]); """
+        sql """ insert into ${table} values(3, 'null', []); """
+        sql """ insert into ${table} values(4, 'NULL', ['k5, k6']); """
+        sql """ insert into ${table} values(5, null, ["k7", "k8"]); """
+        sql """ insert into ${table} values(6, "\\n", ["k7", "k8"]); """
+        sql """ insert into ${table} values(7, "", ["k7", "k8"]); """
+        sql """ insert into ${table} values(8, '', ["k7", "k8"]); """
+        sql """ insert into ${table} values(9, '"a', ["k7", "k8"]); """
+        sql """ insert into ${table} values(10, 'a"', ["k7", "k8"]); """
+        // sql """ insert into ${table} values(21, "\\\\N", []); """
         if (write_mode != "txn_insert") {
-            sql """ insert into ${table}(id, name) values(7, 'abc'); """
-            getRowCount(6)
+            sql """ insert into ${table}(id) values(22); """
+            getRowCount(11)
         } else {
             sql "commit"
-            getRowCount(5)
+            getRowCount(10)
         }
 
         qt_sql """ select * from ${table} order by id asc; """

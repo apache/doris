@@ -199,7 +199,7 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     true,
                     tempPartitionNames,
                     sink.isPartialUpdate(),
-                    sink.isFromNativeInsertStmt(),
+                    sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
             new InsertIntoTableCommand(copySink, labelName).run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
@@ -278,6 +278,14 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
     }
 

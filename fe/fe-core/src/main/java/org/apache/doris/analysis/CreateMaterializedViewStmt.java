@@ -258,14 +258,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
             }
-            List<SlotRef> slots = new ArrayList<>();
-            selectListItemExpr.collect(SlotRef.class, slots);
-            if (!isReplay && slots.size() == 0) {
-                throw new AnalysisException(
-                        "The materialized view contain constant expr is disallowed, expr: "
-                                + selectListItemExpr.toSql());
-            }
-
 
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
@@ -278,6 +270,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // build mv column item
                 mvColumnItemList.add(buildMVColumnItem(analyzer, functionCallExpr));
             } else {
+                List<SlotRef> slots = new ArrayList<>();
+                selectListItemExpr.collect(SlotRef.class, slots);
+                if (!isReplay && slots.size() == 0) {
+                    throw new AnalysisException(
+                            "The materialized view contain constant expr is disallowed, expr: "
+                                    + selectListItemExpr.toSql());
+                }
                 if (meetAggregate) {
                     throw new AnalysisException("The aggregate column should be after the single column");
                 }
