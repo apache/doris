@@ -39,7 +39,7 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "exec/exec_node.h"
-#include "olap/reader.h"
+#include "olap/tablet_reader.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/storage_engine.h"

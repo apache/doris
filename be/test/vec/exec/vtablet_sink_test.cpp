@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 #include <brpc/closure_guard.h>
 #include <brpc/server.h>

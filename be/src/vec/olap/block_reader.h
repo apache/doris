@@ -24,7 +24,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "olap/reader.h"
+#include "olap/tablet_reader.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
