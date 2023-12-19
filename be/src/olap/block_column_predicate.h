@@ -97,7 +97,7 @@ public:
     //evaluate predicate on inverted
     virtual Status evaluate(const std::string& column_name, InvertedIndexIterator* iterator,
                             uint32_t num_rows, roaring::Roaring* bitmap) const {
-        return Status::NotSupported(
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_IMPLEMENTED>(
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
 };
