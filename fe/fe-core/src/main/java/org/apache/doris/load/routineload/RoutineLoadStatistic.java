@@ -59,6 +59,8 @@ public class RoutineLoadStatistic implements Writable {
     public long receivedBytes = 0;
     @SerializedName(value = "totalTaskExcutionTimeMs")
     public long totalTaskExcutionTimeMs = 1; // init as 1 to avoid division by zero
+    @SerializedName(value = "taskExecuteTimeMs")
+    public long taskExecuteTimeMs = 1; // init as 1 to avoid division by zero
     @SerializedName(value = "committedTaskNum")
     public long committedTaskNum = 0;
     @SerializedName(value = "abortedTaskNum")
@@ -87,10 +89,10 @@ public class RoutineLoadStatistic implements Writable {
         summary.put("errorRowsAfterResumed", Long.valueOf(this.errorRowsAfterResumed));
         summary.put("unselectedRows", Long.valueOf(this.unselectedRows));
         summary.put("receivedBytes", Long.valueOf(this.receivedBytes));
-        summary.put("taskExecuteTimeMs", Long.valueOf(this.totalTaskExcutionTimeMs));
-        summary.put("receivedBytesRate", Long.valueOf(this.receivedBytes * 1000 / this.totalTaskExcutionTimeMs));
+        summary.put("taskExecuteTimeMs", Long.valueOf(this.taskExecuteTimeMs));
+        summary.put("receivedBytesRate", Long.valueOf(this.receivedBytes * 1000 / this.taskExecuteTimeMs));
         summary.put("loadRowsRate", Long.valueOf((this.totalRows - this.errorRows - this.unselectedRows) * 1000
-                / this.totalTaskExcutionTimeMs));
+                / this.taskExecuteTimeMs));
         summary.put("committedTaskNum", Long.valueOf(this.committedTaskNum));
         summary.put("abortedTaskNum", Long.valueOf(this.abortedTaskNum));
         summary.put("runningTxns", runningTxnIds);

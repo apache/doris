@@ -789,6 +789,12 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         this.jobStatistic.unselectedRows += unselectedRows;
         this.jobStatistic.receivedBytes += receivedBytes;
         this.jobStatistic.totalTaskExcutionTimeMs += taskExecutionTime;
+        if (currentTaskConcurrentNum > 0) {
+            this.jobStatistic.taskExecuteTimeMs = this.jobStatistic.totalTaskExcutionTimeMs / currentTaskConcurrentNum;
+        }
+        if (this.jobStatistic.taskExecuteTimeMs == 0) {
+            this.jobStatistic.taskExecuteTimeMs = 1;
+        }
 
         if (MetricRepo.isInit && !isReplay) {
             MetricRepo.COUNTER_ROUTINE_LOAD_ROWS.increase(numOfTotalRows);
