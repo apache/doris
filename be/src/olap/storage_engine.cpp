@@ -1232,13 +1232,15 @@ void StorageEngine::notify_listeners() {
     }
 }
 
-void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+bool StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
         if (listener->task_worker_type() == task_worker_type) {
             listener->notify_thread();
+            return true;
         }
     }
+    return false;
 }
 
 Status StorageEngine::execute_task(EngineTask* task) {
