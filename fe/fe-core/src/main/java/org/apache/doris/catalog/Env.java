@@ -509,7 +509,7 @@ public class Env {
 
     private TopicPublisherThread topicPublisherThread;
 
-    private WorkloadActionPublishThread workloadMoveActionPublisherThread;
+    private WorkloadActionPublishThread workloadActionPublisherThread;
 
     private MTMVService mtmvService;
 
@@ -740,7 +740,7 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
-        this.workloadMoveActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
+        this.workloadActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
                 Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
     }
@@ -998,7 +998,7 @@ public class Env {
 
         workloadGroupMgr.startUpdateThread();
         workloadSchedPolicyMgr.start();
-        workloadMoveActionPublisherThread.start();
+        workloadActionPublisherThread.start();
     }
 
     // wait until FE is ready.

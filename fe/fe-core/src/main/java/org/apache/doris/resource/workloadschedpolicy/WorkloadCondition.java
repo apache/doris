@@ -31,7 +31,7 @@ public interface WorkloadCondition {
             throws UserException {
         if (WorkloadMetricType.USERNAME.equals(cm.metricName)) {
             return WorkloadConditionUsername.createWorkloadCondition(cm.op, cm.value);
-        } else if (WorkloadMetricType.QUERY_TIME.toString().equals(cm.metricName)) {
+        } else if (WorkloadMetricType.QUERY_TIME.equals(cm.metricName)) {
             return WorkloadConditionQueryTime.createWorkloadCondition(cm.op, cm.value);
         }
         throw new UserException("invalid metric name:" + cm.metricName);

@@ -78,19 +78,17 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     //    1 metric not match
     //    2 condition value not match query info's value
     boolean isMatch(WorkloadQueryInfo queryInfo) {
-        boolean ret = true;
         for (WorkloadCondition condition : workloadConditionList) {
             WorkloadMetricType metricType = condition.getMetricType();
             String value = queryInfo.metricMap.get(metricType);
             if (value == null) {
                 return false; // query info's metric must match all condition's metric
             }
-            ret = ret & condition.eval(value);
-            if (!ret) {
-                return ret;
+            if (!condition.eval(value)) {
+                return false;
             }
         }
-        return ret;
+        return true;
     }
 
     public boolean isEnabled() {

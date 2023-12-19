@@ -87,6 +87,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         public void run() {
             while (true) {
                 try {
+                    // todo(wb) add more query info source, not only comes from connectionmap
                     // 1 get query info map
                     Map<Integer, ConnectContext> connectMap = ExecuteEnv.getInstance().getScheduler()
                             .getConnectionMap();
@@ -211,7 +212,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                 WorkloadActionSetSessionVar setAction = (WorkloadActionSetSessionVar) action;
                 if (!setSessionVarSet.add(setAction.getVarName())) {
                     throw new UserException(
-                            "duplicate set session var action args one policy, " + setAction.getVarName());
+                            "duplicate set_session_variable action args one policy, " + setAction.getVarName());
                 }
             } else if (!actionTypeSet.add(action.getWorkloadActionType())) {
                 throw new UserException("duplicate action in one policy");
@@ -381,7 +382,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                 if (dropStmt.isIfExists()) {
                     return;
                 } else {
-                    throw new UserException("workload schedule policy " + policyName + "not exists");
+                    throw new UserException("workload schedule policy " + policyName + " not exists");
                 }
             }
 

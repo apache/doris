@@ -39,7 +39,7 @@ public class WorkloadConditionMeta {
         this.value = value;
     }
 
-    public static WorkloadMetricType getMetricType(String metricStr) throws UserException {
+    private static WorkloadMetricType getMetricType(String metricStr) throws UserException {
         if (WorkloadMetricType.USERNAME.toString().equalsIgnoreCase(metricStr)) {
             return WorkloadMetricType.USERNAME;
         } else if (WorkloadMetricType.QUERY_TIME.toString().equalsIgnoreCase(metricStr)) {
