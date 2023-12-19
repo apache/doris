@@ -78,12 +78,12 @@ public class LoadLoadingTask extends LoadTask {
     private long beginTime;
 
     public LoadLoadingTask(Database db, OlapTable table,
-            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
-            long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
-            long txnId, LoadTaskCallback callback, String timezone,
-            long timeoutS, int loadParallelism, int sendBatchParallelism,
-            boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            boolean useNewLoadScanNode, Priority priority) {
+                           BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
+                           long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
+                           long txnId, LoadTaskCallback callback, String timezone,
+                           long timeoutS, int loadParallelism, int sendBatchParallelism,
+                           boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
+                           boolean useNewLoadScanNode, Priority priority) {
         super(callback, TaskType.LOADING, priority);
         this.db = db;
         this.table = table;
@@ -107,7 +107,7 @@ public class LoadLoadingTask extends LoadTask {
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
-            int fileNum, UserIdentity userInfo) throws UserException {
+                     int fileNum, UserIdentity userInfo) throws UserException {
         this.loadId = loadId;
         planner = new LoadingTaskPlanner(callback.getCallbackId(), txnId, db.getId(), table, brokerDesc, fileGroups,
                 strictMode, isPartialUpdate, timezone, this.timeoutS, this.loadParallelism, this.sendBatchParallelism,
@@ -151,22 +151,23 @@ public class LoadLoadingTask extends LoadTask {
          * here we use exec_mem_limit to directly override the load_mem_limit property.
          */
         curCoordinator.setLoadMemLimit(execMemLimit);
-        curCoordinator.setTimeout((int) (getLeftTimeMs() / 1000));
+
+        long leftTimeMs = getLeftTimeMs();
+        if (leftTimeMs <= 0) {
+            throw new LoadException("failed to execute loading task when timeout");
+        }
+        int timeoutS = (int) (leftTimeMs / 1000);
+        curCoordinator.setTimeout(timeoutS);
 
         try {
             QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator);
-            actualExecute(curCoordinator);
+            actualExecute(curCoordinator, timeoutS);
         } finally {
             QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
         }
     }
 
-    private void actualExecute(Coordinator curCoordinator) throws Exception {
-        int waitSecond = (int) (getLeftTimeMs() / 1000);
-        if (waitSecond <= 0) {
-            throw new LoadException("failed to execute plan when the left time is less than 0");
-        }
-
+    private void actualExecute(Coordinator curCoordinator, int waitSecond) throws Exception {
         if (LOG.isDebugEnabled()) {
             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                     .add("task_id", signature)
@@ -195,8 +196,8 @@ public class LoadLoadingTask extends LoadTask {
         }
     }
 
-    private long getLeftTimeMs() {
-        return Math.max(jobDeadlineMs - System.currentTimeMillis(), 1000L);
+    public long getLeftTimeMs() {
+        return jobDeadlineMs - System.currentTimeMillis();
     }
 
     private void createProfile(Coordinator coord) {
