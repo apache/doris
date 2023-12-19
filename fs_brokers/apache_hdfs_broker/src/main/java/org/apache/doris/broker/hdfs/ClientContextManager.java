@@ -142,6 +142,7 @@ public class ClientContextManager {
             Iterator<Entry<TBrokerFD, BrokerInputStream>> iter = clientContext.inputStreams.entrySet().iterator();
             while (iter.hasNext()) {
                 Entry<TBrokerFD, BrokerInputStream> entry = iter.next();
+                fd = entry.getKey();
                 if (entry.getValue().checkExpire(inputStreamExpireSeconds)) {
                     ClientContextManager.this.removeInputStream(fd);
                 }
