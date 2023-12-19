@@ -295,7 +295,16 @@ public:
             }
             auto* v = (Slice*)values;
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(v->get_data(), v->get_size());
+                auto ignore_above_value =
+                        get_parser_ignore_above_value_from_properties(_index_meta->properties());
+                auto ignore_above = std::stoi(ignore_above_value);
+                if (v->get_size() > ignore_above) {
+                    VLOG_DEBUG << "fulltext index value length can be at most 256, but got "
+                               << "value length:" << v->get_size() << ", ignore this value";
+                    new_fulltext_field(empty_value.c_str(), 0);
+                } else {
+                    new_fulltext_field(v->get_data(), v->get_size());
+                }
                 RETURN_IF_ERROR(add_document());
                 ++v;
                 _rid++;
@@ -335,9 +344,18 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                new_fulltext_field(value.c_str(), value.length());
+                auto ignore_above_value =
+                        get_parser_ignore_above_value_from_properties(_index_meta->properties());
+                auto ignore_above = std::stoi(ignore_above_value);
+                if (value.length() > ignore_above) {
+                    VLOG_DEBUG << "fulltext index value length can be at most 256, but got "
+                               << "value length:" << value.length() << ", ignore this value";
+                    new_fulltext_field(empty_value.c_str(), 0);
+                } else {
+                    new_fulltext_field(value.c_str(), value.length());
+                }
                 _rid++;
-                _index_writer->addDocument(_doc.get());
+                RETURN_IF_ERROR(add_document());
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
             for (int i = 0; i < count; ++i) {
