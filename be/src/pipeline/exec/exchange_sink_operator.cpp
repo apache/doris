@@ -100,7 +100,7 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
 }
 
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _sender_id = info.sender_id;
@@ -174,9 +174,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             id, p._dest_node_id, _sender_id, _state->be_number(), state->get_query_ctx());
 
     register_channels(_sink_buffer.get());
-
-    _exchange_sink_dependency = AndDependency::create_shared(
-            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+    auto* _exchange_sink_dependency = _dependency;
     _queue_dependency = ExchangeSinkQueueDependency::create_shared(
             _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
@@ -237,7 +235,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 }
 
 Status ExchangeSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     if (p._part_type == TPartitionType::HASH_PARTITIONED ||
         p._part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
@@ -522,7 +520,7 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status)
 std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXSinkLocalState<>::debug_string(indentation_level));
+                   Base::debug_string(indentation_level));
     fmt::format_to(debug_string_buffer, ", Sink Buffer: (_should_stop = {}, _busy_channels = {})",
                    _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load());
     return fmt::to_string(debug_string_buffer);
@@ -545,7 +543,7 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();
-    return PipelineXSinkLocalState<>::close(state, exec_status);
+    return Base::close(state, exec_status);
 }
 
 } // namespace doris::pipeline
