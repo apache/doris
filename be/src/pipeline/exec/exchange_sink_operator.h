@@ -152,12 +152,17 @@ public:
             : PipelineXSinkLocalState<>(parent, state),
               current_channel_idx(0),
               only_local_exchange(false),
-              _serializer(this) {}
+              _serializer(this) {
+        _finish_dependency = std::make_shared<FinishDependency>(
+                parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
+                state->get_query_ctx());
+    }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     Dependency* dependency() override { return _exchange_sink_dependency.get(); }
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
     Status get_next_available_buffer(vectorized::BroadcastPBlockHolder** holder);
@@ -236,6 +241,8 @@ private:
     std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;
+
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 class ExchangeSinkOperatorX final : public DataSinkOperatorX<ExchangeSinkLocalState> {

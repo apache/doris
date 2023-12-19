@@ -171,6 +171,8 @@ protected:
     RuntimeProfile::Counter* _wait_for_scanner_done_timer = nullptr;
     // time of prefilter input block from scanner
     RuntimeProfile::Counter* _wait_for_eos_timer = nullptr;
+
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
 };
 
 template <typename LocalStateType>
@@ -212,6 +214,7 @@ class ScanLocalState : public ScanLocalStateBase {
     Dependency* dependency() override { return _scan_dependency.get(); }
 
     RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
 protected:
     template <typename LocalStateType>
@@ -409,6 +412,8 @@ protected:
     std::mutex _block_lock;
 
     std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
+
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 template <typename LocalStateType>

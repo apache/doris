@@ -102,7 +102,8 @@ public:
 
     virtual Dependency* dependency() { return nullptr; }
 
-    Dependency* finishdependency() { return _finish_dependency.get(); }
+    // override in Scan
+    virtual Dependency* finishdependency() { return nullptr; }
     //  override in Scan  MultiCastSink
     virtual RuntimeFilterDependency* filterdependency() { return nullptr; }
 
@@ -122,7 +123,6 @@ protected:
     RuntimeProfile::Counter* _blocks_returned_counter = nullptr;
     RuntimeProfile::Counter* _wait_for_dependency_timer = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
-    RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
     RuntimeProfile::Counter* _projection_timer = nullptr;
     RuntimeProfile::Counter* _exec_timer = nullptr;
     // Account for peak memory used by this node
@@ -136,7 +136,6 @@ protected:
     vectorized::VExprContextSPtrs _projections;
     bool _closed = false;
     vectorized::Block _origin_block;
-    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 class OperatorXBase : public OperatorBase {
@@ -397,7 +396,8 @@ public:
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
     virtual Dependency* dependency() { return nullptr; }
 
-    Dependency* finishdependency() { return _finish_dependency.get(); }
+    // override in exchange sink , AsyncWriterSink
+    virtual Dependency* finishdependency() { return nullptr; }
 
 protected:
     DataSinkOperatorXBase* _parent = nullptr;
@@ -424,7 +424,6 @@ protected:
     RuntimeProfile::Counter* _exec_timer = nullptr;
     RuntimeProfile::Counter* _memory_used_counter = nullptr;
     RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
-    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 class DataSinkOperatorXBase : public OperatorBase {
@@ -659,7 +658,11 @@ class AsyncWriterSink : public PipelineXSinkLocalState<FakeDependency> {
 public:
     using Base = PipelineXSinkLocalState<FakeDependency>;
     AsyncWriterSink(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : Base(parent, state), _async_writer_dependency(nullptr) {}
+            : Base(parent, state), _async_writer_dependency(nullptr) {
+        _finish_dependency = std::make_shared<FinishDependency>(
+                parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
+                state->get_query_ctx());
+    }
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
 
@@ -672,11 +675,15 @@ public:
 
     Status try_close(RuntimeState* state, Status exec_status) override;
 
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
+
 protected:
     vectorized::VExprContextSPtrs _output_vexpr_ctxs;
     std::unique_ptr<Writer> _writer;
 
     std::shared_ptr<AsyncWriterDependency> _async_writer_dependency;
+
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 } // namespace doris::pipeline
