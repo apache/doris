@@ -489,8 +489,6 @@ struct SetSharedState : public BasicSharedState {
 public:
     SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
-    //record memory during running
-    int64_t mem_used = 0;
     vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
