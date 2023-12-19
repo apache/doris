@@ -398,7 +398,7 @@ suite("test_build_mtmv") {
     sql """
         alter Materialized View ${mvName} set("grace_period"="3333");
     """
-    order_qt_select "select MvProperties from mtmvs('database'='regression_test_mtmv_p0') where Name = '${mvName}'"
+    order_qt_select "select MvProperties from mv_infos('database'='regression_test_mtmv_p0') where Name = '${mvName}'"
 
     // use alter table
     // not allow rename
