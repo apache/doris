@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 
@@ -31,7 +30,7 @@ import java.util.List;
 /**
  * This is responsible for aggregate rewriting according to different pattern
  * */
-public class MaterializedViewAggregateRule extends AbstractMaterializedViewAggregateRule implements RewriteRuleFactory {
+public class MaterializedViewAggregateRule extends AbstractMaterializedViewAggregateRule {
 
     public static final MaterializedViewAggregateRule INSTANCE = new MaterializedViewAggregateRule();
 

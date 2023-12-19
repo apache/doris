@@ -64,7 +64,6 @@ public class MTMVCache {
     public static MTMVCache from(MTMV mtmv, ConnectContext connectContext) {
         LogicalPlan unboundMvPlan = new NereidsParser().parseSingle(mtmv.getQuerySql());
         // TODO: connect context set current db when create mv by use database
-        //  view should also disable the predicate infer and join eliminate.
         StatementContext mvSqlStatementContext = new StatementContext(connectContext,
                 new OriginStatement(mtmv.getQuerySql(), 0));
         NereidsPlanner planner = new NereidsPlanner(mvSqlStatementContext);

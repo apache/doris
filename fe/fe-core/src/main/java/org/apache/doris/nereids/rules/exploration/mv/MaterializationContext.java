@@ -95,7 +95,7 @@ public class MaterializationContext {
         matchedGroups.add(groupId);
     }
 
-    public MTMV getMtmv() {
+    public MTMV getMTMV() {
         return mtmv;
     }
 

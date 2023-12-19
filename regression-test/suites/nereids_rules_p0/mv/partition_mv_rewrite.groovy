@@ -98,35 +98,41 @@ suite("partition_mv_rewrite") {
     """
 
 
-    def mv_def_sql = "select l_shipdate, o_orderdate, l_partkey,\n" +
-            "l_suppkey, sum(o_totalprice) as sum_total\n" +
-            "from lineitem\n" +
-            "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate\n" +
-            "group by\n" +
-            "l_shipdate,\n" +
-            "o_orderdate,\n" +
-            "l_partkey,\n" +
-            "l_suppkey;"
+    def mv_def_sql = """
+    select l_shipdate, o_orderdate, l_partkey,
+    l_suppkey, sum(o_totalprice) as sum_total
+    from lineitem
+    left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+    group by
+    l_shipdate,
+    o_orderdate,
+    l_partkey,
+    l_suppkey;
+    """
 
-    def all_partition_sql = "select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total\n" +
-            "from lineitem\n" +
-            "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate\n" +
-            "group by\n" +
-            "l_shipdate,\n" +
-            "o_orderdate,\n" +
-            "l_partkey,\n" +
-            "l_suppkey;"
+    def all_partition_sql = """
+    select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
+    from lineitem
+    left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+    group by
+    l_shipdate,
+    o_orderdate,
+    l_partkey,
+    l_suppkey;
+   """
 
 
-    def partition_sql = "select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total\n" +
-            "from lineitem\n" +
-            "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate\n" +
-            "where (l_shipdate>= '2023-10-18' and l_shipdate <= '2023-10-19')\n" +
-            "group by\n" +
-            "l_shipdate,\n" +
-            "o_orderdate,\n" +
-            "l_partkey,\n" +
-            "l_suppkey;"
+    def partition_sql = """
+    select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
+    from lineitem
+    left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+    where (l_shipdate>= '2023-10-18' and l_shipdate <= '2023-10-19')
+    group by
+    l_shipdate,
+    o_orderdate,
+    l_partkey,
+    l_suppkey;
+    """
 
     sql """DROP MATERIALIZED VIEW IF EXISTS mv_10086"""
     sql """DROP TABLE IF EXISTS mv_10086"""
@@ -172,7 +178,7 @@ suite("partition_mv_rewrite") {
     REFRESH MATERIALIZED VIEW mv_10086;
     """
     // wait partition is valid
-    sleep(5000)
+    waitingMTMVTaskFinished(job_name)
 
     explain {
         sql("${all_partition_sql}")

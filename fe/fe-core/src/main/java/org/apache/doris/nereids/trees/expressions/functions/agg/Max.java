@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.functions.CouldRollUp;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
@@ -35,7 +36,7 @@ import java.util.List;
 
 /** max agg function. */
 public class Max extends NullableAggregateFunction
-        implements UnaryExpression, CustomSignature, SupportWindowAnalytic {
+        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, CouldRollUp {
     public Max(Expression child) {
         this(false, false, child);
     }
@@ -83,7 +84,7 @@ public class Max extends NullableAggregateFunction
     }
 
     @Override
-    public Class<? extends Function> getRollup() {
-        return Max.class;
+    public Function constructRollUp(Expression param, Expression... varParams) {
+        return new Max(this.distinct, this.alwaysNullable, param);
     }
 }

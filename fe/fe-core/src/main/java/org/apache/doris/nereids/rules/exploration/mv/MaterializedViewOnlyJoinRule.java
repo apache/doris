@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
@@ -31,7 +30,7 @@ import java.util.List;
 /**
  * This is responsible for join  pattern such as only join
  */
-public class MaterializedViewOnlyJoinRule extends AbstractMaterializedViewJoinRule implements RewriteRuleFactory {
+public class MaterializedViewOnlyJoinRule extends AbstractMaterializedViewJoinRule {
 
     public static final MaterializedViewOnlyJoinRule INSTANCE = new MaterializedViewOnlyJoinRule();
 

@@ -86,7 +86,6 @@ import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
@@ -126,7 +125,6 @@ public class RuleSet {
             .add(PushDownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
-            .add(OrExpansion.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(

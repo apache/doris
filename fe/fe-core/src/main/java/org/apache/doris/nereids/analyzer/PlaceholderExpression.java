@@ -33,7 +33,6 @@ import java.util.Objects;
  * @see PlaceholderCollector
  */
 public class PlaceholderExpression extends Expression implements AlwaysNotNullable {
-    protected boolean distinct;
     private final Class<? extends Expression> delegateClazz;
     /**
      * 1 based
@@ -46,21 +45,8 @@ public class PlaceholderExpression extends Expression implements AlwaysNotNullab
         this.position = position;
     }
 
-    public PlaceholderExpression(List<Expression> children, Class<? extends Expression> delegateClazz, int position,
-            boolean distinct) {
-        super(children);
-        this.delegateClazz = Objects.requireNonNull(delegateClazz, "delegateClazz should not be null");
-        this.position = position;
-        this.distinct = distinct;
-    }
-
     public static PlaceholderExpression of(Class<? extends Expression> delegateClazz, int position) {
         return new PlaceholderExpression(ImmutableList.of(), delegateClazz, position);
-    }
-
-    public static PlaceholderExpression of(Class<? extends Expression> delegateClazz, int position,
-            boolean distinct) {
-        return new PlaceholderExpression(ImmutableList.of(), delegateClazz, position, distinct);
     }
 
     @Override
@@ -76,10 +62,6 @@ public class PlaceholderExpression extends Expression implements AlwaysNotNullab
         return position;
     }
 
-    public boolean isDistinct() {
-        return distinct;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {
@@ -92,13 +74,11 @@ public class PlaceholderExpression extends Expression implements AlwaysNotNullab
             return false;
         }
         PlaceholderExpression that = (PlaceholderExpression) o;
-        return position == that.position
-                && Objects.equals(delegateClazz, that.delegateClazz)
-                && distinct == that.distinct;
+        return position == that.position && Objects.equals(delegateClazz, that.delegateClazz);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), delegateClazz, position, distinct);
+        return Objects.hash(super.hashCode(), delegateClazz, position);
     }
 }

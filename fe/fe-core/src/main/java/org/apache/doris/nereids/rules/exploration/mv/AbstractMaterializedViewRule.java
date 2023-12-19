@@ -31,6 +31,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.executor.Rewriter;
+import org.apache.doris.nereids.rules.exploration.ExplorationRuleFactory;
 import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.EquivalenceClassSetMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
@@ -69,7 +70,7 @@ import java.util.stream.Collectors;
 /**
  * The abstract class for all materialized view rules
  */
-public abstract class AbstractMaterializedViewRule {
+public abstract class AbstractMaterializedViewRule implements ExplorationRuleFactory {
     public static final HashSet<JoinType> SUPPORTED_JOIN_TYPE_SET =
             Sets.newHashSet(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN);
     protected final String currentClassName = this.getClass().getSimpleName();
@@ -103,7 +104,7 @@ public abstract class AbstractMaterializedViewRule {
                 logger.info(currentClassName + " this group is already rewritten so skip");
                 continue;
             }
-            MTMV mtmv = materializationContext.getMtmv();
+            MTMV mtmv = materializationContext.getMTMV();
             MTMVCache mtmvCache = getCacheFromMTMV(mtmv, cascadesContext);
             if (mtmvCache == null) {
                 logger.info(currentClassName + " mv cache is null so return");
@@ -204,12 +205,18 @@ public abstract class AbstractMaterializedViewRule {
         return rewriteResults;
     }
 
+    /**
+     * Partition will be pruned in query then add the record the partitions to select partitions on
+     * catalog relation.
+     * Maybe only just some partitions is valid in materialized view, so we should check if the mv can
+     * offer the partitions which query used or not.
+     */
     protected boolean checkPartitionIsValid(
             StructInfo queryInfo,
             MaterializationContext materializationContext,
             CascadesContext cascadesContext) {
         // check partition is valid or not
-        MTMV mtmv = materializationContext.getMtmv();
+        MTMV mtmv = materializationContext.getMTMV();
         PartitionInfo mvPartitionInfo = mtmv.getPartitionInfo();
         if (PartitionType.UNPARTITIONED.equals(mvPartitionInfo.getType())) {
             // if not partition, if rewrite success, it means mv is available
@@ -222,9 +229,9 @@ public abstract class AbstractMaterializedViewRule {
             return true;
         }
         Optional<LogicalOlapScan> relatedTableRelation = queryInfo.getRelations().stream()
-                .filter(relation -> relatedPartitionTable.equals(new BaseTableInfo(relation.getTable()))
-                        && relation instanceof LogicalOlapScan)
-                .map(relation -> (LogicalOlapScan) relation)
+                .filter(LogicalOlapScan.class::isInstance)
+                .filter(relation -> relatedPartitionTable.equals(new BaseTableInfo(relation.getTable())))
+                .map(LogicalOlapScan.class::cast)
                 .findFirst();
         if (!relatedTableRelation.isPresent()) {
             logger.warn("mv is partition update, but related table relation is null");
@@ -235,7 +242,7 @@ public abstract class AbstractMaterializedViewRule {
         try {
             mvToBasePartitionMap = MTMVUtil.getMvToBasePartitions(mtmv, relatedTable);
         } catch (AnalysisException e) {
-            logger.error("mvRewriteSuccess getMvToBasePartitions fail", e);
+            logger.warn("mvRewriteSuccess getMvToBasePartitions fail", e);
             return false;
         }
         // get mv valid partitions
@@ -265,7 +272,8 @@ public abstract class AbstractMaterializedViewRule {
         if (relatedTableSelectedPartitionToCheck.isEmpty()) {
             relatedTableSelectedPartitionToCheck.addAll(relatedTable.getPartitionIds());
         }
-        return relatedTalbeValidSet.containsAll(relatedTableSelectedPartitionToCheck);
+        return !relatedTalbeValidSet.isEmpty()
+                && relatedTalbeValidSet.containsAll(relatedTableSelectedPartitionToCheck);
     }
 
     private MTMVCache getCacheFromMTMV(MTMV mtmv, CascadesContext cascadesContext) {

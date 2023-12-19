@@ -60,7 +60,7 @@ public abstract class AbstractMaterializedViewJoinRule extends AbstractMateriali
         // Can not rewrite, bail out
         if (expressionsRewritten.isEmpty()
                 || expressionsRewritten.stream().anyMatch(expr -> !(expr instanceof NamedExpression))) {
-            logger.info(currentClassName + " expression to rewrite is not named expr so return null");
+            logger.warn(currentClassName + " expression to rewrite is not named expr so return null");
             return null;
         }
         // record the group id in materializationContext, and when rewrite again in

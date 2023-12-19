@@ -21,6 +21,7 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.CouldRollUp;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
@@ -37,7 +38,7 @@ import java.util.List;
 
 /** count agg function. */
 public class Count extends AggregateFunction
-        implements ExplicitlyCastableSignature, AlwaysNotNullable, SupportWindowAnalytic {
+        implements ExplicitlyCastableSignature, AlwaysNotNullable, SupportWindowAnalytic, CouldRollUp {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             // count(*)
@@ -145,11 +146,11 @@ public class Count extends AggregateFunction
     }
 
     @Override
-    public Class<? extends Function> getRollup() {
+    public Function constructRollUp(Expression param, Expression... varParams) {
         if (this.isDistinct()) {
-            return BitmapUnionCount.class;
+            return new BitmapUnionCount(param);
         } else {
-            return Sum.class;
+            return new Sum(param);
         }
     }
 }
