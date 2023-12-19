@@ -90,4 +90,48 @@ suite("test_partition_refresh_mtmv") {
         }
         sql """drop table if exists `${tableName}`"""
         sql """drop materialized view if exists ${mvName};"""
+
+    sql """
+        CREATE TABLE `${tableName}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`)
+        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
+        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
+        PARTITION p201703_all VALUES [('2017-03-01'), ('2017-04-01')))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+
+        insert into t1 values(1,"2017-01-15",1);
+        insert into t1 values(1,"2017-02-15",2);
+        insert into t1 values(1,"2017-03-15",3);
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${tableName};
+    """
+    def showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_00000101_20170201"))
+    assertTrue(showPartitionsResult.toString().contains("p_20170201_20170301"))
+    assertTrue(showPartitionsResult.toString().contains("p_20170301_20170401"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName}
+        """
+    def jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_select "SELECT * FROM ${mvName}"
+
 }
