@@ -160,6 +160,7 @@ public class NativeInsertStmt extends InsertStmt {
     private InsertType insertType = InsertType.NATIVE_INSERT;
 
     boolean hasEmptyTargetColumns = false;
+    private boolean allowAutoPartition = true;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -193,13 +194,14 @@ public class NativeInsertStmt extends InsertStmt {
 
     // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
     public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
-            QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
+            QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames, boolean allowAutoPartition) {
         super(label, null, null);
         this.tblName = name;
         this.targetPartitionNames = targetPartitionNames;
         this.queryStmt = queryStmt;
         this.planHints = planHints;
         this.targetColumnNames = targetColumnNames;
+        this.allowAutoPartition = allowAutoPartition;
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
@@ -1014,6 +1016,9 @@ public class NativeInsertStmt extends InsertStmt {
     public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).complete(analyzer);
+            if (!allowAutoPartition) {
+                ((OlapTableSink) dataSink).setAutoPartition(false);
+            }
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), transactionId);

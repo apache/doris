@@ -201,7 +201,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     sink.isPartialUpdate(),
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
-            new InsertIntoTableCommand(copySink, labelName).run(ctx, executor);
+            // for overwrite situation, we disable auto create partition.
+            InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(copySink, labelName);
+            insertCommand.setAllowAutoPartition(false);
+            insertCommand.run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
                 LOG.warn("InsertInto state error:{}", errMsg);
