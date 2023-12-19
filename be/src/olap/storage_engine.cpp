@@ -1229,13 +1229,15 @@ void StorageEngine::notify_listeners() {
     }
 }
 
-void StorageEngine::notify_listener(std::string_view name) {
+bool StorageEngine::notify_listener(std::string_view name) {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
         if (listener->name() == name) {
             listener->notify();
+            return true;
         }
     }
+    return false;
 }
 
 // check whether any unused rowsets's id equal to rowset_id

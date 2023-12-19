@@ -216,6 +216,9 @@ public abstract class DataType {
             case "date":
                 dataType = DateType.INSTANCE;
                 break;
+            case "datev1":
+                dataType = DateType.NOT_CONVERSION;
+                break;
             case "datev2":
                 dataType = DateV2Type.INSTANCE;
                 break;
@@ -230,6 +233,17 @@ public abstract class DataType {
                     case 2:
                         dataType = DateTimeV2Type.of(Integer.parseInt(types.get(1)));
                         break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+                break;
+            case "datetimev1":
+                switch (types.size()) {
+                    case 1:
+                        dataType = DateTimeType.NOT_CONVERSION;
+                        break;
+                    case 2:
+                        throw new AnalysisException("Nereids do not support datetimev1 type with precision");
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
