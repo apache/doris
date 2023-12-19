@@ -53,7 +53,10 @@ function set_doris_conf_value() {
 
 function start_doris_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if ! java -version >/dev/null; then sudo apt install openjdk-8-jdk -y >/dev/null; fi
+    if ! java -version >/dev/null ||
+        [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
+        sudo apt install openjdk-8-jdk -y >/dev/null
+    fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
@@ -75,7 +78,10 @@ function start_doris_fe() {
 
 function start_doris_be() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if ! java -version >/dev/null; then sudo apt install openjdk-8-jdk -y >/dev/null; fi
+    if ! java -version >/dev/null ||
+        [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
+        sudo apt install openjdk-8-jdk -y >/dev/null
+    fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     sysctl -w vm.max_map_count=2000000 &&
@@ -130,8 +136,8 @@ function stop_doris() {
 
 function restart_doris() {
     if stop_doris; then echo; fi
-    start_doris_fe
-    start_doris_be
+    if ! start_doris_fe; then return 1; fi
+    if ! start_doris_be; then return 1; fi
     # wait 10s for doris totally started, otherwize may encounter the error below,
     # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
     sleep 10s
@@ -199,7 +205,7 @@ function check_clickbench_table_rows() {
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     declare -A table_rows
     table_rows=(['hits']=99997497)
-    table_rows=(['hits']=10000)
+    if ${DEBUG:-false}; then table_rows=(['hits']=10000); fi
     for table in ${!table_rows[*]}; do
         rows_actual=$(${cl} -D"${db_name}" -e"SELECT count(*) FROM ${table}" | sed -n '2p')
         rows_expect=${table_rows[${table}]}

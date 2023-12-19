@@ -21,19 +21,21 @@
 #!/bin/bash
 
 # Execute step even if some of the previous steps failed
-teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
-if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/tpch/tpch-sf100/clean.sh ]]; then
-    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/
+
+export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'}
+if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/clean.sh ]]; then
+    cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance
     bash -x clean.sh
 else
-    echo "Build Step file missing: regression-test/pipeline/tpch/tpch-sf100/clean.sh" && exit 1
+    echo "Build Step file missing: regression-test/pipeline/performance/clean.sh" && exit 1
 fi
 EOF
 
 ## clean.sh content ##
 
+# shellcheck source=/dev/null
 # stop_doris
-source ../../common/doris-utils.sh
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common
 
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME

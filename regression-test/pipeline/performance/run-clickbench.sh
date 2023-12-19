@@ -20,7 +20,7 @@
 : <<EOF
 #!/bin/bash
 export DEBUG=true
-export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'}
+export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-clickbench.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash -x run-clickbench.sh
@@ -42,8 +42,8 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
 if ${DEBUG:-false}; then
-    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'
-    pull_request_num="28421"
+    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'
+    pull_request_num="28431"
     commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
 fi
 echo "#### Check env"
@@ -69,21 +69,152 @@ exit_flag=0
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
     echo "#### 2. check if need to load data"
-    CLICKBENCH_DATA_DIR="/data/clickbench"                                               # no / at the end
-    CLICKBENCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/clickbench-tools/data # no / at the end
+    data_home="/data/clickbench" # no / at the end
     db_name="clickbench"
+    query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     if ! check_clickbench_table_rows "${db_name}"; then
         echo "INFO: need to load clickbench data"
         # prepare data
-        mkdir -p "${CLICKBENCH_DATA_DIR}"
+        mkdir -p "${data_home}"
 
         # create table and load data
-        bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/create-clickbench-table.sh
-        rm -rf "${CLICKBENCH_DATA_DIR_LINK}"
-        ln -s "${CLICKBENCH_DATA_DIR}" "${CLICKBENCH_DATA_DIR_LINK}"
-        cd "${CLICKBENCH_DATA_DIR_LINK}"
-        bash "${teamcity_build_checkoutDir}"/tools/clickbench-tools/load-clickbench-data.sh
-        cd -
+        mysql -h127.0.0.1 -P"${query_port}" -uroot -e "CREATE DATABASE IF NOT EXISTS ${db_name}"
+        sleep 10
+        mysql -h127.0.0.1 -P"${query_port}" -uroot "${db_name}" -e"
+            CREATE TABLE IF NOT EXISTS  hits (
+                CounterID INT NOT NULL, 
+                EventDate DateV2 NOT NULL, 
+                UserID BIGINT NOT NULL, 
+                EventTime DateTimeV2 NOT NULL, 
+                WatchID BIGINT NOT NULL, 
+                JavaEnable SMALLINT NOT NULL,
+                Title STRING NOT NULL,
+                GoodEvent SMALLINT NOT NULL,
+                ClientIP INT NOT NULL,
+                RegionID INT NOT NULL,
+                CounterClass SMALLINT NOT NULL,
+                OS SMALLINT NOT NULL,
+                UserAgent SMALLINT NOT NULL,
+                URL STRING NOT NULL,
+                Referer STRING NOT NULL,
+                IsRefresh SMALLINT NOT NULL,
+                RefererCategoryID SMALLINT NOT NULL,
+                RefererRegionID INT NOT NULL,
+                URLCategoryID SMALLINT NOT NULL,
+                URLRegionID INT NOT NULL,
+                ResolutionWidth SMALLINT NOT NULL,
+                ResolutionHeight SMALLINT NOT NULL,
+                ResolutionDepth SMALLINT NOT NULL,
+                FlashMajor SMALLINT NOT NULL,
+                FlashMinor SMALLINT NOT NULL,
+                FlashMinor2 STRING NOT NULL,
+                NetMajor SMALLINT NOT NULL,
+                NetMinor SMALLINT NOT NULL,
+                UserAgentMajor SMALLINT NOT NULL,
+                UserAgentMinor VARCHAR(255) NOT NULL,
+                CookieEnable SMALLINT NOT NULL,
+                JavascriptEnable SMALLINT NOT NULL,
+                IsMobile SMALLINT NOT NULL,
+                MobilePhone SMALLINT NOT NULL,
+                MobilePhoneModel STRING NOT NULL,
+                Params STRING NOT NULL,
+                IPNetworkID INT NOT NULL,
+                TraficSourceID SMALLINT NOT NULL,
+                SearchEngineID SMALLINT NOT NULL,
+                SearchPhrase STRING NOT NULL,
+                AdvEngineID SMALLINT NOT NULL,
+                IsArtifical SMALLINT NOT NULL,
+                WindowClientWidth SMALLINT NOT NULL,
+                WindowClientHeight SMALLINT NOT NULL,
+                ClientTimeZone SMALLINT NOT NULL,
+                ClientEventTime DateTimeV2 NOT NULL,
+                SilverlightVersion1 SMALLINT NOT NULL,
+                SilverlightVersion2 SMALLINT NOT NULL,
+                SilverlightVersion3 INT NOT NULL,
+                SilverlightVersion4 SMALLINT NOT NULL,
+                PageCharset STRING NOT NULL,
+                CodeVersion INT NOT NULL,
+                IsLink SMALLINT NOT NULL,
+                IsDownload SMALLINT NOT NULL,
+                IsNotBounce SMALLINT NOT NULL,
+                FUniqID BIGINT NOT NULL,
+                OriginalURL STRING NOT NULL,
+                HID INT NOT NULL,
+                IsOldCounter SMALLINT NOT NULL,
+                IsEvent SMALLINT NOT NULL,
+                IsParameter SMALLINT NOT NULL,
+                DontCountHits SMALLINT NOT NULL,
+                WithHash SMALLINT NOT NULL,
+                HitColor CHAR NOT NULL,
+                LocalEventTime DateTimeV2 NOT NULL,
+                Age SMALLINT NOT NULL,
+                Sex SMALLINT NOT NULL,
+                Income SMALLINT NOT NULL,
+                Interests SMALLINT NOT NULL,
+                Robotness SMALLINT NOT NULL,
+                RemoteIP INT NOT NULL,
+                WindowName INT NOT NULL,
+                OpenerName INT NOT NULL,
+                HistoryLength SMALLINT NOT NULL,
+                BrowserLanguage STRING NOT NULL,
+                BrowserCountry STRING NOT NULL,
+                SocialNetwork STRING NOT NULL,
+                SocialAction STRING NOT NULL,
+                HTTPError SMALLINT NOT NULL,
+                SendTiming INT NOT NULL,
+                DNSTiming INT NOT NULL,
+                ConnectTiming INT NOT NULL,
+                ResponseStartTiming INT NOT NULL,
+                ResponseEndTiming INT NOT NULL,
+                FetchTiming INT NOT NULL,
+                SocialSourceNetworkID SMALLINT NOT NULL,
+                SocialSourcePage STRING NOT NULL,
+                ParamPrice BIGINT NOT NULL,
+                ParamOrderID STRING NOT NULL,
+                ParamCurrency STRING NOT NULL,
+                ParamCurrencyID SMALLINT NOT NULL,
+                OpenstatServiceName STRING NOT NULL,
+                OpenstatCampaignID STRING NOT NULL,
+                OpenstatAdID STRING NOT NULL,
+                OpenstatSourceID STRING NOT NULL,
+                UTMSource STRING NOT NULL,
+                UTMMedium STRING NOT NULL,
+                UTMCampaign STRING NOT NULL,
+                UTMContent STRING NOT NULL,
+                UTMTerm STRING NOT NULL,
+                FromTag STRING NOT NULL,
+                HasGCLID SMALLINT NOT NULL,
+                RefererHash BIGINT NOT NULL,
+                URLHash BIGINT NOT NULL,
+                CLID INT NOT NULL
+            )  
+            DUPLICATE KEY (CounterID, EventDate, UserID, EventTime, WatchID) 
+            DISTRIBUTED BY HASH(UserID) BUCKETS 16
+            PROPERTIES ( \"replication_num\"=\"1\");
+        "
+        echo "####load data"
+        if [[ ! -f "${data_home}"/hits.tsv ]] || [[ $(wc -c "${data_home}"/hits.tsv | awk '{print $1}') != '74807831229' ]]; then
+            cd "${data_home}"
+            wget --continue 'https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz'
+            gzip -d hits.tsv.gz
+            if ${DEBUG}; then head -n 10000 hits.tsv >hits.tsv.10000; fi
+            cd -
+        fi
+        data_file_name="${data_home}/hits.tsv"
+        if ${DEBUG}; then data_file_name="${data_home}/hits.tsv.10000"; fi
+        echo "start loading ..."
+        START=$(date +%s)
+        curl --location-trusted \
+            -u root: \
+            -T "${data_file_name}" \
+            -H "label:hits_${START}" \
+            -H "columns: WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID" \
+            "http://localhost:8030/api/${db_name}/hits/_stream_load"
+        END=$(date +%s)
+        LOADTIME=$(echo "${END} - ${START}" | bc)
+        echo "INFO: ClickBench Load data costs ${LOADTIME} seconds"
+        echo "${LOADTIME}" >clickbench_loadtime
+
         if ! check_clickbench_table_rows "${db_name}"; then
             exit 1
         fi

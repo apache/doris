@@ -20,7 +20,7 @@
 : <<EOF
 #!/bin/bash
 export DEBUG=true
-export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'}
+export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'}
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-load.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash -x run-load.sh
@@ -42,8 +42,8 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
 if ${DEBUG:-false}; then
-    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231214145742agent_172.16.0.165_1/work/ad600b267ee7ed84'
-    pull_request_num="28421"
+    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'
+    pull_request_num="28431"
     commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
 fi
 echo "#### Check env"
@@ -57,7 +57,7 @@ fi
 echo "#### Run tpch test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-data_home="/data/load/"
+data_home="/data/clickbench/"
 query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
 http_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf http_port)
 clt="mysql -h127.0.0.1 -P${query_port} -uroot "
@@ -629,10 +629,9 @@ exit_flag=0
         echo "#### load data by INSERT INTO SELECT"
         insert_into_select_time=0
         insert_into_select_rows=10000000
-        # use %% as %, because teamcity
-        start=$(date +%%s%%3N)
+        start=$(date +%s%3N)
         if ${clt} -e"insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"; then
-            end=$(date +%%s%%3N)
+            end=$(date +%s%3N)
             insert_into_select_time=$(echo "scale=1; (${end} - ${start})/1000" | bc)
         else
             echo "ERROR: failed to insert into ${DB}.hits_insert_into_select select * from clickbench.hits limit ${insert_into_select_rows};"
@@ -649,7 +648,8 @@ exit_flag=0
     }
 
     echo "#### 1. Restart doris"
-    # if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
+    if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
+    # if ${DEBUG} || ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
     echo "#### 3. run streamload test"
     set_session_variable runtime_filter_mode global
