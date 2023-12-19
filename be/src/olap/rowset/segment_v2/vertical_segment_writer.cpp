@@ -346,6 +346,17 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     {
         std::shared_lock rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            LOG(WARNING) << fmt::format(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
+                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
+                    "transaction_id: {}",
+                    specified_rowsets.size(), _mow_context->rowset_ids.size(), tablet->tablet_id(),
+                    _mow_context->max_version, _mow_context->txn_id);
+            return Status::InternalError<false>(
+                    "[Memtable Flush] some rowsets have been deleted due to compaction");
+        }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
