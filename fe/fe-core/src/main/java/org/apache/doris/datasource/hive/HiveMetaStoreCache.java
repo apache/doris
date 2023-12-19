@@ -793,7 +793,7 @@ public class HiveMetaStoreCache {
                     directory = AcidUtils.getAcidState(new Path(partition.getPath()), jobConf, validWriteIds, false,
                             true);
                 }
-                if (directory == null || directory.getBaseDirectory() == null) {
+                if (directory == null) {
                     return Collections.emptyList();
                 }
                 if (!directory.getOriginalFiles().isEmpty()) {
@@ -809,6 +809,9 @@ public class HiveMetaStoreCache {
                     Path baseOrDeltaPath = directory.getBaseDirectory() != null ? directory.getBaseDirectory() :
                             !directory.getCurrentDirectories().isEmpty() ? directory.getCurrentDirectories().get(0)
                                     .getPath() : null;
+                    if (baseOrDeltaPath == null) {
+                        return Collections.emptyList();
+                    }
                     String acidVersionPath = new Path(baseOrDeltaPath, "_orc_acid_version").toUri().toString();
                     RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache().getRemoteFileSystem(
                             new FileSystemCache.FileSystemCacheKey(
