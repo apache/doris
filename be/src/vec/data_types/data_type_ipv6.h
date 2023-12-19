@@ -61,7 +61,7 @@ public:
 
     Field get_field(const TExprNode& node) const override {
         IPv6 value;
-        if (!convert_string_to_ipv6(value, node.ipv6_literal.value)) {
+        if (!IPv6Value::from_string(value, node.ipv6_literal.value)) {
             throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                    "Invalid value: {} for type IPv6", node.ipv6_literal.value);
         }
