@@ -323,20 +323,30 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
     _runtime_profile->set_metadata(_parent->node_id());
     _runtime_profile->set_is_sink(false);
     info.parent_profile->add_child(_runtime_profile.get(), true, nullptr);
+    constexpr auto is_fake_shared =
+            std::is_same_v<typename DependencyType::SharedState, FakeSharedState>;
     _dependency = (DependencyType*)info.dependency.get();
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
+        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
+                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         auto& deps = info.upstream_dependencies;
         if constexpr (std::is_same_v<LocalExchangeSourceDependency, DependencyType>) {
             _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first);
-        } else {
+            _shared_state =
+                    (typename DependencyType::SharedState*)_dependency->shared_state().get();
+            _shared_state->ref();
+
+            _shared_state->source_dep = _dependency;
+            _shared_state->sink_dep = deps.front().get();
+        } else if constexpr (!is_fake_shared) {
             _dependency->set_shared_state(deps.front()->shared_state());
+            _shared_state =
+                    (typename DependencyType::SharedState*)_dependency->shared_state().get();
+            _shared_state->ref();
+
+            _shared_state->source_dep = _dependency;
+            _shared_state->sink_dep = deps.front().get();
         }
-        _shared_state = (typename DependencyType::SharedState*)_dependency->shared_state().get();
-        _shared_state->ref();
-        _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
-                _runtime_profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
-        _shared_state->source_dep = _dependency;
-        _shared_state->sink_dep = deps.front().get();
     }
 
     _conjuncts.resize(_parent->_conjuncts.size());
@@ -391,6 +401,8 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
     _profile->set_metadata(_parent->node_id());
     _profile->set_is_sink(true);
     _wait_for_finish_dependency_timer = ADD_TIMER(_profile, "PendingFinishDependency");
+    constexpr auto is_fake_shared =
+            std::is_same_v<typename DependencyType::SharedState, FakeSharedState>;
     if constexpr (!std::is_same_v<FakeDependency, DependencyType>) {
         auto& deps = info.dependencys;
         _dependency = (DependencyType*)deps.front().get();
@@ -398,12 +410,18 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
             _dependency = info.le_state_map[_parent->dests_id().front()].second.get();
         }
         if (_dependency) {
-            _shared_state =
-                    (typename DependencyType::SharedState*)_dependency->shared_state().get();
+            if constexpr (!is_fake_shared) {
+                _shared_state =
+                        (typename DependencyType::SharedState*)_dependency->shared_state().get();
+            }
+
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
-        _shared_state->ref();
+        if constexpr (!is_fake_shared) {
+            _shared_state->ref();
+        }
+
     } else {
         auto& deps = info.dependencys;
         deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());
@@ -616,6 +634,7 @@ template class PipelineXSinkLocalState<MultiCastSinkDependency>;
 template class PipelineXSinkLocalState<SetSinkDependency>;
 template class PipelineXSinkLocalState<SetProbeSinkDependency>;
 template class PipelineXSinkLocalState<LocalExchangeSinkDependency>;
+template class PipelineXSinkLocalState<AndDependency>;
 
 template class PipelineXLocalState<HashJoinProbeDependency>;
 template class PipelineXLocalState<SortSourceDependency>;
@@ -628,6 +647,7 @@ template class PipelineXLocalState<MultiCastSourceDependency>;
 template class PipelineXLocalState<PartitionSortSourceDependency>;
 template class PipelineXLocalState<SetSourceDependency>;
 template class PipelineXLocalState<LocalExchangeSourceDependency>;
+template class PipelineXLocalState<AndDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;
