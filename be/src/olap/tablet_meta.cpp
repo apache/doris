@@ -371,6 +371,9 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         ColumnPB* children_column = column->add_children_columns();
         init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
     }
+    LOG(INFO) << fmt::format(
+            "[TabletMeta::init_column_from_tcolumn] tcolumn: {}, enable_dict_encoding: {}",
+            tcolumn.column_name, tcolumn.enable_dict_encoding);
     column->set_enable_dict_encoding(tcolumn.enable_dict_encoding);
 }
 

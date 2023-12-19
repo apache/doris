@@ -203,7 +203,6 @@ Status ColumnReader::init(const ColumnMetaPB* meta) {
         return Status::NotSupported("unsupported typeinfo, type={}", meta->type());
     }
     RETURN_IF_ERROR(EncodingInfo::get(_type_info.get(), meta->encoding(), &_encoding_info));
-
     for (int i = 0; i < meta->indexes_size(); i++) {
         auto& index_meta = meta->indexes(i);
         switch (index_meta.type()) {
