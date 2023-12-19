@@ -273,7 +273,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         int num_running_scanners = _num_running_scanners;
 
         bool is_scheduled = false;
-        if (to_be_schedule && _num_running_scanners == 0) {
+        if (!done() && to_be_schedule && _num_running_scanners == 0) {
             is_scheduled = true;
             auto state = _scanner_scheduler->submit(shared_from_this());
             if (state.ok()) {
@@ -287,8 +287,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         if (wait) {
             // scanner batch wait time
             SCOPED_TIMER(_scanner_wait_batch_timer);
-            while (!(!_blocks_queue.empty() || _is_finished || !status().ok() ||
-                     state->is_cancelled())) {
+            while (!(!_blocks_queue.empty() || done() || !status().ok() || state->is_cancelled())) {
                 if (!is_scheduled && _num_running_scanners == 0 && should_be_scheduled()) {
                     LOG(INFO) << "fatal, cur_bytes_in_queue " << cur_bytes_in_queue
                               << ", serving_blocks_num " << serving_blocks_num
@@ -330,7 +329,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 }
             }
         } else {
-            *eos = _is_finished;
+            *eos = done();
         }
     }
 
@@ -400,8 +399,7 @@ void ScannerContext::dec_num_scheduling_ctx() {
 
 void ScannerContext::set_ready_to_finish() {
     // `_should_stop == true` means this task has already ended and wait for pending finish now.
-    if (_finish_dependency && _should_stop && _num_running_scanners == 0 &&
-        _num_scheduling_ctx == 0) {
+    if (_finish_dependency && done() && _num_running_scanners == 0 && _num_scheduling_ctx == 0) {
         _finish_dependency->set_ready();
     }
 }
@@ -524,6 +522,9 @@ std::string ScannerContext::debug_string() {
 
 void ScannerContext::reschedule_scanner_ctx() {
     std::lock_guard l(_transfer_lock);
+    if (done()) {
+        return;
+    }
     auto state = _scanner_scheduler->submit(shared_from_this());
     //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
     if (state.ok()) {
@@ -546,7 +547,7 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
     _num_running_scanners--;
     set_ready_to_finish();
 
-    if (should_be_scheduled()) {
+    if (!done() && should_be_scheduled()) {
         auto state = _scanner_scheduler->submit(shared_from_this());
         if (state.ok()) {
             _num_scheduling_ctx++;
