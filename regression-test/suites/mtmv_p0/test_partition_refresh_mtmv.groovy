@@ -91,6 +91,7 @@ suite("test_partition_refresh_mtmv") {
         sql """drop table if exists `${tableName}`"""
         sql """drop materialized view if exists ${mvName};"""
 
+    // range date partition
     sql """
         CREATE TABLE `${tableName}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
@@ -131,6 +132,54 @@ suite("test_partition_refresh_mtmv") {
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_select "SELECT * FROM ${mvName}"
+    order_qt_range_date_build "SELECT * FROM ${mvName}"
 
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
+
+    // range int partition
+    sql """
+        CREATE TABLE `${tableName}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`num`)
+        (PARTITION p1_2 VALUES [(1), (2)),
+        PARTITION p2_3 VALUES [(2), (3)),
+        PARTITION p3_4 VALUES [(3), (4)))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableName} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`num`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT * FROM ${tableName};
+    """
+    showPartitionsResult = sql """show partitions from ${mvName}"""
+    logger.info("showPartitionsResult: " + showPartitionsResult.toString())
+    assertTrue(showPartitionsResult.toString().contains("p_1_2"))
+    assertTrue(showPartitionsResult.toString().contains("p_2_3"))
+    assertTrue(showPartitionsResult.toString().contains("p_3_4"))
+
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName}
+        """
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_range_int_build "SELECT * FROM ${mvName}"
+
+    sql """drop table if exists `${tableName}`"""
+    sql """drop materialized view if exists ${mvName};"""
 }
