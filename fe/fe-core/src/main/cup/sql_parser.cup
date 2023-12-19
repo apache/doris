@@ -3565,13 +3565,13 @@ column_definition ::=
     ident:columnName type_def:typeDef opt_is_key:isKey opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_enable_dict_encoding:isDictEncoding opt_default_value:defaultValue opt_comment:comment
     {:
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, null, isAllowNull, isAutoInc, defaultValue, comment);
-        if (isDictEncoding) columnDef.setEnableDictEncoding(isDictEncoding)
+        if (isDictEncoding) columnDef.setEnableDictEncoding(isDictEncoding);
         RESULT = columnDef;
     :}
     | ident:columnName type_def:typeDef IDENT:fnName LPAREN type_def_nullable_list:list RPAREN opt_is_auto_inc:isAutoInc opt_enable_dict_encoding:isDictEncoding opt_default_value:defaultValue opt_comment:comment
     {:
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, false, AggregateType.GENERIC_AGGREGATION, false, defaultValue, comment);
-        if (isDictEncoding) columnDef.setEnableDictEncoding(isDictEncoding)
+        if (isDictEncoding) columnDef.setEnableDictEncoding(isDictEncoding);
         columnDef.setGenericAggregationName(fnName);
         columnDef.setGenericAggregationArguments(list);
         RESULT = columnDef;
@@ -3579,7 +3579,7 @@ column_definition ::=
     | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType opt_is_allow_null:isAllowNull opt_is_auto_inc:isAutoInc opt_enable_dict_encoding:isDictEncoding opt_default_value:defaultValue opt_comment:comment
     {:
         ColumnDef columnDef = new ColumnDef(columnName, typeDef, isKey, aggType, isAllowNull, isAutoInc, defaultValue, comment);
-        if (isDictEncoding) columnDef.setEnableDictEncoding(isDictEncoding)
+        if (isDictEncoding) columnDef.setEnableDictEncoding(isDictEncoding);
         RESULT = columnDef;
     :}
     | ident:columnName type_def:typeDef opt_is_key:isKey opt_agg_type:aggType LPAREN type_def_nullable_list:list RPAREN opt_default_value:defaultValue opt_comment:comment

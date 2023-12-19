@@ -396,6 +396,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     _type = TabletColumn::get_field_type_by_string(column.type());
     _is_key = column.is_key();
     _is_nullable = column.is_nullable();
+    _enable_dict_encoding = column.enable_dict_encoding();
 
     _has_default_value = column.has_default_value();
     if (_has_default_value) {
@@ -452,6 +453,7 @@ void TabletColumn::to_schema_pb(ColumnPB* column) const {
     column->set_type(get_string_by_field_type(_type));
     column->set_is_key(_is_key);
     column->set_is_nullable(_is_nullable);
+    column->set_enable_dict_encoding(_enable_dict_encoding);
     if (_has_default_value) {
         column->set_default_value(_default_value);
     }

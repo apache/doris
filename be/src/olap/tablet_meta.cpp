@@ -371,6 +371,7 @@ void TabletMeta::init_column_from_tcolumn(uint32_t unique_id, const TColumn& tco
         ColumnPB* children_column = column->add_children_columns();
         init_column_from_tcolumn(i, tcolumn.children_column[i], children_column);
     }
+    column->set_enable_dict_encoding(tcolumn.enable_dict_encoding);
 }
 
 Status TabletMeta::create_from_file(const string& file_path) {

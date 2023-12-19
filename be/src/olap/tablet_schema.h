@@ -117,6 +117,7 @@ public:
     bool is_row_store_column() const;
     std::string get_aggregation_name() const { return _aggregation_name; }
     bool get_result_is_nullable() const { return _result_is_nullable; }
+    bool enable_dict_encoding() const { return _enable_dict_encoding; }
 
 private:
     int32_t _unique_id;

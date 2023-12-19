@@ -113,6 +113,12 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
+    if (field_is_slice_type(column.type()) && !column.enable_dict_encoding()) {
+        LOG(INFO) << fmt::format(
+                "[SegmentWriter::init_column_meta] set PLAIN_ENCODING for column: {}",
+                column.name());
+        meta->set_encoding(PLAIN_ENCODING);
+    }
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {

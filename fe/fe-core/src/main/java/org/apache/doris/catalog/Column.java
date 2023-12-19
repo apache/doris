@@ -517,6 +517,7 @@ public class Column implements Writable, GsonPostProcessable {
 
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
+        tcolumn.setEnableDictEncoding(this.enableDictEncoding);
         // keep compatibility
         tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
         tColumn.setVisible(visible);
