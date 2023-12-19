@@ -2119,16 +2119,7 @@ Status Tablet::_cooldown_data() {
         LOG(INFO) << "cannot pick cooldown rowset in tablet " << tablet_id();
         return Status::OK();
     }
-    if (old_rowset->num_segments() < 1) {
-        // Empty rowset, just reset rowset's resource_id
-        std::lock_guard meta_wlock(_meta_lock);
-        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        old_rowset->rowset_meta()->set_fs(dest_fs);
-        LOG(INFO) << "cooldown empty rowset " << old_rowset->version() << " "
-                  << old_rowset->rowset_id().to_string() << " to " << dest_fs->root_path().native()
-                  << ", tablet_id=" << tablet_id();
-        return Status::OK();
-    }
+
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
     add_pending_remote_rowset(new_rowset_id.to_string());
     Status st;
@@ -2175,7 +2166,9 @@ Status Tablet::_cooldown_data() {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         save_meta();
     }
-    // upload cooldowned rowset meta to remote fs
+    // Upload cooldowned rowset meta to remote fs
+    // ATTN: Even if it is an empty rowset, in order for the followers to synchronize, the coolown meta must be
+    // uploaded, otherwise followers may never completely cooldown.
     if (auto t = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
         t != nullptr) { // `t` can be nullptr if it has been dropped
         async_write_cooldown_meta(std::move(t));
