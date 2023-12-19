@@ -427,7 +427,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (typeDef.getType().isArrayType()) {
             defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
         }
-        return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
+        return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false, false,
                 defaultVal, comment, true);
     }
 

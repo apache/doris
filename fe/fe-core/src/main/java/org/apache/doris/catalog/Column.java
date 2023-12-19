@@ -130,6 +130,9 @@ public class Column implements Writable, GsonPostProcessable {
 
     private boolean isCompoundKey = false;
 
+    @SerializedName(value = "enableDictEncoding")
+    private boolean enableDictEncoding = false;
+
     public Column() {
         this.name = "";
         this.type = Type.NULL;
@@ -169,24 +172,24 @@ public class Column implements Writable, GsonPostProcessable {
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment) {
-        this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, true, null,
+        this(name, type, isKey, aggregateType, isAllowNull, false, false, defaultValue, comment, true, null,
                 COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String comment, boolean visible, int colUniqueId) {
-        this(name, type, isKey, aggregateType, isAllowNull, false, null, comment, visible, null, colUniqueId, null);
+        this(name, type, isKey, aggregateType, isAllowNull, false, false, null, comment, visible, null, colUniqueId, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
             int colUniqueId, String realDefaultValue) {
-        this(name, type, isKey, aggregateType, isAllowNull, false, defaultValue, comment, visible, defaultValueExprDef,
+        this(name, type, isKey, aggregateType, isAllowNull, false, false, defaultValue, comment, visible, defaultValueExprDef,
                 colUniqueId, realDefaultValue);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
-            boolean isAutoInc, String defaultValue, String comment, boolean visible,
+            boolean isAutoInc, boolean enableDictEncoding, String defaultValue, String comment, boolean visible,
             DefaultValueExprDef defaultValueExprDef, int colUniqueId, String realDefaultValue) {
         this.name = name;
         if (this.name == null) {
@@ -212,6 +215,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.children = new ArrayList<>();
         createChildrenColumn(this.type, this);
         this.uniqueId = colUniqueId;
+        this.enableDictEncoding = enableDictEncoding;
 
         if (type.isAggStateType()) {
             AggStateType aggState = (AggStateType) type;
@@ -244,6 +248,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.uniqueId = column.getUniqueId();
         this.defineExpr = column.getDefineExpr();
         this.defineName = column.getDefineName();
+        this.enableDictEncoding = column.getEnableDictEncoding();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -433,6 +438,10 @@ public class Column implements Writable, GsonPostProcessable {
 
     public boolean isAutoInc() {
         return isAutoInc;
+    }
+
+    public boolean getEnableDictEncoding() {
+        return enableDictEncoding;
     }
 
     public void setIsAllowNull(boolean isAllowNull) {
@@ -755,8 +764,9 @@ public class Column implements Writable, GsonPostProcessable {
         } else {
             sb.append(" NOT NULL");
         }
-        if (isAutoInc) {
-            sb.append(" AUTO_INCREMENT");
+        
+        if (enableDictEncoding) {
+            sb.append(" ENABLE_DICT_ENCODING");
         }
         if (defaultValue != null && getDataType() != PrimitiveType.HLL && getDataType() != PrimitiveType.BITMAP) {
             if (defaultValueExprDef != null) {
@@ -779,7 +789,7 @@ public class Column implements Writable, GsonPostProcessable {
     @Override
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
-                isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, defaultValue, comment, children, visible,
+                isAggregationTypeImplicit, isKey, isAllowNull, isAutoInc, enableDictEncoding, defaultValue, comment, children, visible,
                 realDefaultValue);
     }
 
@@ -801,6 +811,7 @@ public class Column implements Writable, GsonPostProcessable {
                 && isKey == other.isKey
                 && isAllowNull == other.isAllowNull
                 && isAutoInc == other.isAutoInc
+                && enableDictEncoding == other.enableDictEncoding
                 && getDataType().equals(other.getDataType())
                 && getStrLen() == other.getStrLen()
                 && getPrecision() == other.getPrecision()

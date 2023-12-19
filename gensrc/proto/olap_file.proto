@@ -190,6 +190,7 @@ message ColumnPB {
     repeated ColumnPB children_columns = 17;
     repeated string children_column_names = 18;
     optional bool result_is_nullable = 19;
+    optional bool enable_dict_encoding = 20;
 }
 
 enum IndexType {

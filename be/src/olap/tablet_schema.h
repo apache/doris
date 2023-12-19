@@ -151,6 +151,8 @@ private:
     uint32_t _sub_column_count = 0;
 
     bool _result_is_nullable = false;
+
+    bool _enable_dict_encoding = false;
 };
 
 bool operator==(const TabletColumn& a, const TabletColumn& b);
