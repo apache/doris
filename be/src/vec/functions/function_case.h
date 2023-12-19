@@ -261,6 +261,7 @@ public:
                       std::is_same_v<ColumnType, ColumnStruct> ||
                       std::is_same_v<ColumnType, ColumnObject> ||
                       std::is_same_v<ColumnType, ColumnHLL> ||
+                      std::is_same_v<ColumnType, ColumnQuantileState> ||
                       std::is_same_v<ColumnType, ColumnIPv4> ||
                       std::is_same_v<ColumnType, ColumnIPv6>) {
             // result_column and all then_column is not nullable.

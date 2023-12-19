@@ -645,6 +645,8 @@ DECLARE_mInt32(memtable_soft_limit_active_percent);
 // Alignment
 DECLARE_Int32(memory_max_alignment);
 
+// memtable insert memory tracker will multiply input block size with this ratio
+DECLARE_mDouble(memtable_insert_memory_ratio);
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -658,6 +660,10 @@ DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
 DECLARE_Int32(load_process_soft_mem_limit_percent);
+
+// If load memory consumption is within load_process_safe_mem_permit_percent,
+// memtable memory limiter will do nothing.
+DECLARE_Int32(load_process_safe_mem_permit_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
@@ -1182,6 +1188,7 @@ DECLARE_Int16(bitmap_serialize_version);
 DECLARE_String(group_commit_replay_wal_dir);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_mInt32(group_commit_relay_wal_threads);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);
