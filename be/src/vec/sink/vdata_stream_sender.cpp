@@ -274,9 +274,9 @@ Status Channel::close_internal(const Status& exec_status) {
     }
 
     VLOG_RPC << "Channel::close() instance_id=" << print_id(_fragment_instance_id)
-              << " dest_node=" << _dest_node_id
-              << " #rows= " << ((_mutable_block == nullptr) ? 0 : _mutable_block->rows())
-              << " receiver status: " << _receiver_status << " close status: " << exec_status.msg();
+             << " dest_node=" << _dest_node_id
+             << " #rows= " << ((_mutable_block == nullptr) ? 0 : _mutable_block->rows())
+             << " receiver status: " << _receiver_status << " close status: " << exec_status.msg();
 
     if (is_receiver_eof()) {
         _mutable_block.reset();

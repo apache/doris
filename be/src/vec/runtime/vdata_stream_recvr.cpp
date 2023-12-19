@@ -254,7 +254,8 @@ void VDataStreamRecvr::SenderQueue::cancel(const std::string& msg) {
         }
         _is_cancelled = true;
         _cancel_msg = msg; // TODO: std::string copy, maybe we can do this better.
-        VLOG_QUERY << "cancelled stream: _fragment_instance_id=" << print_id(_recvr->fragment_instance_id())
+        VLOG_QUERY << "cancelled stream: _fragment_instance_id="
+                   << print_id(_recvr->fragment_instance_id())
                    << " node_id=" << _recvr->dest_node_id();
     }
     // Wake up all threads waiting to produce/consume batches.  They will all
