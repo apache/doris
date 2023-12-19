@@ -17,6 +17,7 @@
 
 #include "runtime/tablets_channel.h"
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
@@ -41,12 +42,16 @@
 #include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
 #include "runtime/load_channel.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "vec/core/block.h"
 
 namespace doris {
 class SlotDescriptor;
+
+bvar::Adder<int64_t> g_tablets_channel_send_data_allocated_size(
+        "tablets_channel_send_data_allocated_size");
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
@@ -520,6 +525,10 @@ Status BaseTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request
     CHECK(send_data.rows() == request.tablet_ids_size())
             << "block rows: " << send_data.rows()
             << ", tablet_ids_size: " << request.tablet_ids_size();
+
+    g_tablets_channel_send_data_allocated_size << send_data.allocated_bytes();
+    Defer defer {
+            [&]() { g_tablets_channel_send_data_allocated_size << -send_data.allocated_bytes(); }};
 
     auto write_tablet_data = [&](uint32_t tablet_id,
                                  std::function<Status(BaseDeltaWriter * writer)> write_func) {
