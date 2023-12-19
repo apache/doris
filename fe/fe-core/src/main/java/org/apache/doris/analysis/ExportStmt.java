@@ -39,6 +39,7 @@ import org.apache.doris.qe.VariableMgr;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
+import com.google.common.base.Splitter;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -49,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 // EXPORT statement, export data to dirs by broker.
 //
@@ -353,6 +355,7 @@ public class ExportStmt extends StatementBase {
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
         this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, DEFAULT_COLUMNS);
+        checkColumns();
 
         // format
         this.format = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv").toLowerCase();
@@ -382,6 +385,24 @@ public class ExportStmt extends StatementBase {
             properties.put(LABEL, label);
         }
         label = properties.get(LABEL);
+    }
+
+    private void checkColumns() throws DdlException {
+        if (this.columns.isEmpty()) {
+            throw new DdlException("columns can not be empty");
+        }
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(this.tblName.getDb());
+        Table table = db.getTableOrDdlException(this.tblName.getTbl());
+        List<String> tableColumns = table.getBaseSchema().stream().map(column -> column.getName())
+                .collect(Collectors.toList());
+        Splitter split = Splitter.on(',').trimResults().omitEmptyStrings();
+
+        List<String> columnsSpecified = split.splitToList(this.columns.toLowerCase());
+        for (String columnName : columnsSpecified) {
+            if (!tableColumns.contains(columnName)) {
+                throw new DdlException("unknown column [" + columnName + "] in table [" + this.tblName.getTbl() + "]");
+            }
+        }
     }
 
     @Override
