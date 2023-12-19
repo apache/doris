@@ -51,4 +51,20 @@ suite("test_constant_fold", "query") {
                 (NOT ((true)||(CASE ${testTable}.c0  WHEN ${testTable}.c0 THEN false  WHEN ${testTable}.c0 THEN true ELSE true END ))) AS INT) as count
                 FROM ${testTable}) as res;
               """
+
+   sql """ set enable_fold_constant_by_be=true """
+
+   qt_select """ SELECT SUM(count) FROM
+               (SELECT CAST((NOT ((1378719999)||(CASE ${testTable}.c0  WHEN ${testTable}.c0 THEN -388844163  WHEN ${testTable}.c0 THEN 1455674610 ELSE 671348352 END ))) IS NOT NULL AND
+               (NOT ((1378719999)||(CASE ${testTable}.c0  WHEN ${testTable}.c0 THEN -388844163  WHEN ${testTable}.c0 THEN 1455674610 ELSE 671348352 END ))) AS INT) as count
+               FROM ${testTable}) as res;
+             """
+
+   sql """ set enable_fold_constant_by_be=false """
+
+   qt_select """ SELECT SUM(count) FROM
+               (SELECT CAST((NOT ((1378719999)||(CASE ${testTable}.c0  WHEN ${testTable}.c0 THEN -388844163  WHEN ${testTable}.c0 THEN 1455674610 ELSE 671348352 END ))) IS NOT NULL AND
+               (NOT ((1378719999)||(CASE ${testTable}.c0  WHEN ${testTable}.c0 THEN -388844163  WHEN ${testTable}.c0 THEN 1455674610 ELSE 671348352 END ))) AS INT) as count
+               FROM ${testTable}) as res;
+             """
 }
