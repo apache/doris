@@ -59,6 +59,8 @@ MemTableMemoryLimiter::~MemTableMemoryLimiter() {
 Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
+    _load_safe_mem_permit =
+            _load_hard_mem_limit * config::load_process_safe_mem_permit_percent / 100;
     g_load_hard_mem_limit.set_value(_load_hard_mem_limit);
     g_load_soft_mem_limit.set_value(_load_soft_mem_limit);
     _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
@@ -97,10 +99,14 @@ bool MemTableMemoryLimiter::_hard_limit_reached() {
            _proc_mem_extra() >= 0;
 }
 
+bool MemTableMemoryLimiter::_load_usage_low() {
+    return _mem_tracker->consumption() <= _load_safe_mem_permit;
+}
+
 void MemTableMemoryLimiter::handle_memtable_flush() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
-    if (!_soft_limit_reached()) {
+    if (!_soft_limit_reached() || _load_usage_low()) {
         return;
     }
     MonotonicStopWatch timer;
