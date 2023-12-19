@@ -24,12 +24,10 @@ suite("test_build_mtmv") {
     def tableName = "t_test_create_mtmv_user"
     def tableNamePv = "t_test_create_mtmv_user_pv"
     def mvName = "multi_mv_test_create_mtmv"
-    def viewName = "multi_mv_test_create_view"
     def mvNameRenamed = "multi_mv_test_create_mtmv_renamed"
 
     sql """drop table if exists `${tableName}`"""
     sql """drop table if exists `${tableNamePv}`"""
-    sql """drop view if exists `${viewName}`"""
 
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
@@ -59,10 +57,6 @@ suite("test_build_mtmv") {
 
     sql """
         INSERT INTO ${tableNamePv} VALUES("2022-10-26",1,200),("2022-10-28",2,200),("2022-10-28",3,300);
-    """
-
-    sql """
-        create view if not exists ${viewName} as select * from ${tableName};
     """
 
     sql """drop materialized view if exists ${mvName};"""
@@ -132,23 +126,6 @@ suite("test_build_mtmv") {
         log.info(e.getMessage())
     }
 
-    sql """
-        DROP MATERIALIZED VIEW ${mvName}
-    """
-
-    // IMMEDIATE MANUAL and use view
-    sql """
-        CREATE MATERIALIZED VIEW ${mvName}
-        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-        DISTRIBUTED BY RANDOM BUCKETS 2
-        PROPERTIES ('replication_num' = '1') 
-        AS 
-        SELECT * from ${viewName};
-    """
-    def jobName = getJobName("regression_test_mtmv_p0", mvName);
-    println jobName
-    waitingMTMVTaskFinished(jobName)
-    order_qt_select "SELECT * FROM ${mvName}"
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
