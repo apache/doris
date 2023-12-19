@@ -26,13 +26,13 @@ under the License.
 
 ## HLL(HyperLogLog)
 ### description
-    HLL
-    HLL不能作为key列使用，建表时配合聚合类型为HLL_UNION。
-    用户不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
-    并且HLL列只能通过配套的hll_union_agg、hll_raw_agg、hll_cardinality、hll_hash进行查询或使用。
-    
-    HLL是模糊去重，在数据量大的情况性能优于Count Distinct。
-    HLL的误差通常在1%左右，有时会达到2%。
+HLL
+HLL不能作为key列使用，支持在Aggregate模型、Duplicate模型和Unique模型的表中使用。在Aggregate模型表中使用时，建表时配合的聚合类型为HLL_UNION。
+用户不需要指定长度和默认值。长度根据数据的聚合程度系统内控制。
+并且HLL列只能通过配套的hll_union_agg、hll_raw_agg、hll_cardinality、hll_hash进行查询或使用。
+
+HLL是模糊去重，在数据量大的情况性能优于Count Distinct。
+HLL的误差通常在1%左右，有时会达到2%。
 
 ### example
 

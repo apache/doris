@@ -115,11 +115,8 @@ public enum AggregateType {
         compatibilityMap.put(MAX, EnumSet.copyOf(primitiveTypeList));
 
         primitiveTypeList.clear();
-        // all types except object stored column type, such as bitmap hll
-        // quantile_state.
+        // all types except agg_state.
         EnumSet<PrimitiveType> excObjectStored = EnumSet.allOf(PrimitiveType.class);
-        excObjectStored.remove(PrimitiveType.HLL);
-        excObjectStored.remove(PrimitiveType.QUANTILE_STATE);
         excObjectStored.remove(PrimitiveType.AGG_STATE);
         compatibilityMap.put(REPLACE, EnumSet.copyOf(excObjectStored));
 

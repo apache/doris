@@ -356,19 +356,6 @@ public class CreateTableStmtTest {
     }
 
     @Test
-    public void testHllNoAggTab() throws Exception {
-        ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
-        cols.add(hll);
-        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                        new KeysDesc(KeysType.DUP_KEYS, colsName), null, new RandomDistributionDesc(10),
-                                        null, null, "");
-        expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage(
-                "Aggregate type `col3` HLL NONE NOT NULL COMMENT \"\" is not compatible with primitive type HLL");
-        stmt.analyze(analyzer);
-    }
-
-    @Test
     public void testBmpHllIncAgg() throws Exception {
         ColumnDef bitmap = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.BITMAP)));
         bitmap.setAggregateType(AggregateType.SUM);
