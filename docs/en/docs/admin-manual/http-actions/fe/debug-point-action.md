@@ -32,9 +32,9 @@ it can change variables or behaviors of the program.
 
 It is mainly used for unit test or regression test when it is impossible to trigger some exceptions through normal means.
 
-Each debug point has a name, the name can be whatever we want, there are swithes to enable and disable debug points, 
+Each debug point has a name, the name can be whatever you want, there are swithes to enable and disable debug points, 
 
-and we can also pass data to debug points.
+and you can also pass data to debug points.
 
 Both FE and BE support debug point, and after inserting debug point code, recompilation of FE or BE is needed.
 
@@ -78,10 +78,9 @@ To enable debug points globally, we need to set `enable_debug_points` to true,
 `enable_debug_points` is located in FE's fe.conf and BE's be.conf.
 
 
-## Activate Specified Debug Point
+## Activate A Specified Debug Point
 
-After debug points are enabled globally, <br>
-we need to specify the debug point name we want to activate, this is done by sending a http request to FE or BE node, <br>
+After debug points are enabled globally, a http request with a debug point name should be send to FE or BE node, <br>
 only after that, when the program running into the specified debug point, related code can be executed.
 
 ### API
@@ -129,7 +128,9 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 
 
 ## Pass Custom Parameters
-When activating debug point, besides "timeout" and "execute" mentioned above, we can also pass custom parameters.
+When activating debug point, besides "timeout" and "execute" mentioned above, passing custom parameters is also allowed.<br>
+A parameter is a key-value pair in the form of "key=value" in url path, after debug point name glued by charactor '?'.<br> 
+See examples below.
 
 ### API
 
@@ -137,7 +138,8 @@ When activating debug point, besides "timeout" and "execute" mentioned above, we
 POST /api/debug_point/add/{debug_point_name}[?k1=v1&k2=v2&k3=v3...]
 ```
 * `k1=v1` <br>
-  The parameter passing is in key-value fashion, e.g. k1 is name and v1 is value, <br>
+  k1 is parameter name, <br>
+  v1 is parameter value, <br>
   multiple key-value pairs are concatenated by `&`, <br>
   
 
@@ -156,8 +158,9 @@ None
 ```
 
 ### Examples
-Assuming a FE node with configuration http_port=8030 in fe.conf, the following http request activates a debug point named `foo` in FE node, and passes two parameters:
-		
+Assuming a FE node with configuration http_port=8030 in fe.conf, <br>
+the following http request activates a debug point named `foo` in FE node and passe parameter `percent` and `duration`:
+>NOTE: User name and password may be needed.
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?percent=0.5&duration=3"
 ```
@@ -170,12 +173,12 @@ NOTE:
 ```
 
 ### Use parameters in FE and BE code
-Following request activates debug point `OlapTableSink.write_random_choose_sink` in FE and passes two parameters, `needCatchUp` and `sinkNum`: 
+Following request activates debug point `OlapTableSink.write_random_choose_sink` in FE and passes parameter `needCatchUp` and `sinkNum`: 
 ```
 curl -u root: -X POST "http://127.0.0.1:8030/api/debug_point/add/OlapTableSink.write_random_choose_sink?needCatchUp=true&sinkNum=3"
 ```
 
-The code in FE checks debug point `OlapTableSink.write_random_choose_sink` and gets values:
+The code in FE checks debug point `OlapTableSink.write_random_choose_sink` and gets parameter values:
 ```java
 private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Long, Long> bePathsMap) {
     DebugPoint debugPoint = DebugPointUtil.getDebugPoint("OlapTableSink.write_random_choose_sink");
@@ -188,12 +191,12 @@ private void debugWriteRandomChooseSink(Tablet tablet, long version, Multimap<Lo
 }
 ```
 
-Following request activates debug point `TxnManager.prepare_txn.random_failed` in BE and passes one parameter:
+Following request activates debug point `TxnManager.prepare_txn.random_failed` in BE and passes parameter `percent`:
 ```
 curl -X POST "http://127.0.0.1:8040/api/debug_point/add/TxnManager.prepare_txn.random_failed?percent=0.7
 ```
 
-The code in BE checks debug point `TxnManager.prepare_txn.random_failed` and gets value:
+The code in BE checks debug point `TxnManager.prepare_txn.random_failed` and gets parameter value:
 ```c++
 DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed",
 		{if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
@@ -276,23 +279,24 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 
 ## Debug Points in Regression Test
 
-In community CI system, `enable_debug_points` configuration of FE and BE are set to true.<br>
+>In community CI system, `enable_debug_points` configuration of FE and BE are true by default.
+
 The Regression test framework also provides methods to activate and deactivate perticular debug point, <br>
 they are declared as below:
 ```groovy
-// name is the debug point to activate, params is a list key-value pairs passed to debug point
+// "name" is the debug point to activate, "params" is a list of key-value pairs passed to debug point
 def enableDebugPointForAllFEs(String name, Map<String, String> params = null);
 def enableDebugPointForAllBEs(String name, Map<String, String> params = null);
-// name is the debug point to deactivate
+// "name" is the debug point to deactivate
 def disableDebugPointForAllFEs(String name);
 def disableDebugPointForAllFEs(String name);
 ```
-`enableDebugPointForAllFEs()` or `enableDebugPointForAllBEs()` needs to be called before test actions you want to generate error, <br>
+`enableDebugPointForAllFEs()` or `enableDebugPointForAllBEs()` needs to be called before test actions to generate error, <br>
 and `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` needs to be called later.
 
 ### Concurrent Issue
 
-Enabling debug points affects FE or BE globally, it could cause other concurrent tests of your pull request to fail unexpectly. <br>
+Enabled debug points affects FE or BE globally, which could cause other concurrent tests of a pull request to fail unexpectly. <br>
 To avoid this, there's a convension that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0, <br>
 and their group name must be "nonConcurrent", because community CI system will run them serially. 
 
@@ -304,15 +308,15 @@ and their group name must be "nonConcurrent", because community CI system will r
 suite('debugpoint_action', 'nonConcurrent') {
     try {
         // Activate debug point named "PublishVersionDaemon.stop_publish" in all FE
-        // and pass timeout=1
-        // Same as above, "execute" and "timeout" are pre-existing parameters
+        // and pass timeout
+        // "execute" and "timeout" are pre-existing parameters, same as above
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
         // Activate debug point named "Tablet.build_tablet_report_info.version_miss" in all BE
-        // and pass: tablet_id='12345', version_miss=true and timeout=1
+        // and pass: tablet_id, version_miss and timeout
         GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss',
                                                   [tablet_id:'12345', version_miss:true, timeout:1])
 
-        // Actions which will run into debug point and generate error
+        // Test actions which will run into debug point and generate error
         sql """CREATE TABLE tbl_1 (k1 INT, k2 INT)
                DUPLICATE KEY (k1)
                DISTRIBUTED BY HASH(k1)
