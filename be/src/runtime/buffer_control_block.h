@@ -175,7 +175,7 @@ private:
     void _update_batch_queue_empty() override;
 
     std::atomic_bool _batch_queue_empty {false};
-    std::shared_ptr<pipeline::ResultSinkDependency> _result_sink_dependency {nullptr};
+    std::shared_ptr<pipeline::ResultSinkDependency> _result_sink_dependency;
 };
 
 } // namespace doris

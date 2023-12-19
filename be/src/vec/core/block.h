@@ -89,7 +89,7 @@ public:
     Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
           bool ignore_trivial_slot = false);
 
-    virtual ~Block() = default;
+    ~Block() = default;
     Block(const Block& block) = default;
     Block& operator=(const Block& p) = default;
     Block(Block&& block) = default;
@@ -135,35 +135,6 @@ public:
         return data[position];
     }
     const ColumnWithTypeAndName& get_by_position(size_t position) const { return data[position]; }
-
-    // need exception safety
-    Status copy_column_data_to_block(doris::vectorized::IColumn* input_col_ptr,
-                                     uint16_t* sel_rowid_idx, uint16_t select_size, int block_cid,
-                                     size_t batch_size) {
-        // Only the additional deleted filter condition need to materialize column be at the end of the block
-        // We should not to materialize the column of query engine do not need. So here just return OK.
-        // Eg:
-        //      `delete from table where a = 10;`
-        //      `select b from table;`
-        // a column only effective in segment iterator, the block from query engine only contain the b column.
-        // so the `block_cid >= data.size()` is true
-        if (block_cid >= data.size()) {
-            return Status::OK();
-        }
-
-        MutableColumnPtr raw_res_ptr = this->get_by_position(block_cid).column->assume_mutable();
-        raw_res_ptr->reserve(batch_size);
-
-        // adapt for outer join change column to nullable
-        if (raw_res_ptr->is_nullable() && !input_col_ptr->is_nullable()) {
-            auto col_ptr_nullable =
-                    reinterpret_cast<vectorized::ColumnNullable*>(raw_res_ptr.get());
-            col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
-            raw_res_ptr = col_ptr_nullable->get_nested_column_ptr();
-        }
-
-        return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, raw_res_ptr);
-    }
 
     void replace_by_position(size_t position, ColumnPtr&& res) {
         this->get_by_position(position).column = std::move(res);
@@ -592,7 +563,7 @@ public:
     void swap(MutableBlock&& other) noexcept;
 
     void add_row(const Block* block, int row);
-    void add_rows(const Block* block, const int* row_begin, const int* row_end);
+    void add_rows(const Block* block, const uint32_t* row_begin, const uint32_t* row_end);
     void add_rows(const Block* block, size_t row_begin, size_t length);
     void add_rows(const Block* block, std::vector<int64_t> rows);
 

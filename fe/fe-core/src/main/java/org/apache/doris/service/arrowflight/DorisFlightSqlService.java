@@ -18,6 +18,7 @@
 package org.apache.doris.service.arrowflight;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.service.arrowflight.auth2.FlightBearerTokenAuthenticator;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsManager;
 import org.apache.doris.service.arrowflight.sessions.FlightSessionsWithTokenManager;
@@ -39,13 +40,13 @@ import java.io.IOException;
 public class DorisFlightSqlService {
     private static final Logger LOG = LogManager.getLogger(DorisFlightSqlService.class);
     private final FlightServer flightServer;
-    private volatile boolean running;
     private final FlightTokenManager flightTokenManager;
     private final FlightSessionsManager flightSessionsManager;
+    private volatile boolean running;
 
     public DorisFlightSqlService(int port) {
         BufferAllocator allocator = new RootAllocator();
-        Location location = Location.forGrpcInsecure("0.0.0.0", port);
+        Location location = Location.forGrpcInsecure(FrontendOptions.getLocalHostAddress(), port);
         this.flightTokenManager = new FlightTokenManagerImpl(Config.arrow_flight_token_cache_size,
                 Config.arrow_flight_token_alive_time);
         this.flightSessionsManager = new FlightSessionsWithTokenManager(flightTokenManager);

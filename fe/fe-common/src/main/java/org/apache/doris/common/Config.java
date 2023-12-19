@@ -126,6 +126,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(mutable = false, masterOnly = false,
+            description = {"是否检查table锁泄漏", "Whether to check table lock leaky"})
+    public static boolean check_table_lock_leaky = false;
+
     @ConfField(description = {"插件的安装目录", "The installation directory of the plugin"})
     public static String plugin_dir = System.getenv("DORIS_HOME") + "/plugins";
 
@@ -236,10 +240,16 @@ public class Config extends ConfigBase {
                     + "If there are many ReplicaWriteException in FE WARN log, you can try to increase this value"})
     public static int bdbje_replica_ack_timeout_second = 10;
 
+    @ConfField(description = {"在HA模式下，BDBJE 中保留的预留空间字节数的期望上限。非 HA 模式下无效",
+            "The desired upper limit on the number of bytes of reserved space to retain "
+                    + "in a replicated JE Environment. "
+                    + "This parameter is ignored in a non-replicated JE Environment."})
+    public static long bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+
     @ConfField(description = {"BDBJE 所需的空闲磁盘空间大小。如果空闲磁盘空间小于这个值，则BDBJE将无法写入。",
             "Amount of free disk space required by BDBJE. "
                     + "If the free disk space is less than this value, BDBJE will not be able to write."})
-    public static int bdbje_reserved_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
+    public static long bdbje_free_disk_bytes = 1 * 1024 * 1024 * 1024; // 1G
 
     @ConfField(masterOnly = true, description = {"心跳线程池的线程数",
             "Num of thread to handle heartbeat events"})
@@ -496,6 +506,10 @@ public class Config extends ConfigBase {
             "Wait for the internal batch to be written before returning; "
                     + "insert into and stream load use group commit by default."})
     public static boolean wait_internal_group_commit_finish = false;
+
+    @ConfField(mutable = false, masterOnly = true, description = {"攒批的默认提交时间，单位是毫秒",
+            "Default commit interval in ms for group commit"})
+    public static int group_commit_interval_ms_default_value = 10000;
 
     @ConfField(mutable = true, masterOnly = true, description = {"Stream load 的默认超时时间，单位是秒。",
             "Default timeout for stream load job, in seconds."})
@@ -1560,7 +1574,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(description = {"用于分发定时任务的线程数",
             "The number of threads used to dispatch timer job."})
-    public static int job_dispatch_timer_job_thread_num = 5;
+    public static int job_dispatch_timer_job_thread_num = 2;
 
     /**
      * The number of timer jobs that can be queued.
@@ -1571,6 +1585,13 @@ public class Config extends ConfigBase {
      */
     @ConfField(description = {"任务堆积时用于存放定时任务的队列大小", "The number of timer jobs that can be queued."})
     public static int job_dispatch_timer_job_queue_size = 1024;
+    @ConfField(description = {"一个 Job 的 task 最大的持久化数量，超过这个限制将会丢弃旧的 task 记录, 如果值 < 1, 将不会持久化。",
+            "Maximum number of persistence allowed per task in a job,exceeding which old tasks will be discarded，"
+                   + "If the value is less than 1, it will not be persisted." })
+    public static int max_persistence_task_count = 100;
+    @ConfField(description = {"finished 状态的 job 最长保存时间，超过这个时间将会被删除, 单位：小时",
+            "The longest time to save the job in finished status, it will be deleted after this time. Unit: hour"})
+    public static int finished_job_cleanup_threshold_time_hour = 24;
 
     @ConfField(description = {"用于执行 Insert 任务的线程数,值应该大于0，否则默认为5",
             "The number of threads used to consume Insert tasks, "
@@ -1581,6 +1602,13 @@ public class Config extends ConfigBase {
             "The number of threads used to consume mtmv tasks, "
                     + "the value should be greater than 0, if it is <=0, default is 5."})
     public static int job_mtmv_task_consumer_thread_num = 10;
+
+    /* job test config */
+    /**
+     * If set to true, we will allow the interval unit to be set to second, when creating a recurring job.
+     */
+    @ConfField
+    public static boolean enable_job_schedule_second_for_test = false;
 
     /*---------------------- JOB CONFIG END------------------------*/
     /**
@@ -1611,6 +1639,9 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true)
     public static boolean enable_query_queue = true;
+
+    @ConfField(mutable = true)
+    public static long query_queue_update_interval_ms = 5000;
 
     @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
     public static boolean enable_cpu_hard_limit = false;
@@ -1866,8 +1897,8 @@ public class Config extends ConfigBase {
      * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
      * otherwise it will throw an AnalysisException.
      */
-    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_query_hive_views = false;
+    @ConfField(mutable = true)
+    public static boolean enable_query_hive_views = true;
 
     /**
      * If set to true, doris will automatically synchronize hms metadata to the cache in fe.
@@ -1982,7 +2013,7 @@ public class Config extends ConfigBase {
      * OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
      */
     @ConfField
-    public static String bdbje_file_logging_level = "ALL";
+    public static String bdbje_file_logging_level = "INFO";
 
     /**
      * When holding lock time exceeds the threshold, need to report it.
@@ -2076,7 +2107,7 @@ public class Config extends ConfigBase {
             "When set to true, if a query is unable to select a healthy replica, "
                     + "the detailed information of all the replicas of the tablet,"
                     + " including the specific reason why they are unqueryable, will be printed out."})
-    public static boolean show_details_for_unaccessible_tablet = false;
+    public static boolean show_details_for_unaccessible_tablet = true;
 
     @ConfField(mutable = false, masterOnly = false, varType = VariableAnnotation.EXPERIMENTAL, description = {
             "是否启用binlog特性",
@@ -2284,4 +2315,24 @@ public class Config extends ConfigBase {
     @ConfField(description = {"nereids trace文件的存放路径。",
             "The path of the nereids trace file."})
     public static String nereids_trace_log_dir = System.getenv("DORIS_HOME") + "/log/nereids_trace";
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "备份过程中，分配给每个be的upload任务最大个数，默认值为3个。",
+            "The max number of upload tasks assigned to each be during the backup process, the default value is 3."
+    })
+    public static int backup_upload_task_num_per_be = 3;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "恢复过程中，分配给每个be的download任务最大个数，默认值为3个。",
+            "The max number of download tasks assigned to each be during the restore process, the default value is 3."
+    })
+    public static int restore_download_task_num_per_be = 3;
+
+    @ConfField(description = {"是否开启通过http接口获取log文件的功能",
+            "Whether to enable the function of getting log files through http interface"})
+    public static boolean enable_get_log_file_api = false;
+
+    @ConfField(description = {"用于SQL方言转换的服务地址。",
+            "The service address for SQL dialect conversion."})
+    public static String sql_convertor_service = "";
 }

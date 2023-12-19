@@ -52,18 +52,18 @@ private:
 
     int32_t readBufferSize;
     // base info
-    lucene::store::Directory* dir;
-    lucene::store::RAMDirectory* ram_dir;
+    lucene::store::Directory* dir = nullptr;
+    lucene::store::RAMDirectory* ram_dir = nullptr;
     std::string directory;
     std::string file_name;
-    CL_NS(store)::IndexInput* stream;
+    CL_NS(store)::IndexInput* stream = nullptr;
 
     using EntriesType =
             lucene::util::CLHashMap<char*, ReaderFileEntry*, lucene::util::Compare::Char,
                                     lucene::util::Equals::Char, lucene::util::Deletor::acArray,
                                     lucene::util::Deletor::Object<ReaderFileEntry>>;
 
-    EntriesType* entries;
+    EntriesType* entries = nullptr;
 
     std::mutex _this_lock;
 
@@ -73,7 +73,8 @@ protected:
 
 public:
     DorisCompoundReader(lucene::store::Directory* dir, const char* name,
-                        int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE);
+                        int32_t _readBufferSize = CL_NS(store)::BufferedIndexInput::BUFFER_SIZE,
+                        bool open_idx_file_cache = false);
     ~DorisCompoundReader() override;
     void copyFile(const char* file, int64_t file_length, uint8_t* buffer, int64_t buffer_length);
     bool list(std::vector<std::string>* names) const override;
@@ -91,8 +92,10 @@ public:
     void close() override;
     std::string toString() const override;
     std::string getFileName() { return file_name; }
+    std::string getPath() const;
     static const char* getClassName();
     const char* getObjectName() const override;
+    CL_NS(store)::IndexInput* getDorisIndexInput();
 };
 
 } // namespace segment_v2

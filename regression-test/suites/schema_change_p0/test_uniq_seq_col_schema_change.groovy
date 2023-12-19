@@ -50,7 +50,7 @@ suite("test_uniq_seq_col_schema_change", "schema_change") {
 
         sql "insert into ${tbName1} ${columnWithHidden_2}values(5,5,5,5,5,0,5);"
         sql "insert into ${tbName1} ${columnWithHidden_2}values(5,6,6,6,6,0,6);"
-        sql "insert into ${tbName1} values(5,6,6,7,6);"
+        sql "insert into ${tbName1} ${columnWithHidden_2}values(5,6,6,7,6,0,4);"
         qt_sql "select * from ${tbName1} order by k1;"
         sql "insert into ${tbName1} ${columnWithHidden_2}values(5,6,6,7,6,0,7);"
         qt_sql "select * from ${tbName1} order by k1;"

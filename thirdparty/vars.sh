@@ -215,11 +215,11 @@ CYRUS_SASL_NAME=cyrus-sasl-2.1.27.tar.gz
 CYRUS_SASL_SOURCE=cyrus-sasl-2.1.27
 CYRUS_SASL_MD5SUM="a33820c66e0622222c5aefafa1581083"
 
-# librdkafka-1.8.2
-LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/refs/tags/v1.8.2.tar.gz"
-LIBRDKAFKA_NAME=librdkafka-1.8.2.tar.gz
-LIBRDKAFKA_SOURCE=librdkafka-1.8.2
-LIBRDKAFKA_MD5SUM="0abec0888d10c9553cdcbcbf9172d558"
+# librdkafka-1.9.2
+LIBRDKAFKA_DOWNLOAD="https://github.com/edenhill/librdkafka/archive/v1.9.2.tar.gz"
+LIBRDKAFKA_NAME=librdkafka-1.9.2.tar.gz
+LIBRDKAFKA_SOURCE=librdkafka-1.9.2
+LIBRDKAFKA_MD5SUM="fe9624e905abbf8324b0f6be520d9c24"
 
 # zstd
 ZSTD_DOWNLOAD="https://github.com/facebook/zstd/releases/download/v1.5.5/zstd-1.5.5.tar.gz"
@@ -478,6 +478,12 @@ AVX2NEON_NAME=v1.0.0.tar.gz
 AVX2NEON_SOURCE=AvxToNeon-1.0.0
 AVX2NEON_MD5SUM="692d0e0f8b885a86ebc5172a9d8ee8db"
 
+# libdeflate
+LIBDEFLATE_DOWNLOAD="https://github.com/ebiggers/libdeflate/archive/refs/tags/v1.19.tar.gz"
+LIBDEFLATE_NAME=libdeflate-1.19.tar.gz
+LIBDEFLATE_SOURCE=libdeflate-1.19
+LIBDEFLATE_MD5SUM="c69e9193d2975a729068ffa862c81fb6"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'LIBEVENT'
@@ -548,6 +554,7 @@ export TP_ARCHIVES=(
     'HADOOP_LIBS'
     'DRAGONBOX'
     'AVX2NEON'
+    'LIBDEFLATE'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

@@ -223,6 +223,7 @@ message TabletIndexPB {
     optional IndexType index_type = 3;
     repeated int32 col_unique_id = 4;
     map<string, string> properties = 5;
+    optional string index_suffix_name = 6;
 }
 
 enum SortType {

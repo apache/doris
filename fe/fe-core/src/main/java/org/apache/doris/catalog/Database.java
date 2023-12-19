@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -32,6 +33,7 @@ import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.CreateTableInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -82,8 +84,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private long id;
     @SerializedName(value = "fullQualifiedName")
     private volatile String fullQualifiedName;
-    @SerializedName(value = "clusterName")
-    private String clusterName;
     private ReentrantReadWriteLock rwLock;
 
     // table family group map
@@ -145,7 +145,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 : Config.default_db_max_running_txn_num;
         this.dbState = DbState.NORMAL;
         this.attachDbName = "";
-        this.clusterName = "";
         this.dbEncryptKey = new DatabaseEncryptKey();
     }
 
@@ -577,7 +576,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         super.write(out);
 
         out.writeLong(id);
-        Text.writeString(out, fullQualifiedName);
+        Text.writeString(out, ClusterNamespace.getNameFromFullName(fullQualifiedName));
         // write tables
         discardHudiTable();
         int numTables = nameToTable.size();
@@ -587,7 +586,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         }
 
         out.writeLong(dataQuotaBytes);
-        Text.writeString(out, clusterName);
+        Text.writeString(out, SystemInfoService.DEFAULT_CLUSTER);
         Text.writeString(out, dbState.name());
         Text.writeString(out, attachDbName);
 
@@ -625,6 +624,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         id = in.readLong();
         fullQualifiedName = Text.readString(in);
+        fullQualifiedName = ClusterNamespace.getNameFromFullName(fullQualifiedName);
         // read groups
         int numTables = in.readInt();
         for (int i = 0; i < numTables; ++i) {
@@ -641,7 +641,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         // read quota
         dataQuotaBytes = in.readLong();
-        clusterName = Text.readString(in);
+        // cluster
+        Text.readString(in);
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
 
@@ -687,33 +688,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                 && idToTable.equals(other.idToTable)
                 && fullQualifiedName.equals(other.fullQualifiedName)
                 && dataQuotaBytes == other.dataQuotaBytes;
-    }
-
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setClusterName(String clusterName) {
-        this.clusterName = clusterName;
-    }
-
-    public DbState getDbState() {
-        return dbState;
-    }
-
-    public void setDbState(DbState dbState) {
-        if (dbState == null) {
-            return;
-        }
-        this.dbState = dbState;
-    }
-
-    public void setAttachDb(String name) {
-        this.attachDbName = name;
-    }
-
-    public String getAttachDb() {
-        return this.attachDbName;
     }
 
     public void setName(String name) {

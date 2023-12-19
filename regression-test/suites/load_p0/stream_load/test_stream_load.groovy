@@ -834,8 +834,8 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(9, json.NumberTotalRows)
-            assertEquals(9, json.NumberLoadedRows)
+            assertEquals(10, json.NumberTotalRows)
+            assertEquals(10, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -936,8 +936,8 @@ suite("test_stream_load", "p0") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(13, json.NumberTotalRows)
-            assertEquals(13, json.NumberLoadedRows)
+            assertEquals(14, json.NumberTotalRows)
+            assertEquals(14, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -1487,5 +1487,93 @@ suite("test_stream_load", "p0") {
     }
     sql "sync"
     order_qt_temporary_partitions "SELECT * FROM ${tableName18} TEMPORARY PARTITION(test) order by k1"
+
+    // test length of input is too long than schema.
+    def tableName19 = "test_input_long_than_schema"
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName19} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName19} (
+                `c1` varchar(48) NULL,
+                `c2` varchar(48) NULL,
+                `c3` varchar(48) NULL,
+                `c4` varchar(48) NULL,
+                `c5` varchar(48) NULL,
+                `c6` varchar(48) NULL,
+                `c7` varchar(48) NULL,
+                `c8` varchar(48) NULL,
+                `c9` varchar(48) NULL,
+                `c10` varchar(48) NULL,
+                `c11` varchar(48) NULL,
+                `c12` varchar(48) NULL,
+                `c13` varchar(48) NULL,
+                `c14` varchar(48) NULL,
+                `c15` varchar(48) NULL,
+                `c16` varchar(48) NULL,
+                `c17` varchar(48) NULL,
+                `c18` varchar(48) NULL,
+                `c19` varchar(48) NULL,
+                `c20` varchar(48) NULL,
+                `c21` varchar(48) NULL,
+                `c22` varchar(48) NULL,
+                `c23` varchar(48) NULL,
+                `c24` varchar(48) NULL,
+                `c25` varchar(48) NULL,
+                `c26` varchar(48) NULL,
+                `c27` varchar(48) NULL,
+                `c28` varchar(48) NULL,
+                `c29` varchar(48) NULL,
+                `c30` varchar(48) NULL,
+                `c31` varchar(48) NULL,
+                `c32` varchar(48) NULL,
+                `c33` varchar(48) NULL,
+                `c34` varchar(48) NULL,
+                `c35` varchar(48) NULL,
+                `c36` varchar(48) NULL,
+                `c37` varchar(48) NULL,
+                `c38` varchar(48) NULL,
+                `c39` varchar(48) NULL,
+                `c40` varchar(48) NULL,
+                `c41` varchar(48) NULL,
+                `c42` varchar(48) NULL,
+                `c43` varchar(48) NULL,
+                `c44` varchar(48) NULL,
+                `c45` varchar(48) NULL,
+                `c46` varchar(48) NULL,
+                `c47` varchar(48) NULL,
+                `c48` varchar(48) NULL,
+                `c49` varchar(48) NULL,
+                `c50` varchar(48) NULL,
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`c1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`c1`) BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "false"
+            );
+        """
+
+        streamLoad {
+            table "${tableName19}"
+            set 'column_separator', ','
+            file 'test_input_long_than_schema.csv'
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
+                assertEquals(100, json.NumberTotalRows)
+                assertEquals(100, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName19} FORCE"""
+    }
 }
 

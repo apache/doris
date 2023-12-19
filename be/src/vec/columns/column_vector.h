@@ -144,7 +144,7 @@ public:
     using Container = PaddedPODArray<value_type>;
 
 private:
-    ColumnVector() {}
+    ColumnVector() = default;
     ColumnVector(const size_t n) : data(n) {}
     ColumnVector(const size_t n, const value_type x) : data(n, x) {}
     ColumnVector(const ColumnVector& src) : data(src.data.begin(), src.data.end()) {}
@@ -177,7 +177,7 @@ public:
     size_t size() const override { return data.size(); }
 
     StringRef get_data_at(size_t n) const override {
-        return StringRef(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
+        return {reinterpret_cast<const char*>(&data[n]), sizeof(data[n])};
     }
 
     void insert_from(const IColumn& src, size_t n) override {
@@ -193,6 +193,20 @@ public:
         auto old_size = data.size();
         data.resize(old_size + num);
         memcpy(data.data() + old_size, data_ptr, num * sizeof(T));
+    }
+
+    void insert_raw_integers(T val, size_t n) {
+        auto old_size = data.size();
+        data.resize(old_size + n);
+        std::fill(data.data() + old_size, data.data() + old_size + n, val);
+    }
+
+    void insert_range_of_integer(T begin, T end) {
+        auto old_size = data.size();
+        data.resize(old_size + (end - begin));
+        for (int i = 0; i < end - begin; i++) {
+            data[old_size + i] = begin + i;
+        }
     }
 
     void insert_date_column(const char* data_ptr, size_t num) {
@@ -378,8 +392,8 @@ public:
 
     void insert_range_from(const IColumn& src, size_t start, size_t length) override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     void fill(const value_type& element, size_t num) {
         auto old_size = data.size();
@@ -459,6 +473,8 @@ public:
         DCHECK(size() > self_row);
         data[self_row] = T();
     }
+
+    void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

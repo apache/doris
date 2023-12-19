@@ -129,10 +129,31 @@ public class PartitionInfo implements Writable {
         }
     }
 
+    /**
+     * @return both normal partition and temp partition
+     */
+    public Map<Long, PartitionItem> getAllPartitions() {
+        HashMap all = new HashMap<>();
+        all.putAll(idToTempItem);
+        all.putAll(idToItem);
+        return all;
+    }
+
     public PartitionItem getItem(long partitionId) {
         PartitionItem item = idToItem.get(partitionId);
         if (item == null) {
             item = idToTempItem.get(partitionId);
+        }
+        return item;
+    }
+
+    public PartitionItem getItemOrAnalysisException(long partitionId) throws AnalysisException {
+        PartitionItem item = idToItem.get(partitionId);
+        if (item == null) {
+            item = idToTempItem.get(partitionId);
+        }
+        if (item == null) {
+            throw new AnalysisException("PartitionItem not found: " + partitionId);
         }
         return item;
     }

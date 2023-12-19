@@ -9,32 +9,28 @@ PhysicalResultSink
 ------------PhysicalDistribute
 --------------PhysicalProject
 ----------------PhysicalOlapScan[store_returns] apply RFs: RF4
-------------PhysicalDistribute
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((income_band.ib_income_band_sk = household_demographics.hd_income_band_sk)) otherCondition=() build RFs:RF3 ib_income_band_sk->[hd_income_band_sk]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[c_current_hdemo_sk]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=()
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF2
-----------------------------------PhysicalDistribute
-------------------------------------PhysicalProject
---------------------------------------filter((customer_address.ca_city = 'Oakwood'))
-----------------------------------------PhysicalOlapScan[customer_address]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer_demographics]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[household_demographics] apply RFs: RF3
-------------------PhysicalDistribute
+------------PhysicalProject
+--------------hashJoin[INNER_JOIN] hashCondition=((income_band.ib_income_band_sk = household_demographics.hd_income_band_sk)) otherCondition=() build RFs:RF3 ib_income_band_sk->[hd_income_band_sk]
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((household_demographics.hd_demo_sk = customer.c_current_hdemo_sk)) otherCondition=() build RFs:RF2 hd_demo_sk->[c_current_hdemo_sk]
 --------------------PhysicalProject
-----------------------filter((cast(ib_upper_bound as BIGINT) <= 55806) and (income_band.ib_lower_bound >= 5806))
-------------------------PhysicalOlapScan[income_band]
+----------------------hashJoin[INNER_JOIN] hashCondition=((customer.c_current_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[c_current_addr_sk]
+------------------------hashJoin[INNER_JOIN] hashCondition=((customer_demographics.cd_demo_sk = customer.c_current_cdemo_sk)) otherCondition=()
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[customer] apply RFs: RF1 RF2
+--------------------------PhysicalDistribute
+----------------------------PhysicalProject
+------------------------------PhysicalOlapScan[customer_demographics]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((customer_address.ca_city = 'Oakwood'))
+------------------------------PhysicalOlapScan[customer_address]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[household_demographics] apply RFs: RF3
+----------------PhysicalDistribute
+------------------PhysicalProject
+--------------------filter((cast(ib_upper_bound as BIGINT) <= 55806) and (income_band.ib_lower_bound >= 5806))
+----------------------PhysicalOlapScan[income_band]
 

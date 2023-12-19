@@ -142,7 +142,7 @@ public:
     NodeType* exec_node() const { return _node; }
 
 protected:
-    NodeType* _node;
+    NodeType* _node = nullptr;
 };
 
 template <typename SinkType>
@@ -160,7 +160,7 @@ public:
     SinkType* exec_node() const { return _sink; }
 
 protected:
-    SinkType* _sink;
+    SinkType* _sink = nullptr;
 };
 
 class OperatorBase {
@@ -265,11 +265,11 @@ public:
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
 protected:
-    OperatorBuilderBase* _operator_builder;
+    OperatorBuilderBase* _operator_builder = nullptr;
     OperatorPtr _child;
 
     // Used on pipeline X
-    OperatorXPtr _child_x;
+    OperatorXPtr _child_x = nullptr;
 
     bool _is_closed;
 };
@@ -323,7 +323,7 @@ public:
     }
 
 protected:
-    NodeType* _sink;
+    NodeType* _sink = nullptr;
 };
 
 /**
@@ -400,7 +400,7 @@ public:
     }
 
 protected:
-    NodeType* _node;
+    NodeType* _node = nullptr;
     bool _use_projection;
 };
 
@@ -444,7 +444,7 @@ public:
 
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<OperatorBuilderType>(builder, node),
-              _child_block(vectorized::Block::create_unique()),
+              _child_block(vectorized::Block::create_shared()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;
@@ -484,7 +484,7 @@ public:
     }
 
 protected:
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::shared_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
 };
 

@@ -29,10 +29,10 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/data_dir.h"
-#include "olap/reader.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
+#include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -55,8 +55,8 @@ class NewOlapScanner : public VScanner {
 
 public:
     struct Params {
-        RuntimeState* state;
-        RuntimeProfile* profile;
+        RuntimeState* state = nullptr;
+        RuntimeProfile* profile = nullptr;
         std::vector<OlapScanRange*> key_ranges;
         BaseTabletSPtr tablet;
         int64_t version;
@@ -93,6 +93,8 @@ private:
                                       const std::vector<FunctionFilter>& function_filters);
 
     [[nodiscard]] Status _init_return_columns();
+    vectorized::PathInData _build_path(SlotDescriptor* slot, const std::string& root_name);
+    [[nodiscard]] Status _init_variant_columns();
 
     std::vector<OlapScanRange*> _key_ranges;
 

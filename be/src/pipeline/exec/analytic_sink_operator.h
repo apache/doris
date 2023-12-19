@@ -84,9 +84,9 @@ private:
                                                      bool need_check_first = false);
     bool _whether_need_next_partition(vectorized::BlockRowPos& found_partition_end);
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _evaluation_timer;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _evaluation_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
     std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
 };
@@ -107,6 +107,15 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
+    ExchangeType get_local_exchange_type() const override {
+        if (_partition_by_eq_expr_ctxs.empty()) {
+            return ExchangeType::PASSTHROUGH;
+        } else if (_order_by_eq_expr_ctxs.empty()) {
+            return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+        }
+        return ExchangeType::NOOP;
+    }
 
 private:
     Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
@@ -123,6 +132,8 @@ private:
     const TTupleId _buffered_tuple_id;
 
     std::vector<size_t> _num_agg_input;
+    const bool _is_colocate;
+    const std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

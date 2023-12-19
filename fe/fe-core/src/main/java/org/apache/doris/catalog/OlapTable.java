@@ -947,6 +947,17 @@ public class OlapTable extends Table {
         return getPartition(partitionName, true);
     }
 
+    public Partition getPartitionOrAnalysisException(String partitionName) throws AnalysisException {
+        Partition partition = getPartition(partitionName, false);
+        if (partition == null) {
+            partition = getPartition(partitionName, true);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionName);
+        }
+        return partition;
+    }
+
     // get partition by name
     public Partition getPartition(String partitionName, boolean isTempPartition) {
         if (isTempPartition) {
@@ -961,6 +972,17 @@ public class OlapTable extends Table {
         Partition partition = idToPartition.get(partitionId);
         if (partition == null) {
             partition = tempPartitions.getPartition(partitionId);
+        }
+        return partition;
+    }
+
+    public Partition getPartitionOrAnalysisException(long partitionId) throws AnalysisException {
+        Partition partition = idToPartition.get(partitionId);
+        if (partition == null) {
+            partition = tempPartitions.getPartition(partitionId);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionId);
         }
         return partition;
     }
@@ -1155,11 +1177,6 @@ public class OlapTable extends Table {
         if (tblStats == null) {
             return true;
         }
-        long rowCount = getRowCount();
-        // TODO: Do we need to analyze an empty table?
-        if (rowCount == 0) {
-            return false;
-        }
         if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
                 .stream()
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
@@ -1167,6 +1184,7 @@ public class OlapTable extends Table {
                 .collect(Collectors.toSet()))) {
             return true;
         }
+        long rowCount = getRowCount();
         long updateRows = tblStats.updatedRows.get();
         int tblHealth = StatisticsUtil.getTableHealth(rowCount, updateRows);
         return tblHealth < StatisticsUtil.getTableStatsHealthThreshold();
@@ -1206,6 +1224,11 @@ public class OlapTable extends Table {
             rowCount += entry.getValue().getBaseIndex().getRowCount();
         }
         return rowCount;
+    }
+
+    @Override
+    public long getCacheRowCount() {
+        return getRowCount();
     }
 
     @Override
@@ -1306,7 +1329,13 @@ public class OlapTable extends Table {
     }
 
     @Override
-    public boolean isPartitioned() {
+    public boolean isPartitionedTable() {
+        return !PartitionType.UNPARTITIONED.equals(partitionInfo.getType());
+    }
+
+    // Return true if data is distributed by one more partitions or buckets.
+    @Override
+    public boolean isPartitionDistributed() {
         int numSegs = 0;
         for (Partition part : getPartitions()) {
             numSegs += part.getDistributionInfo().getBucketNum();
@@ -1635,7 +1664,7 @@ public class OlapTable extends Table {
         }
     }
 
-    public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler, String clusterName) {
+    public boolean isStable(SystemInfoService infoService, TabletScheduler tabletScheduler) {
         List<Long> aliveBeIds = infoService.getAllBackendIds(true);
         for (Partition partition : idToPartition.values()) {
             long visibleVersion = partition.getVisibleVersion();
@@ -2388,7 +2417,6 @@ public class OlapTable extends Table {
         for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
             try {
                 ConnectContext connectContext = new ConnectContext();
-                connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
                 connectContext.setDatabase(dbName);
                 Analyzer analyzer = new Analyzer(Env.getCurrentEnv(), connectContext);
                 meta.parseStmt(analyzer);
@@ -2407,6 +2435,36 @@ public class OlapTable extends Table {
     @Override
     public boolean isPartitionColumn(String columnName) {
         return getPartitionInfo().getPartitionColumns().stream()
-            .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
+                .anyMatch(c -> c.getName().equalsIgnoreCase(columnName));
+    }
+
+    /**
+     * For olap table, we need to acquire read lock when plan.
+     * Because we need to make sure the partition's version remain unchanged when plan.
+     *
+     * @return
+     */
+    @Override
+    public boolean needReadLockWhenPlan() {
+        return true;
+    }
+
+    public boolean hasVariantColumns() {
+        for (Column column : getBaseSchema()) {
+            if (column.getType().isVariantType()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public List<Tablet> getAllTablets() throws AnalysisException {
+        List<Tablet> tablets = Lists.newArrayList();
+        for (Partition partition : getPartitions()) {
+            for (Tablet tablet : partition.getBaseIndex().getTablets()) {
+                tablets.add(tablet);
+            }
+        }
+        return tablets;
     }
 }

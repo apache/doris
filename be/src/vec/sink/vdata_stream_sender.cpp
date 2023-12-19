@@ -222,7 +222,7 @@ Status Channel<Parent>::send_remote_block(PBlock* block, bool eos, Status exec_s
 }
 
 template <typename Parent>
-Status Channel<Parent>::add_rows(Block* block, const std::vector<int>& rows, bool eos) {
+Status Channel<Parent>::add_rows(Block* block, const std::vector<uint32_t>& rows, bool eos) {
     if (_fragment_instance_id.lo == -1) {
         return Status::OK();
     }
@@ -713,7 +713,7 @@ BlockSerializer<Parent>::BlockSerializer(Parent* parent, bool is_local)
 template <typename Parent>
 Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest, int num_receivers,
                                                       bool* serialized, bool eos,
-                                                      const std::vector<int>* rows) {
+                                                      const std::vector<uint32_t>* rows) {
     if (_mutable_block == nullptr) {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         _mutable_block = MutableBlock::create_unique(block->clone_empty());
@@ -722,9 +722,9 @@ Status BlockSerializer<Parent>::next_serialized_block(Block* block, PBlock* dest
     {
         SCOPED_CONSUME_MEM_TRACKER(_parent->mem_tracker());
         if (rows) {
-            if (rows->size() > 0) {
+            if (!rows->empty()) {
                 SCOPED_TIMER(_parent->split_block_distribute_by_channel_timer());
-                const int* begin = &(*rows)[0];
+                const auto* begin = rows->data();
                 _mutable_block->add_rows(block, begin, begin + rows->size());
             }
         } else if (!block->empty()) {

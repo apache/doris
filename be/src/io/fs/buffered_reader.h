@@ -220,13 +220,13 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
-    RuntimeProfile::Counter* _copy_time;
-    RuntimeProfile::Counter* _read_time;
-    RuntimeProfile::Counter* _request_io;
-    RuntimeProfile::Counter* _merged_io;
-    RuntimeProfile::Counter* _request_bytes;
-    RuntimeProfile::Counter* _merged_bytes;
-    RuntimeProfile::Counter* _apply_bytes;
+    RuntimeProfile::Counter* _copy_time = nullptr;
+    RuntimeProfile::Counter* _read_time = nullptr;
+    RuntimeProfile::Counter* _request_io = nullptr;
+    RuntimeProfile::Counter* _merged_io = nullptr;
+    RuntimeProfile::Counter* _request_bytes = nullptr;
+    RuntimeProfile::Counter* _merged_bytes = nullptr;
+    RuntimeProfile::Counter* _apply_bytes = nullptr;
 
     int _search_read_range(size_t start_offset, size_t end_offset);
     void _clean_cached_data(RangeCachedData& cached_data);
@@ -311,8 +311,8 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     size_t _size {0};
     size_t _len {0};
     size_t _whole_buffer_size;
-    io::FileReader* _reader;
-    const IOContext* _io_ctx;
+    io::FileReader* _reader = nullptr;
+    const IOContext* _io_ctx = nullptr;
     std::unique_ptr<char[]> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
@@ -420,7 +420,7 @@ private:
     io::FileReaderSPtr _reader;
     PrefetchRange _file_range;
     const std::vector<PrefetchRange>* _random_access_ranges = nullptr;
-    const IOContext* _io_ctx;
+    const IOContext* _io_ctx = nullptr;
     int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
     std::vector<std::shared_ptr<PrefetchBuffer>> _pre_buffers;
     int64_t _whole_pre_buffer_size;
@@ -457,7 +457,7 @@ protected:
 private:
     Status _close_internal();
     io::FileReaderSPtr _reader;
-    std::unique_ptr<char[]> _data = nullptr;
+    std::unique_ptr<char[]> _data;
     size_t _size;
     bool _closed = false;
 };

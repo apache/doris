@@ -22,7 +22,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.TimeUtils;
@@ -52,7 +52,8 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     public StatisticsAutoCollector() {
         super("Automatic Analyzer",
                 TimeUnit.MINUTES.toMillis(Config.auto_check_statistics_in_minutes),
-                new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num));
+                new AnalysisTaskExecutor(Config.auto_analyze_simultaneously_running_task_num,
+                        StatisticConstants.TASK_QUEUE_CAP));
     }
 
     @Override
@@ -91,15 +92,17 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     public void analyzeDb(DatabaseIf<TableIf> databaseIf) throws DdlException {
         List<AnalysisInfo> analysisInfos = constructAnalysisInfo(databaseIf);
         for (AnalysisInfo analysisInfo : analysisInfos) {
-            analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
-            if (analysisInfo == null) {
-                continue;
-            }
             try {
+                analysisInfo = getReAnalyzeRequiredPart(analysisInfo);
+                if (analysisInfo == null) {
+                    continue;
+                }
                 createSystemAnalysisJob(analysisInfo);
             } catch (Throwable t) {
                 analysisInfo.message = t.getMessage();
-                throw t;
+                LOG.warn("Failed to auto analyze table {}.{}, reason {}",
+                        databaseIf.getFullName(), analysisInfo.tblId, analysisInfo.message, t);
+                continue;
             }
         }
     }
@@ -107,17 +110,28 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     protected List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
         for (TableIf table : db.getTables()) {
-            if (skip(table)) {
+            try {
+                if (skip(table)) {
+                    continue;
+                }
+                createAnalyzeJobForTbl(db, analysisInfos, table);
+            } catch (Throwable t) {
+                LOG.warn("Failed to analyze table {}.{}.{}",
+                        db.getCatalog().getName(), db.getFullName(), table.getName(), t);
                 continue;
             }
-            createAnalyzeJobForTbl(db, analysisInfos, table);
         }
         return analysisInfos;
     }
 
     // return true if skip auto analyze this time.
     protected boolean skip(TableIf table) {
-        if (!(table instanceof OlapTable || table instanceof ExternalTable)) {
+        if (!(table instanceof OlapTable || table instanceof HMSExternalTable)) {
+            return true;
+        }
+        // For now, only support Hive HMS table auto collection.
+        if (table instanceof HMSExternalTable
+                && !((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
             return true;
         }
         if (table.getDataSize(true) < StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5) {
@@ -164,9 +178,13 @@ public class StatisticsAutoCollector extends StatisticsCollector {
     protected AnalysisInfo getReAnalyzeRequiredPart(AnalysisInfo jobInfo) {
         TableIf table = StatisticsUtil
                 .findTable(jobInfo.catalogId, jobInfo.dbId, jobInfo.tblId);
+        // Skip tables that are too width.
+        if (table.getBaseSchema().size() > StatisticsUtil.getAutoAnalyzeTableWidthThreshold()) {
+            return null;
+        }
+
         AnalysisManager analysisManager = Env.getServingEnv().getAnalysisManager();
         TableStatsMeta tblStats = analysisManager.findTableStatsStatus(table.getId());
-
         if (!table.needReAnalyzeTable(tblStats)) {
             return null;
         }
@@ -179,5 +197,4 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
         return new AnalysisInfoBuilder(jobInfo).setColToPartitions(needRunPartitions).build();
     }
-
 }

@@ -29,15 +29,16 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.AnalysisInfo.ScheduleType;
+import org.apache.doris.statistics.util.SimpleQueue;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
 import mockit.Mocked;
-import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -378,7 +379,7 @@ public class AnalysisManagerTest {
         new MockUp<OlapTable>() {
 
             int count = 0;
-            int[] rowCount = new int[]{100, 200};
+            int[] rowCount = new int[]{100, 100, 200, 200};
 
             final Column c = new Column("col1", PrimitiveType.INT);
             @Mock
@@ -392,9 +393,7 @@ public class AnalysisManagerTest {
             }
 
             @Mock
-            public List<Column> getColumns() {
-                return Lists.newArrayList(c);
-            }
+            public List<Column> getColumns() { return Lists.newArrayList(c); }
 
         };
         OlapTable olapTable = new OlapTable();
@@ -409,7 +408,6 @@ public class AnalysisManagerTest {
                 .setColToPartitions(new HashMap<>()).setColName("col1").build(), olapTable);
         stats2.updatedRows.addAndGet(20);
         Assertions.assertFalse(olapTable.needReAnalyzeTable(stats2));
-
     }
 
     @Test
@@ -444,6 +442,18 @@ public class AnalysisManagerTest {
         analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(2).build());
         analysisManager.autoJobs.offer(new AnalysisInfoBuilder().setJobId(3).build());
         Assertions.assertEquals(2, analysisManager.autoJobs.size());
+    }
+
+    @Test
+    public void testCreateSimpleQueue() {
+        AnalysisManager analysisManager = new AnalysisManager();
+        ArrayList<AnalysisInfo> jobs = Lists.newArrayList();
+        jobs.add(new AnalysisInfoBuilder().setJobId(1).build());
+        jobs.add(new AnalysisInfoBuilder().setJobId(2).build());
+        SimpleQueue<AnalysisInfo> simpleQueue = analysisManager.createSimpleQueue(jobs, analysisManager);
+        Assertions.assertEquals(2, simpleQueue.size());
+        simpleQueue = analysisManager.createSimpleQueue(null, analysisManager);
+        Assertions.assertEquals(0, simpleQueue.size());
     }
 
 }

@@ -26,8 +26,8 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ColumnStatistic;
@@ -382,25 +382,25 @@ public class HMSExternalTable extends ExternalTable {
     }
 
     public List<ColumnStatisticsObj> getHiveTableColumnStats(List<String> columns) {
-        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getTableColumnStatistics(dbName, name, columns);
     }
 
     public Map<String, List<ColumnStatisticsObj>> getHivePartitionColumnStats(
             List<String> partNames, List<String> columns) {
-        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getPartitionColumnStatistics(dbName, name, partNames, columns);
     }
 
     public Partition getPartition(List<String> partitionValues) {
-        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         return client.getPartition(dbName, name, partitionValues);
     }
 
     @Override
     public Set<String> getPartitionNames() {
         makeSureInitialized();
-        PooledHiveMetaStoreClient client = ((HMSExternalCatalog) catalog).getClient();
+        HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
         List<String> names = client.listPartitionNames(dbName, name);
         return new HashSet<>(names);
     }
@@ -450,6 +450,23 @@ public class HMSExternalTable extends ExternalTable {
                     true, null, true, null, "", true, null, -1, null));
         }
         return tmpSchema;
+    }
+
+    @Override
+    public long getCacheRowCount() {
+        //Cached accurate information
+        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(id);
+        if (tableStats != null) {
+            long rowCount = tableStats.rowCount;
+            LOG.debug("Estimated row count for db {} table {} is {}.", dbName, name, rowCount);
+            return rowCount;
+        }
+
+        //estimated information
+        if (estimatedRowCount != -1) {
+            return estimatedRowCount;
+        }
+        return -1;
     }
 
     @Override

@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.BinaryPredicate.Operator;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.loadv2.JobState;
@@ -146,8 +145,6 @@ public class CancelLoadStmt extends DdlStmt {
             if (Strings.isNullOrEmpty(dbName)) {
                 throw new AnalysisException("No database selected");
             }
-        } else {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         }
 
         // check auth after we get real load job

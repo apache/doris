@@ -66,7 +66,7 @@ public:
 
     [[nodiscard]] Status init(ExecEnv* env);
 
-    [[nodiscard]] Status submit(ScannerContext* ctx);
+    [[nodiscard]] Status submit(std::shared_ptr<ScannerContext> ctx);
 
     void stop();
 
@@ -82,9 +82,10 @@ private:
     // scheduling thread function
     void _schedule_thread(int queue_id);
     // schedule scanners in a certain ScannerContext
-    void _schedule_scanners(ScannerContext* ctx);
+    void _schedule_scanners(std::shared_ptr<ScannerContext> ctx);
     // execution thread function
-    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
+    void _scanner_scan(ScannerScheduler* scheduler, std::shared_ptr<ScannerContext> ctx,
+                       VScannerSPtr scanner);
 
     void _task_group_scanner_scan(ScannerScheduler* scheduler,
                                   taskgroup::ScanTaskTaskGroupQueue* scan_queue);
@@ -102,7 +103,7 @@ private:
     // and put it to the _scheduling_map.
     // If any scanner finish, it will take ctx from and put it to pending queue again.
     std::atomic_uint _queue_idx = {0};
-    BlockingQueue<ScannerContext*>** _pending_queues;
+    BlockingQueue<std::shared_ptr<ScannerContext>>** _pending_queues = nullptr;
 
     // scheduling thread pool
     std::unique_ptr<ThreadPool> _scheduler_pool;
@@ -126,13 +127,13 @@ private:
 struct SimplifiedScanTask {
     SimplifiedScanTask() = default;
     SimplifiedScanTask(std::function<void()> scan_func,
-                       vectorized::ScannerContext* scanner_context) {
+                       std::shared_ptr<vectorized::ScannerContext> scanner_context) {
         this->scan_func = scan_func;
         this->scanner_context = scanner_context;
     }
 
     std::function<void()> scan_func;
-    vectorized::ScannerContext* scanner_context;
+    std::shared_ptr<vectorized::ScannerContext> scanner_context = nullptr;
 };
 
 // used for cpu hard limit
@@ -186,7 +187,7 @@ private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
     std::unique_ptr<BlockingQueue<SimplifiedScanTask>> _scan_task_queue;
     std::atomic<bool> _is_stop;
-    CgroupCpuCtl* _cgroup_cpu_ctl;
+    CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
     std::string _wg_name;
 };
 

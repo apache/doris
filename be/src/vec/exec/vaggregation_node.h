@@ -252,7 +252,7 @@ public:
         using Container =
                 std::conditional_t<IsConst, const AggregateDataContainer, AggregateDataContainer>;
 
-        Container* container;
+        Container* container = nullptr;
         uint32_t index;
         uint32_t sub_container_index;
         uint32_t index_in_sub_container;
@@ -326,12 +326,26 @@ public:
 private:
     void _expand() {
         _index_in_sub_container = 0;
-        _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
-        _key_containers.emplace_back(_current_keys);
+        _current_keys = nullptr;
+        _current_agg_data = nullptr;
+        try {
+            _current_keys = _arena_pool.alloc(_size_of_key * SUB_CONTAINER_CAPACITY);
+            _key_containers.emplace_back(_current_keys);
 
-        _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
-                                                                SUB_CONTAINER_CAPACITY);
-        _value_containers.emplace_back(_current_agg_data);
+            _current_agg_data = (AggregateDataPtr)_arena_pool.alloc(_size_of_aggregate_states *
+                                                                    SUB_CONTAINER_CAPACITY);
+            _value_containers.emplace_back(_current_agg_data);
+        } catch (...) {
+            if (_current_keys) {
+                _key_containers.pop_back();
+                _current_keys = nullptr;
+            }
+            if (_current_agg_data) {
+                _value_containers.pop_back();
+                _current_agg_data = nullptr;
+            }
+            throw;
+        }
     }
 
     static constexpr uint32_t SUB_CONTAINER_CAPACITY = 8192;
@@ -339,7 +353,7 @@ private:
     std::vector<char*> _key_containers;
     std::vector<AggregateDataPtr> _value_containers;
     AggregateDataPtr _current_agg_data;
-    char* _current_keys;
+    char* _current_keys = nullptr;
     size_t _size_of_key {};
     size_t _size_of_aggregate_states {};
     uint32_t _index_in_sub_container {};
@@ -354,7 +368,7 @@ struct AggSpillContext {
     /// stream ids of writers/readers
     std::vector<int64_t> stream_ids;
     std::vector<BlockSpillReaderUPtr> readers;
-    RuntimeProfile* runtime_profile;
+    RuntimeProfile* runtime_profile = nullptr;
 
     size_t read_cursor {};
 
@@ -419,11 +433,10 @@ protected:
     // left / full join will change the key nullable make output/input solt
     // nullable diff. so we need make nullable of it.
     std::vector<size_t> _make_nullable_keys;
-    RuntimeProfile::Counter* _hash_table_compute_timer;
-    RuntimeProfile::Counter* _hash_table_emplace_timer;
-    RuntimeProfile::Counter* _hash_table_input_counter;
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _expr_timer;
+    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
 
 private:
     friend class pipeline::AggSinkOperator;
@@ -436,10 +449,10 @@ private:
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
-    TupleDescriptor* _intermediate_tuple_desc;
+    TupleDescriptor* _intermediate_tuple_desc = nullptr;
 
     TupleId _output_tuple_id;
-    TupleDescriptor* _output_tuple_desc;
+    TupleDescriptor* _output_tuple_desc = nullptr;
 
     bool _needs_finalize;
     bool _is_merge;
@@ -458,21 +471,21 @@ private:
     AggSpillContext _spill_context;
     std::unique_ptr<SpillPartitionHelper> _spill_partition_helper;
 
-    RuntimeProfile::Counter* _build_table_convert_timer;
-    RuntimeProfile::Counter* _serialize_key_timer;
-    RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _get_results_timer;
-    RuntimeProfile::Counter* _serialize_data_timer;
-    RuntimeProfile::Counter* _serialize_result_timer;
-    RuntimeProfile::Counter* _deserialize_data_timer;
-    RuntimeProfile::Counter* _hash_table_iterate_timer;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer;
-    RuntimeProfile::Counter* _streaming_agg_timer;
-    RuntimeProfile::Counter* _hash_table_size_counter;
-    RuntimeProfile::Counter* _max_row_size_counter;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _hash_table_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage;
+    RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
+    RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _get_results_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_result_timer = nullptr;
+    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
+    RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
+    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_expand_hash_table = true;
     bool _should_limit_output = false;
@@ -523,7 +536,6 @@ private:
 
     template <bool limit>
     Status _execute_with_serialized_key_helper(Block* block) {
-        SCOPED_TIMER(_build_timer);
         DCHECK(!_probe_expr_ctxs.empty());
 
         size_t key_size = _probe_expr_ctxs.size();

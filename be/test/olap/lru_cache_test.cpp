@@ -80,7 +80,7 @@ public:
     std::vector<int> _deleted_values;
     Cache* _cache;
 
-    CacheTest() : _cache(new_lru_cache("test", kCacheSize)) { _s_current = this; }
+    CacheTest() : _cache(new ShardedLRUCache("test", kCacheSize)) { _s_current = this; }
 
     ~CacheTest() { delete _cache; }
 

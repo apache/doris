@@ -103,7 +103,7 @@ private:
 
     size_t _batch_size;
     std::optional<size_t> _auto_inc_col_idx;
-    AutoIncIDBuffer* _auto_inc_id_buffer;
+    AutoIncIDBuffer* _auto_inc_id_buffer = nullptr;
     AutoIncIDAllocator _auto_inc_id_allocator;
 };
 

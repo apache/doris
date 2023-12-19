@@ -26,7 +26,7 @@
 #include <unordered_map>
 #include <utility>
 
-#include "cloud/config.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -44,12 +44,15 @@
 #include "olap/rowset/segment_v2/page_pointer.h"
 #include "olap/segment_loader.h"
 #include "olap/short_key_index.h"
+#include "olap/storage_engine.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
+#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
@@ -139,7 +142,9 @@ void SegmentWriter::init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
     meta->set_default_value(column.default_value());
     meta->set_precision(column.precision());
     meta->set_frac(column.frac());
-    column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    if (!column.path_info().empty()) {
+        column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    }
     meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i),
@@ -173,10 +178,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         init_column_meta(opts.meta, cid, column, _tablet_schema);
 
         // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
-        // and not support zone map for array type and jsonb type.
-        opts.need_zone_map =
-                (column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS) &&
-                column.type() != FieldType::OLAP_FIELD_TYPE_OBJECT;
+        // except for columns whose type don't support zone map.
+        opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
         opts.need_bloom_filter = column.is_bf_column();
         auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
         if (tablet_index) {
@@ -199,7 +202,12 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             skip_inverted_index = true;
         }
         // indexes for this column
-        opts.indexes = _tablet_schema->get_indexes_for_column(column.unique_id());
+        opts.indexes = _tablet_schema->get_indexes_for_column(column);
+        if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
+            (column.is_extracted_column() && column.is_array_type())) {
+            // variant and jsonb type skip write index
+            opts.indexes.clear();
+        }
         for (auto index : opts.indexes) {
             if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
                 opts.inverted_index = index;
@@ -224,6 +232,9 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
         CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
         CHECK_FIELD_TYPE(MAP, "map")
         CHECK_FIELD_TYPE(VARIANT, "variant")
+        CHECK_FIELD_TYPE(OBJECT, "object")
+        CHECK_FIELD_TYPE(HLL, "hll")
+        CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
 
 #undef CHECK_FIELD_TYPE
 
@@ -329,11 +340,12 @@ void SegmentWriter::_serialize_block_to_row_column(vectorized::Block& block) {
 // 3. set columns to data convertor and then write all columns
 Status SegmentWriter::append_block_with_partial_content(const vectorized::Block* block,
                                                         size_t row_pos, size_t num_rows) {
-    if (config::cloud_mode) {
-        // TODO(plat1ko)
+    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        // TODO(plat1ko): cloud mode
         return Status::NotSupported("append_block_with_partial_content");
     }
-    auto tablet = static_cast<Tablet*>(_tablet.get());
+
+    auto* tablet = static_cast<Tablet*>(_tablet.get());
     if (block->columns() <= _tablet_schema->num_key_columns() ||
         block->columns() >= _tablet_schema->num_columns()) {
         return Status::InternalError(
@@ -401,6 +413,31 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     {
         std::shared_lock rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        DBUG_EXECUTE_IF("_append_block_with_partial_content.clear_specified_rowsets",
+                        { specified_rowsets.clear(); });
+        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
+            // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
+            // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_mow_context->rowset_ids`
+            // to the latest value and re-request the correspoding rowsets.
+            LOG(INFO) << fmt::format(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
+                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
+                    "transaction_id: {}",
+                    specified_rowsets.size(), _mow_context->rowset_ids.size(), tablet->tablet_id(),
+                    _mow_context->max_version, _mow_context->txn_id);
+            Status st {Status::OK()};
+            _mow_context->update_rowset_ids_with_lock([&]() {
+                _mow_context->rowset_ids.clear();
+                st = tablet->all_rs_id(_mow_context->max_version, &_mow_context->rowset_ids);
+            });
+            if (!st.ok()) {
+                return st;
+            }
+            specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+            DCHECK(specified_rowsets.size() == _mow_context->rowset_ids.size());
+        }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
@@ -552,7 +589,8 @@ Status SegmentWriter::fill_missing_columns(vectorized::MutableColumns& mutable_f
                                            const std::vector<bool>& use_default_or_null_flag,
                                            bool has_default_or_nullable,
                                            const size_t& segment_start_pos) {
-    if (config::cloud_mode) [[unlikely]] {
+    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        // TODO(plat1ko): cloud mode
         return Status::NotSupported("fill_missing_columns");
     }
     auto tablet = static_cast<Tablet*>(_tablet.get());
@@ -726,7 +764,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
                                          _opts.enable_unique_key_merge_on_write);
         bool need_short_key_indexes =
                 !need_primary_key_indexes ||
-                (need_primary_key_indexes && _tablet_schema->cluster_key_idxes().size() > 0);
+                (need_primary_key_indexes && !_tablet_schema->cluster_key_idxes().empty());
         if (need_primary_key_indexes && !need_short_key_indexes) { // mow table without cluster keys
             RETURN_IF_ERROR(_generate_primary_key_index(_key_coders, key_columns, seq_column,
                                                         num_rows, false));
@@ -982,8 +1020,8 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     timer.start();
     // check disk capacity
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
-        return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit.",
-                                                        _data_dir->path_hash());
+        return Status::Error<DISK_REACH_CAPACITY_LIMIT>("disk {} exceed capacity limit, path: {}",
+                                                        _data_dir->path_hash(), _data_dir->path());
     }
     // write data
     RETURN_IF_ERROR(finalize_columns_data());

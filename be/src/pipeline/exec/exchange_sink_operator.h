@@ -58,7 +58,7 @@ public:
     Status close(RuntimeState* state) override;
 
 private:
-    std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer;
+    std::unique_ptr<ExchangeSinkBuffer<vectorized::VDataStreamSender>> _sink_buffer = nullptr;
     int _dest_node_id = -1;
     RuntimeState* _state = nullptr;
     int _mult_cast_id = -1;
@@ -184,8 +184,9 @@ public:
 
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
-    std::string id_name() override;
+    std::string name_suffix() override;
     segment_v2::CompressionTypePB& compression_type();
+    std::string debug_string(int indentation_level) const override;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
     std::vector<std::shared_ptr<vectorized::PipChannel<ExchangeSinkLocalState>>>
@@ -218,7 +219,6 @@ private:
     RuntimeProfile::Counter* _local_bytes_send_counter = nullptr;
     RuntimeProfile::Counter* _merge_block_timer = nullptr;
     RuntimeProfile::Counter* _memory_usage_counter = nullptr;
-    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     RuntimeProfile::Counter* _wait_queue_timer = nullptr;
     RuntimeProfile::Counter* _wait_broadcast_buffer_timer = nullptr;
@@ -230,9 +230,9 @@ private:
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
-    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<AndDependency> _exchange_sink_dependency = nullptr;
-    std::shared_ptr<BroadcastDependency> _broadcast_dependency = nullptr;
+    std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
+    std::shared_ptr<AndDependency> _exchange_sink_dependency;
+    std::shared_ptr<BroadcastDependency> _broadcast_dependency;
     std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;

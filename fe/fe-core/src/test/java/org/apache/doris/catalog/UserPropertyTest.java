@@ -24,7 +24,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.DppConfig;
 import org.apache.doris.mysql.privilege.UserProperty;
-import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -118,7 +117,7 @@ public class UserPropertyTest {
         Assert.assertEquals(new String[]{"rule1", "rule2"}, userProperty.getSqlBlockRules());
         Assert.assertEquals(2, userProperty.getCpuResourceLimit());
         Assert.assertEquals(500, userProperty.getQueryTimeout());
-        Assert.assertEquals(Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG), userProperty.getCopiedResourceTags());
+        Assert.assertEquals(Sets.newHashSet(), userProperty.getCopiedResourceTags());
 
         // fetch property
         List<List<String>> rows = userProperty.fetchProperty();

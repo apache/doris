@@ -31,7 +31,7 @@ import java.math.BigInteger;
 /**
  * Logical plan builder assistant for buildIn dialect and other dialect.
  * The same logical in {@link org.apache.doris.nereids.parser.LogicalPlanBuilder}
- * and {@link org.apache.doris.nereids.parser.trino.LogicalPlanTrinoBuilder} can be
+ * and {@link org.apache.doris.nereids.parser.trino.TrinoLogicalPlanBuilder} can be
  * extracted to here.
  */
 public class LogicalPlanBuilderAssistant {

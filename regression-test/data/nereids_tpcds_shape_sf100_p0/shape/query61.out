@@ -14,15 +14,15 @@ PhysicalResultSink
 ----------------------filter((customer_address.ca_gmt_offset = -7.00))
 ------------------------PhysicalOlapScan[customer_address] apply RFs: RF10
 --------------------PhysicalDistribute
-----------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF9 ss_item_sk->[i_item_sk]
-------------------------PhysicalProject
---------------------------filter((item.i_category = 'Jewelry'))
-----------------------------PhysicalOlapScan[item] apply RFs: RF9
-------------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF9 ss_customer_sk->[c_customer_sk]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF8 ss_customer_sk->[c_customer_sk]
+----------------------------PhysicalOlapScan[customer] apply RFs: RF9
+--------------------------PhysicalDistribute
+----------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF8 ss_item_sk->[i_item_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[customer] apply RFs: RF8
+--------------------------------filter((item.i_category = 'Jewelry'))
+----------------------------------PhysicalOlapScan[item] apply RFs: RF8
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_promo_sk = promotion.p_promo_sk)) otherCondition=() build RFs:RF7 ss_promo_sk->[p_promo_sk]
@@ -31,10 +31,9 @@ PhysicalResultSink
 ----------------------------------------PhysicalOlapScan[promotion] apply RFs: RF7
 ------------------------------------PhysicalDistribute
 --------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 ss_sold_date_sk->[d_date_sk]
-----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalProject
---------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF6
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
+--------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF6
 ----------------------------------------PhysicalDistribute
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF5 s_store_sk->[ss_store_sk]
@@ -61,10 +60,9 @@ PhysicalResultSink
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 ss_sold_date_sk->[d_date_sk]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
---------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF2
+--------------------------------PhysicalProject
+----------------------------------filter((date_dim.d_moy = 11) and (date_dim.d_year = 1999))
+------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF2
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF1 ss_customer_sk->[c_customer_sk]
 ------------------------------------PhysicalProject

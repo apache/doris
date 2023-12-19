@@ -66,8 +66,8 @@ public:
 private:
     vectorized::Block _preagg_block = vectorized::Block();
 
-    RuntimeProfile::Counter* _queue_byte_size_counter;
-    RuntimeProfile::Counter* _queue_size_counter;
+    RuntimeProfile::Counter* _queue_byte_size_counter = nullptr;
+    RuntimeProfile::Counter* _queue_size_counter = nullptr;
 
     std::shared_ptr<DataQueue> _data_queue;
 };
@@ -104,9 +104,9 @@ private:
         }
     }
 
-    RuntimeProfile::Counter* _queue_byte_size_counter;
-    RuntimeProfile::Counter* _queue_size_counter;
-    RuntimeProfile::Counter* _streaming_agg_timer;
+    RuntimeProfile::Counter* _queue_byte_size_counter = nullptr;
+    RuntimeProfile::Counter* _queue_size_counter = nullptr;
+    RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
 
     bool _should_expand_hash_table = true;
     int64_t _num_rows_returned = 0;
@@ -120,6 +120,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    ExchangeType get_local_exchange_type() const override { return ExchangeType::PASSTHROUGH; }
 };
 
 } // namespace pipeline

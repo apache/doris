@@ -14,24 +14,23 @@ PhysicalResultSink
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_item_sk = i.i_item_sk)) otherCondition=() build RFs:RF4 i_item_sk->[ss_item_sk]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_sold_date_sk = d.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[ss_sold_date_sk]
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF4 RF5
-----------------------------------PhysicalDistribute
-------------------------------------hashJoin[INNER_JOIN] hashCondition=((d.d_month_seq = date_dim.d_month_seq)) otherCondition=() build RFs:RF2 d_month_seq->[d_month_seq]
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF2
---------------------------------------PhysicalDistribute
-----------------------------------------PhysicalAssertNumRows
-------------------------------------------PhysicalDistribute
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute
-------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))
-------------------------------------------------------PhysicalOlapScan[date_dim]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((s.ss_sold_date_sk = d.d_date_sk)) otherCondition=() build RFs:RF3 d_date_sk->[ss_sold_date_sk]
+--------------------------------PhysicalProject
+----------------------------------PhysicalOlapScan[store_sales] apply RFs: RF3 RF4 RF5
+--------------------------------PhysicalDistribute
+----------------------------------hashJoin[INNER_JOIN] hashCondition=((d.d_month_seq = date_dim.d_month_seq)) otherCondition=() build RFs:RF2 d_month_seq->[d_month_seq]
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF2
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalAssertNumRows
+----------------------------------------PhysicalDistribute
+------------------------------------------hashAgg[GLOBAL]
+--------------------------------------------PhysicalDistribute
+----------------------------------------------hashAgg[LOCAL]
+------------------------------------------------PhysicalProject
+--------------------------------------------------filter((date_dim.d_moy = 3) and (date_dim.d_year = 2002))
+----------------------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------PhysicalDistribute
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((j.i_category = i.i_category)) otherCondition=((cast(i_current_price as DECIMALV3(38, 5)) > (1.2 * avg(cast(i_current_price as DECIMALV3(9, 4)))))) build RFs:RF1 i_category->[i_category]
 --------------------------------PhysicalProject

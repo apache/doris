@@ -44,8 +44,8 @@ public:
 
 private:
     struct VariableStruct {
-        const char* name;
-        const char* value;
+        const char* name = nullptr;
+        const char* value = nullptr;
     };
 
     Status _fill_block_impl(vectorized::Block* block);

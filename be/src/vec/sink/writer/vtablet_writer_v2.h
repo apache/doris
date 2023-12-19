@@ -93,7 +93,7 @@ using Streams = std::vector<std::shared_ptr<LoadStreamStub>>;
 struct Rows {
     int64_t partition_id;
     int64_t index_id;
-    std::vector<int32_t> row_idxes;
+    std::vector<uint32_t> row_idxes;
 };
 
 using RowsForTablet = std::unordered_map<int64_t, Rows>;
@@ -109,7 +109,7 @@ public:
 
     ~VTabletWriterV2() override;
 
-    Status init_properties(ObjectPool* pool, bool group_commit);
+    Status init_properties(ObjectPool* pool);
 
     Status append_block(Block& block) override;
 
@@ -150,7 +150,7 @@ private:
     std::shared_ptr<MemTracker> _mem_tracker;
 
     TDataSink _t_sink;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
 
     // unique load id
     PUniqueId _load_id;
@@ -213,7 +213,6 @@ private:
 
     RuntimeState* _state = nullptr;     // not owned, set when open
     RuntimeProfile* _profile = nullptr; // not owned, set when open
-    bool _group_commit = false;
 
     std::unordered_set<int64_t> _opened_partitions;
 

@@ -289,6 +289,12 @@ template <typename Arithmetic, typename Arithmetic2,
           class = _only_arithmetic<Arithmetic, Arithmetic2>>
 constexpr bool operator!=(const Arithmetic& rhs, const Arithmetic2& lhs);
 
+template <size_t Bits, typename Signed, size_t Bits2, typename Signed2>
+constexpr auto operator<=>(const integer<Bits, Signed>& lhs, const integer<Bits2, Signed2>& rhs);
+template <typename Arithmetic, typename Arithmetic2,
+          class = _only_arithmetic<Arithmetic, Arithmetic2>>
+constexpr auto operator<=>(const Arithmetic& rhs, const Arithmetic2& lhs);
+
 } // namespace wide
 
 // NOLINTEND(*)

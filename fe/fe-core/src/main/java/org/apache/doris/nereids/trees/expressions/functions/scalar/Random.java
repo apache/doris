@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
@@ -39,7 +40,8 @@ public class Random extends ScalarFunction
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DoubleType.INSTANCE).args(),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE)
+            FunctionSignature.ret(DoubleType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE, BigIntType.INSTANCE)
     );
 
     /**
@@ -56,6 +58,17 @@ public class Random extends ScalarFunction
         super("random", arg);
         // align with original planner behavior, refer to: org/apache/doris/analysis/Expr.getBuiltinFunction()
         Preconditions.checkState(arg instanceof Literal, "The param of rand function must be literal");
+    }
+
+    /**
+     * constructor with 2 argument.
+     */
+    public Random(Expression lchild, Expression rchild) {
+        super("random", lchild, rchild);
+        // align with original planner behavior, refer to:
+        // org/apache/doris/analysis/Expr.getBuiltinFunction()
+        Preconditions.checkState(lchild instanceof Literal && rchild instanceof Literal,
+                "The param of rand function must be literal");
     }
 
     /**
@@ -80,13 +93,14 @@ public class Random extends ScalarFunction
      */
     @Override
     public Random withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 0
-                || children.size() == 1);
-        if (children.isEmpty() && arity() == 0) {
-            return this;
-        } else {
+        if (children.isEmpty()) {
+            return new Random();
+        } else if (children.size() == 1) {
             return new Random(children.get(0));
+        } else if (children.size() == 2) {
+            return new Random(children.get(0), children.get(1));
         }
+        throw new AnalysisException("random function only accept 0-2 arguments");
     }
 
     @Override

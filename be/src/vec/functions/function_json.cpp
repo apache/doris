@@ -229,12 +229,19 @@ rapidjson::Value* get_json_object(std::string_view json_string, std::string_view
     std::vector<JsonPath>* parsed_paths;
     std::vector<JsonPath> tmp_parsed_paths;
 
+    //Cannot use '\' as the last character, return NULL
+    if (path_string.back() == '\\') {
+        document->SetNull();
+        return document;
+    }
+
 #ifdef USE_LIBCPP
     std::string s(path_string);
     auto tok = get_json_token(s);
 #else
     auto tok = get_json_token(path_string);
 #endif
+
     std::vector<std::string> paths(tok.begin(), tok.end());
     get_parsed_paths(paths, &tmp_parsed_paths);
     if (tmp_parsed_paths.empty()) {
@@ -892,7 +899,6 @@ public:
     String get_name() const override { return name; }
     size_t get_number_of_arguments() const override { return 0; }
     bool is_variadic() const override { return true; }
-    bool use_default_implementation_for_constants() const override { return true; }
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }

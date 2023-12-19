@@ -1693,11 +1693,9 @@ public class FunctionCallExpr extends Expr {
                                     type.getScalarScale()));
                 } else if (getChild(0).type.isStringType()) {
                     // use DATETIME to make scale adaptive
-                    ScalarType type = ((ScalarType) (((StringLiteral) getChild(0))
-                            .uncheckedCastTo(ScalarType.DATETIME).type));
+                    ScalarType type = ((ScalarType) (getChild(0).uncheckedCastTo(ScalarType.DATETIME).type));
                     if (type.isDatetimeV2()) {
-                        int scale = ((ScalarType) (((StringLiteral) getChild(0))
-                                .uncheckedCastTo(ScalarType.DATETIME).type)).getScalarScale();
+                        int scale = type.getScalarScale();
                         fn.setReturnType(
                                 ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + scale, scale));
                     }
@@ -1901,6 +1899,9 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_shuffle")
                         || fnName.getFunction().equalsIgnoreCase("shuffle")
                         || fnName.getFunction().equalsIgnoreCase("array_except")
+                        || fnName.getFunction().equalsIgnoreCase("array_apply")
+                        || fnName.getFunction().equalsIgnoreCase("array_position")
+                        || fnName.getFunction().equalsIgnoreCase("array_contains")
                         || fnName.getFunction().equalsIgnoreCase("width_bucket"))
                         && (args[ix].isDecimalV3() || (children.get(0).getType().isArrayType()
                         && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())

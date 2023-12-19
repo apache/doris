@@ -39,6 +39,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
@@ -47,6 +48,7 @@ namespace doris {
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
+class PipelineXFragmentContext;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -73,6 +75,11 @@ public:
     RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
+
+    // for only use in pipelineX
+    RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
@@ -107,6 +114,9 @@ public:
     const DescriptorTbl& desc_tbl() const { return *_desc_tbl; }
     void set_desc_tbl(const DescriptorTbl* desc_tbl) { _desc_tbl = desc_tbl; }
     int batch_size() const { return _query_options.batch_size; }
+    int wait_full_block_schedule_times() const {
+        return _query_options.wait_full_block_schedule_times;
+    }
     bool abort_on_error() const { return _query_options.abort_on_error; }
     bool abort_on_default_limit_exceeded() const {
         return _query_options.abort_on_default_limit_exceeded;
@@ -175,14 +185,22 @@ public:
     void get_unreported_errors(std::vector<std::string>* new_errors);
 
     [[nodiscard]] bool is_cancelled() const;
+    std::string cancel_reason() const;
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v, std::string msg) {
-        _is_cancelled.store(v);
-        // Create a error status, so that we could print error stack, and
-        // we could know which path call cancel.
-        LOG(WARNING) << "Task is cancelled, instance: "
-                     << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                     << " st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+    void set_is_cancelled(std::string msg) {
+        if (!_is_cancelled.exchange(true)) {
+            _cancel_reason = msg;
+            // Create a error status, so that we could print error stack, and
+            // we could know which path call cancel.
+            LOG(WARNING) << "Task is cancelled, instance: "
+                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                         << ", st = " << Status::Error<ErrorCode::CANCELLED>(msg);
+        } else {
+            LOG(WARNING) << "Task is already cancelled, instance: "
+                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
+                         << ", original cancel msg: " << _cancel_reason
+                         << ", new cancel msg: " << Status::Error<ErrorCode::CANCELLED>(msg);
+        }
     }
 
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
@@ -426,7 +444,17 @@ public:
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
 
-    RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+    RuntimeFilterMgr* runtime_filter_mgr() {
+        if (_pipeline_x_runtime_filter_mgr) {
+            return _pipeline_x_runtime_filter_mgr;
+        } else {
+            return _runtime_filter_mgr.get();
+        }
+    }
+
+    void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
+        _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
+    }
 
     void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
@@ -502,23 +530,39 @@ public:
 
     void resize_op_id_to_local_state(int operator_size, int sink_size);
 
+    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
+
+    void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
+        _task_execution_context = context;
+    }
+
+    std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
+        return _task_execution_context;
+    }
+
 private:
     Status create_error_log_file();
 
-    static const int DEFAULT_BATCH_SIZE = 2048;
+    static const int DEFAULT_BATCH_SIZE = 4062;
 
-    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker = nullptr;
+    std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+
+    // Hold execution context for other threads
+    std::weak_ptr<TaskExecutionContext> _task_execution_context;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
     RuntimeProfile _profile;
     RuntimeProfile _load_channel_profile;
 
-    const DescriptorTbl* _desc_tbl;
+    const DescriptorTbl* _desc_tbl = nullptr;
     std::shared_ptr<ObjectPool> _obj_pool;
 
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
+
+    // owned by PipelineXFragmentContext
+    RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
     // Protects _data_stream_recvrs_pool
     std::mutex _data_stream_recvrs_lock;
@@ -557,6 +601,7 @@ private:
 
     // if true, execution should stop with a CANCELLED status
     std::atomic<bool> _is_cancelled;
+    std::string _cancel_reason;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;
@@ -603,16 +648,36 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
-            _op_id_to_sink_local_state;
+
+    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
 
+    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
+
     // prohibit copies
     RuntimeState(const RuntimeState&);
+};
+
+// from runtime state
+struct RuntimeFilterParamsContext {
+    RuntimeFilterParamsContext() = default;
+    static RuntimeFilterParamsContext* create(RuntimeState* state);
+
+    bool runtime_filter_wait_infinitely;
+    int32_t runtime_filter_wait_time_ms;
+    bool enable_pipeline_exec;
+    int32_t execution_timeout;
+    RuntimeFilterMgr* runtime_filter_mgr;
+    ExecEnv* exec_env;
+    PUniqueId query_id;
+    PUniqueId fragment_instance_id;
+    int be_exec_version;
+    QueryContext* query_ctx;
+    QueryContext* get_query_ctx() const { return query_ctx; }
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

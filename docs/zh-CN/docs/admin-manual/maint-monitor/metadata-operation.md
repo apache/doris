@@ -124,7 +124,7 @@ under the License.
         * begin to generate new image: image.xxxx
         *  start save image to /path/to/doris-meta/image/image.ckpt. is ckpt: true
         *  finished save image /path/to/doris-meta/image/image.ckpt in xxx ms. checksum is xxxx
-        *  push image.xxx to other nodes. totally xx nodes, push successed xx nodes
+        *  push image.xxx to other nodes. totally xx nodes, push succeeded xx nodes
         * QE service start
         * thrift server started
 
@@ -384,7 +384,7 @@ FE 的部署推荐，在 [安装与部署文档](../../install/standard-deployme
 
 4. `bdb/` 目录的大小非常大，达到几个G或更多
 
-    如果在排除无法生成新的 image 的错误后，bdb 目录在一段时间内依然很大。则可能是因为 Master FE 推送 image 不成功。可以在 Master FE 的 fe.log 中搜索 `push image.xxxx to other nodes. totally xx nodes, push successed yy nodes`。如果 yy 比 xx 小，则说明有的 FE 没有被推送成功。可以在 fe.log 中查看到具体的错误 `Exception when pushing image file. url = xxx`。
+    如果在排除无法生成新的 image 的错误后，bdb 目录在一段时间内依然很大。则可能是因为 Master FE 推送 image 不成功。可以在 Master FE 的 fe.log 中搜索 `push image.xxxx to other nodes. totally xx nodes, push succeeded yy nodes`。如果 yy 比 xx 小，则说明有的 FE 没有被推送成功。可以在 fe.log 中查看到具体的错误 `Exception when pushing image file. url = xxx`。
 
     同时，你也可以在 FE 的配置文件中添加配置：`edit_log_roll_num=xxxx`。该参数设定了每多少条元数据 journal，做一次 image。默认是 50000。可以适当改小这个数字，使得 image 更加频繁，从而加速删除旧的 journal。
 

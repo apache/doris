@@ -283,41 +283,18 @@ suite("test_bitmap_index") {
                     usage_mode int(11) NULL COMMENT ''
                 ) ENGINE=OLAP
                 UNIQUE KEY(create_time, vid, report_time)
-                COMMENT 'OLAP'
-                PARTITION BY RANGE(create_time)
-                (PARTITION p20230820 VALUES [('2023-08-20 00:00:00'), ('2023-08-21 00:00:00')),
-                PARTITION p20230821 VALUES [('2023-08-21 00:00:00'), ('2023-08-22 00:00:00')),
-                PARTITION p20230822 VALUES [('2023-08-22 00:00:00'), ('2023-08-23 00:00:00')),
-                PARTITION p20230823 VALUES [('2023-08-23 00:00:00'), ('2023-08-24 00:00:00')),
-                PARTITION p20230824 VALUES [('2023-08-24 00:00:00'), ('2023-08-25 00:00:00')),
-                PARTITION p20230825 VALUES [('2023-08-25 00:00:00'), ('2023-08-26 00:00:00')),
-                PARTITION p20230826 VALUES [('2023-08-26 00:00:00'), ('2023-08-27 00:00:00')),
-                PARTITION p20230827 VALUES [('2023-08-27 00:00:00'), ('2023-08-28 00:00:00')),
-                PARTITION p20230828 VALUES [('2023-08-28 00:00:00'), ('2023-08-29 00:00:00')),
-                PARTITION p20230829 VALUES [('2023-08-29 00:00:00'), ('2023-08-30 00:00:00')))
                 DISTRIBUTED BY HASH(vid) BUCKETS AUTO
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
                 "is_being_synced" = "false",
-                "dynamic_partition.enable" = "true",
-                "dynamic_partition.time_unit" = "MONTH",
-                "dynamic_partition.time_zone" = "Asia/Shanghai",
-                "dynamic_partition.start" = "-30",
-                "dynamic_partition.end" = "1",
-                "dynamic_partition.prefix" = "p",
-                "dynamic_partition.replication_allocation" = "tag.location.default: 1",
-                "dynamic_partition.buckets" = "10",
-                "dynamic_partition.create_history_partition" = "true",
-                "dynamic_partition.history_partition_num" = "-1",
-                "dynamic_partition.hot_partition_num" = "0",
-                "dynamic_partition.reserved_history_periods" = "NULL",
-                "dynamic_partition.storage_policy" = "",
                 "storage_format" = "V2",
+                "enable_unique_key_merge_on_write" = "false",
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "false",
                 "enable_single_replica_compaction" = "false"
                 );
             """
+            // test mor table
 
         sql """
                 ALTER TABLE ${tbName4} ADD INDEX vid_bitmap_index (vid) USING BITMAP;
@@ -382,34 +359,10 @@ suite("test_bitmap_index") {
                 ) ENGINE=OLAP
                 UNIQUE KEY(create_time, vid, report_time)
                 COMMENT 'OLAP'
-                PARTITION BY RANGE(create_time)
-                (PARTITION p20230820 VALUES [('2023-08-20 00:00:00'), ('2023-08-21 00:00:00')),
-                PARTITION p20230821 VALUES [('2023-08-21 00:00:00'), ('2023-08-22 00:00:00')),
-                PARTITION p20230822 VALUES [('2023-08-22 00:00:00'), ('2023-08-23 00:00:00')),
-                PARTITION p20230823 VALUES [('2023-08-23 00:00:00'), ('2023-08-24 00:00:00')),
-                PARTITION p20230824 VALUES [('2023-08-24 00:00:00'), ('2023-08-25 00:00:00')),
-                PARTITION p20230825 VALUES [('2023-08-25 00:00:00'), ('2023-08-26 00:00:00')),
-                PARTITION p20230826 VALUES [('2023-08-26 00:00:00'), ('2023-08-27 00:00:00')),
-                PARTITION p20230827 VALUES [('2023-08-27 00:00:00'), ('2023-08-28 00:00:00')),
-                PARTITION p20230828 VALUES [('2023-08-28 00:00:00'), ('2023-08-29 00:00:00')),
-                PARTITION p20230829 VALUES [('2023-08-29 00:00:00'), ('2023-08-30 00:00:00')))
                 DISTRIBUTED BY HASH(vid) BUCKETS AUTO
                 PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",
                 "is_being_synced" = "false",
-                "dynamic_partition.enable" = "true",
-                "dynamic_partition.time_unit" = "MONTH",
-                "dynamic_partition.time_zone" = "Asia/Shanghai",
-                "dynamic_partition.start" = "-30",
-                "dynamic_partition.end" = "1",
-                "dynamic_partition.prefix" = "p",
-                "dynamic_partition.replication_allocation" = "tag.location.default: 1",
-                "dynamic_partition.buckets" = "10",
-                "dynamic_partition.create_history_partition" = "true",
-                "dynamic_partition.history_partition_num" = "-1",
-                "dynamic_partition.hot_partition_num" = "0",
-                "dynamic_partition.reserved_history_periods" = "NULL",
-                "dynamic_partition.storage_policy" = "",
                 "storage_format" = "V2",
                 "light_schema_change" = "true",
                 "disable_auto_compaction" = "false",
