@@ -753,7 +753,7 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral
