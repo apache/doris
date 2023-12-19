@@ -595,7 +595,7 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_timer,                              \
                    stats.block_conditions_filtered_zonemap_ns);                                   \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_rp_timer,                           \
-                   stats.block_conditions_filtered_bf_zonemap_rp_ns);                             \
+                   stats.block_conditions_filtered_zonemap_rp_ns);                                \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_dict_timer,                                 \
                    stats.block_conditions_filtered_dict_ns);                                      \
     COUNTER_UPDATE(Parent->_first_read_timer, stats.first_read_ns);                               \
