@@ -167,10 +167,10 @@ public class MTMVTask extends AbstractTask {
         }
     }
 
-    public void exec(ConnectContext ctx, Set<Long> refreshPartitionIds, Map<OlapTable, String> tableWithPartKey)
+    private void exec(ConnectContext ctx, Set<Long> refreshPartitionIds, Map<OlapTable, String> tableWithPartKey)
             throws Exception {
         TUniqueId queryId = generateQueryId();
-        // if SELF_MANAGE, will not have partitionItem, so we give empty set
+        // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE
                         ? refreshPartitionIds : Sets.newHashSet(), tableWithPartKey);
