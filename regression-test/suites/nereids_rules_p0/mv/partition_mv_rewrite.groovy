@@ -157,7 +157,7 @@ suite("partition_mv_rewrite") {
     (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy');
     """
     // wait partition is invalid
-    sleep(3000)
+    sleep(5000)
     // only can use valid partition
     explain {
         sql("${all_partition_sql}")
@@ -171,7 +171,8 @@ suite("partition_mv_rewrite") {
     sql """
     REFRESH MATERIALIZED VIEW mv_10086;
     """
-    waitingMTMVTaskFinished(getJobName(db, "mv_10086"))
+    // wait partition is valid
+    sleep(5000)
 
     explain {
         sql("${all_partition_sql}")
