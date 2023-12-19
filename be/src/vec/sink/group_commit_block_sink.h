@@ -18,7 +18,7 @@
 #pragma once
 #include "exec/data_sink.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace doris {
 
