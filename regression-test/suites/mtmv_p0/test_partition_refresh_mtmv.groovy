@@ -106,9 +106,9 @@ suite("test_partition_refresh_mtmv") {
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
         PROPERTIES ('replication_num' = '1') ;
 
-        insert into t1 values(1,"2017-01-15",1);
-        insert into t1 values(1,"2017-02-15",2);
-        insert into t1 values(1,"2017-03-15",3);
+        insert into ${tableName} values(1,"2017-01-15",1);
+        insert into ${tableName} values(1,"2017-02-15",2);
+        insert into ${tableName} values(1,"2017-03-15",3);
         """
 
     sql """
