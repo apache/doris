@@ -384,10 +384,8 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
             }
         });
         if (!save_status.ok()) {
-            return Status::Error<ROWSET_SAVE_FAILED>(
-                    "save committed rowset failed. when commit txn rowset_id: {}, tablet id: {}, "
-                    "txn id: {}",
-                    rowset_ptr->rowset_id().to_string(), tablet_id, transaction_id);
+            save_status.append(fmt::format(", txn id: {}", transaction_id));
+            return save_status;
         }
     }
 
@@ -538,10 +536,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                           rowset->rowset_meta()->get_rowset_pb(), enable_binlog);
     stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
-        return Status::Error<ROWSET_SAVE_FAILED>(
-                "save committed rowset failed. when publish txn rowset_id: {}, tablet id: {}, txn "
-                "id: {}",
-                rowset->rowset_id().to_string(), tablet_id, transaction_id);
+        status.append(fmt::format(", txn id: {}", transaction_id));
+        return status;
     }
 
     // TODO(Drogon): remove these test codes
