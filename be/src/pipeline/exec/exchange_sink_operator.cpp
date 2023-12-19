@@ -69,7 +69,7 @@ Status ExchangeSinkOperator::prepare(RuntimeState* state) {
 
     _sink_buffer->set_query_statistics(_sink->query_statistics());
     RETURN_IF_ERROR(DataSinkOperator::prepare(state));
-    _sink->registe_channels(_sink_buffer.get());
+    _sink->register_pipeline_channels(_sink_buffer.get());
     return Status::OK();
 }
 
@@ -249,7 +249,7 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 std::string ExchangeSinkLocalState::name_suffix() {
     std::string name = " (id=" + std::to_string(_parent->node_id());
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
-    name += ",dest_id=" + std::to_string(p._dest_node_id);
+    name += ",dst_id=" + std::to_string(p._dest_node_id);
     name += ")";
     return name;
 }
@@ -450,7 +450,8 @@ Status ExchangeSinkOperatorX::serialize_block(ExchangeSinkLocalState& state, vec
 void ExchangeSinkLocalState::register_channels(
         pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer) {
     for (auto channel : channels) {
-        ((vectorized::PipChannel<ExchangeSinkLocalState>*)channel)->registe(buffer);
+        ((vectorized::PipChannel<ExchangeSinkLocalState>*)channel)
+                ->register_exchange_buffer(buffer);
     }
 }
 
