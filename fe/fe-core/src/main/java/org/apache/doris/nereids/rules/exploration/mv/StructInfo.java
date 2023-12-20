@@ -282,7 +282,9 @@ public class StructInfo {
         @Override
         public Void visit(Plan plan, Set<Expression> predicates) {
             // Just collect the filter in top plan, if meet other node except project and filter, return
-            if (!(plan instanceof LogicalProject) && !(plan instanceof LogicalFilter)) {
+            if (!(plan instanceof LogicalProject)
+                    && !(plan instanceof LogicalFilter)
+                    && !(plan instanceof LogicalAggregate)) {
                 return null;
             }
             if (plan instanceof LogicalFilter) {
@@ -396,7 +398,7 @@ public class StructInfo {
                 super.visit(aggregate, context);
                 return true;
             }
-            if (plan instanceof LogicalProject) {
+            if (plan instanceof LogicalProject || plan instanceof LogicalFilter) {
                 super.visit(plan, context);
                 return true;
             }

@@ -362,12 +362,7 @@ public class ExpressionUtils {
         @Override
         public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
             if (replaceMap.containsKey(expr)) {
-                Expression replacedExpression = replaceMap.get(expr);
-                if (replacedExpression instanceof SlotReference
-                        && replacedExpression.nullable() != expr.nullable()) {
-                    replacedExpression = ((SlotReference) replacedExpression).withNullable(expr.nullable());
-                }
-                return replacedExpression;
+                return replaceMap.get(expr);
             }
             return super.visit(expr, replaceMap);
         }

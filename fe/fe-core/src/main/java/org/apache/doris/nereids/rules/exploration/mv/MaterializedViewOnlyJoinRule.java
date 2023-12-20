@@ -20,25 +20,25 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
 /**
- * This is responsible for aggregate rewriting according to different pattern
- * */
-public class MaterializedViewAggregateRule extends AbstractMaterializedViewAggregateRule {
+ * This is responsible for join  pattern such as only join
+ */
+public class MaterializedViewOnlyJoinRule extends AbstractMaterializedViewJoinRule {
 
-    public static final MaterializedViewAggregateRule INSTANCE = new MaterializedViewAggregateRule();
+    public static final MaterializedViewOnlyJoinRule INSTANCE = new MaterializedViewOnlyJoinRule();
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalAggregate(any()).thenApplyMulti(ctx -> {
-                    LogicalAggregate<Plan> root = ctx.root;
+                logicalJoin(any(), any()).thenApplyMulti(ctx -> {
+                    LogicalJoin<Plan, Plan> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_AGGREGATE));
+                }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_JOIN));
     }
 }
