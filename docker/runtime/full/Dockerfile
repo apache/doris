@@ -17,8 +17,6 @@
 
 FROM openjdk:8u342-jdk
 
-ARG TARGETARCH
-
 ENV JAVA_HOME="/usr/local/openjdk-8/"
 RUN echo "vm.max_map_count=2000000" >> /etc/sysctl.conf
 
@@ -27,9 +25,10 @@ RUN sed -i 's@http://deb.debian.org@http://mirrors.aliyun.com@g' /etc/apt/source
      apt-get update &&\
      apt-get install -y default-mysql-client
 
+ARG TARGETARCH
 ARG DORIS_VERSION=2.0.3
 
-RUN arch=$([ "${TARGETARCH:-amd64}" == "arm64" ] && echo "x64" || echo "arm64") &&\
+RUN arch=$([ "${TARGETARCH:-amd64}" == "arm64" ] && echo "arm64" || echo "x64") &&\
      cd /opt &&\
      wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${DORIS_VERSION}-bin-${arch}.tar.gz &&\
      tar -xf ./apache-doris-${DORIS_VERSION}-bin-${arch}.tar.gz &&\
