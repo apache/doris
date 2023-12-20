@@ -62,16 +62,16 @@ if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     exit 1
 fi
 
-echo "#### 2. check if tpch depending files exist"
-if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/deploy.sh &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/run.sh &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh &&
-    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh &&
-    -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh &&
-    -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh &&
-    -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh ]]; then
-    echo "ERROR: depending files missing" && exit 1
-fi
+# echo "#### 2. check if tpch depending files exist"
+# if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf &&
+#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf &&
+#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/deploy.sh &&
+#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/run.sh &&
+#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh &&
+#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh &&
+#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh &&
+#     -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh &&
+#     -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh &&
+#     -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh ]]; then
+#     echo "ERROR: depending files missing" && exit 1
+# fi

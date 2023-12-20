@@ -86,7 +86,7 @@ exit_flag=0
             if [[ ${SF} == "1" ]]; then
                 table_file_count=(['income_band']=1 ['ship_mode']=1 ['warehouse']=1 ['reason']=1 ['web_site']=1 ['call_center']=1 ['store']=1 ['promotion']=1 ['household_demographics']=1 ['web_page']=1 ['catalog_page']=1 ['time_dim']=1 ['date_dim']=1 ['item']=1 ['customer_demographics']=10 ['customer_address']=1 ['customer']=1 ['web_returns']=1 ['catalog_returns']=1 ['store_returns']=1 ['inventory']=10 ['web_sales']=1 ['catalog_sales']=1 ['store_sales']=1)
             elif [[ ${SF} == "100" ]]; then
-                table_file_count=(['income_band']=1 ['ship_mode']=1 ['warehouse']=1 ['reason']=1 ['web_site']=1 ['call_center']=1 ['store']=1 ['promotion']=1 ['household_demographics']=1 ['web_page']=1 ['catalog_page']=1 ['time_dim']=1 ['date_dim']=1 ['item']=1 ['customer_demographics']=10 ['customer_address']=1 ['customer']=1 ['web_returns']=1 ['catalog_returns']=1 ['store_returns']=1 ['inventory']=10 ['web_sales']=1 ['catalog_sales']=1 ['store_sales']=1)
+                table_file_count=(['income_band']=1 ['ship_mode']=1 ['warehouse']=1 ['reason']=1 ['web_site']=1 ['call_center']=1 ['store']=1 ['promotion']=1 ['household_demographics']=1 ['web_page']=1 ['catalog_page']=1 ['time_dim']=1 ['date_dim']=1 ['item']=1 ['customer_demographics']=10 ['customer_address']=10 ['customer']=10 ['web_returns']=10 ['catalog_returns']=10 ['store_returns']=10 ['inventory']=10 ['web_sales']=10 ['catalog_sales']=10 ['store_sales']=10)
             fi
             for table_name in ${!table_file_count[*]}; do
                 if [[ ${table_file_count[${table_name}]} -eq 1 ]]; then
