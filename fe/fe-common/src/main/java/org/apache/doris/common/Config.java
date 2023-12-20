@@ -1778,6 +1778,13 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
 
+    /**
+     * Abort transaction time after lost heartbeat.
+     * The default value is 300s, which means transactions of be will be aborted after lost heartbeat 300s.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int abort_txn_after_lost_heartbeat_time_second = 300;
+
     @ConfField(mutable = true, masterOnly = false, description = {
             "禁止创建odbc, mysql, broker类型的外表", "Disallow the creation of odbc, mysql, broker type external tables"})
     public static boolean enable_odbc_mysql_broker_table = false;
