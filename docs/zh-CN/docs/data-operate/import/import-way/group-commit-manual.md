@@ -371,7 +371,7 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
   * 在group commit模式下，由于多个用户发起的导入会被一个内部导入执行，虽然可以计算出每个导入的`filter_ratio`，但是数据一旦进入内部导入，就只能commit transaction
 
-  * 但group commit模式支持了一定程度的`max_filter_ratio`语义，当导入的总行数不高于`group_commit_memory_rows_for_max_filter_ratio`(配置在be.conf中，默认为10000行)，会把数据缓存起来，计算出真正的`filter_ratio`，如果超过了`max_filter_ratio`，会把数据丢弃，用户导入失败
+  * 但group commit模式支持了一定程度的`max_filter_ratio`语义，当导入的总行数不高于`group_commit_memory_rows_for_max_filter_ratio`(配置在be.conf中，默认为10000行)，`max_filter_ratio` 工作。
 
 
 * WAL限制
@@ -394,7 +394,7 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
 + group_commit_memory_rows_for_max_filter_ratio
 
-  当导入的总行数不高于该值，会把数据缓存起来，计算出真正的`filter_ratio`，如果超过了`max_filter_ratio`，会把数据丢弃，用户导入失败。默认为10000行。
+  当导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作。
 
 + group_commit_replay_wal_dir
 
