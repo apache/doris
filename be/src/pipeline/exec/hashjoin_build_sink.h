@@ -135,7 +135,7 @@ class HashJoinBuildSinkOperatorX final
         : public JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState> {
 public:
     HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                               const DescriptorTbl& descs);
+                               const DescriptorTbl& descs, bool use_global_rf);
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
                                      JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>::_name);
@@ -155,18 +155,18 @@ public:
                                               ._should_build_hash_table;
     }
 
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
+    DataDistribution get_local_exchange_type() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return ExchangeType::NOOP;
+            return {ExchangeType::NOOP};
         } else if (_is_broadcast_join) {
-            return _child_x->ignore_data_distribution() ? ExchangeType::BROADCAST
-                                                        : ExchangeType::NOOP;
+            return _child_x->ignore_data_distribution()
+                           ? DataDistribution(ExchangeType::PASS_TO_ONE)
+                           : DataDistribution(ExchangeType::NOOP);
         }
         return _join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
                                _join_distribution == TJoinDistributionType::COLOCATE
-                       ? ExchangeType::BUCKET_HASH_SHUFFLE
-                       : ExchangeType::HASH_SHUFFLE;
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                       : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
     }
 
 private:
@@ -187,6 +187,8 @@ private:
     vectorized::SharedHashTableContextPtr _shared_hash_table_context = nullptr;
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     std::vector<TExpr> _partition_exprs;
+
+    const bool _use_global_rf;
 };
 
 } // namespace pipeline

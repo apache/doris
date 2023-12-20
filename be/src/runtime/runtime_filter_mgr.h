@@ -83,9 +83,10 @@ public:
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
                                     int node_id, bool build_bf_exactly = false,
-                                    int merged_rf_num = 0);
+                                    bool is_global = false);
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    bool build_bf_exactly = false);
+                                    bool build_bf_exactly = false, bool is_global = false,
+                                    int parallel_tasks = 0);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,

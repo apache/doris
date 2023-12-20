@@ -181,13 +181,17 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
-    [[nodiscard]] virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
-    [[nodiscard]] virtual ExchangeType get_local_exchange_type() const {
+    [[nodiscard]] virtual DataDistribution get_local_exchange_type() const {
         return _child_x && _child_x->ignore_data_distribution() && !is_source()
-                       ? ExchangeType::PASSTHROUGH
-                       : ExchangeType::NOOP;
+                       ? DataDistribution(ExchangeType::PASSTHROUGH)
+                       : DataDistribution(ExchangeType::NOOP);
     }
-    [[nodiscard]] bool ignore_data_distribution() const { return _ignore_data_distribution; }
+    [[nodiscard]] virtual bool ignore_data_distribution() const {
+        return _child_x ? _child_x->ignore_data_distribution() : _ignore_data_distribution;
+    }
+    [[nodiscard]] bool ignore_data_hash_distribution() const {
+        return _child_x ? _child_x->ignore_data_hash_distribution() : _ignore_data_distribution;
+    }
     void set_ignore_data_distribution() { _ignore_data_distribution = true; }
 
     Status prepare(RuntimeState* state) override;
@@ -197,9 +201,6 @@ public:
     [[nodiscard]] bool can_terminate_early() override { return false; }
 
     [[nodiscard]] virtual bool can_terminate_early(RuntimeState* state) { return false; }
-
-    [[nodiscard]] virtual bool need_to_local_shuffle() const { return true; }
-    [[nodiscard]] virtual bool is_bucket_shuffle_scan() const { return false; }
 
     bool can_read() override {
         LOG(FATAL) << "should not reach here!";
@@ -278,6 +279,8 @@ public:
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
                           vectorized::Block* output_block) const;
+    void set_parallel_tasks(int parallel_tasks) { _parallel_tasks = parallel_tasks; }
+    int parallel_tasks() const { return _parallel_tasks; }
 
 protected:
     template <typename Dependency>
@@ -303,6 +306,7 @@ protected:
 
     std::string _op_name;
     bool _ignore_data_distribution = false;
+    int _parallel_tasks = 0;
 };
 
 template <typename LocalStateType>
@@ -477,10 +481,10 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
-    virtual std::vector<TExpr> get_local_shuffle_exprs() const { return {}; }
-    virtual ExchangeType get_local_exchange_type() const {
-        return _child_x && _child_x->ignore_data_distribution() ? ExchangeType::PASSTHROUGH
-                                                                : ExchangeType::NOOP;
+    virtual DataDistribution get_local_exchange_type() const {
+        return _child_x && _child_x->ignore_data_distribution()
+                       ? DataDistribution(ExchangeType::PASSTHROUGH)
+                       : DataDistribution(ExchangeType::NOOP);
     }
 
     Status close(RuntimeState* state) override {
