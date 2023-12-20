@@ -345,29 +345,29 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
 ## 使用限制
 
-* 当开启了group commit模式，系统会判断用户发起的`INSERT INTO VALUES`语句是否符合group commit的条件，如果符合，该语句的执行会进入到group commit写入中。主要的判断逻辑包括：
+* 当开启了 group commit 模式，系统会判断用户发起的`INSERT INTO VALUES`语句是否符合group commit的条件，如果符合，该语句的执行会进入到group commit写入中。符合以下条件会自动退化为非 group commit 方式：
 
-  + 不是事务写入，即`Begin`; `INSERT INTO VALUES`; `COMMIT`方式
+  + 事务写入，即`Begin`; `INSERT INTO VALUES`; `COMMIT`方式
 
-  + 不指定label，即`INSERT INTO dt WITH LABEL {label} VALUES`
+  + 指定label，即`INSERT INTO dt WITH LABEL {label} VALUES`
 
-  + VALUES中不能包含表达式，即`INSERT INTO dt VALUES (1 + 100)`
+  + VALUES中包含表达式，即`INSERT INTO dt VALUES (1 + 100)`
 
-  + 不是列更新写入
+  + 列更新写入
 
 
-* 当开启了group commit模式，系统会判断用户发起的`Stream Load`和`Http Stream`是否符合group commit的条件，如果符合，该导入的执行会进入到group commit写入中。主要的判断逻辑包括：
+* 当开启了group commit模式，系统会判断用户发起的`Stream Load`和`Http Stream`是否符合group commit的条件，如果符合，该导入的执行会进入到group commit写入中。符合以下条件的会自动退化为非 group commit 方式：
 
-  + 不是两阶段提交
+  + 两阶段提交
 
-  + 不指定label
+  + 指定label
 
-  + 不是列更新写入
+  + 列更新写入
 
 
 * 对`max_filter_ratio`语义的支持
 
-  * 在默认的导入中，`filter_ratio`是导入完成后，通过失败的行数和总行数计算，决定是否commit transaction。
+  * 在默认的导入中，`filter_ratio`是导入完成后，通过失败的行数和总行数计算，决定是否提交本次写入。
 
   * 在group commit模式下，由于多个用户发起的导入会被一个内部导入执行，虽然可以计算出每个导入的`filter_ratio`，但是数据一旦进入内部导入，就只能commit transaction
 
