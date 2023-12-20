@@ -181,13 +181,13 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency = BroadcastDependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
-        _broadcast_dependency->set_available_block(config::num_broadcast_buffer);
-        _broadcast_pb_blocks.reserve(config::num_broadcast_buffer);
-        for (size_t i = 0; i < config::num_broadcast_buffer; i++) {
-            _broadcast_pb_blocks.emplace_back(
-                    vectorized::BroadcastPBlockHolder(_broadcast_dependency.get()));
+        _broadcast_dependency =
+                Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                          "BroadcastDependency", true, state->get_query_ctx());
+        _broadcast_pb_blocks =
+                vectorized::BroadcastPBlockHolderQueue::create_shared(_broadcast_dependency);
+        for (int i = 0; i < config::num_broadcast_buffer; ++i) {
+            _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
         }
         _exchange_sink_dependency->add_child(_broadcast_dependency);
 
@@ -338,7 +338,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 }
             }
         } else {
-            vectorized::BroadcastPBlockHolder* block_holder = nullptr;
+            std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
             RETURN_IF_ERROR(local_state.get_next_available_buffer(&block_holder));
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -355,13 +355,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     } else {
                         block_holder->get_block()->Clear();
                     }
-                    local_state._broadcast_dependency->take_available_block();
-                    block_holder->ref(local_state.channels.size());
                     for (auto channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
                             if (channel->is_local()) {
-                                block_holder->unref();
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -369,8 +366,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                         block_holder, source_state == SourceState::FINISHED);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
-                        } else {
-                            block_holder->unref();
                         }
                     }
                     cur_block.clear_column_data();
@@ -454,21 +449,16 @@ void ExchangeSinkLocalState::register_channels(
 }
 
 Status ExchangeSinkLocalState::get_next_available_buffer(
-        vectorized::BroadcastPBlockHolder** holder) {
+        std::shared_ptr<vectorized::BroadcastPBlockHolder>* holder) {
     // This condition means we need use broadcast buffer, so we should make sure
     // there are available buffer before running pipeline
-    for (size_t broadcast_pb_block_idx = 0; broadcast_pb_block_idx < _broadcast_pb_blocks.size();
-         broadcast_pb_block_idx++) {
-        if (_broadcast_pb_blocks[broadcast_pb_block_idx].available()) {
-            *holder = &_broadcast_pb_blocks[broadcast_pb_block_idx];
-            return Status::OK();
-        }
+    if (_broadcast_pb_blocks->empty()) {
+        return Status::InternalError("No broadcast buffer left! Dependency: {}",
+                                     _broadcast_dependency->debug_string());
+    } else {
+        *holder = _broadcast_pb_blocks->pop();
+        return Status::OK();
     }
-    return Status::InternalError("No broadcast buffer left! Available blocks: " +
-                                 std::to_string(_broadcast_dependency->available_blocks()) +
-                                 " and number of buffer is " +
-                                 std::to_string(_broadcast_pb_blocks.size()) +
-                                 " Dependency: " + _broadcast_dependency->debug_string());
 }
 
 template <typename Channels, typename HashValueType>

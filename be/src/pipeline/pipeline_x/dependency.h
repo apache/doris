@@ -67,6 +67,8 @@ struct BasicSharedState {
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
+    ENABLE_FACTORY_CREATOR(Dependency);
+
 public:
     Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
