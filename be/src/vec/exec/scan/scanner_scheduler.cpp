@@ -213,8 +213,18 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         // TODO llj tg how to treat this?
         while (iter != this_run.end()) {
             (*iter)->start_wait_worker_timer();
-            auto s = ctx->thread_token->submit_func(
-                    [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
+            auto s = ctx->thread_token->submit_func([this, scanner = *iter, ctx] {
+                auto task_lock = ctx->get_task_execution_context().lock();
+                if (task_lock == nullptr) {
+                    // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
+                    //             << " maybe finished";
+                    return;
+                }
+                this->_scanner_scan(this, ctx, scanner);
+                // will release scanner if it is the last one, task lock is hold here, to ensure
+                // that scanner could call scannode's method during deconstructor
+                scanner.reset();
+            });
             if (s.ok()) {
                 this_run.erase(iter++);
             } else {
@@ -230,14 +240,32 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                 if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
                     auto work_func = [this, scanner = *iter, ctx] {
+                        auto task_lock = ctx->get_task_execution_context().lock();
+                        if (task_lock == nullptr) {
+                            // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
+                            //             << " maybe finished";
+                            return;
+                        }
                         this->_scanner_scan(this, ctx, scanner);
+                        // will release scanner if it is the last one, task lock is hold here, to ensure
+                        // that scanner could call scannode's method during deconstructor
+                        scanner.reset();
                     };
                     SimplifiedScanTask simple_scan_task = {work_func, ctx};
                     ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
                 } else {
                     PriorityThreadPool::Task task;
                     task.work_function = [this, scanner = *iter, ctx] {
+                        auto task_lock = ctx->get_task_execution_context().lock();
+                        if (task_lock == nullptr) {
+                            // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
+                            //             << " maybe finished";
+                            return;
+                        }
                         this->_scanner_scan(this, ctx, scanner);
+                        // will release scanner if it is the last one, task lock is hold here, to ensure
+                        // that scanner could call scannode's method during deconstructor
+                        scanner.reset();
                     };
                     task.priority = nice;
                     ret = _local_scan_thread_pool->offer(task);
@@ -245,7 +273,16 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
             } else {
                 PriorityThreadPool::Task task;
                 task.work_function = [this, scanner = *iter, ctx] {
+                    auto task_lock = ctx->get_task_execution_context().lock();
+                    if (task_lock == nullptr) {
+                        // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
+                        //             << " maybe finished";
+                        return;
+                    }
                     this->_scanner_scan(this, ctx, scanner);
+                    // will release scanner if it is the last one, task lock is hold here, to ensure
+                    // that scanner could call scannode's method during deconstructor
+                    scanner.reset();
                 };
                 task.priority = nice;
                 ret = _remote_scan_thread_pool->offer(task);
@@ -264,12 +301,6 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
 
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
                                      std::shared_ptr<ScannerContext> ctx, VScannerSPtr scanner) {
-    auto task_lock = ctx->get_task_execution_context().lock();
-    if (task_lock == nullptr) {
-        // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
-        //             << " maybe finished";
-        return;
-    }
     SCOPED_ATTACH_TASK(scanner->runtime_state());
     // for cpu hard limit, thread name should not be reset
     if (ctx->_should_reset_thread_name) {
