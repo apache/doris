@@ -26,7 +26,7 @@ under the License.
 
 # Group Commit
 
-Group Commit 不是一种新的导入方式，而是对`INSERT INTO tbl VALUES(...)`、`Stream Load`、`Http Stream`的扩展，大幅提升了高并发小写入的性能。您可以直接使用 `INSERT INTO tbl VALUES(...)` 高频写入数据到 Doris 中，同时使用 PreparedStatement 可以获得更高的性能。您也可以使用`Stream Load`或者`Http Stream`高频写入数据到 Doris 中。
+Group Commit 不是一种新的导入方式，而是对`INSERT INTO tbl VALUES(...)`、`Stream Load`、`Http Stream`的扩展，大幅提升了高并发小写入的性能。您的应用程序可以直接使用 JDBC 高频写入数据到 Doris 中，同时使用 PreparedStatement 可以获得更高的性能。日志场景下，您也可以使用`Stream Load`或者`Http Stream`高频写入数据到 Doris 中。
 
 ## Group Commit 模式
 
