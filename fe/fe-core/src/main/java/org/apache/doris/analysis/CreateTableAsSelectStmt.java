@@ -60,7 +60,7 @@ public class CreateTableAsSelectStmt extends DdlStmt {
         this.columnNames = columnNames;
         this.queryStmt = queryStmt;
         this.insertStmt = new NativeInsertStmt(createTableStmt.getDbTbl(), null, null,
-                queryStmt, null, columnNames);
+                queryStmt, null, columnNames, true);
     }
 
     /**
