@@ -56,7 +56,7 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                 set 'partial_columns', 'true'
                 set 'columns', 'id,c_varchar'
 
-                file 'complex_type/varchar.csv'
+                file 'complex_type/varchar.tsv'
                 time 10000 // limit inflight 10s
             }
 
@@ -73,7 +73,7 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                 set 'partial_columns', 'true'
                 set 'columns', 'id,c_jsonb'
 
-                file 'complex_type/jsonb.csv'
+                file 'complex_type/jsonb.tsv'
                 time 10000 // limit inflight 10s
             }
 
@@ -90,7 +90,7 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                 set 'partial_columns', 'true'
                 set 'columns', 'id,c_array'
 
-                file 'complex_type/array.csv'
+                file 'complex_type/array.tsv'
                 time 10000 // limit inflight 10s
             }
 
@@ -107,7 +107,7 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                 set 'partial_columns', 'true'
                 set 'columns', 'id,c_map'
 
-                file 'complex_type/map.csv'
+                file 'complex_type/map.tsv'
                 time 10000 // limit inflight 10s
             }
 
@@ -124,7 +124,7 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                 set 'partial_columns', 'true'
                 set 'columns', 'id,c_struct'
 
-                file 'complex_type/struct.csv'
+                file 'complex_type/struct.tsv'
                 time 10000 // limit inflight 10s
             }
 
