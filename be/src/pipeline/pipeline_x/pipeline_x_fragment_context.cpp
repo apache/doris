@@ -601,8 +601,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
 
         auto prepare_and_set_parent_profile = [&](PipelineXTask* task, size_t pip_idx) {
             DCHECK(pipeline_id_to_profile[pip_idx]);
-            RETURN_IF_ERROR(task->prepare(get_task_runtime_state(task->task_id()), local_params,
-                                          request.fragment.output_sink));
+            RETURN_IF_ERROR(task->prepare(local_params, request.fragment.output_sink));
             return Status::OK();
         };
 
@@ -828,7 +827,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
     OperatorXPtr source_op;
     source_op.reset(new LocalExchangeSourceOperatorX(pool, local_exchange_id));
     RETURN_IF_ERROR(source_op->init(exchange_type));
-    if (operator_xs.size() > 0) {
+    if (!operator_xs.empty()) {
         RETURN_IF_ERROR(operator_xs.front()->set_child(source_op));
     }
     operator_xs.insert(operator_xs.begin(), source_op);
@@ -878,6 +877,8 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
                                                   const DescriptorTbl& descs, OperatorXPtr& op,
                                                   PipelinePtr& cur_pipe, int parent_idx,
                                                   int child_idx) {
+    // We directly construct the operator from Thrift because the given array is in the order of preorder traversal.
+    // Therefore, here we need to use a stack-like structure.
     _pipeline_parent_map.pop(cur_pipe, parent_idx, child_idx);
     std::stringstream error_msg;
     switch (tnode.node_type) {

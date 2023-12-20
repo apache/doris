@@ -100,7 +100,14 @@ std::string ScanOperator::debug_string() const {
 
 template <typename Derived>
 ScanLocalState<Derived>::ScanLocalState(RuntimeState* state, OperatorXBase* parent)
-        : ScanLocalStateBase(state, parent) {}
+        : ScanLocalStateBase(state, parent) {
+    _finish_dependency = std::make_shared<FinishDependency>(
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
+            state->get_query_ctx());
+    _filter_dependency = std::make_shared<RuntimeFilterDependency>(
+            parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY",
+            state->get_query_ctx());
+}
 
 template <typename Derived>
 bool ScanLocalState<Derived>::ready_to_read() {
@@ -1311,6 +1318,9 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
 
+    _wait_for_finish_dependency_timer =
+            ADD_TIMER(_runtime_profile, "WaitForPendingFinishDependency");
+
     return Status::OK();
 }
 
@@ -1442,7 +1452,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
         _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
     }
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
-
+    COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     return PipelineXLocalState<>::close(state);
 }
 
