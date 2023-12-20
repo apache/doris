@@ -484,6 +484,7 @@ public:
     int64_t valid_element_in_hash_tbl = 0;
     //first:column_id, could point to origin column or cast column
     //second:idx mapped to column types
+    //use unordered_multimap to ensure same origin column key can be save
     std::unordered_multimap<int, int> build_col_idx;
 
     //// shared static states (shared, decided in prepare/open...)

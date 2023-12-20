@@ -108,6 +108,7 @@ private:
     DataTypes _left_table_data_types;
     //first:column_id, could point to origin column or cast column
     //second:idx mapped to column types
+    //use unordered_multimap to ensure same origin column key can be save
     std::unordered_multimap<int, int> _build_col_idx;
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
