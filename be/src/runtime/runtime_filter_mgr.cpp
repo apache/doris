@@ -98,8 +98,7 @@ Status RuntimeFilterMgr::get_consume_filters(const int filter_id,
     std::lock_guard<std::mutex> l(_lock);
     auto iter = _consumer_map.find(key);
     if (iter == _consumer_map.end()) {
-        return Status::InvalidArgument("unknown filter: {}, role: CONSUMER. stack trace: {}", key,
-                                       get_stack_trace());
+        return Status::InvalidArgument("unknown filter: {}, role: CONSUMER.", key);
     }
     for (auto& holder : iter->second) {
         consumer_filters.emplace_back(holder.filter);

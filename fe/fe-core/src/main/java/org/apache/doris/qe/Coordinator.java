@@ -2010,7 +2010,7 @@ public class Coordinator implements CoordInterface {
                         // 4. Disable shared scan optimization by session variable
                         boolean sharedScan = true;
                         if (node.isPresent() && (!node.get().shouldDisableSharedScan(context)
-                                || (node.get().ignoreScanDistribution(context) && useNereids))) {
+                                || (node.get().ignoreStorageDataDistribution(context) && useNereids))) {
                             int expectedInstanceNum = Math.min(parallelExecInstanceNum,
                                     leftMostNode.getNumInstances());
                             expectedInstanceNum = Math.max(expectedInstanceNum, 1);
@@ -2837,9 +2837,9 @@ public class Coordinator implements CoordInterface {
         BucketSeqToScanRange bucketSeqToScanRange = fragmentIdBucketSeqToScanRangeMap.get(fragmentId);
         Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.get(fragmentId);
 
-        boolean ignoreScanDistribution = scanNodes.stream().filter(scanNode -> {
+        boolean ignoreStorageDataDistribution = scanNodes.stream().filter(scanNode -> {
             return scanNodeIds.contains(scanNode.getId().asInt());
-        }).allMatch(node -> node.ignoreScanDistribution(context)) && useNereids;
+        }).allMatch(node -> node.ignoreStorageDataDistribution(context)) && useNereids;
 
         // 1. count each node in one fragment should scan how many tablet, gather them in one list
         Map<TNetworkAddress, List<Pair<Integer, Map<Integer, List<TScanRangeParams>>>>> addressToScanRanges
@@ -2870,7 +2870,7 @@ public class Coordinator implements CoordInterface {
             Map<Integer, List<TScanRangeParams>> range
                     = findOrInsert(assignment, addressScanRange.getKey(), new HashMap<>());
 
-            if (ignoreScanDistribution) {
+            if (ignoreStorageDataDistribution) {
                 FInstanceExecParam instanceParam = new FInstanceExecParam(
                         null, addressScanRange.getKey(), 0, params);
 
@@ -2926,8 +2926,8 @@ public class Coordinator implements CoordInterface {
                 }
             }
         }
-        params.parallelTasksNum = ignoreScanDistribution ? 1 : params.instanceExecParams.size();
-        params.ignoreDataDistribution = ignoreScanDistribution;
+        params.parallelTasksNum = ignoreStorageDataDistribution ? 1 : params.instanceExecParams.size();
+        params.ignoreDataDistribution = ignoreStorageDataDistribution;
     }
 
     private final Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdTobucketSeqToScanRangeMap = Maps.newHashMap();
