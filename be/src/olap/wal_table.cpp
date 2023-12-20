@@ -225,6 +225,7 @@ Status WalTable::_get_wal_info(const std::string& wal,
 }
 
 Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std::string& label) {
+    bool retry = false;
 #ifndef BE_TEST
     std::string columns;
     RETURN_IF_ERROR(_read_wal_header(wal, columns));
@@ -266,7 +267,6 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->wal_id = wal_id;
     ctx->auth.auth_code = wal_id;
-    bool retry = false;
     auto st = _http_stream_action->process_put(_req.get(), ctx);
     auto msg = st.msg();
     if (st.ok()) {
