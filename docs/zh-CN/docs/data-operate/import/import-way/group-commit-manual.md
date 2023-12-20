@@ -32,17 +32,17 @@ Group Commit 不是一种新的导入方式，而是对`INSERT INTO tbl VALUES(.
 
 Group Commit 写入有三种模式，分别是：
 
-* 关闭模式 `off_mode`
+* 关闭模式（`off_mode`）
 
 不开启 Group Commit，保持以上三种导入方式的默认行为。
 
-* 同步模式 `sync_mode`
+* 同步模式（`sync_mode`）
 
-Doris 根据负载和表的 `group_commit_interval`属性将多个导入在一个事务提交，事务提交后导入返回。适合高并发且导入完成后要求数据立即可见的场景。
+Doris 根据负载和表的 `group_commit_interval`属性将多个导入在一个事务提交，事务提交后导入返回。这适用于高并发写入场景，且在导入完成后要求数据立即可见。
 
-* 异步模式 `async_mode`
+* 异步模式（`async_mode`）
 
-Doris 首先将数据写入 WAL，然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。单次导入大于 TODO 时，会自动切换为`sync_mode`。适合对写入延迟敏感以及高频写入的场景。
+Doris 首先将数据写入 WAL（Write Ahead Log），然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。单次导入大于 TODO 时，会自动切换为`sync_mode`。这适用于写入延迟敏感以及高频写入的场景。
 
 ## Group Commit 使用方式
 
