@@ -3175,7 +3175,8 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isIgnoreStorageDataDistribution() {
-        return ignoreStorageDataDistribution && getEnablePipelineXEngine() && enableLocalShuffle;
+        return ignoreStorageDataDistribution && getEnablePipelineXEngine() && enableLocalShuffle
+                && enableNereidsPlanner;
     }
 
     public void setIgnoreStorageDataDistribution(boolean ignoreStorageDataDistribution) {
