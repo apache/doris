@@ -145,7 +145,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                             child -> child.containsType(SubqueryExpr.class, WindowExpression.class),
                             Collectors.toSet()));
 
-            // split non-distinct agg child as two parts
+            // split distinct agg child as two parts
             // TRUE part 1: need push down itself, if it is NOT SlotReference or Literal
             // FALSE part 2: need push down its input slots, if it is SlotReference or Literal
             Map<Boolean, Set<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
