@@ -28,7 +28,7 @@ suite("query{--}") {
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
-    sql 'set enable_runtime_filter_prune=false'
+    sql 'set enable_runtime_filter_prune=true'
     def ds = """{query}"""
     def memo = sql """explain memo plan ${ds}"""
     logger.info("tpcds_query_{--} memo: ${memo}")    

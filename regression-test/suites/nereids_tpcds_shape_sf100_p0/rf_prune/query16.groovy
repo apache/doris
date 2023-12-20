@@ -24,20 +24,12 @@ suite("query16") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_16 '''
-    explain shape plan
-
-
-
-
-select  
+    sql 'set enable_runtime_filter_prune=true'
+    def ds = """select  
    count(distinct cs_order_number) as "order count"
   ,sum(cs_ext_ship_cost) as "total shipping cost"
   ,sum(cs_net_profit) as "total net profit"
@@ -64,7 +56,11 @@ and not exists(select *
                from catalog_returns cr1
                where cs1.cs_order_number = cr1.cr_order_number)
 order by count(distinct cs_order_number)
-limit 100;
-
-    '''
+limit 100"""
+    def memo = sql """explain memo plan ${ds}"""
+    logger.info("tpcds_query_16 memo: ${memo}")    
+    qt_ds_shape_16 """
+    explain shape plan
+    ${ds}
+    """
 }

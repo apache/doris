@@ -24,20 +24,12 @@ suite("query46") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_46 '''
-    explain shape plan
-
-
-
-
-select  c_last_name
+    sql 'set enable_runtime_filter_prune=true'
+    def ds = """select  c_last_name
        ,c_first_name
        ,ca_city
        ,bought_city
@@ -68,7 +60,11 @@ select  c_last_name
           ,ca_city
           ,bought_city
           ,ss_ticket_number
-  limit 100;
-
-    '''
+  limit 100"""
+    def memo = sql """explain memo plan ${ds}"""
+    logger.info("tpcds_query_46 memo: ${memo}")    
+    qt_ds_shape_46 """
+    explain shape plan
+    ${ds}
+    """
 }
