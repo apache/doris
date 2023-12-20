@@ -410,16 +410,6 @@ public class FunctionSet<T> {
                     }
                 }
             }
-            // here need to support varArgs template according to request data
-            if (specializedFunction.hasVarArgs() && i < requestFunction.getNumArgs()) {
-                for (; i < requestFunction.getNumArgs(); i++) {
-                    if (requestFunction.getArgs()[i].isNull()) {
-                        args.add(args.get(i - 1));
-                    } else {
-                        args.add(requestFunction.getArgs()[i]);
-                    }
-                }
-            }
             specializedFunction.setArgs(args);
             if (specializedFunction.getReturnType().hasTemplateType()) {
                 hasTemplateType = true;
