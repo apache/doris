@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.Any;
 import org.apache.doris.nereids.trees.expressions.ArrayItemReference;
 import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.BinaryArithmetic;
@@ -497,6 +498,10 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitMatchPhrasePrefix(MatchPhrasePrefix matchPhrasePrefix, C context) {
         return visitMatch(matchPhrasePrefix, context);
+    }
+
+    public R visitAny(Any any, C context) {
+        return visit(any, context);
     }
 
     /* ********************************************************************************************
