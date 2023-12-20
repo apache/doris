@@ -1578,6 +1578,7 @@ public class Coordinator implements CoordInterface {
                 }
                 // process bucket shuffle join on fragment without scan node
                 TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
+                Set<TNetworkAddress> hostSet = new HashSet<>();
                 while (bucketSeq < bucketNum) {
                     TPlanFragmentDestination dest = new TPlanFragmentDestination();
 
@@ -1585,10 +1586,13 @@ public class Coordinator implements CoordInterface {
                     dest.server = dummyServer;
                     dest.setBrpcServer(dummyServer);
 
-                    int parallelTasksNum = destParams.ignoreDataDistribution
-                            ? destParams.parallelTasksNum : destParams.instanceExecParams.size();
-                    for (int insIdx = 0; insIdx < parallelTasksNum; insIdx++) {
+                    for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
                         FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                        if (destParams.ignoreDataDistribution
+                                && hostSet.contains(instanceExecParams.host)) {
+                            continue;
+                        }
+                        hostSet.add(instanceExecParams.host);
                         if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
                             dest.fragment_instance_id = instanceExecParams.instanceId;
                             dest.server = toRpcHost(instanceExecParams.host);
@@ -1623,10 +1627,14 @@ public class Coordinator implements CoordInterface {
                         }
                     });
                 } else {
+                    Set<TNetworkAddress> hostSet = new HashSet<>();
                     // add destination host to this fragment's destination
-                    int parallelTasksNum = destParams.ignoreDataDistribution
-                            ? destParams.parallelTasksNum : destParams.instanceExecParams.size();
-                    for (int j = 0; j < parallelTasksNum; ++j) {
+                    for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                        if (destParams.ignoreDataDistribution
+                                && hostSet.contains(destParams.instanceExecParams.get(j).host)) {
+                            continue;
+                        }
+                        hostSet.add(destParams.instanceExecParams.get(j).host);
                         TPlanFragmentDestination dest = new TPlanFragmentDestination();
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
@@ -1691,6 +1699,7 @@ public class Coordinator implements CoordInterface {
                     }
                     // process bucket shuffle join on fragment without scan node
                     TNetworkAddress dummyServer = new TNetworkAddress("0.0.0.0", 0);
+                    Set<TNetworkAddress> hostSet = new HashSet<>();
                     while (bucketSeq < bucketNum) {
                         TPlanFragmentDestination dest = new TPlanFragmentDestination();
 
@@ -1698,10 +1707,13 @@ public class Coordinator implements CoordInterface {
                         dest.server = dummyServer;
                         dest.setBrpcServer(dummyServer);
 
-                        int parallelTasksNum = destParams.ignoreDataDistribution
-                                ? destParams.parallelTasksNum : destParams.instanceExecParams.size();
-                        for (int insIdx = 0; insIdx < parallelTasksNum; insIdx++) {
+                        for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
                             FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                            if (destParams.ignoreDataDistribution
+                                    && hostSet.contains(instanceExecParams.host)) {
+                                continue;
+                            }
+                            hostSet.add(instanceExecParams.host);
                             if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
                                 dest.fragment_instance_id = instanceExecParams.instanceId;
                                 dest.server = toRpcHost(instanceExecParams.host);
@@ -1736,7 +1748,13 @@ public class Coordinator implements CoordInterface {
                         }
                     });
                 } else {
+                    Set<TNetworkAddress> hostSet = new HashSet<>();
                     for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                        if (destParams.ignoreDataDistribution
+                                && hostSet.contains(destParams.instanceExecParams.get(j).host)) {
+                            continue;
+                        }
+                        hostSet.add(destParams.instanceExecParams.get(j).host);
                         TPlanFragmentDestination dest = new TPlanFragmentDestination();
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
