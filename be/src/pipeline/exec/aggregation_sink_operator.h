@@ -371,7 +371,7 @@ public:
             return _needs_finalize || DataSinkOperatorX<LocalStateType>::_child_x
                                               ->ignore_data_distribution()
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
-                           : DataDistribution(ExchangeType::NOOP);
+                           : DataSinkOperatorX<LocalStateType>::get_local_exchange_type();
         }
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);

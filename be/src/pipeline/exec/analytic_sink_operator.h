@@ -115,7 +115,7 @@ public:
                            ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return {ExchangeType::NOOP};
+        return DataSinkOperatorX<AnalyticSinkLocalState>::get_local_exchange_type();
     }
 
 private:

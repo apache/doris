@@ -126,7 +126,7 @@ protected:
     std::atomic<bool> _ready;
     const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state;
+    std::shared_ptr<BasicSharedState> _shared_state = nullptr;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 

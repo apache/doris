@@ -98,7 +98,7 @@ public:
             // The current sort node is used for the ORDER BY
             return {ExchangeType::PASSTHROUGH};
         }
-        return {ExchangeType::NOOP};
+        return DataSinkOperatorX<SortSinkLocalState>::get_local_exchange_type();
     }
 
 private:

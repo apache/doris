@@ -107,7 +107,7 @@ public:
                 SourceState source_state) override;
     DataDistribution get_local_exchange_type() const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            return {ExchangeType::NOOP};
+            return DataSinkOperatorX<PartitionSortSinkLocalState>::get_local_exchange_type();
         }
         return {ExchangeType::PASSTHROUGH};
     }
