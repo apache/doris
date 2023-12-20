@@ -1161,8 +1161,14 @@ void ColumnObject::merge_sparse_to_root_column() {
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         root.Accept(writer);
         bool res = parser.parse(buffer.GetString(), buffer.GetSize());
-        CHECK(res) << "buffer:" << std::string(buffer.GetString(), buffer.GetSize())
-                   << ", row_num:" << i;
+        if (!res) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "parse json failed, doc: {}"
+                            ", row_num:{}"
+                            ", error:{}",
+                            std::string(buffer.GetString(), buffer.GetSize()), i,
+                            JsonbErrMsg::getErrMsg(parser.getErrorCode()));
+        }
         result_column_ptr->insert_data(parser.getWriter().getOutput()->getBuffer(),
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);
