@@ -101,7 +101,10 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.rowset_id = _rowset->rowset_id();
     _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
-    if (_read_context->lower_bound_keys != nullptr) {
+
+    if (_read_context->split_key_range.valid) {
+        _read_options.split_key_range = _read_context->split_key_range;
+    } else if (_read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < _read_context->lower_bound_keys->size(); ++i) {
             _read_options.key_ranges.emplace_back(&_read_context->lower_bound_keys->at(i),
                                                   _read_context->is_lower_keys_included->at(i),
@@ -245,7 +248,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
             auto local_options = _read_options;
             local_options.row_ranges = _segment_row_ranges[i - seg_start];
-            status = seg_ptr->new_iterator(_input_schema, std::move(local_options), &iter);
+            status = seg_ptr->new_iterator(_input_schema, local_options, &iter);
         }
 
         if (!status.ok()) {

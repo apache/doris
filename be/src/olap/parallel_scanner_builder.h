@@ -21,7 +21,6 @@
 #include <string>
 #include <utility>
 
-#include "olap/reader.h"
 #include "olap/rowset/segment_v2/row_ranges.h"
 #include "olap/segment_loader.h"
 #include "olap/tablet.h"
@@ -41,9 +40,15 @@ struct TabletWithVersion {
     int64_t version;
 };
 
+// `SegmentGroup` is the 'largest' group of segments from the tablet.
+// All segments in the `SegmentGroup` are not overlapped.
 struct SegmentGroup {
-private:
-    std::vector<Segment*> _segments;
+    RowsetSharedPtr rowset;
+    std::vector<Segment*> segments;
+    size_t num_blocks;
+    size_t num_rows;
+    std::string min_key;
+    std::string max_key;
 };
 
 template <typename ParentType>
@@ -52,11 +57,12 @@ public:
     ParallelScannerBuilder(ParentType* parent, const std::vector<TabletWithVersion>& tablets,
                            const std::shared_ptr<RuntimeProfile>& profile,
                            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
-                           int64_t limit_per_scanner, bool is_preaggregation)
+                           int64_t limit_per_scanner, bool is_dup_mow_key, bool is_preaggregation)
             : _parent(parent),
               _scanner_profile(profile),
               _state(state),
               _limit_per_scanner(limit_per_scanner),
+              _is_dup_mow_key(is_dup_mow_key),
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
               _key_ranges(key_ranges.cbegin(), key_ranges.cend()) {}
@@ -65,6 +71,8 @@ public:
 
     void set_max_scanners_count(size_t count) { _max_scanners_count = count; }
 
+    void set_min_rows_per_scanner(int64_t size) { _min_rows_per_scanner = size; }
+
 private:
     Status _load();
 
@@ -72,12 +80,16 @@ private:
 
     Status _build_scanners_by_key_range(std::list<VScannerSPtr>& scanners);
 
-    std::unique_ptr<SegmentGroup> _create_segment_group_from_rowsets(const std::vector<RowsetSharedPtr>& rowsets);
+    std::unique_ptr<SegmentGroup> _create_segment_group_from_rowsets(
+            const std::vector<RowsetSharedPtr>& rowsets);
 
-    std::vector<SegmentSharedPtr> _load_segments_of_rowset(const RowsetSharedPtr& rowset);
+    Status _parse_segment_group(SegmentGroup& group);
 
-    Status _parse_segment_group(const SegmentGroup& group, size_t& index_count,
-                                std::string& min_value, std::string& max_value);
+    Status _convert_key_ranges(const TabletSPtr& tablet, std::vector<std::string>& start_keys,
+                               std::vector<std::string>& end_keys,
+                               std::vector<bool>& include_begin_keys,
+                               std::vector<bool>& include_end_keys,
+                               std::shared_ptr<Schema>& schema);
 
     std::shared_ptr<vectorized::NewOlapScanner> _build_scanner(
             BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
@@ -89,15 +101,21 @@ private:
     size_t _max_scanners_count {16};
 
     /// Min rows per scanner
-    size_t _min_rows_per_scanner {16384};
+    size_t _min_rows_per_scanner {2 * 1024 * 1024};
+
+    size_t _total_rows {};
+
+    size_t _rows_per_scanner {_min_rows_per_scanner};
 
     std::map<RowsetId, SegmentCacheHandle> _segment_cache_handles;
 
     std::shared_ptr<RuntimeProfile> _scanner_profile;
     RuntimeState* _state;
     int64_t _limit_per_scanner;
+    bool _is_dup_mow_key;
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
+    std::vector<size_t> _tablets_rows;
     std::vector<OlapScanRange*> _key_ranges;
     std::unordered_map<int64_t, std::vector<RowsetSharedPtr>> _all_rowsets;
 };

@@ -163,9 +163,13 @@ private:
 
     // calculate row ranges that fall into requested key ranges using short key index
     [[nodiscard]] Status _get_row_ranges_by_keys();
+    [[nodiscard]] Status _prepare_seek(const StorageReadOptions::SplitKeyRange& key_range);
     [[nodiscard]] Status _prepare_seek(const StorageReadOptions::KeyRange& key_range);
     [[nodiscard]] Status _lookup_ordinal(const RowCursor& key, bool is_include, rowid_t upper_bound,
                                          rowid_t* rowid);
+
+    [[nodiscard]] Status _lookup_ordinal_by_split_key(const StorageReadOptions::SplitKey& key,
+                                                      rowid_t upper_bound, rowid_t* rowid);
     // lookup the ordinal of given key from short key index
     // the returned rowid is rowid in primary index, not the rowid encoded in primary key
     [[nodiscard]] Status _lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include,
@@ -173,6 +177,12 @@ private:
     // lookup the ordinal of given key from primary key index
     [[nodiscard]] Status _lookup_ordinal_from_pk_index(const RowCursor& key, bool is_include,
                                                        rowid_t* rowid);
+
+    template <bool HasRowCursor>
+    [[nodiscard]] Status _lookup_ordinal_from_sk_index(const Slice& key, bool is_include,
+                                                       rowid_t upper_bound,
+                                                       const Schema* key_schema, rowid_t* rowid);
+
     [[nodiscard]] Status _seek_and_peek(rowid_t rowid);
 
     // calculate row ranges that satisfy requested column conditions using various column index
@@ -361,6 +371,8 @@ private:
         }
         return 0;
     }
+
+    std::string _encode_seek_block_to_short_key();
 
     bool _is_match_predicate_and_not_remaining(
             ColumnPredicate* pred, const std::vector<ColumnPredicate*>& remaining_predicates) {

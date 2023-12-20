@@ -168,39 +168,40 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
                                      _tablet->tablet_id());
     }
 
-    bool eof = false;
-    bool is_lower_key_included = _keys_param.start_key_include;
-    bool is_upper_key_included = _keys_param.end_key_include;
+    if (!_keys_param.split_key_range.valid) {
+        bool eof = false;
+        bool is_lower_key_included = _keys_param.start_key_include;
+        bool is_upper_key_included = _keys_param.end_key_include;
+        for (int i = 0; i < _keys_param.start_keys.size(); ++i) {
+            // lower bound
+            RowCursor& start_key = _keys_param.start_keys[i];
+            RowCursor& end_key = _keys_param.end_keys[i];
 
-    for (int i = 0; i < _keys_param.start_keys.size(); ++i) {
-        // lower bound
-        RowCursor& start_key = _keys_param.start_keys[i];
-        RowCursor& end_key = _keys_param.end_keys[i];
+            if (!is_lower_key_included) {
+                if (compare_row_key(start_key, end_key) >= 0) {
+                    VLOG_NOTICE << "return EOF when lower key not include"
+                                << ", start_key=" << start_key.to_string()
+                                << ", end_key=" << end_key.to_string();
+                    eof = true;
+                    break;
+                }
+            } else {
+                if (compare_row_key(start_key, end_key) > 0) {
+                    VLOG_NOTICE << "return EOF when lower key include="
+                                << ", start_key=" << start_key.to_string()
+                                << ", end_key=" << end_key.to_string();
+                    eof = true;
+                    break;
+                }
+            }
 
-        if (!is_lower_key_included) {
-            if (compare_row_key(start_key, end_key) >= 0) {
-                VLOG_NOTICE << "return EOF when lower key not include"
-                            << ", start_key=" << start_key.to_string()
-                            << ", end_key=" << end_key.to_string();
-                eof = true;
-                break;
-            }
-        } else {
-            if (compare_row_key(start_key, end_key) > 0) {
-                VLOG_NOTICE << "return EOF when lower key include="
-                            << ", start_key=" << start_key.to_string()
-                            << ", end_key=" << end_key.to_string();
-                eof = true;
-                break;
-            }
+            _is_lower_keys_included.push_back(is_lower_key_included);
+            _is_upper_keys_included.push_back(is_upper_key_included);
         }
 
-        _is_lower_keys_included.push_back(is_lower_key_included);
-        _is_upper_keys_included.push_back(is_upper_key_included);
-    }
-
-    if (eof) {
-        return Status::OK();
+        if (eof) {
+            return Status::OK();
+        }
     }
 
     bool need_ordered_result = true;
@@ -243,6 +244,9 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.is_lower_keys_included = &_is_lower_keys_included;
     _reader_context.upper_bound_keys = &_keys_param.end_keys;
     _reader_context.is_upper_keys_included = &_is_upper_keys_included;
+
+    _reader_context.split_key_range = _keys_param.split_key_range;
+
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
@@ -379,6 +383,11 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
+    if (read_params.split_key_range.valid) {
+        _keys_param.split_key_range = read_params.split_key_range;
+        return Status::OK();
+    }
+
     if (read_params.start_key.empty()) {
         return Status::OK();
     }

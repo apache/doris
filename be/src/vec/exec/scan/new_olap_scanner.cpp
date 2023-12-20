@@ -239,6 +239,10 @@ void NewOlapScanner::set_compound_filters(const std::vector<TCondition>& compoun
     _compound_filters = compound_filters;
 }
 
+void NewOlapScanner::set_split_key_range(const StorageReadOptions::SplitKeyRange& split_key_range) {
+    _tablet_reader_params.split_key_range = split_key_range;
+}
+
 // it will be called under tablet read lock because capture rs readers need
 Status NewOlapScanner::_init_tablet_reader_params(
         const std::vector<OlapScanRange*>& key_ranges, const std::vector<TCondition>& filters,

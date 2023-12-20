@@ -70,9 +70,55 @@ public:
         bool include_upper;
     };
 
+    struct SplitKey {
+        std::string key;
+        std::shared_ptr<Schema> schema;
+        bool include;
+    };
+
+    struct SplitKeyRange {
+        SplitKeyRange() = default;
+
+        SplitKeyRange(SplitKey&& lower_key, SplitKey&& upper_key)
+                : lower_key(std::move(lower_key)), upper_key(std::move(upper_key)), valid(true) {}
+
+        SplitKeyRange(const SplitKeyRange&) = default;
+
+        SplitKeyRange(SplitKeyRange&& other) {
+            if (other.valid) {
+                lower_key = std::move(other.lower_key);
+                upper_key = std::move(other.upper_key);
+            }
+            valid = other.valid;
+            other.valid = false;
+        }
+
+        SplitKeyRange& operator=(const SplitKeyRange& other) = default;
+
+        SplitKeyRange& operator=(SplitKeyRange&& other) {
+            if (this != &other) {
+                lower_key = std::move(other.lower_key);
+                upper_key = std::move(other.upper_key);
+
+                valid = other.valid;
+                other.valid = false;
+            }
+            return *this;
+        }
+
+        // the lower bound of the range
+        SplitKey lower_key;
+        // the upper bound of the range
+        SplitKey upper_key;
+
+        bool valid {false};
+    };
+
     // reader's key ranges, empty if not existed.
     // used by short key index to filter row blocks
     std::vector<KeyRange> key_ranges;
+
+    SplitKeyRange split_key_range;
 
     // For unique-key merge-on-write, the effect is similar to delete_conditions
     // that filters out rows that are deleted in realtime.

@@ -84,6 +84,9 @@ class TabletReader {
 
         std::vector<RowCursor> start_keys;
         std::vector<RowCursor> end_keys;
+
+        StorageReadOptions::SplitKeyRange split_key_range;
+
         bool start_key_include = false;
         bool end_key_include = false;
     };
@@ -127,6 +130,8 @@ public:
         std::vector<OlapTuple> end_key;
         bool start_key_include = false;
         bool end_key_include = false;
+
+        StorageReadOptions::SplitKeyRange split_key_range;
 
         std::vector<TCondition> conditions;
         std::vector<std::pair<string, std::shared_ptr<BloomFilterFuncBase>>> bloom_filters;

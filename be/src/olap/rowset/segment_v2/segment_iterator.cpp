@@ -396,40 +396,109 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     DorisMetrics::instance()->segment_row_total->increment(num_rows());
 
     // fast path for empty segment or empty key ranges
-    if (_row_bitmap.isEmpty() || _opts.key_ranges.empty()) {
-        return Status::OK();
-    }
-
-    // Read & seek key columns is a waste of time when no key column in _schema
-    if (std::none_of(_schema->columns().begin(), _schema->columns().end(), [&](const Field* col) {
-            return col && _opts.tablet_schema->column_by_uid(col->unique_id()).is_key();
-        })) {
+    if (_row_bitmap.isEmpty() || (!_opts.split_key_range.valid && _opts.key_ranges.empty())) {
         return Status::OK();
     }
 
     RowRanges result_ranges;
-    for (auto& key_range : _opts.key_ranges) {
+    if (_opts.split_key_range.valid) {
         rowid_t lower_rowid = 0;
         rowid_t upper_rowid = num_rows();
-        RETURN_IF_ERROR(_prepare_seek(key_range));
-        if (key_range.upper_key != nullptr) {
-            // If client want to read upper_bound, the include_upper is true. So we
-            // should get the first ordinal at which key is larger than upper_bound.
-            // So we call _lookup_ordinal with include_upper's negate
-            RETURN_IF_ERROR(_lookup_ordinal(*key_range.upper_key, !key_range.include_upper,
-                                            num_rows(), &upper_rowid));
+
+        RETURN_IF_ERROR(_prepare_seek(_opts.split_key_range));
+
+        if (!_opts.split_key_range.upper_key.key.empty()) {
+            RETURN_IF_ERROR(_lookup_ordinal_from_sk_index<false>(
+                    _opts.split_key_range.upper_key.key, !_opts.split_key_range.upper_key.include,
+                    num_rows(), _opts.split_key_range.upper_key.schema.get(), &upper_rowid));
         }
-        if (upper_rowid > 0 && key_range.lower_key != nullptr) {
-            RETURN_IF_ERROR(_lookup_ordinal(*key_range.lower_key, key_range.include_lower,
-                                            upper_rowid, &lower_rowid));
+
+        if (!_opts.split_key_range.lower_key.key.empty()) {
+            RETURN_IF_ERROR(_lookup_ordinal_from_sk_index<false>(
+                    _opts.split_key_range.lower_key.key, _opts.split_key_range.lower_key.include,
+                    upper_rowid, _opts.split_key_range.lower_key.schema.get(), &lower_rowid));
         }
-        auto row_range = RowRanges::create_single(lower_rowid, upper_rowid);
-        RowRanges::ranges_union(result_ranges, row_range, &result_ranges);
+
+        result_ranges = RowRanges::create_single(lower_rowid, upper_rowid);
+    } else {
+        // Read & seek key columns is a waste of time when no key column in _schema
+        if (std::none_of(
+                    _schema->columns().begin(), _schema->columns().end(), [&](const Field* col) {
+                        return col && _opts.tablet_schema->column_by_uid(col->unique_id()).is_key();
+                    })) {
+            return Status::OK();
+        }
+
+        for (auto& key_range : _opts.key_ranges) {
+            rowid_t lower_rowid = 0;
+            rowid_t upper_rowid = num_rows();
+            RETURN_IF_ERROR(_prepare_seek(key_range));
+            if (key_range.upper_key != nullptr) {
+                // If client want to read upper_bound, the include_upper is true. So we
+                // should get the first ordinal at which key is larger than upper_bound.
+                // So we call _lookup_ordinal with include_upper's negate
+                RETURN_IF_ERROR(_lookup_ordinal(*key_range.upper_key, !key_range.include_upper,
+                                                num_rows(), &upper_rowid));
+            }
+            if (upper_rowid > 0 && key_range.lower_key != nullptr) {
+                RETURN_IF_ERROR(_lookup_ordinal(*key_range.lower_key, key_range.include_lower,
+                                                upper_rowid, &lower_rowid));
+            }
+            auto row_range = RowRanges::create_single(lower_rowid, upper_rowid);
+            RowRanges::ranges_union(result_ranges, row_range, &result_ranges);
+        }
     }
     // pre-condition: _row_ranges == [0, num_rows)
     size_t pre_size = _row_bitmap.cardinality();
     _row_bitmap = RowRanges::ranges_to_roaring(result_ranges);
     _opts.stats->rows_key_range_filtered += (pre_size - _row_bitmap.cardinality());
+
+    return Status::OK();
+}
+
+Status SegmentIterator::_prepare_seek(const StorageReadOptions::SplitKeyRange& key_range) {
+    std::vector<const Field*> key_fields;
+    std::set<uint32_t> column_set;
+    for (auto cid : key_range.lower_key.schema->column_ids()) {
+        column_set.emplace(cid);
+        key_fields.emplace_back(key_range.lower_key.schema->column(cid));
+    }
+
+    for (auto cid : key_range.upper_key.schema->column_ids()) {
+        if (!column_set.contains(cid)) {
+            key_fields.emplace_back(key_range.upper_key.schema->column(cid));
+            column_set.emplace(cid);
+        }
+    }
+
+    if (!_seek_schema) {
+        _seek_schema = std::make_unique<Schema>(key_fields, key_fields.size());
+    }
+    // todo(wb) need refactor here, when using pk to search, _seek_block is useless
+    if (_seek_block.empty()) {
+        _seek_block.resize(_seek_schema->num_column_ids());
+        int i = 0;
+        for (auto cid : _seek_schema->column_ids()) {
+            const auto* column_desc = _seek_schema->column(cid);
+            _seek_block[i] = Schema::get_column_by_field(*column_desc);
+            i++;
+        }
+    }
+
+    // create used column iterator
+    for (auto cid : _seek_schema->column_ids()) {
+        if (_column_iterators[cid] == nullptr) {
+            RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
+                                                          &_column_iterators[cid], &_opts));
+            ColumnIteratorOptions iter_opts {
+                    .use_page_cache = _opts.use_page_cache,
+                    .file_reader = _file_reader.get(),
+                    .stats = _opts.stats,
+                    .io_ctx = _opts.io_ctx,
+            };
+            RETURN_IF_ERROR(_column_iterators[cid]->init(iter_opts));
+        }
+    }
 
     return Status::OK();
 }
@@ -1285,16 +1354,22 @@ Status SegmentIterator::_lookup_ordinal(const RowCursor& key, bool is_include, r
 // Make is_include template to reduce branch
 Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool is_include,
                                                       rowid_t upper_bound, rowid_t* rowid) {
-    const ShortKeyIndexDecoder* sk_index_decoder = _segment->get_short_key_index();
-    DCHECK(sk_index_decoder != nullptr);
-
     std::string index_key;
     encode_key_with_padding(&index_key, key, _segment->_tablet_schema->num_short_key_columns(),
                             is_include);
 
     const auto& key_col_ids = key.schema()->column_ids();
     _convert_rowcursor_to_short_key(key, key_col_ids.size());
+    return _lookup_ordinal_from_sk_index<true>(index_key, is_include, upper_bound, key.schema(),
+                                               rowid);
+}
 
+template <bool HasRowCursor>
+Status SegmentIterator::_lookup_ordinal_from_sk_index(const Slice& index_key, bool is_include,
+                                                      rowid_t upper_bound, const Schema* key_schema,
+                                                      rowid_t* rowid) {
+    const ShortKeyIndexDecoder* sk_index_decoder = _segment->get_short_key_index();
+    DCHECK(sk_index_decoder != nullptr);
     uint32_t start_block_id = 0;
     auto start_iter = sk_index_decoder->lower_bound(index_key);
     if (start_iter.valid()) {
@@ -1322,7 +1397,19 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     while (start < end) {
         rowid_t mid = (start + end) / 2;
         RETURN_IF_ERROR(_seek_and_peek(mid));
-        int cmp = _compare_short_key_with_seek_block(key_col_ids);
+        int cmp;
+        if constexpr (HasRowCursor) {
+            cmp = _compare_short_key_with_seek_block(key_schema->column_ids());
+        } else {
+            auto seek_index = _encode_seek_block_to_short_key();
+            if (index_key.size > seek_index.size()) {
+                Slice truncated {index_key.data, seek_index.size()};
+                cmp = truncated.compare(seek_index);
+            } else {
+                cmp = index_key.compare(seek_index);
+            }
+        }
+
         if (cmp > 0) {
             start = mid + 1;
         } else if (cmp == 0) {
@@ -1439,6 +1526,47 @@ Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, r
         RETURN_IF_ERROR(_column_iterators[cid]->seek_to_ordinal(pos));
     }
     return Status::OK();
+}
+
+std::string SegmentIterator::_encode_seek_block_to_short_key() {
+    std::string key;
+    for (auto cid : _seek_schema->column_ids()) {
+        if (_seek_block[cid]->is_null_at(0)) {
+            key.push_back(KEY_NULL_FIRST_MARKER);
+        } else {
+            key.push_back(KEY_NORMAL_MARKER);
+            Slice data = _seek_block[cid]->get_data_at(0).to_slice();
+            if (_seek_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_CHAR ||
+                _seek_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
+                _seek_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_STRING) {
+                _seek_schema->column(cid)->encode_ascending(&data, &key);
+            } else if (_seek_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_DATE) {
+                auto cpp_type_value =
+                        *reinterpret_cast<PrimitiveTypeTraits<PrimitiveType::TYPE_DATE>::CppType*>(
+                                data.data);
+                auto&& value =
+                        PrimitiveTypeConvertor<PrimitiveType::TYPE_DATE>::to_storage_field_type(
+                                cpp_type_value);
+                _seek_schema->column(cid)->encode_ascending(&value, &key);
+            } else if (_seek_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_DATETIME) {
+                auto cpp_type_value = *reinterpret_cast<
+                        PrimitiveTypeTraits<PrimitiveType::TYPE_DATETIME>::CppType*>(data.data);
+                auto&& value =
+                        PrimitiveTypeConvertor<PrimitiveType::TYPE_DATETIME>::to_storage_field_type(
+                                cpp_type_value);
+                _seek_schema->column(cid)->encode_ascending(&value, &key);
+            } else if (_seek_schema->column(cid)->type() == FieldType::OLAP_FIELD_TYPE_DECIMAL) {
+                auto cpp_type_value = *reinterpret_cast<
+                        PrimitiveTypeTraits<PrimitiveType::TYPE_DECIMALV2>::CppType*>(data.data);
+                auto&& value = PrimitiveTypeConvertor<
+                        PrimitiveType::TYPE_DECIMALV2>::to_storage_field_type(cpp_type_value);
+                _seek_schema->column(cid)->encode_ascending(&value, &key);
+            } else {
+                _seek_schema->column(cid)->encode_ascending(data.data, &key);
+            }
+        }
+    }
+    return key;
 }
 
 /* ---------------------- for vectorization implementation  ---------------------- */

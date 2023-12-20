@@ -78,6 +78,8 @@ public:
 
     void set_compound_filters(const std::vector<TCondition>& compound_filters);
 
+    void set_split_key_range(const StorageReadOptions::SplitKeyRange& split_key_range);
+
     doris::TabletStorageType get_storage_type() override;
 
 protected:

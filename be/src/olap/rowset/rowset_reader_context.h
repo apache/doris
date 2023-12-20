@@ -20,6 +20,7 @@
 
 #include "io/io_common.h"
 #include "olap/column_predicate.h"
+#include "olap/iterators.h"
 #include "olap/olap_common.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr.h"
@@ -61,6 +62,9 @@ struct RowsetReaderContext {
     const std::vector<bool>* is_lower_keys_included = nullptr;
     const std::vector<RowCursor>* upper_bound_keys = nullptr;
     const std::vector<bool>* is_upper_keys_included = nullptr;
+
+    StorageReadOptions::SplitKeyRange split_key_range;
+
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;

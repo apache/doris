@@ -136,6 +136,8 @@ public:
         return _pk_index_meta->max_key();
     }
 
+    bool is_unique_keys_type() const { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
+
     io::FileReaderSPtr file_reader() { return _file_reader; }
 
     int64_t meta_mem_usage() const { return _meta_mem_usage; }

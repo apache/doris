@@ -39,6 +39,24 @@ using namespace ErrorCode;
 RowCursor::RowCursor()
         : _fixed_len(0), _variable_len(0), _string_field_count(0), _long_text_buf(nullptr) {}
 
+RowCursor::RowCursor(RowCursor&& cursor)
+        : _schema(std::move(cursor._schema)),
+          _fixed_buf(cursor._fixed_buf),
+          _fixed_len(cursor._fixed_len),
+          _owned_fixed_buf(cursor._owned_fixed_buf),
+          _variable_buf(cursor._variable_buf),
+          _variable_len(cursor._variable_len),
+          _string_field_count(cursor._string_field_count),
+          _long_text_buf(cursor._long_text_buf) {
+    cursor._fixed_buf = nullptr;
+    cursor._owned_fixed_buf = nullptr;
+    cursor._variable_buf = nullptr;
+    cursor._fixed_len = 0;
+    cursor._variable_len = 0;
+    cursor._string_field_count = 0;
+    cursor._long_text_buf = nullptr;
+}
+
 RowCursor::~RowCursor() {
     delete[] _owned_fixed_buf;
     delete[] _variable_buf;
@@ -304,7 +322,8 @@ Status RowCursor::_alloc_buf() {
     // variable_len for null bytes
     _variable_buf = new (nothrow) char[_variable_len]();
     if (_variable_buf == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("Fail to malloc _variable_buf.");
+        return Status::Error<MEM_ALLOC_FAILED>("Fail to malloc({} bytes) _variable_buf.",
+                                               _variable_len);
     }
     if (_string_field_count > 0) {
         _long_text_buf = (char**)malloc(_string_field_count * sizeof(char*));
