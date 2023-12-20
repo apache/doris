@@ -117,8 +117,11 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
-    bool need_to_local_shuffle() const override {
-        return !_is_hash_partition || OperatorX<ExchangeLocalState>::ignore_data_distribution();
+    DataDistribution get_local_exchange_type() const override {
+        if (!_is_hash_partition || OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
+            return {ExchangeType::NOOP};
+        }
+        return {ExchangeType::HASH_SHUFFLE};
     }
 
 private:

@@ -125,7 +125,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
-    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state));
+    RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.ignore_data_distribution()));
 
     _scan_dependency = ScanDependency::create_shared(PipelineXLocalState<>::_parent->operator_id(),
                                                      PipelineXLocalState<>::_parent->node_id(),
@@ -161,6 +161,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     _wait_for_scanner_done_timer =
             ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForScannerDone", timer_name, 1);
     _wait_for_eos_timer = ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, "WaitForEos", timer_name, 1);
+    _wait_for_rf_timer = ADD_TIMER(_runtime_profile, "WaitForRuntimeFilter");
     return Status::OK();
 }
 
@@ -1445,6 +1446,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
         return Status::OK();
     }
     COUNTER_UPDATE(exec_time_counter(), _scan_dependency->watcher_elapse_time());
+    COUNTER_UPDATE(exec_time_counter(), _filter_dependency->watcher_elapse_time());
     SCOPED_TIMER(_close_timer);
 
     SCOPED_TIMER(exec_time_counter());
@@ -1453,6 +1455,8 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     }
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
+    COUNTER_SET(_wait_for_rf_timer, _filter_dependency->watcher_elapse_time());
+
     return PipelineXLocalState<>::close(state);
 }
 
