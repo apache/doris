@@ -43,7 +43,9 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -107,9 +109,10 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             // 3. Pull up normalized old LogicalAggregate's output exprs to a new parent LogicalProject Node
             // Push down exprs:
             // 1. all group by exprs
-            // 2. subquery expr in trival-agg
-            // 3. all input slots of trival-agg
-            // 4. expr(including subquery) in distinct trival-agg
+            // 2. child contains subquery expr in trival-agg
+            // 3. child contains window expr in trival-agg
+            // 4. all input slots of trival-agg
+            // 5. expr(including subquery) in distinct trival-agg
             // Normalize LogicalAggregate's output.
             // 1. normalize group by exprs by outputs of bottom LogicalProject
             // 2. normalize trival-aggs by outputs of bottom LogicalProject
@@ -132,37 +135,56 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             List<AggregateFunction> aggFuncs = Lists.newArrayList();
             aggregateOutput.forEach(o -> o.accept(CollectNonWindowedAggFuncs.INSTANCE, aggFuncs));
 
-            // collect subquery expr in trival-agg
-            Set<SubqueryExpr> subqueryExprs = ExpressionUtils.mutableCollect(aggFuncs.stream()
-                    .filter(aggFunc -> !aggFunc.isDistinct()).collect(Collectors.toList()),
-                    SubqueryExpr.class::isInstance);
+            // split non-distinct agg child as two part
+            // TRUE part 1: need push down itself, if it contains subqury or window expression
+            // FALSE part 2: need push down its input slots, if it DOES NOT contain subqury or window expression
+            Map<Boolean, Set<Expression>> categorizedNoDistinctAggsChildren = aggFuncs.stream()
+                    .filter(aggFunc -> !aggFunc.isDistinct())
+                    .flatMap(agg -> agg.children().stream())
+                    .collect(Collectors.groupingBy(
+                            child -> child.containsType(SubqueryExpr.class, WindowExpression.class),
+                            Collectors.toSet()));
 
-            // collect all input slots of trival-agg
-            Set<Slot> allAggFuncInputSlots = aggFuncs.stream()
-                    .flatMap(agg -> agg.getInputSlots().stream()).collect(Collectors.toSet());
+            // split non-distinct agg child as two parts
+            // TRUE part 1: need push down itself, if it is NOT SlotReference or Literal
+            // FALSE part 2: need push down its input slots, if it is SlotReference or Literal
+            Map<Boolean, Set<Expression>> categorizedDistinctAggsChildren = aggFuncs.stream()
+                    .filter(aggFunc -> aggFunc.isDistinct()).flatMap(agg -> agg.children().stream())
+                    .collect(Collectors.groupingBy(
+                            child -> !(child instanceof SlotReference || child instanceof Literal),
+                            Collectors.toSet()));
 
-            // collect expr in distinct trival-agg
-            Set<Expression> distinctAggChildExprs = aggFuncs.stream()
-                    .filter(agg -> agg.isDistinct()).flatMap(agg -> agg.children().stream())
-                    .filter(child -> !(child instanceof SlotReference && child instanceof Literal))
-                    .collect(Collectors.toSet());
+            Set<Expression> needPushSelf = Sets.union(
+                    categorizedNoDistinctAggsChildren.getOrDefault(true, new HashSet<>()),
+                    categorizedDistinctAggsChildren.getOrDefault(true, new HashSet<>()));
+            Set<Slot> needPushInputSlots = ExpressionUtils.getInputSlotSet(Sets.union(
+                    categorizedNoDistinctAggsChildren.getOrDefault(false, new HashSet<>()),
+                    categorizedDistinctAggsChildren.getOrDefault(false, new HashSet<>())));
 
             Set<Alias> existsAlias =
                     ExpressionUtils.mutableCollect(aggregateOutput, Alias.class::isInstance);
 
-            // push down group by and subquery exprs to bottom project
+            // push down 3 kinds of exprs, these pushed exprs will be used to normalize agg output later
+            // 1. group by exprs
+            // 2. trivalAgg children
+            // 3. trivalAgg input slots
             Set<Expression> allPushDownExprs =
-                    Sets.union(Sets.union(groupingByExprs, subqueryExprs), distinctAggChildExprs);
+                    Sets.union(groupingByExprs, Sets.union(needPushSelf, needPushInputSlots));
             NormalizeToSlotContext bottomSlotContext =
                     NormalizeToSlotContext.buildContext(existsAlias, allPushDownExprs);
-            Set<NamedExpression> bottomProjects =
-                    bottomSlotContext.pushDownToNamedExpression(allPushDownExprs);
+            Set<NamedExpression> pushedGroupByExprs =
+                    bottomSlotContext.pushDownToNamedExpression(groupingByExprs);
+            Set<NamedExpression> pushedTrivalAggChildren =
+                    bottomSlotContext.pushDownToNamedExpression(needPushSelf);
+            Set<NamedExpression> pushedTrivalAggInputSlots =
+                    bottomSlotContext.pushDownToNamedExpression(needPushInputSlots);
+            Set<NamedExpression> bottomProjects = Sets.union(pushedGroupByExprs,
+                    Sets.union(pushedTrivalAggChildren, pushedTrivalAggInputSlots));
 
             // create bottom project
             Plan bottomPlan;
             if (!bottomProjects.isEmpty()) {
-                bottomPlan = new LogicalProject<>(
-                        ImmutableList.copyOf(Sets.union(bottomProjects, allAggFuncInputSlots)),
+                bottomPlan = new LogicalProject<>(ImmutableList.copyOf(bottomProjects),
                         aggregate.child());
             } else {
                 bottomPlan = aggregate.child();
@@ -192,9 +214,9 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                     NormalizeToSlotContext.buildContext(existsAlias, normalizedAggFuncs);
 
             // agg output include 2 parts
-            // all bottom projects(group by exprs are included bottom projects) and normalized agg functions
+            // pushedGroupByExprs and normalized agg functions
             List<NamedExpression> normalizedAggOutput = ImmutableList.<NamedExpression>builder()
-                    .addAll(bottomProjects.stream().map(NamedExpression::toSlot).iterator())
+                    .addAll(pushedGroupByExprs.stream().map(NamedExpression::toSlot).iterator())
                     .addAll(normalizedAggFuncsToSlotContext
                             .pushDownToNamedExpression(normalizedAggFuncs))
                     .build();
