@@ -1152,6 +1152,8 @@ DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 
+DEFINE_mBool(enable_column_type_check, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

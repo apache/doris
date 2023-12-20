@@ -507,6 +507,16 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
 Status Segment::new_column_iterator(const TabletColumn& tablet_column,
                                     std::unique_ptr<ColumnIterator>* iter,
                                     const StorageReadOptions* opt) {
+    if (config::enable_column_type_check
+            && tablet_column.type() != _column_readers.at(tablet_column.unique_id())->get_meta_type()) {
+        LOG(WARNING) << "different type between schema and column reader,"
+                     << " column schema name: " << tablet_column.name()
+                     << " column schema unique id: " << tablet_column.unique_id()
+                     << " column schema type: "  << int (tablet_column.type())
+                     << " column reader meta type" << int (_column_readers.at(tablet_column.unique_id())->get_meta_type());
+        return Status::InternalError("different type between schema and column reader");
+    }
+
     // init column iterator by path info
     if (!tablet_column.path_info().empty() || tablet_column.is_variant_type()) {
         return new_column_iterator_with_path(tablet_column, iter, opt);
