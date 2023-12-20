@@ -213,7 +213,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         // TODO llj tg how to treat this?
         while (iter != this_run.end()) {
             (*iter)->start_wait_worker_timer();
-            auto s = ctx->thread_token->submit_func([this, scanner = *iter, ctx] mutable {
+            auto s = ctx->thread_token->submit_func([this, scanner = *iter, ctx]() mutable {
                 auto task_lock = ctx->get_task_execution_context().lock();
                 if (task_lock == nullptr) {
                     // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
@@ -239,7 +239,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
             bool ret = false;
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                 if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
-                    auto work_func = [this, scanner = *iter, ctx] mutable {
+                    auto work_func = [this, scanner = *iter, ctx]() mutable {
                         auto task_lock = ctx->get_task_execution_context().lock();
                         if (task_lock == nullptr) {
                             // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
@@ -255,7 +255,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                     ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
                 } else {
                     PriorityThreadPool::Task task;
-                    task.work_function = [this, scanner = *iter, ctx] mutable {
+                    task.work_function = [this, scanner = *iter, ctx]() mutable {
                         auto task_lock = ctx->get_task_execution_context().lock();
                         if (task_lock == nullptr) {
                             // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
@@ -272,7 +272,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 }
             } else {
                 PriorityThreadPool::Task task;
-                task.work_function = [this, scanner = *iter, ctx] mutable {
+                task.work_function = [this, scanner = *iter, ctx]() mutable {
                     auto task_lock = ctx->get_task_execution_context().lock();
                     if (task_lock == nullptr) {
                         // LOG(WARNING) << "could not lock task execution context, query " << print_id(_query_id)
