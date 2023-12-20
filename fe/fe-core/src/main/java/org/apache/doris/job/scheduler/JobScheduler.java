@@ -130,7 +130,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
             schedulerInstantJob(job, TaskType.SCHEDULED, null);
         }
         //if it's timer job and trigger last window already start, we will scheduler it immediately
-        cycleTimerJobScheduler(job);
+        cycleTimerJobScheduler(job, System.currentTimeMillis());
     }
 
     @Override
@@ -139,9 +139,9 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     }
 
 
-    private void cycleTimerJobScheduler(T job) {
+    private void cycleTimerJobScheduler(T job, long startTimeWindowMs) {
         List<Long> delaySeconds = job.getJobConfig().getTriggerDelayTimes(System.currentTimeMillis(),
-                System.currentTimeMillis(), latestBatchSchedulerTimerTaskTimeMs);
+                startTimeWindowMs, latestBatchSchedulerTimerTaskTimeMs);
         if (CollectionUtils.isNotEmpty(delaySeconds)) {
             delaySeconds.forEach(delaySecond -> {
                 TimerJobSchedulerTask<T> timerJobSchedulerTask = new TimerJobSchedulerTask<>(timerJobDisruptor, job);
@@ -170,6 +170,8 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
      * We will get the task in the next time window, and then hand it over to the time wheel for timing trigger
      */
     private void executeTimerJobIdsWithinLastTenMinutesWindow() {
+
+        long lastTimeWindowMs = latestBatchSchedulerTimerTaskTimeMs;
         if (latestBatchSchedulerTimerTaskTimeMs < System.currentTimeMillis()) {
             this.latestBatchSchedulerTimerTaskTimeMs = System.currentTimeMillis();
         }
@@ -186,7 +188,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
             if (!job.getJobStatus().equals(JobStatus.RUNNING) && !job.getJobConfig().checkIsTimerJob()) {
                 continue;
             }
-            cycleTimerJobScheduler(job);
+            cycleTimerJobScheduler(job, lastTimeWindowMs);
         }
     }
 
