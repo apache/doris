@@ -63,7 +63,7 @@ public class MaterializedViewUtils {
         Slot columnExpr = null;
         // get column slot
         for (Slot outputSlot : outputExpressions) {
-            if (outputSlot.getName().equals(column)) {
+            if (outputSlot.getName().equalsIgnoreCase(column)) {
                 columnExpr = outputSlot;
                 break;
             }

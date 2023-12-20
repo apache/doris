@@ -37,7 +37,7 @@ public class MaterializedViewProjectJoinRule extends AbstractMaterializedViewJoi
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalProject(logicalJoin(any(), any())).thenApplyMulti(ctx -> {
+                logicalProject(logicalJoin(any(), any())).thenApplyMultiNoThrow(ctx -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
                 }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_JOIN));
