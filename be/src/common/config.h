@@ -1185,7 +1185,7 @@ DECLARE_Int32(grace_shutdown_wait_seconds);
 DECLARE_Int16(bitmap_serialize_version);
 
 // group commit insert config
-DECLARE_String(group_commit_replay_wal_dir);
+DECLARE_String(group_commit_wal_path);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
 DECLARE_mInt32(group_commit_relay_wal_threads);

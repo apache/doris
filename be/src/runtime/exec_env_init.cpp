@@ -222,7 +222,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_stub_pool = std::make_unique<stream_load::LoadStreamStubPool>();
     _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
-    _wal_manager = WalManager::create_shared(this, config::group_commit_replay_wal_dir);
+    _wal_manager = WalManager::create_shared(this, config::group_commit_wal_path);
 
     _backend_client_cache->init_metrics("backend");
     _frontend_client_cache->init_metrics("frontend");
