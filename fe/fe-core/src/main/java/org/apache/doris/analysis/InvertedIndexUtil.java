@@ -113,13 +113,13 @@ public class InvertedIndexUtil {
                     throw new AnalysisException("invalid index properties, ignore_above must be integer");
                 }
             }
-
             String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE);
             if (lowerCase != null) {
-                if ( lowerCase != "true" && lowerCase != "false") {
+                if (!"true".equals(lowerCase) && !"false".equals(lowerCase)) {
                     throw new AnalysisException("invalid index properties, lowercase must be true or false");
                 }
             }
+
         }
 
         // default is "none" if not set
