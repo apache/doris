@@ -56,19 +56,4 @@ std::string SchemaCache::get_schema_key(int32_t tablet_id, const TabletSchemaSPt
     return key;
 }
 
-// format: tabletId-unique_id1-uniqueid2...-version-type
-std::string SchemaCache::get_schema_key(int32_t tablet_id, const std::vector<TColumn>& columns,
-                                        int32_t version, Type type) {
-    if (columns.empty() || columns[0].col_unique_id < 0) {
-        return "";
-    }
-    std::string key = fmt::format("{}-", tablet_id);
-    std::for_each(columns.begin(), columns.end(), [&](const TColumn& col) {
-        key.append(fmt::format("{}", col.col_unique_id));
-        key.append("-");
-    });
-    key.append(fmt::format("{}-{}", version, type));
-    return key;
-}
-
 } // namespace doris

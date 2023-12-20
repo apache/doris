@@ -130,6 +130,7 @@ public:
     void init_rs_metas_fs(const io::FileSystemSPtr& fs);
 
     void to_meta_pb(TabletMetaPB* tablet_meta_pb);
+    void release_cached_schema_pb(TabletMetaPB* tablet_meta_pb);
     void to_json(std::string* json_string, json2pb::Pb2JsonOptions& options);
     // Don't use.
     // TODO: memory size of TabletSchema cannot be accurately tracked.

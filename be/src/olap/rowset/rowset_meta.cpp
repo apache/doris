@@ -17,12 +17,15 @@
 
 #include "olap/rowset/rowset_meta.h"
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include "common/logging.h"
 #include "google/protobuf/util/message_differencer.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/json_to_pb.h"
 #include "json2pb/pb_to_json.h"
 #include "olap/olap_common.h"
+#include "olap/schema_cache.h"
 #include "olap/storage_policy.h"
 #include "olap/tablet_schema.h"
 #include "olap/tablet_schema_cache.h"
@@ -94,7 +97,29 @@ void RowsetMeta::set_fs(io::FileSystemSPtr fs) {
 void RowsetMeta::to_rowset_pb(RowsetMetaPB* rs_meta_pb) const {
     *rs_meta_pb = _rowset_meta_pb;
     if (_schema) {
-        _schema->to_schema_pb(rs_meta_pb->mutable_tablet_schema());
+        std::string schema_pb_key;
+        std::shared_ptr<TabletSchemaPB> cached_schema_pb;
+        // we cannot use schema_pb cache in variant schema or schema_version not set
+        if (_schema->num_variant_columns() == 0 && _schema->schema_version() > 0) {
+            schema_pb_key = SchemaCache::get_schema_key(tablet_id(), _schema->columns(),
+                                                        _schema->schema_version(),
+                                                        SchemaCache::Type::SCHEMA_PB);
+            cached_schema_pb = SchemaCache::instance()->get_schema<std::shared_ptr<TabletSchemaPB>>(
+                    schema_pb_key);
+        }
+        if (cached_schema_pb) {
+            rs_meta_pb->set_allocated_tablet_schema(cached_schema_pb.get());
+        } else {
+            auto* tablet_schema_pb = rs_meta_pb->mutable_tablet_schema();
+            _schema->to_schema_pb(tablet_schema_pb);
+            // can cache, cache it.
+            if (!schema_pb_key.empty()) {
+                std::shared_ptr<TabletSchemaPB> tablet_schema_pb_ptr =
+                        std::make_shared<TabletSchemaPB>();
+                tablet_schema_pb_ptr->CopyFrom(*tablet_schema_pb);
+                SchemaCache::instance()->insert_schema(schema_pb_key, tablet_schema_pb_ptr);
+            }
+        }
     }
 }
 
