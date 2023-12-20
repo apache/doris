@@ -69,10 +69,10 @@ public class PropertyConverterTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        createDorisCluster();
+        FeConstants.runningUnitTest = true;
         createDatabase("mock_db");
         useDatabase("mock_db");
-        createTable("create table mock_tbl1 \n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"
+        createTable("create table mock_tbl1 \n" + "(k1 int, k2 int) distributed by hash(k1) buckets 10\n"
                 + "properties('replication_num' = '1');");
 
         List<String> withoutPrefix = ImmutableList.of("endpoint", "access_key", "secret_key");
@@ -162,7 +162,6 @@ public class PropertyConverterTest extends TestWithFeService {
 
     @Test
     public void testS3RepositoryPropertiesConverter() throws Exception {
-        FeConstants.runningUnitTest = true;
         String s3Repo = "CREATE REPOSITORY `s3_repo`\n"
                 + "WITH S3\n"
                 + "ON LOCATION 's3://s3-repo'\n"
@@ -200,7 +199,6 @@ public class PropertyConverterTest extends TestWithFeService {
 
     @Test
     public void testBosBrokerRepositoryPropertiesConverter() throws Exception {
-        FeConstants.runningUnitTest = true;
         String bosBroker = "CREATE REPOSITORY `bos_broker_repo`\n"
                 + "WITH BROKER `bos_broker`\n"
                 + "ON LOCATION 'bos://backup'\n"
@@ -223,7 +221,6 @@ public class PropertyConverterTest extends TestWithFeService {
 
     @Test
     public void testS3TVFPropertiesConverter() throws Exception {
-        FeConstants.runningUnitTest = true;
         String queryOld = "select * from s3(\n"
                     + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
                     + "  'access_key' = 'akk',\n"
