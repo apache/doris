@@ -66,7 +66,6 @@ public class ExportStmt extends StatementBase {
 
     private static final String DEFAULT_COLUMN_SEPARATOR = "\t";
     private static final String DEFAULT_LINE_DELIMITER = "\n";
-    private static final String DEFAULT_COLUMNS = "";
     private static final String DEFAULT_PARALLELISM = "1";
     private static final Integer DEFAULT_TIMEOUT = 7200;
 
@@ -123,7 +122,6 @@ public class ExportStmt extends StatementBase {
         this.columnSeparator = DEFAULT_COLUMN_SEPARATOR;
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
         this.timeout = DEFAULT_TIMEOUT;
-        this.columns = DEFAULT_COLUMNS;
 
         // The ExportStmt may be created in replay thread, there is no ConnectionContext
         // in replay thread, so we need to clone session variable from default session variable.
@@ -354,8 +352,14 @@ public class ExportStmt extends StatementBase {
                 properties, ExportStmt.DEFAULT_COLUMN_SEPARATOR));
         this.lineDelimiter = Separator.convertSeparator(PropertyAnalyzer.analyzeLineDelimiter(
                 properties, ExportStmt.DEFAULT_LINE_DELIMITER));
-        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, DEFAULT_COLUMNS);
-        checkColumns();
+
+        // null means not specified
+        // "" means user specified zero columns
+        this.columns = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_COLUMNS, null);
+        // check columns are exits
+        if (this.columns != null) {
+            checkColumns();
+        }
 
         // format
         this.format = properties.getOrDefault(LoadStmt.KEY_IN_PARAM_FORMAT_TYPE, "csv").toLowerCase();
