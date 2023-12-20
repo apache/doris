@@ -2424,7 +2424,7 @@ public class Env {
     }
 
     public void createFeDiskUpdater() {
-        feDiskUpdater = new Daemon("feDiskUpdater", FeConstants.heartbeat_interval_second * 1000L) {
+        feDiskUpdater = new Daemon("feDiskUpdater", Config.heartbeat_interval_second * 1000L) {
             @Override
             protected void runOneCycle() {
                 ExecuteEnv.getInstance().refreshAndGetDiskInfo(true);
