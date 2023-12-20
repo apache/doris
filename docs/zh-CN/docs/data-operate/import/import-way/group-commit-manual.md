@@ -32,17 +32,17 @@ Group Commit 不是一种新的导入方式，而是对`INSERT INTO tbl VALUES(.
 
 Group Commit 写入有三种模式，分别是：
 
-* `off_mode`
+* 关闭模式 `off_mode`
 
 不开启 Group Commit，保持以上三种导入方式的默认行为。
 
-* `sync_mode`
+* 同步模式 `sync_mode`
 
-Doris 根据负载和表的 `group_commit_interval`属性将多个导入在一个事务提交，事务提交后导入返回。
+Doris 根据负载和表的 `group_commit_interval`属性将多个导入在一个事务提交，事务提交后导入返回。适合高并发且导入完成后要求数据立即可见的场景。
 
-* `async_mode`
+* 异步模式 `async_mode`
 
-Doris 首先将数据写入 WAL，然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。单次导入大于 TODO 时，会自动切换为`sync_mode`。
+Doris 首先将数据写入 WAL，然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。单次导入大于 TODO 时，会自动切换为`sync_mode`。适合对写入延迟敏感以及高频写入的场景。
 
 ## Group Commit 使用方式
 
@@ -64,15 +64,15 @@ PROPERTIES (
 
 * 异步模式
 ```sql
-# 配置session变量开启攒批(默认为off_mode),开启异步模式
+# 配置session变量开启 group commit (默认为off_mode),开启异步模式
 mysql> set group_commit = async_mode;
 
-# 这里返回的label是group_commit开头的，是真正消费数据的导入关联的label，可以区分出是否攒批了
+# 这里返回的label是 group_commit 开头的，可以区分出是否使用了 group commit
 mysql> insert into dt values(1, 'Bob', 90), (2, 'Alice', 99);
 Query OK, 2 rows affected (0.05 sec)
 {'label':'group_commit_a145ce07f1c972fc-bd2c54597052a9ad', 'status':'PREPARE', 'txnId':'181508'}
 
-# 可以看出这个label, txn_id和上一个相同，说明是攒到了同一个导入任务中
+# 可以看出这个 label, txn_id 和上一个相同，说明是攒到了同一个导入任务中
 mysql> insert into dt(id, name) values(3, 'John');
 Query OK, 1 row affected (0.01 sec)
 {'label':'group_commit_a145ce07f1c972fc-bd2c54597052a9ad', 'status':'PREPARE', 'txnId':'181508'}
@@ -81,7 +81,7 @@ Query OK, 1 row affected (0.01 sec)
 mysql> select * from dt;
 Empty set (0.01 sec)
 
-# 10秒后可以查询到
+# 10秒后可以查询到，可以通过表属性 group_commit_interval 控制数据可见延迟。
 mysql> select * from dt;
 +------+-------+-------+
 | id   | name  | score |
@@ -95,10 +95,10 @@ mysql> select * from dt;
 
 * 同步模式
 ```sql
-# 配置session变量开启攒批(默认为off_mode),开启同步模式
+# 配置session变量开启 group commit (默认为off_mode),开启同步模式
 mysql> set group_commit = sync_mode;
 
-# 这里返回的label是group_commit开头的，是真正消费数据的导入关联的label，可以区分出是否攒批了
+# 这里返回的 label 是 group_commit 开头的，可以区分出是否谁用了 group commit，导入耗时至少是表属性 group_commit_interval。
 mysql> insert into dt values(4, 'Bob', 90), (5, 'Alice', 99);
 Query OK, 2 rows affected (10.06 sec)
 {'label':'group_commit_d84ab96c09b60587_ec455a33cb0e9e87', 'status':'PREPARE', 'txnId':'3007', 'query_id':'fc6b94085d704a94-a69bfc9a202e66e2'}
@@ -117,7 +117,7 @@ mysql> select * from dt;
 5 rows in set (0.03 sec)
 ```
 
-* 关闭攒批
+* 关闭模式
 ```sql
 mysql> set group_commit = off_mode;
 ```
