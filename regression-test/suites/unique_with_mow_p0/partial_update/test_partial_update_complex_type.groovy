@@ -26,16 +26,16 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
-            def tableName = "test_primary_key_partial_update"
+            def tableName = "test_primary_key_partial_update_complex_type"
             // create table
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql """ CREATE TABLE ${tableName} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
-                        `c_varchar` varchar(65533) NOT NULL COMMENT "用户姓名",
-                        `c_jsonb` JSONB,
-                        `c_array` ARRAY<INT>,
-                        `c_map` MAP<STRING, INT>,
-                        `c_struct` STRUCT<a:INT, b:INT>)
+                        `c_varchar` varchar(65533) NULL COMMENT "用户姓名",
+                        `c_jsonb` JSONB NULL,
+                        `c_array` ARRAY<INT> NULL,
+                        `c_map` MAP<STRING, INT> NULL,
+                        `c_struct` STRUCT<a:INT, b:INT> NULL)
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """
@@ -49,22 +49,88 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                 insert into ${tableName} values(1, "doris1", '{"jsonk1": 123, "jsonk2": 456}', [100, 200], {"k1": 10}, {1, 2})
             """
 
-            // // skip 3 lines and file have 4 lines
-            // streamLoad {
-            //     table "${tableName}"
+            // update varchar column
+            streamLoad {
+                table "${tableName}"
 
-            //     set 'column_separator', ','
-            //     set 'format', 'csv'
-            //     set 'partial_columns', 'true'
-            //     set 'columns', 'id,score'
+                set 'partial_columns', 'true'
+                set 'columns', 'id,c_varchar'
 
-            //     file 'basic.csv'
-            //     time 10000 // limit inflight 10s
-            // }
+                file 'complex_type/varchar.csv'
+                time 10000 // limit inflight 10s
+            }
 
             sql "sync"
 
-            qt_select_default """
+            qt_update_varchar"""
+                select * from ${tableName} order by id;
+            """
+
+            // update jsonb column, update 2 rows, add 1 new row
+            streamLoad {
+                table "${tableName}"
+
+                set 'partial_columns', 'true'
+                set 'columns', 'id,c_jsonb'
+
+                file 'complex_type/jsonb.csv'
+                time 10000 // limit inflight 10s
+            }
+
+            sql "sync"
+
+            qt_update_jsonb"""
+                select * from ${tableName} order by id;
+            """
+
+            // update array column, update 2 rows, add 1 new row
+            streamLoad {
+                table "${tableName}"
+
+                set 'partial_columns', 'true'
+                set 'columns', 'id,c_array'
+
+                file 'complex_type/array.csv'
+                time 10000 // limit inflight 10s
+            }
+
+            sql "sync"
+
+            qt_update_array"""
+                select * from ${tableName} order by id;
+            """
+
+            // update map column, update 2 rows, add 1 new row
+            streamLoad {
+                table "${tableName}"
+
+                set 'partial_columns', 'true'
+                set 'columns', 'id,c_map'
+
+                file 'complex_type/map.csv'
+                time 10000 // limit inflight 10s
+            }
+
+            sql "sync"
+
+            qt_update_map"""
+                select * from ${tableName} order by id;
+            """
+
+            // update struct column, update 2 rows, add 1 new row
+            streamLoad {
+                table "${tableName}"
+
+                set 'partial_columns', 'true'
+                set 'columns', 'id,c_struct'
+
+                file 'complex_type/struct.csv'
+                time 10000 // limit inflight 10s
+            }
+
+            sql "sync"
+
+            qt_update_struct"""
                 select * from ${tableName} order by id;
             """
 
