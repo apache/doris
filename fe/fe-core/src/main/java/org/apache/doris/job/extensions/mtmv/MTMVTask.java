@@ -175,6 +175,7 @@ public class MTMVTask extends AbstractTask {
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE
                         ? refreshPartitionIds : Sets.newHashSet(), tableWithPartKey);
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
+        ctx.setExecutor(executor);
         ctx.setQueryId(queryId);
         command.run(ctx, executor);
         if (ctx.getState().getStateType() != MysqlStateType.OK) {
