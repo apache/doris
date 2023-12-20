@@ -36,20 +36,24 @@ EOF
 
 ## run.sh content ##
 
-echo "#### Check env"
-if [[ -z "${commit_id_from_trigger}" || -z ${commit_id:-} || -z ${pull_request_id:-} ]]; then
-    echo "ERROR: env commit_id_from_trigger or commit_id or pull_request_id not set" && exit 1
-else
-    commit_id_from_checkout=${commit_id}
+if ${DEBUG:-false}; then
+    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'
+    pull_request_num="28431"
+    commit_id_from_trigger="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
+    commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
 fi
-if ${DEBUG:-false}; then commit_id_from_trigger=${commit_id}; fi
+echo "#### Check env"
+if [[ -z "${commit_id_from_trigger}" || -z ${commit_id:-} || -z ${pull_request_num:-} ]]; then
+    echo "ERROR: env commit_id_from_trigger or commit_id or pull_request_num not set" && exit 1
+fi
+commit_id_from_checkout=${commit_id}
 
 echo "#### 1. check if need run"
 if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     echo -e "从触发流水线 -> 流水线开始跑，这个时间段中如果有新commit，
 这时候流水线 checkout 出来的 commit 就不是触发时的传过来的 commit了，
 这种情况不需要跑，预期pr owner会重新触发。"
-    echo -e "ERROR: PR(${pull_request_id}),
+    echo -e "ERROR: PR(${pull_request_num}),
     the lastest commit id
     ${commit_id_from_checkout}
     not equail to the commit_id_from_trigger
