@@ -17,19 +17,15 @@
 
 #include "olap/wal_table.h"
 
-#include <event2/bufferevent.h>
-#include <event2/event.h>
-#include <event2/event_struct.h>
-#include <event2/http.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "evhttp.h"
 #include "http/action/stream_load.h"
 #include "http/ev_http_server.h"
 #include "http/http_common.h"
 #include "http/http_headers.h"
 #include "http/utils.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/stream_load_pipe.h"
 #include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
@@ -41,14 +37,16 @@
 namespace doris {
 
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
-        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {}
+        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {
+    _http_stream_action = std::make_shared<HttpStreamAction>(_exec_env);
+    _evhttp_req = evhttp_request_new(nullptr, nullptr);
+    _req = std::make_shared<HttpRequest>(_evhttp_req);
+}
 WalTable::~WalTable() {}
 
 #ifdef BE_TEST
 std::string k_request_line;
 #endif
-
-bool retry = false;
 
 void WalTable::add_wals(std::vector<std::string> wals) {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
@@ -226,66 +224,8 @@ Status WalTable::_get_wal_info(const std::string& wal,
     return Status::OK();
 }
 
-void http_request_done(struct evhttp_request* req, void* arg) {
-    std::stringstream out;
-    std::string status;
-    std::string msg;
-    std::string wal_id;
-    size_t len = 0;
-    if (req != nullptr) {
-        auto input = evhttp_request_get_input_buffer(req);
-        char* request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
-        while (request_line != nullptr) {
-            std::string s(request_line);
-            out << request_line;
-            request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
-        }
-        auto out_str = out.str();
-        LOG(INFO) << "replay wal out_str:" << out_str;
-        rapidjson::Document doc;
-        if (!out_str.empty()) {
-            doc.Parse(out.str().c_str());
-            status = std::string(doc["Status"].GetString());
-            msg = std::string(doc["Message"].GetString());
-            LOG(INFO) << "replay wal status:" << status << ",msg:" << msg;
-            if (status.find("Fail") != status.npos) {
-                if (msg.find("Label") != msg.npos &&
-                    msg.find("has already been used") != msg.npos) {
-                    retry = false;
-                } else {
-                    retry = true;
-                }
-            } else {
-                retry = false;
-            }
-        } else {
-            retry = true;
-        }
-    } else {
-        LOG(WARNING) << "req is null";
-    }
-
-    if (arg != nullptr) {
-        event_base_loopbreak((struct event_base*)arg);
-    } else {
-        LOG(WARNING) << "arg is null";
-    }
-}
-
 Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std::string& label) {
 #ifndef BE_TEST
-    struct event_base* base = nullptr;
-    struct evhttp_connection* conn = nullptr;
-    struct evhttp_request* req = nullptr;
-    retry = false;
-    event_init();
-    base = event_base_new();
-    conn = evhttp_connection_new("127.0.0.1", doris::config::webserver_port);
-    evhttp_connection_set_base(conn, base);
-    req = evhttp_request_new(http_request_done, base);
-    evhttp_add_header(req->output_headers, HTTP_LABEL_KEY.c_str(), label.c_str());
-    evhttp_add_header(req->output_headers, HTTP_AUTH_CODE.c_str(), std::to_string(wal_id).c_str());
-    evhttp_add_header(req->output_headers, HTTP_WAL_ID_KY.c_str(), std::to_string(wal_id).c_str());
     std::string columns;
     RETURN_IF_ERROR(_read_wal_header(wal, columns));
     std::vector<std::string> column_id_element;
@@ -318,17 +258,35 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
     ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label << " ("
        << name << ") select " << id << " from http_stream(\"format\" = \"wal\", \"table_id\" = \""
        << std::to_string(_table_id) << "\")";
-    evhttp_add_header(req->output_headers, HTTP_SQL.c_str(), ss.str().c_str());
-    evbuffer* output = evhttp_request_get_output_buffer(req);
-    evbuffer_add_printf(output, "replay wal %s", std::to_string(wal_id).c_str());
-
-    evhttp_make_request(conn, req, EVHTTP_REQ_PUT, "/api/_http_stream");
-    evhttp_connection_set_timeout(req->evcon, 300);
-
-    event_base_dispatch(base);
-    evhttp_connection_free(conn);
-    event_base_free(base);
-
+    _req->clear_header();
+    _req->add_header(HTTP_SQL.c_str(), ss.str().c_str());
+    _req->add_header(HTTP_LABEL_KEY.c_str(), label.c_str());
+    _req->add_header(HTTP_AUTH_CODE.c_str(), std::to_string(wal_id).c_str());
+    _req->add_header(HTTP_WAL_ID_KY.c_str(), std::to_string(wal_id).c_str());
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    ctx->wal_id = wal_id;
+    ctx->auth.auth_code = wal_id;
+    bool retry = false;
+    auto st = _http_stream_action->process_put(_req.get(), ctx);
+    auto msg = st.msg();
+    if (st.ok()) {
+        // wait stream load finish
+        RETURN_IF_ERROR(ctx->future.get());
+        if (ctx->status.ok()) {
+            RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
+        }
+        if (!ctx->status.ok() && !ctx->status.is<ErrorCode::PUBLISH_TIMEOUT>()) {
+            LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
+                         << ", errmsg=" << ctx->status;
+            _exec_env->stream_load_executor()->rollback_txn(ctx.get());
+            retry = true;
+        }
+    } else if (msg.find("LabelAlreadyUsedException") != msg.npos) {
+        LOG(INFO) << "skip relay wal " << wal << ",reason " << msg;
+        retry = false;
+    } else {
+        retry = true;
+    }
 #else
     std::stringstream out;
     out << k_request_line;

@@ -114,6 +114,14 @@ void HttpRequest::add_output_header(const char* key, const char* value) {
     evhttp_add_header(evhttp_request_get_output_headers(_ev_req), key, value);
 }
 
+void HttpRequest::add_header(const char* key, const char* value) {
+    _headers.emplace(key, value);
+}
+
+void HttpRequest::clear_header() {
+    _headers.clear();
+}
+
 std::string HttpRequest::get_request_body() {
     if (!_request_body.empty()) {
         return _request_body;
