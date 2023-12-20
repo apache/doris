@@ -65,6 +65,12 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/get_least_supertype.h"
 
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
+
 namespace doris::vectorized {
 namespace {
 
