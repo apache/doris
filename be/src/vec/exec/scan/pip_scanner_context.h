@@ -149,7 +149,10 @@ public:
                     hashes[i] = hashes[i] % element_size;
                 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
                 std::vector<uint32_t> channel2rows[element_size];
+#pragma clang diagnostic pop
                 for (uint32_t i = 0; i < rows; i++) {
                     channel2rows[hashes[i]].emplace_back(i);
                 }

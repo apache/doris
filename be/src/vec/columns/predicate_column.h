@@ -49,7 +49,10 @@ private:
     using ColumnType = typename PrimitiveTypeTraits<Type>::ColumnType;
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size, ColumnString* res_ptr) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         StringRef refs[sel_size];
+#pragma clang diagnostic pop
         size_t length = 0;
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];

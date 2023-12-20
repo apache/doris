@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <memory>
 #include <type_traits>
 
 #include "common/exception.h"
@@ -265,7 +266,8 @@ private:
                     make_bool_variant(need_adjust_scale && check_overflow));
 
             if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
-                int8_t sig[size];
+                auto sig_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
+                int8_t* sig = sig_uptr.get();
                 for (size_t i = 0; i < size; i++) {
                     sig[i] = sgn(c[i].value);
                 }

@@ -220,7 +220,10 @@ public:
         const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
 
         uint32_t last_offset = guarded_offset(_cur_idx);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         uint32_t offsets[max_fetch + 1];
+#pragma clang diagnostic pop
         offsets[0] = last_offset;
         for (int i = 0; i < max_fetch - 1; i++, _cur_idx++) {
             const uint32_t start_offset = last_offset;
@@ -255,8 +258,12 @@ public:
 
         auto total = *n;
         size_t read_count = 0;
+        auto len_array_uptr = std::unique_ptr<uint32_t[]>(new uint32_t[total]);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         uint32_t len_array[total];
         uint32_t start_offset_array[total];
+#pragma clang diagnostic pop
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elems)) {

@@ -208,7 +208,10 @@ public:
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         StringRef strings[sel_size];
+#pragma clang diagnostic pop
         size_t length = 0;
         for (size_t i = 0; i != sel_size; ++i) {
             auto& value = _dict.get_value(_codes[sel[i]]);

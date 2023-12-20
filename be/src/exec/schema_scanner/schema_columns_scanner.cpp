@@ -369,6 +369,8 @@ Status SchemaColumnsScanner::get_next_block(vectorized::Block* block, bool* eos)
     return _fill_block_impl(block);
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
 Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto columns_num = _desc_result.columns.size();
@@ -620,5 +622,6 @@ Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
     { RETURN_IF_ERROR(fill_dest_column_for_range(block, 23, null_datas)); }
     return Status::OK();
 }
+#pragma clang diagnostic pop
 
 } // namespace doris

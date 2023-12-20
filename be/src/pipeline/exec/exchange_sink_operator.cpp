@@ -466,7 +466,10 @@ Status ExchangeSinkOperatorX::channel_add_rows(RuntimeState* state, Channels& ch
                                                int num_channels,
                                                const HashValueType* __restrict channel_ids,
                                                int rows, vectorized::Block* block, bool eos) {
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
     std::vector<uint32_t> channel2rows[num_channels];
+#pragma clang diagnostic pop
 
     for (uint32_t i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);

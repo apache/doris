@@ -175,7 +175,10 @@ struct FunctionFieldImpl {
         auto& res_data = static_cast<ColumnInt32*>(result_column)->get_data();
 
         const auto& column_size = arguments.size();
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         ColumnPtr argument_columns[column_size];
+#pragma clang diagnostic pop
         for (int i = 0; i < column_size; ++i) {
             argument_columns[i] = block.get_by_position(arguments[i]).column;
         }

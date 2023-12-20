@@ -1926,7 +1926,10 @@ uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_
     }
 
     uint16_t original_size = selected_size;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
     bool ret_flags[original_size];
+#pragma clang diagnostic pop
     DCHECK(_pre_eval_block_predicate.size() > 0);
     auto column_id = _pre_eval_block_predicate[0]->column_id();
     auto& column = _current_return_columns[column_id];
@@ -2166,7 +2169,10 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         _output_index_result_column(nullptr, 0, block);
     } else {
         uint16_t selected_size = _current_batch_rows_read;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         uint16_t sel_rowid_idx[selected_size];
+#pragma clang diagnostic pop
 
         if (_is_need_vec_eval || _is_need_short_eval) {
             _convert_dict_code_for_predicate_if_necessary();

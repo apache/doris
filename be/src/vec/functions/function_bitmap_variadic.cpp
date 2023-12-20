@@ -150,9 +150,13 @@ namespace doris::vectorized {
         }                                                                                         \
     }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
 BITMAP_FUNCTION_VARIADIC(BitmapOr, bitmap_or, |=);
 BITMAP_FUNCTION_VARIADIC(BitmapAnd, bitmap_and, &=);
 BITMAP_FUNCTION_VARIADIC(BitmapXor, bitmap_xor, ^=);
+#pragma clang diagnostic pop
+
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapOrCount, bitmap_or_count, |=);
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapAndCount, bitmap_and_count, &=);
 BITMAP_FUNCTION_COUNT_VARIADIC(BitmapXorCount, bitmap_xor_count, ^=);
@@ -224,7 +228,10 @@ public:
                                  const ColumnNumbers& arguments, size_t result,
                                  size_t input_rows_count) const {
         size_t argument_size = arguments.size();
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         ColumnPtr argument_columns[argument_size];
+#pragma clang diagnostic pop
 
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =

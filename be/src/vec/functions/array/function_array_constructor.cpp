@@ -78,7 +78,10 @@ public:
         result_offset_col.resize(input_rows_count);
 
         // convert to nullable column
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         ColumnPtr arg[num_element];
+#pragma clang diagnostic pop
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
             col = col->convert_to_full_column_if_const();

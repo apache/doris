@@ -59,6 +59,8 @@ Status SchemaCharsetsScanner::get_next_block(vectorized::Block* block, bool* eos
     return _fill_block_impl(block);
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
 Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto row_num = 0;
@@ -106,5 +108,6 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     return Status::OK();
 }
+#pragma clang diagnostic pop
 
 } // namespace doris

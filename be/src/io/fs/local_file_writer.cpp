@@ -92,6 +92,8 @@ Status LocalFileWriter::abort() {
     return io::global_local_filesystem()->delete_file(_path);
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     DCHECK(!_closed);
     _dirty = true;
@@ -143,6 +145,7 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     _bytes_appended += bytes_req;
     return Status::OK();
 }
+#pragma clang diagnostic pop
 
 Status LocalFileWriter::write_at(size_t offset, const Slice& data) {
     DCHECK(!_closed);

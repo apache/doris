@@ -292,7 +292,10 @@ public:
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
         /// This container stores the columns we really pass to the nested function.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         const IColumn* nested_columns[number_of_arguments];
+#pragma clang diagnostic pop
 
         for (size_t i = 0; i < number_of_arguments; ++i) {
             if (is_nullable[i]) {

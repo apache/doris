@@ -399,7 +399,10 @@ public:
 
         auto total = *n;
         auto read_count = 0;
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
         CppType data[total];
+#pragma clang diagnostic pop
         for (size_t i = 0; i < total; ++i) {
             ordinal_t ord = rowids[i] - page_first_ordinal;
             if (UNLIKELY(ord >= _num_elements)) {

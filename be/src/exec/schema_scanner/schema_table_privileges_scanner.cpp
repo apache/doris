@@ -99,6 +99,8 @@ Status SchemaTablePrivilegesScanner::get_next_block(vectorized::Block* block, bo
     return _fill_block_impl(block);
 }
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
 Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto privileges_num = _priv_result.privileges.size();
@@ -167,5 +169,6 @@ Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) 
     }
     return Status::OK();
 }
+#pragma clang diagnostic pop
 
 } // namespace doris

@@ -967,7 +967,10 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
 
         if (target_size > 1) {
             int prepare_done = {0};
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
             Status prepare_status[target_size];
+#pragma clang diagnostic pop
             std::mutex m;
             std::condition_variable cv;
 
