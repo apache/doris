@@ -26,33 +26,25 @@ under the License.
 
 # Group Commit
 
-攒批写入没有引入一种新的导入方式，而是对`INSERT INTO tbl VALUES(...)`、`Stream Load`、`Http Stream`的扩展。
+Group Commit 不是一种新的导入方式，而是对`INSERT INTO tbl VALUES(...)`、`Stream Load`、`Http Stream`的扩展，大幅提升了高并发小写入的性能。您可以直接使用 `INSERT INTO tbl VALUES(...)` 高频写入数据到 Doris 中，同时使用 PreparedStatement 可以获得更高的性能。您也可以使用`Stream Load`或者`Http Stream`高频写入数据到 Doris 中。
 
-在 Doris 中，所有的数据写入都是一个独立的导入作业，发起一个新的事务，产生一个新的数据版本。在高频写入的场景下，对transaction和compaction都产生了较大的压力。攒批写通过把多个小的写入合成一个写入作业，减少了transaction和compaction的次数，缓解了系统内部的压力，提高了写入的性能。
+## Group Commit 模式
 
-## 攒批模式
-
-攒批写入有三种模式，分别是：
+Group Commit 写入有三种模式，分别是：
 
 * `off_mode`
 
-不开启攒批，保持以上三种导入方式的默认行为。
+不开启 Group Commit，保持以上三种导入方式的默认行为。
 
 * `sync_mode`
 
-多个客户端发起的导入复用一个内部导入，等内部导入成功或失败后，外部导入才会返回。
-
-如果内部导入成功，数据可以立即查出。
+Doris 根据负载、表的 `group_commit_interval`属性将多个导入在一个事务提交，事务提交后导入返回。
 
 * `async_mode`
 
-多个客户端发起的导入复用一个内部导入，内部导入将处理后的数据写入Write Ahead Log(WAL)后，立即返回。
+Doris 首先将数据写入 WAL，然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。
 
-此时，数据不能立即读出。内部导入默认开启10秒后自动提交，等成功后，数据才能读出。
-
-当内部导入因为BE节点重启或内存不足等原因导入失败后，BE会通过WAL重放机制重新导入数据。
-
-## 攒批使用方式
+## Group Commit 使用方式
 
 假如表的结构为：
 ```sql
