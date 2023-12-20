@@ -156,6 +156,24 @@ public abstract class DataType {
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
                 break;
+            case "decimalv2":
+                // NOTICE, maybe convert to decimalv3, so do not truc here.
+                switch (types.size()) {
+                    case 1:
+                        dataType = DecimalV2Type.CATALOG_DEFAULT_NOT_CONVERSION;
+                        break;
+                    case 2:
+                        dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
+                                Integer.parseInt(types.get(1)), 0, false);
+                        break;
+                    case 3:
+                        dataType = DecimalV2Type.createDecimalV2TypeWithoutTruncate(
+                                Integer.parseInt(types.get(1)), Integer.parseInt(types.get(2)), false);
+                        break;
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+                break;
             case "decimalv3":
                 switch (types.size()) {
                     case 1:
