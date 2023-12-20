@@ -201,7 +201,7 @@ public class CreateMTMVInfo {
     public void analyzeQuery(ConnectContext ctx) {
         // create table as select
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        // this is for column infer
+        // this is for expression column name infer when not use alias
         LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
         Plan plan = planner.plan(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
         if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
@@ -306,8 +306,6 @@ public class CreateMTMVInfo {
         if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != slots.size()) {
             throw new AnalysisException("simpleColumnDefinitions size is not equal to the query's");
         }
-        // slots = BindExpression.inferColumnNames(plan).stream()
-        //         .map(NamedExpression::toSlot).collect(Collectors.toList());
         Set<String> colNames = Sets.newHashSet();
         for (int i = 0; i < slots.size(); i++) {
             String colName = CollectionUtils.isEmpty(simpleColumnDefinitions) ? slots.get(i).getName()
