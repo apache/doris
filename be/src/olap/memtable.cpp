@@ -507,6 +507,7 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
         !_tablet_schema->cluster_key_idxes().empty()) {
         _sort_by_cluster_keys();
     }
+    g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     _input_mutable_block.clear();
     _insert_mem_tracker->release(_mem_usage);
     _mem_usage = 0;
