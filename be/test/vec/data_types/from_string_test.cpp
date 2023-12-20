@@ -287,50 +287,48 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
     {
         typedef std::pair<FieldType, string> FieldType_RandStr;
         std::vector<FieldType_RandStr> ip_scala_field_types = {
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "2405:9800:9800:66::2")};
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "0.0.0.0"),         // min case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),       // rand case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255.255"), // max case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "::"),                    // min case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "2405:9800:9800:66::2"),  // rand case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), // max case
+        };
+        std::vector<FieldType_RandStr> error_scala_field_types = {
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255.256"), // error case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255."), // error case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffg"), // error case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffff"), // error case
+        };
         for (auto pair : ip_scala_field_types) {
             auto type = pair.first;
             DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
             std::cout << "this type is " << data_type_ptr->get_name() << ": "
                       << fmt::format("{}", type) << std::endl;
-
-            std::unique_ptr<WrapperField> min_wf(WrapperField::create_by_type(type));
-            std::unique_ptr<WrapperField> max_wf(WrapperField::create_by_type(type));
             std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
-
-            min_wf->set_to_min();
-            max_wf->set_to_max();
-            static_cast<void>(rand_wf->from_string(pair.second, 0, 0));
-
-            string min_s = min_wf->to_string();
-            string max_s = max_wf->to_string();
+            Status st = rand_wf->from_string(pair.second, 0, 0);
             string rand_ip = rand_wf->to_string();
-
-            ReadBuffer min_rb(min_s.data(), min_s.size());
-            ReadBuffer max_rb(max_s.data(), max_s.size());
             ReadBuffer rand_rb(rand_ip.data(), rand_ip.size());
-
             auto col = data_type_ptr->create_column();
-            Status st = data_type_ptr->from_string(min_rb, col);
-            EXPECT_EQ(st.ok(), true);
-            st = data_type_ptr->from_string(max_rb, col);
-            EXPECT_EQ(st.ok(), true);
             st = data_type_ptr->from_string(rand_rb, col);
             EXPECT_EQ(st.ok(), true);
-
-            string min_s_d = data_type_ptr->to_string(*col, 0);
-            string max_s_d = data_type_ptr->to_string(*col, 1);
-            string rand_s_d = data_type_ptr->to_string(*col, 2);
-            rtrim(min_s);
-            rtrim(max_s);
+            string rand_s_d = data_type_ptr->to_string(*col, 0);
             rtrim(rand_ip);
-            std::cout << "min(" << min_s << ") with data_type_str:" << min_s_d << std::endl;
-            std::cout << "max(" << max_s << ") with data_type_str:" << max_s_d << std::endl;
             std::cout << "rand(" << rand_ip << ") with data_type_str:" << rand_s_d << std::endl;
-            EXPECT_EQ(min_s, min_s_d);
-            EXPECT_EQ(max_s, max_s_d);
             EXPECT_EQ(rand_ip, rand_s_d);
+        }
+        for (auto pair : error_scala_field_types) {
+            auto type = pair.first;
+            DataTypePtr data_type_ptr = DataTypeFactory::instance().create_data_type(type, 0, 0);
+            std::cout << "this type is " << data_type_ptr->get_name() << ": "
+                      << fmt::format("{}", type) << std::endl;
+            std::unique_ptr<WrapperField> rand_wf(WrapperField::create_by_type(type));
+            Status st = rand_wf->from_string(pair.second, 0, 0);
+            EXPECT_EQ(st.ok(), false);
+            ReadBuffer rand_rb(pair.second.data(), pair.second.size());
+            auto col = data_type_ptr->create_column();
+            st = data_type_ptr->from_string(rand_rb, col);
+            EXPECT_EQ(st.ok(), false);
         }
     }
 

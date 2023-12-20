@@ -56,9 +56,6 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
 
-    static std::string convert_ipv6_to_string(IPv6 ipv6);
-    static bool convert_string_to_ipv6(IPv6& x, std::string ipv6);
-
     Field get_field(const TExprNode& node) const override {
         IPv6 value;
         if (!IPv6Value::from_string(value, node.ipv6_literal.value)) {

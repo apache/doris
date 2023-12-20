@@ -58,14 +58,6 @@ Status DataTypeIPv6::from_string(ReadBuffer& rb, IColumn* column) const {
     return Status::OK();
 }
 
-std::string DataTypeIPv6::convert_ipv6_to_string(IPv6 ipv6) {
-    return IPv6Value::to_string(ipv6);
-}
-
-bool DataTypeIPv6::convert_string_to_ipv6(IPv6& x, std::string ipv6) {
-    return IPv6Value::from_string(x, ipv6);
-}
-
 MutableColumnPtr DataTypeIPv6::create_column() const {
     return ColumnIPv6::create();
 }
