@@ -36,7 +36,7 @@ public class MaterializedViewAggregateRule extends AbstractMaterializedViewAggre
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalAggregate(any()).thenApplyMulti(ctx -> {
+                logicalAggregate(any()).thenApplyMultiNoThrow(ctx -> {
                     LogicalAggregate<Plan> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
                 }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_AGGREGATE));

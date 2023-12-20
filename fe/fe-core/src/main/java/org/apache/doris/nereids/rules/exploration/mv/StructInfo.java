@@ -162,7 +162,7 @@ public class StructInfo {
     private void predicatesDerive() {
         // construct equivalenceClass according to equals predicates
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                        this.predicates.getPulledUpPredicates(), originalPlan).stream()
+                        new ArrayList<>(this.predicates.getPulledUpPredicates()), originalPlan).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));

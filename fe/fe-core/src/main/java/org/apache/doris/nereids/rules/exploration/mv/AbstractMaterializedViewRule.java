@@ -84,7 +84,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         List<MaterializationContext> materializationContexts = cascadesContext.getMaterializationContexts();
         List<Plan> rewriteResults = new ArrayList<>();
         if (materializationContexts.isEmpty()) {
-            logger.info(currentClassName + " materializationContexts is empty so return");
+            logger.debug(currentClassName + " materializationContexts is empty so return");
             return rewriteResults;
         }
 
@@ -92,7 +92,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
         // TODO Just Check query queryPlan firstly, support multi later.
         StructInfo queryStructInfo = queryStructInfos.get(0);
         if (!checkPattern(queryStructInfo)) {
-            logger.info(currentClassName + " queryStructInfo is not valid so return");
+            logger.debug(currentClassName + " queryStructInfo is not valid so return");
             return rewriteResults;
         }
 
@@ -101,42 +101,42 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
             if (queryPlan.getGroupExpression().isPresent()
                     && materializationContext.alreadyRewrite(
                     queryPlan.getGroupExpression().get().getOwnerGroup().getGroupId())) {
-                logger.info(currentClassName + " this group is already rewritten so skip");
+                logger.debug(currentClassName + " this group is already rewritten so skip");
                 continue;
             }
             MTMV mtmv = materializationContext.getMTMV();
-            MTMVCache mtmvCache = getCacheFromMTMV(mtmv, cascadesContext);
+            MTMVCache mtmvCache = getCacheFromMTMV(mtmv);
             if (mtmvCache == null) {
-                logger.info(currentClassName + " mv cache is null so return");
+                logger.warn(currentClassName + " mv cache is null so return");
                 return rewriteResults;
             }
             List<StructInfo> viewStructInfos = extractStructInfo(mtmvCache.getLogicalPlan(), cascadesContext);
             if (viewStructInfos.size() > 1) {
                 // view struct info should only have one
-                logger.info(currentClassName + " the num of view struct info is more then one so return");
+                logger.warn(currentClassName + " the num of view struct info is more then one so return");
                 return rewriteResults;
             }
             StructInfo viewStructInfo = viewStructInfos.get(0);
             if (!checkPattern(viewStructInfo)) {
-                logger.info(currentClassName + " viewStructInfo is not valid so return");
+                logger.debug(currentClassName + " viewStructInfo is not valid so return");
                 continue;
             }
             MatchMode matchMode = decideMatchMode(queryStructInfo.getRelations(), viewStructInfo.getRelations());
             if (MatchMode.COMPLETE != matchMode) {
-                logger.info(currentClassName + " match mode is not complete so return");
+                logger.debug(currentClassName + " match mode is not complete so return");
                 continue;
             }
             List<RelationMapping> queryToViewTableMappings =
                     RelationMapping.generate(queryStructInfo.getRelations(), viewStructInfo.getRelations());
             // if any relation in query and view can not map, bail out.
             if (queryToViewTableMappings == null) {
-                logger.info(currentClassName + " query to view table mapping null so return");
+                logger.warn(currentClassName + " query to view table mapping null so return");
                 return rewriteResults;
             }
             for (RelationMapping queryToViewTableMapping : queryToViewTableMappings) {
                 SlotMapping queryToViewSlotMapping = SlotMapping.generate(queryToViewTableMapping);
                 if (queryToViewSlotMapping == null) {
-                    logger.info(currentClassName + " query to view slot mapping null so continue");
+                    logger.warn(currentClassName + " query to view slot mapping null so continue");
                     continue;
                 }
                 LogicalCompatibilityContext compatibilityContext =
@@ -145,7 +145,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 List<Expression> pulledUpExpressions = StructInfo.isGraphLogicalEquals(queryStructInfo, viewStructInfo,
                         compatibilityContext);
                 if (pulledUpExpressions == null) {
-                    logger.info(currentClassName + " graph logical is not equals so continue");
+                    logger.debug(currentClassName + " graph logical is not equals so continue");
                     continue;
                 }
                 // set pulled up expression to queryStructInfo predicates and update related predicates
@@ -156,13 +156,13 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                         queryToViewSlotMapping);
                 // Can not compensate, bail out
                 if (compensatePredicates.isEmpty()) {
-                    logger.info(currentClassName + " predicate compensate fail so continue");
+                    logger.debug(currentClassName + " predicate compensate fail so continue");
                     continue;
                 }
-                Plan rewritedPlan;
+                Plan rewrittenPlan;
                 Plan mvScan = materializationContext.getMvScanPlan();
                 if (compensatePredicates.isAlwaysTrue()) {
-                    rewritedPlan = mvScan;
+                    rewrittenPlan = mvScan;
                 } else {
                     // Try to rewrite compensate predicates by using mv scan
                     List<Expression> rewriteCompensatePredicates = rewriteExpression(
@@ -172,37 +172,50 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                             queryToViewSlotMapping,
                             true);
                     if (rewriteCompensatePredicates.isEmpty()) {
-                        logger.info(currentClassName + " compensate predicate rewrite by view fail so continue");
+                        logger.debug(currentClassName + " compensate predicate rewrite by view fail so continue");
                         continue;
                     }
-                    rewritedPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
+                    rewrittenPlan = new LogicalFilter<>(Sets.newHashSet(rewriteCompensatePredicates), mvScan);
                 }
                 // Rewrite query by view
-                rewritedPlan = rewriteQueryByView(matchMode,
+                rewrittenPlan = rewriteQueryByView(matchMode,
                         queryStructInfo,
                         viewStructInfo,
                         queryToViewSlotMapping,
-                        rewritedPlan,
+                        rewrittenPlan,
                         materializationContext);
-                if (rewritedPlan == null) {
-                    logger.info(currentClassName + " rewrite query by view fail so continue");
+                if (rewrittenPlan == null) {
+                    logger.debug(currentClassName + " rewrite query by view fail so continue");
                     continue;
                 }
                 if (!checkPartitionIsValid(queryStructInfo, materializationContext, cascadesContext)) {
-                    logger.info(currentClassName + " check partition validation fail so continue");
+                    logger.debug(currentClassName + " check partition validation fail so continue");
+                    continue;
+                }
+                if (!checkOutput(queryPlan, rewrittenPlan)) {
+                    logger.debug(currentClassName + " check output validation fail so continue");
                     continue;
                 }
                 // run rbo job on mv rewritten plan
                 CascadesContext rewrittenPlanContext =
-                        CascadesContext.initContext(cascadesContext.getStatementContext(), rewritedPlan,
+                        CascadesContext.initContext(cascadesContext.getStatementContext(), rewrittenPlan,
                                 cascadesContext.getCurrentJobContext().getRequiredProperties());
                 Rewriter.getWholeTreeRewriter(cascadesContext).execute();
-                rewritedPlan = rewrittenPlanContext.getRewritePlan();
-                logger.info(currentClassName + "rewrite by materialized view success");
-                rewriteResults.add(rewritedPlan);
+                rewrittenPlan = rewrittenPlanContext.getRewritePlan();
+                logger.debug(currentClassName + "rewrite by materialized view success");
+                rewriteResults.add(rewrittenPlan);
             }
         }
         return rewriteResults;
+    }
+
+    protected boolean checkOutput(Plan sourcePlan, Plan rewrittenPlan) {
+        if (sourcePlan.getGroupExpression().isPresent() && !rewrittenPlan.getLogicalProperties().equals(
+                sourcePlan.getGroupExpression().get().getOwnerGroup().getLogicalProperties())) {
+            logger.error("rewrittenPlan output logical properties is not same with target group");
+            return false;
+        }
+        return true;
     }
 
     /**
@@ -276,10 +289,10 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 && relatedTalbeValidSet.containsAll(relatedTableSelectedPartitionToCheck);
     }
 
-    private MTMVCache getCacheFromMTMV(MTMV mtmv, CascadesContext cascadesContext) {
+    private MTMVCache getCacheFromMTMV(MTMV mtmv) {
         MTMVCache cache;
         try {
-            cache = mtmv.getOrGenerateCache(cascadesContext.getConnectContext());
+            cache = mtmv.getOrGenerateCache();
         } catch (AnalysisException analysisException) {
             logger.warn(this.getClass().getSimpleName() + " get mtmv cache analysisException", analysisException);
             return null;

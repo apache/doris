@@ -24,6 +24,7 @@ suite("aggregate_without_roll_up") {
     sql "SET enable_nereids_timeout = false"
     // tmp disable to rewrite, will be removed in the future
     sql "SET disable_nereids_rules = 'INFER_PREDICATES, ELIMINATE_OUTER_JOIN'"
+    sql "SET global enable_auto_analyze = false"
 
     sql """
     drop table if exists orders
@@ -170,7 +171,7 @@ suite("aggregate_without_roll_up") {
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all, " +
-            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, " +
+            "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end), " +
             "count(distinct case when O_SHIPPRIORITY > 2 and o_orderkey IN (2) then o_custkey else null end) as cnt_2 " +
             "from orders " +
             "group by " +
@@ -194,7 +195,7 @@ suite("aggregate_without_roll_up") {
      sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_0"""
 
 
-    def mv1_1 = "select O_SHIPPRIORITY, O_COMMENT, " +
+    def mv1_1 = "select O_SHIPPRIORITY, O_COMMENT, O_ORDERDATE, " +
             "count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (1, 3) then O_ORDERSTATUS else null end) as filter_cnt_1, " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (2) then O_ORDERSTATUS else null end) as filter_cnt_2, " +
             "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (3, 4) then O_ORDERSTATUS else null end) as filter_cnt_3, " +
@@ -218,9 +219,10 @@ suite("aggregate_without_roll_up") {
             "from orders " +
             "where O_ORDERDATE < '2023-12-30'" +
             "group by " +
+            "O_ORDERDATE, " +
             "O_SHIPPRIORITY, " +
             "O_COMMENT "
-    def query1_1 = "select O_SHIPPRIORITY, O_COMMENT, " +
+    def query1_1 = "select O_ORDERDATE, O_SHIPPRIORITY, O_COMMENT, " +
             "count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (1, 3) then O_ORDERSTATUS else null end) as filter_cnt_1, " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (2) then O_ORDERSTATUS else null end) as filter_cnt_2, " +
             "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (3, 4) then O_ORDERSTATUS else null end) as filter_cnt_3, " +
@@ -239,13 +241,13 @@ suite("aggregate_without_roll_up") {
             "from orders " +
             "where O_ORDERDATE < '2023-12-30' and O_ORDERDATE > '2023-12-01'" +
             "group by " +
+            "O_ORDERDATE, " +
             "O_SHIPPRIORITY, " +
             "O_COMMENT "
-    // should support but not, tmp
-//    order_qt_query1_1_before "${query1_1}"
-//    check_rewrite(mv1_1, query1_1, "mv1_1")
-//    order_qt_query1_1_after "${query1_1}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
+    order_qt_query1_1_before "${query1_1}"
+    check_rewrite(mv1_1, query1_1, "mv1_1")
+    order_qt_query1_1_after "${query1_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv1_1"""
 
 
     def mv1_2 = "select O_SHIPPRIORITY, O_COMMENT, " +
@@ -350,11 +352,11 @@ suite("aggregate_without_roll_up") {
 
     // without group, scalar aggregate
     def mv3_0 = "select count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (1, 3) then O_ORDERSTATUS else null end) as filter_cnt_1, " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (2) then O_ORDERSTATUS else null end) as filter_cnt_2, " +
-            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (3, 4) then O_ORDERSTATUS else null end) as filter_cnt_3, " +
+            "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (2) then O_ORDERSTATUS else null end), " +
+            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (3, 4) then O_ORDERSTATUS else null end), " +
             "count(distinct case when O_SHIPPRIORITY > 4 and O_ORDERKEY IN (5, 6) then O_ORDERSTATUS else null end) as filter_cnt_4, " +
-            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (2, 3) then O_ORDERSTATUS else null end) as filter_cnt_5, " +
-            "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (7, 9) then O_ORDERSTATUS else null end) as filter_cnt_6, " +
+            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (2, 3) then O_ORDERSTATUS else null end), " +
+            "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (7, 9) then O_ORDERSTATUS else null end), " +
             "count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (8, 10) then O_ORDERSTATUS else null end) as filter_cnt_7, " +
             "count(distinct case when O_SHIPPRIORITY > 4 and O_ORDERKEY IN (11, 13) then O_ORDERSTATUS else null end) as filter_cnt_8, " +
             "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (12, 11) then O_ORDERSTATUS else null end) as filter_cnt_9, " +
@@ -559,17 +561,17 @@ suite("aggregate_without_roll_up") {
     def mv17_1 = "select L_ORDERKEY, O_SHIPPRIORITY, O_COMMENT, " +
             "count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (1, 3) then O_ORDERSTATUS else null end) as filter_cnt_1, " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (2) then O_ORDERSTATUS else null end) as filter_cnt_2, " +
-            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (3, 4) then O_ORDERSTATUS else null end) as filter_cnt_3, " +
+            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (3, 4) then O_ORDERSTATUS else null end), " +
             "count(distinct case when O_SHIPPRIORITY > 4 and O_ORDERKEY IN (5, 6) then O_ORDERSTATUS else null end) as filter_cnt_4, " +
             "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (2, 3) then O_ORDERSTATUS else null end) as filter_cnt_5, " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (7, 9) then O_ORDERSTATUS else null end) as filter_cnt_6, " +
             "count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (8, 10) then O_ORDERSTATUS else null end) as filter_cnt_7, " +
             "count(distinct case when O_SHIPPRIORITY > 4 and O_ORDERKEY IN (11, 13) then O_ORDERSTATUS else null end) as filter_cnt_8, " +
-            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (12, 11) then O_ORDERSTATUS else null end) as filter_cnt_9, " +
+            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (12, 11) then O_ORDERSTATUS else null end), " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (14, 15) then O_ORDERSTATUS else null end) as filter_cnt_10, " +
             "count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (11, 12) then O_ORDERSTATUS else null end) as filter_cnt_11, " +
             "count(distinct case when O_SHIPPRIORITY > 4 and O_ORDERKEY IN (3, 6) then O_ORDERSTATUS else null end) as filter_cnt_12, " +
-            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (16, 19) then O_ORDERSTATUS else null end) as filter_cnt_13, " +
+            "count(distinct case when O_SHIPPRIORITY > 3 and O_ORDERKEY IN (16, 19) then O_ORDERSTATUS else null end), " +
             "count(distinct case when O_SHIPPRIORITY > 2 and O_ORDERKEY IN (20, 3) then O_ORDERSTATUS else null end) as filter_cnt_14, " +
             "count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (15, 19) then O_ORDERSTATUS else null end) as filter_cnt_15, " +
             "count(distinct case when O_SHIPPRIORITY > 1 and O_ORDERKEY IN (13, 21) then O_ORDERSTATUS else null end) as filter_cnt_16, " +
@@ -609,11 +611,10 @@ suite("aggregate_without_roll_up") {
             "lineitem.L_ORDERKEY, " +
             "orders.O_SHIPPRIORITY, " +
             "orders.O_COMMENT "
-    // rewrite success but cbo not chose, tmp
-//    order_qt_query17_1_before "${query17_1}"
-//    check_rewrite(mv17_1, query17_1, "mv17_1")
-//    order_qt_query17_1_after "${query17_1}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_1"""
+    order_qt_query17_1_before "${query17_1}"
+    check_rewrite(mv17_1, query17_1, "mv17_1")
+    order_qt_query17_1_after "${query17_1}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv17_1"""
 
     // filter outside + left + right
     def mv18_0 = "select l_shipdate, l_suppkey, " +
@@ -677,7 +678,7 @@ suite("aggregate_without_roll_up") {
 
     // without filter
     def mv19_0 = "select o_orderdate, l_partkey, l_suppkey, " +
-            "sum(o_totalprice) as sum_total, " +
+            "sum(o_totalprice), " +
             "max(o_totalprice) as max_total, " +
             "min(o_totalprice) as min_total, " +
             "count(*) as count_all " +
@@ -760,9 +761,8 @@ suite("aggregate_without_roll_up") {
             "orders " +
             "on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
             "where orders.O_ORDERDATE < '2023-12-30' and orders.O_ORDERDATE > '2023-12-01' "
-    // rewrite success but cbo not chose, tmp
-//    order_qt_query20_0_before "${query20_0}"
-//    check_rewrite(mv20_0, query20_0, "mv20_0")
-//    order_qt_query20_0_after "${query20_0}"
-//    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_0"""
+    order_qt_query20_0_before "${query20_0}"
+    check_rewrite(mv20_0, query20_0, "mv20_0")
+    order_qt_query20_0_after "${query20_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv20_0"""
 }
