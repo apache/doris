@@ -198,7 +198,6 @@ public class MTMV extends OlapTable {
         return Sets.newHashSet(split);
     }
 
-    // this should use the same connectContext with query, to use the same session variable
     public MTMVCache getOrGenerateCache() throws AnalysisException {
         if (cache == null) {
             writeMvLock();
