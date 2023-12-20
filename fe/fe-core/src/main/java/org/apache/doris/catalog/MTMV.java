@@ -165,7 +165,6 @@ public class MTMV extends OlapTable {
                         LOG.warn("generate cache failed", e);
                     }
                 }
-
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
             }
