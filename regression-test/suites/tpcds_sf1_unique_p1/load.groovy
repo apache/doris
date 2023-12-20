@@ -137,6 +137,9 @@ suite("load") {
                 assertTrue(json.NumberLoadedRows > 0 && json.LoadBytes > 0)
             }
         }
+        def row_count = sql """select count(*) from $tableName"""
+        logger.info("row count for table " + tableName + ":" + row_count)
+        assertTrue(row_count > 0)
         sql """SET query_timeout=1800"""
         sql """ ANALYZE TABLE $tableName WITH SYNC """
     }
