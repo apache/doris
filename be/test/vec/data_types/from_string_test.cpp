@@ -290,15 +290,19 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "0.0.0.0"),         // min case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "127.0.0.1"),       // rand case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255.255"), // max case
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "::"),                    // min case
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "2405:9800:9800:66::2"),  // rand case
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), // max case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "::"),              // min case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6,
+                                  "2405:9800:9800:66::2"), // rand case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6,
+                                  "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"), // max case
         };
         std::vector<FieldType_RandStr> error_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255.256"), // error case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255."), // error case
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffg"), // error case
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6, "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffff"), // error case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6,
+                                  "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffg"), // error case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6,
+                                  "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffff"), // error case
         };
         for (auto pair : ip_scala_field_types) {
             auto type = pair.first;
