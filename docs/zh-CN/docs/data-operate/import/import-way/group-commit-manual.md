@@ -38,11 +38,11 @@ Group Commit 写入有三种模式，分别是：
 
 * `sync_mode`
 
-Doris 根据负载、表的 `group_commit_interval`属性将多个导入在一个事务提交，事务提交后导入返回。
+Doris 根据负载和表的 `group_commit_interval`属性将多个导入在一个事务提交，事务提交后导入返回。
 
 * `async_mode`
 
-Doris 首先将数据写入 WAL，然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。
+Doris 首先将数据写入 WAL，然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。单次导入大于 TODO 时，会自动切换为`sync_mode`。
 
 ## Group Commit 使用方式
 
