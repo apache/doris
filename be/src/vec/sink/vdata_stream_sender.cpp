@@ -361,8 +361,10 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
     }
     _name = "VDataStreamSender";
     if (_enable_pipeline_exec) {
-        _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
-        _broadcast_pb_block_idx = 0;
+        _broadcast_pb_blocks = vectorized::BroadcastPBlockHolderQueue::create_shared();
+        for (int i = 0; i < config::num_broadcast_buffer; ++i) {
+            _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
+        }
     } else {
         _cur_pb_block = &_pb_block1;
     }
@@ -536,7 +538,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 }
             }
         } else if (_enable_pipeline_exec) {
-            BroadcastPBlockHolder* block_holder = nullptr;
+            std::shared_ptr<BroadcastPBlockHolder> block_holder = nullptr;
             RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -552,19 +554,15 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         block_holder->get_block()->Clear();
                     }
                     Status status;
-                    block_holder->ref(_channels.size());
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
                             if (channel->is_local()) {
-                                block_holder->unref();
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                 status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
-                        } else {
-                            block_holder->unref();
                         }
                     }
                     cur_block.clear_column_data();
@@ -777,18 +775,14 @@ void VDataStreamSender::_roll_pb_block() {
     _cur_pb_block = (_cur_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
 }
 
-Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** holder) {
-    if (_broadcast_pb_block_idx >= _broadcast_pb_blocks.size()) {
-        return Status::InternalError(
-                "get_next_available_buffer meet invalid index, index={}, size={}",
-                _broadcast_pb_block_idx, _broadcast_pb_blocks.size());
+Status VDataStreamSender::_get_next_available_buffer(
+        std::shared_ptr<BroadcastPBlockHolder>* holder) {
+    if (_broadcast_pb_blocks->empty()) {
+        return Status::InternalError("No broadcast buffer left!");
+    } else {
+        *holder = _broadcast_pb_blocks->pop();
+        return Status::OK();
     }
-    if (!_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
-        return Status::InternalError("broadcast_pb_blocks not available");
-    }
-    *holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx];
-    _broadcast_pb_block_idx++;
-    return Status::OK();
 }
 
 void VDataStreamSender::register_pipeline_channels(
@@ -803,16 +797,7 @@ bool VDataStreamSender::channel_all_can_write() {
         !_only_local_exchange) {
         // This condition means we need use broadcast buffer, so we should make sure
         // there are available buffer before running pipeline
-        if (_broadcast_pb_block_idx == _broadcast_pb_blocks.size()) {
-            _broadcast_pb_block_idx = 0;
-        }
-
-        for (; _broadcast_pb_block_idx < _broadcast_pb_blocks.size(); _broadcast_pb_block_idx++) {
-            if (_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
-                return true;
-            }
-        }
-        return false;
+        return !_broadcast_pb_blocks->empty();
     } else {
         for (auto channel : _channels) {
             if (!channel->can_write()) {
