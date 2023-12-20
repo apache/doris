@@ -208,38 +208,12 @@ public:
                                 to_string(_runtime_filter_type))),
               _profile(new RuntimeProfile(_name)) {}
 
-    IRuntimeFilter(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc)
-            : _query_ctx(query_ctx),
-              _pool(pool),
-              _filter_id(desc->filter_id),
-              _is_broadcast_join(true),
-              _has_remote_target(false),
-              _has_local_target(false),
-              _rf_state(RuntimeFilterState::NOT_READY),
-              _rf_state_atomic(RuntimeFilterState::NOT_READY),
-              _role(RuntimeFilterRole::PRODUCER),
-              _expr_order(-1),
-              _always_true(false),
-              _is_ignored(false),
-              registration_time_(MonotonicMillis()),
-              _wait_infinitely(query_ctx->runtime_filter_wait_infinitely()),
-              _rf_wait_time_ms(query_ctx->runtime_filter_wait_time_ms()),
-              _enable_pipeline_exec(query_ctx->enable_pipeline_exec()),
-              _runtime_filter_type(get_runtime_filter_type(desc)),
-              _name(fmt::format("RuntimeFilter: (id = {}, type = {})", _filter_id,
-                                to_string(_runtime_filter_type))),
-              _profile(new RuntimeProfile(_name)) {}
-
     ~IRuntimeFilter() = default;
 
     static Status create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                          const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                          const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
                          bool build_bf_exactly = false);
-
-    static Status create(QueryContext* query_ctx, ObjectPool* pool, const TRuntimeFilterDesc* desc,
-                         const TQueryOptions* query_options, const RuntimeFilterRole role,
-                         int node_id, IRuntimeFilter** res, bool build_bf_exactly = false);
 
     void copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context);
     Status copy_from_shared_context(vectorized::SharedRuntimeFilterContext& context);
@@ -307,8 +281,8 @@ public:
     static Status create_wrapper(RuntimeFilterParamsContext* state,
                                  const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
-    static Status create_wrapper(QueryContext* query_ctx, const UpdateRuntimeFilterParamsV2* param,
-                                 ObjectPool* pool,
+    static Status create_wrapper(RuntimeFilterParamsContext* state,
+                                 const UpdateRuntimeFilterParamsV2* param, ObjectPool* pool,
                                  std::unique_ptr<RuntimePredicateWrapper>* wrapper);
     void change_to_bloom_filter();
     Status init_bloom_filter(const size_t build_bf_cardinality);
@@ -370,7 +344,7 @@ public:
     int32_t wait_time_ms() const {
         int32_t res = 0;
         if (wait_infinitely()) {
-            res = _state == nullptr ? _query_ctx->execution_timeout() : _state->execution_timeout;
+            res = _state->execution_timeout;
             // Convert to ms
             res *= 1000;
         } else {
@@ -424,7 +398,6 @@ protected:
     }
 
     RuntimeFilterParamsContext* _state = nullptr;
-    QueryContext* _query_ctx = nullptr;
     ObjectPool* _pool = nullptr;
     // _wrapper is a runtime filter function wrapper
     // _wrapper should alloc from _pool

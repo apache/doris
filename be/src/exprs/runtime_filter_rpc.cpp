@@ -68,8 +68,8 @@ Status IRuntimeFilter::push_to_remote(RuntimeFilterParamsContext* state,
     pquery_id->set_lo(_state->query_id.lo());
 
     auto pfragment_instance_id = _rpc_context->request.mutable_fragment_instance_id();
-    pfragment_instance_id->set_hi(state->fragment_instance_id.hi());
-    pfragment_instance_id->set_lo(state->fragment_instance_id.lo());
+    pfragment_instance_id->set_hi(state->fragment_instance_id().hi());
+    pfragment_instance_id->set_lo(state->fragment_instance_id().lo());
 
     _rpc_context->request.set_filter_id(_filter_id);
     _rpc_context->request.set_opt_remote_rf(opt_remote_rf);
