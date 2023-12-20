@@ -39,7 +39,7 @@
 namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env), _stop_background_threads_latch(1), _stop(false) {
-    doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
+    doris::vectorized::WalReader::string_split(wal_dir_list, ";", _wal_dirs);
     _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
     _cv = std::make_shared<std::condition_variable>();
     static_cast<void>(ThreadPoolBuilder("GroupCommitReplayWalThreadPool")
