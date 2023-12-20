@@ -281,7 +281,7 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 
 >In community CI system, `enable_debug_points` configuration of FE and BE are true by default.
 
-The Regression test framework also provides methods to activate and deactivate perticular debug point, <br>
+The Regression test framework also provides methods to activate and deactivate a particular debug point, <br>
 they are declared as below:
 ```groovy
 // "name" is the debug point to activate, "params" is a list of key-value pairs passed to debug point
