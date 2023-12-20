@@ -434,7 +434,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 1 row in set (0.00 sec)
 ```
 
-**2.0-beta(含2.0-beta)后，可通过`show builde index`来查看存量数据创建索引进展：**
+**2.0-beta(含2.0-beta)后，可通过`show build index`来查看存量数据创建索引进展：**
 ```sql
 -- 若table没有分区，PartitionName默认就是TableName
 mysql> SHOW BUILD INDEX;
