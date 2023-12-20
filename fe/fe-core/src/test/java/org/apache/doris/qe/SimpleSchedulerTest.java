@@ -17,7 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
 import org.apache.doris.system.Backend;
