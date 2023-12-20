@@ -121,7 +121,6 @@ partitionSpec
     // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
     // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
     // | PARTITIONS WITH RECENT
-        LEFT_PAREN referenceSlots+=errorCapturingIdentifier (COMMA referenceSlots+=errorCapturingIdentifier)* RIGHT_PAREN
     ;
 
 dataDesc
