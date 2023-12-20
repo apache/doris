@@ -155,4 +155,80 @@ suite("test_subquery") {
     qt_sql_mark_join """with A as (select count(*) n1 from test_one_row_relation where exists (select 1 from test_one_row_relation t where t.user_id = test_one_row_relation.user_id) or 1 = 1) select * from A;"""
 
     sql """drop table if exists test_one_row_relation;"""
+
+    sql """drop table if exists subquery_test_t1;"""
+    sql """drop table if exists subquery_test_t2;"""
+    sql """create table subquery_test_t1 (
+                id int
+            )
+            UNIQUE KEY (`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
+    sql """create table subquery_test_t2 (
+                id int
+            )
+            UNIQUE KEY (`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
+
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not (
+                            exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 5) 
+                            and
+                            exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
+                        ); """)
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
+                        );""")
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
+                        );  """)
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
+                        ); """)
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            ( subquery_test_t1.id < 100 or subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6) )
+                        ); """)
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            ( subquery_test_t1.id < 100 or case when subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6) then 1 else 0 end )
+                        );""")
+        contains("isMarkJoin=true")
+    }
 }
