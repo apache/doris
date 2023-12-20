@@ -90,7 +90,7 @@ suite("test_primary_key_partial_update_complex_type_schema_change", "p0") {
 
             // add new array column
             sql """
-                ALTER TABLE ${tableName} ADD COLUMN c_array ARRAY NULL;
+                ALTER TABLE ${tableName} ADD COLUMN c_array ARRAY<INT> NULL;
             """
 
             sql """
@@ -133,7 +133,7 @@ suite("test_primary_key_partial_update_complex_type_schema_change", "p0") {
 
             // add new struct column
             sql """
-                ALTER TABLE ${tableName} ADD COLUMN c_struct STRUCT NULL;
+                ALTER TABLE ${tableName} ADD COLUMN c_struct STRUCT<a:INT, b:INT> NULL;
             """
 
             sql """
