@@ -386,7 +386,7 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
   * 为了防止多个小的导入攒到一个内部导入中，导致WAL占用过多的磁盘空间的问题，当总WAL文件大小超过配置阈值(参考相关系统配置中的`group_commit_wal_max_disk_limit`)时，会阻塞group commit写入，直到磁盘空间释放或超时报错
 
-  * 当发生重量级schema change时，为了保证WAL能够适配表的schema，在schema change最后的fe修改元数据阶段，会拒绝group commit写入，客户端收到`insert table ${table_name} is blocked on schema change`异常，客户端重试即可
+  * 当发生重量级 schema change（目前加减列、修改 varchar 长度和重命名列是轻量级 schema change，其它的是重量级 schema change） 时，为了保证WAL能够适配表的 schema，在schema change最后的fe修改元数据阶段，会拒绝group commit写入，客户端收到`insert table ${table_name} is blocked on schema change`异常，客户端重试即可
 
 ## 相关系统配置
 
