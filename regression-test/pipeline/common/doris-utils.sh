@@ -275,6 +275,10 @@ function check_clickbench_performance_result() {
     fi
 }
 
+function check_load_performance() {
+    echo "TODO"
+}
+
 get_session_variable() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     usage="

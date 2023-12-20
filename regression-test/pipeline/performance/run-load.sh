@@ -649,7 +649,6 @@ exit_flag=0
 
     echo "#### 1. Restart doris"
     if ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
-    # if ${DEBUG} || ! restart_doris; then echo "ERROR: Restart doris failed" && exit 1; fi
 
     echo "#### 3. run streamload test"
     set_session_variable runtime_filter_mode global
@@ -674,12 +673,12 @@ exit_flag=0
 exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
-# if [[ ${exit_flag} != "0" ]]; then
-#     print_doris_fe_log
-#     print_doris_be_log
-#     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
-#         upload_doris_log_to_oss "${file_name}"
-#     fi
-# fi
+if [[ ${exit_flag} != "0" ]]; then
+    print_doris_fe_log
+    print_doris_be_log
+    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+        upload_doris_log_to_oss "${file_name}"
+    fi
+fi
 
 exit "${exit_flag}"

@@ -83,7 +83,11 @@ exit_flag=0
         (
             cd "${TPCDS_DATA_DIR}" || exit 1
             declare -A table_file_count
-            table_file_count=(['income_band']=1 ['ship_mode']=1 ['warehouse']=1 ['reason']=1 ['web_site']=1 ['call_center']=1 ['store']=1 ['promotion']=1 ['household_demographics']=1 ['web_page']=1 ['catalog_page']=1 ['time_dim']=1 ['date_dim']=1 ['item']=1 ['customer_demographics']=10 ['customer_address']=1 ['customer']=1 ['web_returns']=1 ['catalog_returns']=1 ['store_returns']=1 ['inventory']=10 ['web_sales']=1 ['catalog_sales']=1 ['store_sales']=1)
+            if [[ ${SF} == "1" ]]; then
+                table_file_count=(['income_band']=1 ['ship_mode']=1 ['warehouse']=1 ['reason']=1 ['web_site']=1 ['call_center']=1 ['store']=1 ['promotion']=1 ['household_demographics']=1 ['web_page']=1 ['catalog_page']=1 ['time_dim']=1 ['date_dim']=1 ['item']=1 ['customer_demographics']=10 ['customer_address']=1 ['customer']=1 ['web_returns']=1 ['catalog_returns']=1 ['store_returns']=1 ['inventory']=10 ['web_sales']=1 ['catalog_sales']=1 ['store_sales']=1)
+            elif [[ ${SF} == "100" ]]; then
+                table_file_count=(['income_band']=1 ['ship_mode']=1 ['warehouse']=1 ['reason']=1 ['web_site']=1 ['call_center']=1 ['store']=1 ['promotion']=1 ['household_demographics']=1 ['web_page']=1 ['catalog_page']=1 ['time_dim']=1 ['date_dim']=1 ['item']=1 ['customer_demographics']=10 ['customer_address']=1 ['customer']=1 ['web_returns']=1 ['catalog_returns']=1 ['store_returns']=1 ['inventory']=10 ['web_sales']=1 ['catalog_sales']=1 ['store_sales']=1)
+            fi
             for table_name in ${!table_file_count[*]}; do
                 if [[ ${table_file_count[${table_name}]} -eq 1 ]]; then
                     url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpcds/sf${SF}/${table_name}_1_10.dat.gz"
@@ -130,6 +134,7 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpcds-
     echo "#### 4. comment result on tpcds"
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     create_an_issue_comment_tpcds "${pull_request_num:-}" "${comment_body}"
+    rm -f result.csv
 )
 exit_flag="$?"
 

@@ -136,16 +136,17 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-q
     echo "#### 5. comment result on tpch"
     comment_body=$(echo "${comment_body}" | sed -e ':a;N;$!ba;s/\t/\\t/g;s/\n/\\n/g') # 将所有的 Tab字符替换为\t 换行符替换为\n
     create_an_issue_comment_tpch "${pull_request_num:-}" "${comment_body}"
+    rm -f result.csv
 )
 exit_flag="$?"
 
-echo "#### 5. check if need backup doris logs"
-if [[ ${exit_flag} != "0" ]]; then
-    print_doris_fe_log
-    print_doris_be_log
-    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
-        upload_doris_log_to_oss "${file_name}"
-    fi
-fi
+# echo "#### 5. check if need backup doris logs"
+# if [[ ${exit_flag} != "0" ]]; then
+#     print_doris_fe_log
+#     print_doris_be_log
+#     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+#         upload_doris_log_to_oss "${file_name}"
+#     fi
+# fi
 
 exit "${exit_flag}"
