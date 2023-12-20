@@ -153,7 +153,7 @@ curl --location-trusted -u {user}:{passwd} -T data.csv -H "group_commit:async_mo
     "WriteDataTimeMs": 26
 }
 
-# 返回的GroupCommit为true，说明进入了攒批的流程
+# 返回的GroupCommit为true，说明进入了group commit的流程
 # 返回的Label是group_commit开头的，是真正消费数据的导入关联的label
 ```
 
@@ -180,7 +180,7 @@ curl --location-trusted -u {user}:{passwd} -T data.csv -H "group_commit:sync_mod
     "WriteDataTimeMs": 10038
 }
 
-# 返回的GroupCommit为true，说明进入了攒批的流程
+# 返回的GroupCommit为true，说明进入了group commit的流程
 # 返回的Label是group_commit开头的，是真正消费数据的导入关联的label
 ```
 
@@ -211,7 +211,7 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:async_m
     "WriteDataTimeMs": 23
 }
 
-# 返回的GroupCommit为true，说明进入了攒批的流程
+# 返回的GroupCommit为true，说明进入了group commit的流程
 # 返回的Label是group_commit开头的，是真正消费数据的导入关联的label
 ```
 
@@ -238,7 +238,7 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
     "WriteDataTimeMs": 10034
 }
 
-# 返回的GroupCommit为true，说明进入了攒批的流程
+# 返回的GroupCommit为true，说明进入了group commit的流程
 # 返回的Label是group_commit开头的，是真正消费数据的导入关联的label
 ```
 
@@ -334,9 +334,9 @@ private static void groupCommitInsertBatch() throws Exception {
 
 关于**JDBC**的更多用法，参考[使用Insert方式同步数据](../import-scenes/jdbc-load.md)。
 
-## 修改攒批默认提交间隔
+## 修改group commit默认提交间隔
 
-攒批的默认提交间隔为10秒，用户可以通过修改表的配置，调整攒批的提交间隔：
+group commit的默认提交间隔为10秒，用户可以通过修改表的配置，调整group commit的提交间隔：
 
 ```sql
 # 修改提交间隔为2秒
@@ -345,7 +345,7 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
 ## 使用限制
 
-* 当开启了攒批模式，系统会判断用户发起的`INSERT INTO VALUES`语句是否符合攒批的条件，如果符合，该语句的执行会进入到攒批写入中。主要的判断逻辑包括：
+* 当开启了group commit模式，系统会判断用户发起的`INSERT INTO VALUES`语句是否符合group commit的条件，如果符合，该语句的执行会进入到group commit写入中。主要的判断逻辑包括：
 
   + 不是事务写入，即`Begin`; `INSERT INTO VALUES`; `COMMIT`方式
 
@@ -356,7 +356,7 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
   + 不是列更新写入
 
 
-* 当开启了攒批模式，系统会判断用户发起的`Stream Load`和`Http Stream`是否符合攒批的条件，如果符合，该导入的执行会进入到攒批写入中。主要的判断逻辑包括：
+* 当开启了group commit模式，系统会判断用户发起的`Stream Load`和`Http Stream`是否符合group commit的条件，如果符合，该导入的执行会进入到group commit写入中。主要的判断逻辑包括：
 
   + 不是两阶段提交
 
@@ -369,24 +369,24 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
   * 在默认的导入中，`filter_ratio`是导入完成后，通过失败的行数和总行数计算，决定是否commit transaction。
 
-  * 在攒批模式下，由于多个用户发起的导入会被一个内部导入执行，虽然可以计算出每个导入的`filter_ratio`，但是数据一旦进入内部导入，就只能commit transaction
+  * 在group commit模式下，由于多个用户发起的导入会被一个内部导入执行，虽然可以计算出每个导入的`filter_ratio`，但是数据一旦进入内部导入，就只能commit transaction
 
-  * 但攒批模式支持了一定程度的`max_filter_ratio`语义，当导入的总行数不高于`group_commit_memory_rows_for_max_filter_ratio`(配置在be.conf中，默认为10000行)，会把数据缓存起来，计算出真正的`filter_ratio`，如果超过了`max_filter_ratio`，会把数据丢弃，用户导入失败
+  * 但group commit模式支持了一定程度的`max_filter_ratio`语义，当导入的总行数不高于`group_commit_memory_rows_for_max_filter_ratio`(配置在be.conf中，默认为10000行)，会把数据缓存起来，计算出真正的`filter_ratio`，如果超过了`max_filter_ratio`，会把数据丢弃，用户导入失败
 
 
 * WAL限制
 
-  * 对于`async_mode`的攒批写入，会把数据写入WAL。如果内部写入成功，则WAL被立刻删除；如果内部导入失败，通过导入WAL的方法来恢复数据
+  * 对于`async_mode`的group commit写入，会把数据写入WAL。如果内部写入成功，则WAL被立刻删除；如果内部导入失败，通过导入WAL的方法来恢复数据
 
   * 目前WAL文件只存储在一个BE上，如果这个BE磁盘损坏或文件误删等，可能导入丢失部分数据。
 
   * 当下线BE节点时，请使用[`DECOMMISSION`](../../../sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND.md)命令，安全下线节点，防止该节点下线前WAL文件还没有全部处理完成，导致部分数据丢失
 
-  * 对于`async_mode`的攒批写入，如果导入数据过大(超过WAL单目录的80%)，或不知道数据量的chunked stream load，为了防止生成的WAL占用太多的磁盘空间，会退化成`sync_mode`
+  * 对于`async_mode`的group commit写入，如果导入数据过大(超过WAL单目录的80%)，或不知道数据量的chunked stream load，为了防止生成的WAL占用太多的磁盘空间，会退化成`sync_mode`
 
-  * 为了防止多个小的导入攒到一个内部导入中，导致WAL占用过多的磁盘空间的问题，当总WAL文件大小超过配置阈值(参考相关系统配置中的`group_commit_wal_max_disk_limit`)时，会阻塞攒批写入，直到磁盘空间释放或超时报错
+  * 为了防止多个小的导入攒到一个内部导入中，导致WAL占用过多的磁盘空间的问题，当总WAL文件大小超过配置阈值(参考相关系统配置中的`group_commit_wal_max_disk_limit`)时，会阻塞group commit写入，直到磁盘空间释放或超时报错
 
-  * 当发生重量级schema change时，为了保证WAL能够适配表的schema，在schema change最后的fe修改元数据阶段，会拒绝攒批写入，客户端收到`insert table ${table_name} is blocked on schema change`异常，客户端重试即可
+  * 当发生重量级schema change时，为了保证WAL能够适配表的schema，在schema change最后的fe修改元数据阶段，会拒绝group commit写入，客户端收到`insert table ${table_name} is blocked on schema change`异常，客户端重试即可
 
 ## 相关系统配置
 
@@ -406,4 +406,4 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
 + group_commit_wal_max_disk_limit
 
-  WAL文件的最大磁盘占用，当总WAL文件大小超过该值时，会阻塞攒批写入，直到磁盘空间释放或超时报错。默认为10%。
+  WAL文件的最大磁盘占用，当总WAL文件大小超过该值时，会阻塞group commit写入，直到磁盘空间释放或超时报错。默认为10%。
