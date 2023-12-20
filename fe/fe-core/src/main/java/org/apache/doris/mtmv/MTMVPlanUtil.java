@@ -45,7 +45,7 @@ public class MTMVPlanUtil {
 
     public static ConnectContext createMTMVContext(MTMV mtmv) throws AnalysisException {
         ConnectContext ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setEnv(Env.getServingEnv());
         ctx.setQualifiedUser(Auth.ADMIN_USER);
         ctx.setCurrentUserIdentity(UserIdentity.ADMIN);
         ctx.getState().reset();
