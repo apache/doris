@@ -223,7 +223,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 this->_scanner_scan(this, ctx, scanner);
                 // will release scanner if it is the last one, task lock is hold here, to ensure
                 // that scanner could call scannode's method during deconstructor
-                Dependencyscanner.reset();
+                scanner.reset();
             });
             if (s.ok()) {
                 this_run.erase(iter++);
@@ -249,7 +249,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                         this->_scanner_scan(this, ctx, scanner);
                         // will release scanner if it is the last one, task lock is hold here, to ensure
                         // that scanner could call scannode's method during deconstructor
-                        Dependencyscanner.reset();
+                        scanner.reset();
                     };
                     SimplifiedScanTask simple_scan_task = {work_func, ctx};
                     ret = scan_sche->get_scan_queue()->try_put(simple_scan_task);
@@ -265,7 +265,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                         this->_scanner_scan(this, ctx, scanner);
                         // will release scanner if it is the last one, task lock is hold here, to ensure
                         // that scanner could call scannode's method during deconstructor
-                        Dependencyscanner.reset();
+                        scanner.reset();
                     };
                     task.priority = nice;
                     ret = _local_scan_thread_pool->offer(task);
@@ -282,7 +282,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                     this->_scanner_scan(this, ctx, scanner);
                     // will release scanner if it is the last one, task lock is hold here, to ensure
                     // that scanner could call scannode's method during deconstructor
-                    Dependencyscanner.reset();
+                    scanner.reset();
                 };
                 task.priority = nice;
                 ret = _remote_scan_thread_pool->offer(task);
