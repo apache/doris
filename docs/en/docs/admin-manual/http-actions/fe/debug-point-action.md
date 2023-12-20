@@ -279,7 +279,7 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 
 ## Debug Points in Regression Test
 
->In community CI system, `enable_debug_points` configuration of FE and BE are true by default.
+>In community's CI system, `enable_debug_points` configuration of FE and BE are true by default.
 
 The Regression test framework also provides methods to activate and deactivate a particular debug point, <br>
 they are declared as below:
@@ -291,14 +291,14 @@ def enableDebugPointForAllBEs(String name, Map<String, String> params = null);
 def disableDebugPointForAllFEs(String name);
 def disableDebugPointForAllFEs(String name);
 ```
-`enableDebugPointForAllFEs()` or `enableDebugPointForAllBEs()` needs to be called before test actions to generate error, <br>
-and `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` needs to be called later.
+`enableDebugPointForAllFEs()` or `enableDebugPointForAllBEs()` needs to be called before the test actions you want to generate error, <br>
+and `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` needs to be called afterward.
 
 ### Concurrent Issue
 
-Enabled debug points affects FE or BE globally, which could cause other concurrent tests of a pull request to fail unexpectly. <br>
+Enabled debug points affects FE or BE globally, which could cause other concurrent tests to fail unexpectly in your pull request. <br>
 To avoid this, there's a convension that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0, <br>
-and their group name must be "nonConcurrent", because community CI system will run them serially. 
+and their group name must be "nonConcurrent", as these regression tests will be executed serially by pull request workflow. 
 
 ### Examples
 
@@ -308,11 +308,12 @@ and their group name must be "nonConcurrent", because community CI system will r
 suite('debugpoint_action', 'nonConcurrent') {
     try {
         // Activate debug point named "PublishVersionDaemon.stop_publish" in all FE
-        // and pass timeout
-        // "execute" and "timeout" are pre-existing parameters, same as above
+        // and pass parameter "timeout"
+        // "execute" and "timeout" are pre-existing parameters, usage is mentioned above
         GetDebugPoint().enableDebugPointForAllFEs('PublishVersionDaemon.stop_publish', [timeout:1])
+
         // Activate debug point named "Tablet.build_tablet_report_info.version_miss" in all BE
-        // and pass: tablet_id, version_miss and timeout
+        // and pass parameter "tablet_id", "version_miss" and "timeout"
         GetDebugPoint().enableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss',
                                                   [tablet_id:'12345', version_miss:true, timeout:1])
 
@@ -328,6 +329,7 @@ suite('debugpoint_action', 'nonConcurrent') {
         order_qt_select_1_1 'SELECT * FROM tbl_1'
 
     } finally {
+        // Deactivate debug points
         GetDebugPoint().disableDebugPointForAllFEs('PublishVersionDaemon.stop_publish')
         GetDebugPoint().disableDebugPointForAllBEs('Tablet.build_tablet_report_info.version_miss')
     }
