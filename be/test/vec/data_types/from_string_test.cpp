@@ -298,7 +298,7 @@ TEST(FromStringTest, ScalaWrapperFieldVsDataType) {
         };
         std::vector<FieldType_RandStr> error_scala_field_types = {
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255.256"), // error case
-                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255."), // error case
+                FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV4, "255.255.255."),    // error case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6,
                                   "ffff:ffff:ffff:ffff:ffff:ffff:ffff:fffg"), // error case
                 FieldType_RandStr(FieldType::OLAP_FIELD_TYPE_IPV6,
