@@ -868,7 +868,7 @@ public:
                     if constexpr (!std::is_same_v<ResultDataType, InvalidType>) {
                         need_replace_null_data_to_default_ =
                                 IsDataTypeDecimal<ResultDataType> ||
-                                (name == "pow" &&
+                                (get_name() == "pow" &&
                                  std::is_floating_point_v<typename ResultDataType::FieldType>);
                         if constexpr (IsDataTypeDecimal<LeftDataType> &&
                                       IsDataTypeDecimal<RightDataType>) {
