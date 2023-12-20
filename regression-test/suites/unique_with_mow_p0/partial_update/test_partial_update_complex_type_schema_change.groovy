@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_primary_key_partial_update_complex_type", "p0") {
+suite("test_primary_key_partial_update_complex_type_schema_change", "p0") {
 
     String db = context.config.getDbNameByFile(context.file)
     sql "select 1;" // to create database
@@ -26,26 +26,32 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
 
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
-            def tableName = "test_primary_key_partial_update_complex_type"
+            def tableName = "test_primary_key_partial_update_complex_type_schema_change"
             // create table
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql """ CREATE TABLE ${tableName} (
                         `id` int(11) NOT NULL COMMENT "用户 ID",
-                        `c_varchar` varchar(65533) NULL COMMENT "用户姓名",
-                        `c_jsonb` JSONB NULL,
-                        `c_array` ARRAY<INT> NULL,
-                        `c_struct` STRUCT<a:INT, b:INT> NULL)
+                        `c_varchar` varchar(65533) NULL COMMENT "用户姓名")
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
                         "store_row_column" = "${use_row_store}"); """
 
             // insert 2 lines
             sql """
-                insert into ${tableName} values(2, "doris2", '{"jsonk3": 333, "jsonk4": 444}', [300, 400], {3, 4})
+                insert into ${tableName} values(2, "doris2")
             """
 
             sql """
-                insert into ${tableName} values(1, "doris1", '{"jsonk1": 123, "jsonk2": 456}', [100, 200], {1, 2})
+                insert into ${tableName} values(1, "doris1")
+            """
+
+            // add new jsonb column
+            sql """
+                ALTER TABLE ${tableName} ADD COLUMN c_jsonb JSONB NULL;
+            """
+
+            sql """
+                insert into ${tableName} values(2, "doris3", '{"jsonk3": 333, "jsonk4": 444}')
             """
 
             // update varchar column
@@ -82,6 +88,32 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                 select * from ${tableName} order by id;
             """
 
+            // add new array column
+            sql """
+                ALTER TABLE ${tableName} ADD COLUMN c_array ARRAY NULL;
+            """
+
+            sql """
+                insert into ${tableName} values(2, "doris3", '{"jsonk3": 333, "jsonk4": 444}', [300, 400])
+            """
+
+            // update varchar column
+            streamLoad {
+                table "${tableName}"
+
+                set 'partial_columns', 'true'
+                set 'columns', 'id,c_varchar'
+
+                file 'complex_type/varchar.tsv'
+                time 10000 // limit inflight 10s
+            }
+
+            sql "sync"
+
+            qt_update_varchar"""
+                select * from ${tableName} order by id;
+            """
+
             // update array column, update 2 rows, add 1 new row
             streamLoad {
                 table "${tableName}"
@@ -96,6 +128,32 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
             sql "sync"
 
             qt_update_array"""
+                select * from ${tableName} order by id;
+            """
+
+            // add new struct column
+            sql """
+                ALTER TABLE ${tableName} ADD COLUMN c_struct STRUCT NULL;
+            """
+
+            sql """
+                insert into ${tableName} values(2, "doris3", '{"jsonk3": 333, "jsonk4": 444}', [300, 400], {3, 4})
+            """
+
+            // update varchar column
+            streamLoad {
+                table "${tableName}"
+
+                set 'partial_columns', 'true'
+                set 'columns', 'id,c_varchar'
+
+                file 'complex_type/varchar.tsv'
+                time 10000 // limit inflight 10s
+            }
+
+            sql "sync"
+
+            qt_update_varchar"""
                 select * from ${tableName} order by id;
             """
 
