@@ -459,8 +459,14 @@ protected:
     std::unique_ptr<RuntimeProfile> _profile;
     RuntimeProfile::Counter* _merge_local_rf_timer = nullptr;
     bool _opt_remote_rf;
+    // `_is_global` indicates whether this runtime filter is global on this BE.
+    // All runtime filters should be merged on each BE if it is global.
+    // This is improvement for pipelineX.
     const bool _is_global = false;
     std::mutex _local_merge_mutex;
+    // There are `_parallel_build_tasks` pipeline tasks to build runtime filter.
+    // We should call `signal` once all runtime filters are done and merged to one
+    // (e.g. `_merged_rf_num` is equal to `_parallel_build_tasks`).
     int _merged_rf_num = 0;
     const int _parallel_build_tasks = -1;
 

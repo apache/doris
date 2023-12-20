@@ -125,6 +125,8 @@ public:
     bool need_to_local_shuffle(const DataDistribution target_data_distribution) const {
         if (target_data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE ||
             target_data_distribution.distribution_type == ExchangeType::HASH_SHUFFLE) {
+            // If `_data_distribution` of this pipeline does not match the `target_data_distribution`,
+            // we should do local shuffle.
             return target_data_distribution.operator!=(_data_distribution);
         }
         return true;
@@ -218,11 +220,8 @@ private:
     bool _is_root_pipeline = false;
     bool _collect_query_statistics_with_every_batch = false;
 
-    // If source operator meets one of all conditions below:
-    // 1. is scan operator with Hash Bucket
-    // 2. is exchange operator with Hash/BucketHash partition
-    // then set `_need_to_local_shuffle` to false which means we should use local shuffle in this fragment
-    // because data already be partitioned by storage/shuffling.
+    // Input data distribution of this pipeline. We do local exchange when input data distribution
+    // does not match the target data distribution.
     DataDistribution _data_distribution {ExchangeType::NOOP};
 
     // How many tasks should be created ?

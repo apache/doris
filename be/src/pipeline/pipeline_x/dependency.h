@@ -561,11 +561,17 @@ public:
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
+    // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
     HASH_SHUFFLE = 1,
+    // Round-robin passthrough data blocks.
     PASSTHROUGH = 2,
+    // Shuffle data by Crc32HashPartitioner<ShuffleChannelIds> (e.g. same as storage engine).
     BUCKET_HASH_SHUFFLE = 3,
+    // Passthrough data blocks to all channels.
     BROADCAST = 4,
+    // Passthrough data to channels evenly in an adaptive way.
     ADAPTIVE_PASSTHROUGH = 5,
+    // Send all data to the first channel.
     PASS_TO_ONE = 6,
 };
 
