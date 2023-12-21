@@ -717,3 +717,9 @@ true
 -- !sql --
 
 
+-- qt_sql_unhex_to_bitmap_1
+1   3
+2   2
+-- qt_sql_unhex_to_bitmap_2
+1   3
+2   2

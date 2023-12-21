@@ -70,6 +70,7 @@
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/util.hpp"
+#include "exprs/math_functions.h"
 
 namespace doris {
 class FunctionContext;
@@ -296,6 +297,34 @@ struct BitmapFromBase64 {
         return Status::OK();
     }
 };
+struct BitmapFromUnhex {
+    static constexpr auto name = "unhex_to_bitmap";
+
+    static Status vector(const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                         std::vector<BitmapValue>& res, NullMap& null_map) {
+        auto size = offsets.size();
+        res.reserve(size);
+        for (size_t i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            int64_t str_size = offsets[i] - offsets[i - 1] - 1;
+
+            int cipher_len = str_size / 2;
+            char dst[cipher_len];
+            MathFunctions::hex_decode(raw_str, str_size, dst);
+            BitmapValue bitmap;
+            if (UNLIKELY(!bitmap.deserialize(dst))) {
+                res.emplace_back();
+                null_map[i] = 1;
+                continue;
+            }
+
+            res.emplace_back(std::move(bitmap));
+        }
+        return Status::OK();
+    }
+};
+
+
 struct BitmapFromArray {
     using ArgumentType = DataTypeArray;
     static constexpr auto name = "bitmap_from_array";
@@ -1248,6 +1277,7 @@ using FunctionToBitmap = FunctionAlwaysNotNullable<ToBitmap>;
 using FunctionToBitmapWithCheck = FunctionAlwaysNotNullable<ToBitmapWithCheck, true>;
 
 using FunctionBitmapFromString = FunctionBitmapAlwaysNull<BitmapFromString>;
+using FunctionBitmapFromUnhex = FunctionBitmapAlwaysNull<BitmapFromUnhex>;
 using FunctionBitmapFromArray = FunctionBitmapAlwaysNull<BitmapFromArray>;
 using FunctionBitmapHash = FunctionAlwaysNotNullable<BitmapHash<32>>;
 using FunctionBitmapHash64 = FunctionAlwaysNotNullable<BitmapHash<64>>;
@@ -1282,6 +1312,7 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapFromString>();
     factory.register_function<FunctionBitmapToBase64>();
     factory.register_function<FunctionBitmapFromBase64>();
+    factory.register_function<FunctionBitmapFromUnhex>();
     factory.register_function<FunctionBitmapFromArray>();
     factory.register_function<FunctionBitmapHash>();
     factory.register_function<FunctionBitmapHash64>();

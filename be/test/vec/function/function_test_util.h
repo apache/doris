@@ -51,6 +51,8 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/simple_function_factory.h"
+#include "vec/data_types/data_type_bitmap.h"
+#include "vec/data_types/data_type_hll.h"
 
 namespace doris {
 namespace vectorized {
@@ -295,6 +297,17 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
     ColumnPtr column = block.get_columns()[result];
     EXPECT_TRUE(column != nullptr);
 
+    ColumnPtr nested_col = nullptr;
+    ColumnPtr null_map_col = ColumnUInt8::create(row_size, 0);
+    if (doris::vectorized::is_column_nullable(*column)) {
+        const auto& null_column = check_and_get_column<ColumnNullable>(column);
+        nested_col = null_column->get_nested_column_ptr();
+        null_map_col = null_column->get_null_map_column_ptr();
+    } else {
+        nested_col = column;
+    }
+    const auto& null_map = check_and_get_column<ColumnUInt8>(null_map_col)->get_data();
+
     for (int i = 0; i < row_size; ++i) {
         auto check_column_data = [&]() {
             if constexpr (std::is_same_v<ReturnType, DataTypeJsonb>) {
@@ -334,6 +347,22 @@ Status check_function(const std::string& func_name, const InputTypeSet& input_ty
                                      std::is_same_v<ReturnType, DataTypeTime>) {
                     const auto& column_data = field.get<DataTypeFloat64::FieldType>();
                     EXPECT_DOUBLE_EQ(expect_data, column_data) << " at row " << i;
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeBitMap>) {
+                    if (null_map[i]) {
+                        EXPECT_TRUE(expect_data->empty()) << " at row " << i;
+                    } else {
+                        auto& bitmap_value =
+                                check_and_get_column<ColumnBitmap>(nested_col)->get_data()[i];
+                        EXPECT_EQ(*expect_data, bitmap_value) << " at row " << i;
+                    }
+                } else if constexpr (std::is_same_v<ReturnType, DataTypeHLL>) {
+                    if (null_map[i]) {
+                        EXPECT_TRUE(expect_data->empty()) << " at row " << i;
+                    } else {
+                        auto& hll_value =
+                                check_and_get_column<ColumnHLL>(nested_col)->get_data()[i];
+                        EXPECT_EQ(*expect_data, hll_value) << " at row " << i;
+                    }
                 } else {
                     const auto& column_data = field.get<typename ReturnType::FieldType>();
                     EXPECT_EQ(expect_data, column_data) << " at row " << i;

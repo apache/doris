@@ -1796,7 +1796,8 @@ visible_functions = {
         [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
         [['hll_hash'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['hll_empty'], 'HLL', [], 'ALWAYS_NOT_NULLABLE'],
-        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE']
+        [['hll_hash'], 'HLL', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+        [['unhex_to_hll'], 'HLL', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE']
     ],
 
 
@@ -1835,6 +1836,7 @@ visible_functions = {
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_INT'], 'ALWAYS_NULLABLE'],
         [['bitmap_from_array'], 'BITMAP', ['ARRAY_BIGINT'], 'ALWAYS_NULLABLE'],
+        [['unhex_to_bitmap'], 'BITMAP', ['VARCHAR'], 'ALWAYS_NULLABLE'],
         [['bitmap_contains'], 'BOOLEAN', ['BITMAP','BIGINT'], ''],
         [['bitmap_remove'], 'BITMAP', ['BITMAP','BIGINT'], ''],
         [['bitmap_has_any'], 'BOOLEAN', ['BITMAP','BITMAP'], ''],

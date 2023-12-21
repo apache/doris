@@ -27,6 +27,7 @@
 #include "vec/data_types/data_type_hll.h"
 #include "vec/functions/function_always_not_nullable.h"
 #include "vec/functions/simple_function_factory.h"
+#include "exprs/math_functions.h"
 
 namespace doris::vectorized {
 
@@ -78,10 +79,64 @@ struct HLLHash {
     }
 };
 
+struct HLLFromUnhex {
+    static constexpr auto name = "unhex_to_hll";
+
+    using ReturnType = DataTypeHLL;
+
+    static void vector(FunctionContext* context, const ColumnString::Chars& data, const ColumnString::Offsets& offsets,
+                       MutableColumnPtr& col_res) {
+        auto* res_column = reinterpret_cast<ColumnHLL*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
+        for (size_t i = 0; i < size; ++i) {
+            const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+            size_t str_size = offsets[i] - offsets[i - 1] - 1;
+
+            HyperLogLog hll;
+            int cipher_len = str_size / 2;
+            char dst[cipher_len];
+            MathFunctions::hex_decode(raw_str, str_size, dst);
+            hll.deserialize(Slice(dst, cipher_len));
+
+            res_data[i].merge(hll);
+        }
+    }
+
+    static void vector_nullable(FunctionContext* context, const ColumnString::Chars& data,
+                                const ColumnString::Offsets& offsets, const NullMap& nullmap,
+                                MutableColumnPtr& col_res) {
+
+        auto* res_column = reinterpret_cast<ColumnHLL*>(col_res.get());
+        auto& res_data = res_column->get_data();
+        size_t size = offsets.size();
+
+        for (size_t i = 0; i < size; ++i) {
+            if (nullmap[i]) {
+                continue;
+            } else {
+                const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
+                size_t str_size = offsets[i] - offsets[i - 1] - 1;
+
+                HyperLogLog hll;
+                int cipher_len = str_size / 2;
+                char dst[cipher_len];
+                MathFunctions::hex_decode(raw_str, str_size, dst);
+                hll.deserialize(Slice(dst, cipher_len));
+
+                res_data[i].merge(hll);
+            }
+        }
+    }
+};
+
 using FunctionHLLHash = FunctionAlwaysNotNullable<HLLHash>;
+using FunctionHLLFromUnhex = FunctionAlwaysNotNullable<HLLFromUnhex>;
 
 void register_function_hll_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHLLHash>();
+    factory.register_function<FunctionHLLFromUnhex>();
 }
 
 } // namespace doris::vectorized

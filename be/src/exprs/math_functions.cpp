@@ -130,6 +130,54 @@ StringRef MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
     return result;
 }
 
+static bool check_and_decode_one(char& c, const char src_c, bool flag) {
+    int k = flag ? 16 : 1;
+    int value = src_c - '0';
+    // 9 = ('9'-'0')
+    if (value >= 0 && value <= 9) {
+        c += value * k;
+        return true;
+    }
+
+    value = src_c - 'A';
+    // 5 = ('F'-'A')
+    if (value >= 0 && value <= 5) {
+        c += (value + 10) * k;
+        return true;
+    }
+
+    value = src_c - 'a';
+    // 5 = ('f'-'a')
+    if (value >= 0 && value <= 5) {
+        c += (value + 10) * k;
+        return true;
+    }
+    // not in ( ['0','9'], ['a','f'], ['A','F'] )
+    return false;
+}
+
+int MathFunctions::hex_decode(const char* src_str, size_t src_len, char* dst_str) {
+    // if str length is odd or 0, return empty string like mysql dose.
+    if ((src_len & 1) != 0 or src_len == 0) {
+        return 0;
+    }
+    //check and decode one character at the same time
+    // character in ( ['0','9'], ['a','f'], ['A','F'] ), return 'NULL' like mysql dose.
+    for (auto i = 0, dst_index = 0; i < src_len; i += 2, dst_index++) {
+        char c = 0;
+        // combine two character into dst_str one character
+        bool left_4bits_flag = check_and_decode_one(c, *(src_str + i), true);
+        bool right_4bits_flag = check_and_decode_one(c, *(src_str + i + 1), false);
+
+        if (!left_4bits_flag || !right_4bits_flag) {
+            return 0;
+        }
+        *(dst_str + dst_index) = c;
+    }
+    return src_len / 2;
+}
+
+
 bool MathFunctions::decimal_in_base_to_decimal(int64_t src_num, int8_t src_base, int64_t* result) {
     uint64_t temp_num = std::abs(src_num);
     int32_t place = 1;

@@ -116,7 +116,8 @@ public:
             switch (type_idx) {
             case vectorized::TypeIndex::String:
             case vectorized::TypeIndex::FixedString:
-            case vectorized::TypeIndex::HLL: {
+            case vectorized::TypeIndex::HLL:
+            case vectorized::TypeIndex::BitMap: {
                 if (data_ref.size == 0) {
                     // 0x01 is a magic num, not useful actually, just for present ""
                     //char* tmp_val = reinterpret_cast<char*>(0x01);

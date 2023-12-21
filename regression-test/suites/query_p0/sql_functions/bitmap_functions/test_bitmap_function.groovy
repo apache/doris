@@ -857,7 +857,7 @@ suite("test_bitmap_function") {
     qt_sql_bitmap_base64_nereids8 """ select bitmap_to_string(bitmap_from_base64(bitmap_to_base64(to_bitmap(1)))); """
 
     // test nullable
-    sql """ DROP TABLE IF EXISTS test_bitmap_base64 """ 
+    sql """ DROP TABLE IF EXISTS test_bitmap_base64 """
     sql """
         CREATE TABLE test_bitmap_base64 (
           dt INT(11) NULL,
@@ -898,7 +898,7 @@ suite("test_bitmap_function") {
 
     // test not nullable
     sql """ set experimental_enable_nereids_planner=true; """
-    sql """ DROP TABLE IF EXISTS test_bitmap_base64_not_null """ 
+    sql """ DROP TABLE IF EXISTS test_bitmap_base64_not_null """
     sql """
         CREATE TABLE test_bitmap_base64_not_null (
           dt INT(11) NULL,
@@ -935,7 +935,7 @@ suite("test_bitmap_function") {
         select bitmap_to_string(bitmap_remove(bitmap_from_string('1, 2, 3'), null));
     """
     // test nullable
-    sql """ DROP TABLE IF EXISTS test_bitmap_remove """ 
+    sql """ DROP TABLE IF EXISTS test_bitmap_remove """
     sql """
         CREATE TABLE test_bitmap_remove (
           dt INT(11) NULL,
@@ -979,7 +979,7 @@ suite("test_bitmap_function") {
 
     // test not nullable
     sql """ set experimental_enable_nereids_planner=true; """
-    sql """ DROP TABLE IF EXISTS test_bitmap_remove_not_null """ 
+    sql """ DROP TABLE IF EXISTS test_bitmap_remove_not_null """
     sql """
         CREATE TABLE test_bitmap_remove_not_null (
           dt INT(11) NULL,
@@ -1019,4 +1019,22 @@ suite("test_bitmap_function") {
 
     sql """ set experimental_enable_nereids_planner=true; """
     qt_sql """ select bitmap_to_string(BITMAP_FROM_ARRAY([]));"""
+
+    // UNHEX_TO_BITMAP
+    def testUnhexToBitmap = "test_unhex_to_bitmap"
+    sql """ DROP TABLE IF EXISTS ${testUnhexToBitmap} """
+    sql """ create table if not exists ${testUnhexToBitmap} (page_id int,user_id bitmap bitmap_union) aggregate key (page_id) distributed by hash (page_id) PROPERTIES("replication_num" = "1") """
+
+    sql """ insert into ${testUnhexToBitmap} values(1, unhex_to_bitmap('0106000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(1, unhex_to_bitmap('0107000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(1, unhex_to_bitmap('0108000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(2, unhex_to_bitmap('010a000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(2, unhex_to_bitmap('010b000000')); """
+    sql """ insert into ${testUnhexToBitmap} values(2, unhex_to_bitmap('010b000000')); """
+
+    qt_sql_unhex_to_bitmap_1 """ select page_id, bitmap_count(bitmap_union(user_id)) from ${testUnhexToBitmap} group by page_id order by page_id """
+    qt_sql_unhex_to_bitmap_2 """ select page_id, count(distinct user_id) from ${testUnhexToBitmap} group by page_id order by page_id """
+
+    sql """ drop table ${testUnhexToBitmap} """
+
 }

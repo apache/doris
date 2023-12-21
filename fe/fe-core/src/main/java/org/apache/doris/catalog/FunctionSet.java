@@ -173,6 +173,7 @@ public class FunctionSet<T> {
                 .build();
 
     public static final String HLL_HASH = "hll_hash";
+    public static final String UNHEX_TO_HLL = "unhex_to_hll";
     public static final String HLL_UNION = "hll_union";
     public static final String HLL_UNION_AGG = "hll_union_agg";
     public static final String HLL_RAW_AGG = "hll_raw_agg";

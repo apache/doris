@@ -25,5 +25,21 @@ suite("test_hll_int") {
     qt_sql1 "select hll_union_agg(hll_set), count(*) from test_int_hll"
     // qt_sql2 "select id, hll_candinality(hll_set) from test_int_hll"
     sql "DROP TABLE test_int_hll"
+
+
+    sql "DROP TABLE IF EXISTS test_unhex_to_hll"
+    sql """
+        CREATE TABLE IF NOT EXISTS test_unhex_to_hll (`id` int COMMENT "", `hll_set` hll hll_union COMMENT "") 
+        ENGINE=OLAP DISTRIBUTED BY HASH(`id`) BUCKETS 5 properties("replication_num" = "1");
+        """
+    sql """
+        insert into test_unhex_to_hll values
+        (1, unhex_to_hll('01010100000000000000')),
+        (6, unhex_to_hll('01010600000000000000')),
+        (7, unhex_to_hll('01010600000000000000')),
+        (10, unhex_to_hll('01010a00000000000000'))
+        """
+    qt_sql2 "select hll_union_agg(hll_set), count(*) from test_unhex_to_hll"
+    sql "DROP TABLE test_unhex_to_hll"
 }
 
