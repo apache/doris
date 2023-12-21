@@ -35,7 +35,7 @@ import java.io.IOException;
  */
 public class ThriftServer {
     private static final Logger           LOG  = Logger.getLogger(ThriftServer.class);
-    private              ThriftServerType type = ThriftServerType.THREAD_POOL;
+    private              ThriftServerType type = ThriftServerType.THREADED_SELECTOR;
     private int        port;
     private TProcessor processor;
     private TServer    server;
@@ -66,6 +66,13 @@ public class ThriftServer {
         server = new TThreadPoolServer(args);
     }
 
+    private void createThreadedSelectorServer() throws TTransportException {
+        TThreadedSelectorServer.Args args =
+            new TThreadedSelectorServer.Args(new TNonblockingServerSocket(port)).protocolFactory(
+                new TBinaryProtocol.Factory()).processor(processor);
+        server = new TThreadedSelectorServer(args);
+    }
+
     public void start() throws IOException {
         try {
             switch (type) {
@@ -77,6 +84,9 @@ public class ThriftServer {
                     break;
                 case THREAD_POOL:
                     createThreadPoolServer();
+                    break;
+                case THREADED_SELECTOR:
+                    createThreadedSelectorServer();
                     break;
                 default:
                     break;
@@ -111,6 +121,7 @@ public class ThriftServer {
     public static enum ThriftServerType {
         SIMPLE,
         THREADED,
-        THREAD_POOL
+        THREAD_POOL,
+        THREADED_SELECTOR
     }
 }
