@@ -70,7 +70,8 @@ Status WalTable::replay_wals() {
         for (auto& [wal, info] : _replay_wal_map) {
             auto& [retry_num, start_ts, replaying] = info;
             if (replaying) {
-                continue;
+                LOG(INFO) << wal << " is replaying, skip this round";
+                return Status::OK();
             }
             if (retry_num >= config::group_commit_replay_wal_retry_num) {
                 LOG(WARNING) << "All replay wal failed, db=" << _db_id << ", table=" << _table_id
