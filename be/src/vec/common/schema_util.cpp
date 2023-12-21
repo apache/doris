@@ -152,7 +152,6 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     Block tmp_block {arguments};
     vectorized::ColumnNumbers argnum;
     argnum.emplace_back(0);
-    argnum.emplace_back(1);
     size_t result_column = tmp_block.columns();
     auto ctx = FunctionContext::create_context(nullptr, {}, {});
     // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse
@@ -161,7 +160,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     tmp_block.insert({nullptr, type, arg.name});
     RETURN_IF_ERROR(
             function->execute(ctx.get(), tmp_block, argnum, result_column, arg.column->size()));
-    *result = std::move(tmp_block.get_by_position(result_column).column);
+    *result = std::move(tmp_block.get_by_position(result_column).column)
+                      ->convert_to_full_column_if_const();
     // Variant column is a really special case, src type is nullable but dst variant type is none nullable,
     // but we still need to wrap nullmap into variant root column to prevent from nullable info lost.
     // TODO rethink and better handle this sepecial situation

@@ -195,10 +195,6 @@ public:
 
     virtual bool is_nullable() const { return false; }
 
-    /** Is this type can represent only NULL value? (It also implies is_nullable)
-      */
-    virtual bool only_null() const { return false; }
-
     /* the data type create from type_null, NULL literal*/
     virtual bool is_null_literal() const { return false; }
 

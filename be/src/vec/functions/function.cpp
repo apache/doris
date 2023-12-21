@@ -48,7 +48,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     ColumnPtr src_not_nullable = src;
     MutableColumnPtr mutable_result_null_map_column;
 
-    if (auto* nullable = check_and_get_column<ColumnNullable>(*src)) {
+    if (const auto* nullable = check_and_get_column<ColumnNullable>(*src)) {
         src_not_nullable = nullable->get_nested_column_ptr();
         result_null_map_column = nullable->get_null_map_column_ptr();
     }
@@ -69,23 +69,25 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
             continue;
         }
 
-        if (auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get())) {
+        if (const auto* nullable = assert_cast<const ColumnNullable*>(elem.column.get());
+            nullable->has_null()) {
             const ColumnPtr& null_map_column = nullable->get_null_map_column_ptr();
             if (!result_null_map_column) {
                 result_null_map_column = null_map_column->clone_resized(input_rows_count);
-            } else {
-                if (!mutable_result_null_map_column) {
-                    mutable_result_null_map_column =
-                            std::move(result_null_map_column)->assume_mutable();
-                }
-
-                NullMap& result_null_map =
-                        assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data();
-                const NullMap& src_null_map =
-                        assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
-
-                VectorizedUtils::update_null_map(result_null_map, src_null_map);
+                continue;
             }
+
+            if (!mutable_result_null_map_column) {
+                mutable_result_null_map_column =
+                        std::move(result_null_map_column)->assume_mutable();
+            }
+
+            NullMap& result_null_map =
+                    assert_cast<ColumnUInt8&>(*mutable_result_null_map_column).get_data();
+            const NullMap& src_null_map =
+                    assert_cast<const ColumnUInt8&>(*null_map_column).get_data();
+
+            VectorizedUtils::update_null_map(result_null_map, src_null_map);
         }
     }
 
@@ -99,8 +101,7 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
         return ColumnNullable::create(src, ColumnUInt8::create(input_rows_count, 0));
     }
 
-    return ColumnNullable::create(src_not_nullable->convert_to_full_column_if_const(),
-                                  result_null_map_column);
+    return ColumnNullable::create(src_not_nullable, result_null_map_column);
 }
 
 NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
@@ -111,9 +112,6 @@ NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
 
         if (!res.has_nullable) {
             res.has_nullable = elem.type->is_nullable();
-        }
-        if (!res.has_null_constant) {
-            res.has_null_constant = elem.type->only_null();
         }
     }
 
@@ -126,9 +124,6 @@ NullPresence get_null_presence(const Block& block, const ColumnNumbers& args) {
     for (const auto& elem : args) {
         if (!res.has_nullable) {
             res.has_nullable = elem.type->is_nullable();
-        }
-        if (!res.has_null_constant) {
-            res.has_null_constant = elem.type->only_null();
         }
     }
 
@@ -226,27 +221,27 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
 
     NullPresence null_presence = get_null_presence(block, args);
 
-    if (null_presence.has_null_constant) {
-        block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(input_rows_count, Null());
-        *executed = true;
-        return Status::OK();
-    }
-
     if (null_presence.has_nullable) {
-        bool check_overflow_for_decimal = false;
+        bool need_to_default = need_replace_null_data_to_default();
         if (context) {
-            check_overflow_for_decimal = context->check_overflow_for_decimal();
+            need_to_default &= context->check_overflow_for_decimal();
         }
-        auto [temporary_block, new_args, new_result] = create_block_with_nested_columns(
-                block, args, result,
-                check_overflow_for_decimal && need_replace_null_data_to_default());
+        ColumnNumbers new_args;
+        for (auto arg : args) {
+            new_args.push_back(block.columns());
+            block.insert(block.get_by_position(arg).get_nested(need_to_default));
+            DCHECK(!block.get_by_position(new_args.back()).column->is_nullable());
+        }
 
-        RETURN_IF_ERROR(execute_without_low_cardinality_columns(
-                context, temporary_block, new_args, new_result, temporary_block.rows(), dry_run));
-        block.get_by_position(result).column =
-                wrap_in_nullable(temporary_block.get_by_position(new_result).column, block, args,
-                                 result, input_rows_count);
+        RETURN_IF_ERROR(execute_without_low_cardinality_columns(context, block, new_args, result,
+                                                                block.rows(), dry_run));
+        block.get_by_position(result).column = wrap_in_nullable(
+                block.get_by_position(result).column, block, args, result, input_rows_count);
+
+        while (!new_args.empty()) {
+            block.erase(new_args.back());
+            new_args.pop_back();
+        }
         *executed = true;
         return Status::OK();
     }
@@ -294,9 +289,6 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
     if (!arguments.empty() && use_default_implementation_for_nulls()) {
         NullPresence null_presence = get_null_presence(arguments);
 
-        if (null_presence.has_null_constant) {
-            return make_nullable(std::make_shared<DataTypeNothing>());
-        }
         if (null_presence.has_nullable) {
             ColumnNumbers numbers(arguments.size());
             std::iota(numbers.begin(), numbers.end(), 0);

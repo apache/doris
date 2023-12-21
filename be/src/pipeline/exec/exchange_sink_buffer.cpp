@@ -82,7 +82,7 @@ void ExchangeSinkBuffer<Parent>::close() {
 
 template <typename Parent>
 bool ExchangeSinkBuffer<Parent>::can_write() const {
-    size_t max_package_size = 64 * _instance_to_package_queue.size();
+    size_t max_package_size = QUEUE_CAPACITY_FACTOR * _instance_to_package_queue.size();
     size_t total_package_size = 0;
     for (auto& [_, q] : _instance_to_package_queue) {
         total_package_size += q.size();
