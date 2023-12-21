@@ -307,6 +307,7 @@ public class BindExpression implements AnalysisRuleFactory {
                         childOutputsToExpr.putIfAbsent(alias.getName(), output.get(i).child(0));
                     }
 
+                    Set<Expression> boundedGroupByExpressions = Sets.newHashSet();
                     List<Expression> replacedGroupBy = agg.getGroupByExpressions().stream()
                             .map(groupBy -> {
                                 if (groupBy instanceof UnboundSlot) {
@@ -314,7 +315,9 @@ public class BindExpression implements AnalysisRuleFactory {
                                     if (unboundSlot.getNameParts().size() == 1) {
                                         String name = unboundSlot.getNameParts().get(0);
                                         if (childOutputsToExpr.containsKey(name)) {
-                                            return childOutputsToExpr.get(name);
+                                            Expression expression = childOutputsToExpr.get(name);
+                                            boundedGroupByExpressions.add(expression);
+                                            return expression;
                                         }
                                     }
                                 }
@@ -347,23 +350,24 @@ public class BindExpression implements AnalysisRuleFactory {
 
                     List<Expression> groupBy = replacedGroupBy.stream()
                             .map(expression -> {
-                                if (expression.hasUnbound()) {
+                                if (boundedGroupByExpressions.contains(expression)) {
+                                    // expr has been bound by binding agg's output
+                                    return expression;
+                                } else {
                                     // bind slot for unbound exprs
                                     Expression e = binder.bind(expression);
                                     if (e instanceof UnboundSlot) {
                                         return childBinder.bind(e);
                                     }
                                     return e;
-                                } else {
-                                    // expr has been bound by binding agg's output
-                                    return expression;
                                 }
                             })
                             .collect(Collectors.toList());
                     groupBy.forEach(expression -> checkBoundExceptLambda(expression, ctx.root));
                     groupBy = groupBy.stream()
                             // bind function for unbound exprs or return old expr if it's bound by binding agg's output
-                            .map(expr -> expr.hasUnbound() ? bindFunction(expr, ctx.root, ctx.cascadesContext) : expr)
+                            .map(expr -> boundedGroupByExpressions.contains(expr) ? expr
+                                    : bindFunction(expr, ctx.root, ctx.cascadesContext))
                             .collect(ImmutableList.toImmutableList());
                     checkIfOutputAliasNameDuplicatedForGroupBy(groupBy, output);
                     return agg.withGroupByAndOutput(groupBy, output);
