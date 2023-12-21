@@ -137,10 +137,14 @@ public:
         auto null_map = ColumnUInt8::create(
                 input_rows_count, 1); //if null_map_data==1, the current row should be null
         auto* __restrict null_map_data = null_map->get_data().data();
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
         ColumnPtr argument_columns[argument_size]; //use to save nested_column if is nullable column
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 
         for (size_t i = 0; i < argument_size; ++i) {
             block.get_by_position(filtered_args[i]).column =

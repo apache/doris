@@ -296,10 +296,14 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     auto total = *n;
     size_t read_count = 0;
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
     int32_t data[total];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
     for (size_t i = 0; i < total; ++i) {
         ordinal_t ord = rowids[i] - page_first_ordinal;
         if (PREDICT_FALSE(ord >= _bit_shuffle_ptr->_num_elements)) {

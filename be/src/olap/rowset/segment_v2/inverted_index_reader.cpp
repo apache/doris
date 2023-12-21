@@ -733,10 +733,14 @@ Status BkdIndexReader::bkd_query(OlapReaderStatistics* stats, const std::string&
                                  const void* query_value,
                                  std::shared_ptr<lucene::util::bkd::bkd_reader> r,
                                  InvertedIndexVisitor<QT>* visitor) {
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
     char tmp[r->bytes_per_dim_];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
     if constexpr (QT == InvertedIndexQueryType::EQUAL_QUERY) {
         _value_key_coder->full_encode_ascending(query_value, &visitor->query_max);
         _value_key_coder->full_encode_ascending(query_value, &visitor->query_min);

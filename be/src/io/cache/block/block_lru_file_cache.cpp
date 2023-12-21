@@ -953,8 +953,6 @@ Status LRUFileCache::write_file_cache_version() const {
     return Status::OK();
 }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wvla"
 std::string LRUFileCache::read_file_cache_version() const {
     std::string version_path = get_version_path();
     const FileSystemSPtr& fs = global_local_filesystem();
@@ -966,7 +964,14 @@ std::string LRUFileCache::read_file_cache_version() const {
     FileReaderSPtr version_reader;
     int64_t file_size = -1;
     static_cast<void>(fs->file_size(version_path, &file_size));
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
     char version[file_size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
     static_cast<void>(fs->open_file(version_path, &version_reader));
     size_t bytes_read = 0;
@@ -974,7 +979,6 @@ std::string LRUFileCache::read_file_cache_version() const {
     static_cast<void>(version_reader->close());
     return std::string(version, bytes_read);
 }
-#pragma clang diagnostic pop
 
 size_t LRUFileCache::get_used_cache_size(CacheType cache_type) const {
     std::lock_guard cache_lock(_mutex);

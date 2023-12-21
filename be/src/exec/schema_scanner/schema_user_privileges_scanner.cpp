@@ -96,8 +96,10 @@ Status SchemaUserPrivilegesScanner::get_next_block(vectorized::Block* block, boo
     return _fill_block_impl(block);
 }
 
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
 Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto privileges_num = _priv_result.privileges.size();
@@ -146,6 +148,8 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     return Status::OK();
 }
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 
 } // namespace doris

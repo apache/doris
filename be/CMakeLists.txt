@@ -286,7 +286,9 @@ if (COMPILER_CLANG)
         add_definitions(-DUSE_LIBCPP)
     endif()
 
-    add_compile_options(-Werror=vla)
+    if (NOT MAKE_TEST)
+        add_compile_options(-Werror=vla)
+    endif()
 endif ()
 
 add_compile_options(-D__STDC_FORMAT_MACROS

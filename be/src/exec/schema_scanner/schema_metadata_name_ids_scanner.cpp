@@ -126,8 +126,10 @@ Status SchemaMetadataNameIdsScanner::_get_new_table() {
     return Status::OK();
 }
 
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
 Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto table_num = _table_result.tables.size();
@@ -226,7 +228,9 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
 
     return Status::OK();
 }
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 
 Status SchemaMetadataNameIdsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {

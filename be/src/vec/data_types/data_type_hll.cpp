@@ -39,10 +39,14 @@ char* DataTypeHLL::serialize(const IColumn& column, char* buf, int be_exec_versi
     auto& data_column = assert_cast<const ColumnHLL&>(*ptr);
 
     size_t row_num = column.size();
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
     size_t hll_size_array[row_num + 1];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
     hll_size_array[0] = row_num;
 
     auto allocate_len_size = sizeof(size_t) * (row_num + 1);
@@ -69,10 +73,14 @@ const char* DataTypeHLL::deserialize(const char* buf, IColumn* column, int be_ex
 
     size_t row_num = *reinterpret_cast<const size_t*>(buf);
     buf += sizeof(size_t);
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
     size_t hll_size_array[row_num];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
     memcpy(hll_size_array, buf, sizeof(size_t) * row_num);
     buf += sizeof(size_t) * row_num;
 

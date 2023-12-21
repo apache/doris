@@ -108,8 +108,10 @@ Status SchemaRowsetsScanner::get_next_block(vectorized::Block* block, bool* eos)
     return _fill_block_impl(block);
 }
 
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
 Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     size_t fill_rowsets_num = std::min(1000ul, rowsets_.size() - _rowsets_idx);
@@ -240,5 +242,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     _rowsets_idx += fill_rowsets_num;
     return Status::OK();
 }
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 } // namespace doris

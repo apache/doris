@@ -782,11 +782,16 @@ struct FromBase64Impl {
                 continue;
             }
 
+            constexpr int MAX_STACK_CIPHER_LEN = 1024 * 8;
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = srclen;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wvla"
-            char dst[cipher_len];
-#pragma clang diagnostic pop
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
             int outlen = base64_decode(source, srclen, dst);
 
             if (outlen < 0) {

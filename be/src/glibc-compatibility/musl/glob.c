@@ -47,8 +47,10 @@ static int append(struct match **tail, const char *name, size_t len, int mark)
 	return 0;
 }
 
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
 static int match_in_dir(const char *d, const char *p, int flags, int (*errfunc)(const char *path, int err), struct match **tail)
 {
 	DIR *dir;
@@ -141,7 +143,9 @@ static int match_in_dir(const char *d, const char *p, int flags, int (*errfunc)(
 		return GLOB_ABORTED;
 	return 0;
 }
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 
 static int ignore_err(const char *path, int err)
 {

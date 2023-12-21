@@ -767,10 +767,14 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         read_whole_row_group();
         return Status::OK();
     }
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
     uint8_t col_index_buff[page_index._column_index_size];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
     size_t bytes_read = 0;
     Slice result(col_index_buff, page_index._column_index_size);
     RETURN_IF_ERROR(
@@ -778,10 +782,14 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
     _column_statistics.read_bytes += bytes_read;
     auto& schema_desc = _file_metadata->schema();
     std::vector<RowRange> skipped_row_ranges;
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
     uint8_t off_index_buff[page_index._offset_index_size];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
     Slice res(off_index_buff, page_index._offset_index_size);
     RETURN_IF_ERROR(
             _file_reader->read_at(page_index._offset_index_start, res, &bytes_read, _io_ctx));

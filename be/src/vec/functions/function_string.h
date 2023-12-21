@@ -743,10 +743,14 @@ public:
         }
 
         int argument_size = arguments.size();
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
         ColumnPtr argument_columns[argument_size];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
@@ -953,11 +957,15 @@ public:
         std::vector<const Chars*> chars_list(argument_size);
         std::vector<const ColumnUInt8::Container*> null_list(argument_size);
 
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
         ColumnPtr argument_columns[argument_size];
         ColumnPtr argument_null_columns[argument_size];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
@@ -1262,10 +1270,14 @@ public:
         auto res = ColumnString::create();
 
         size_t argument_size = arguments.size();
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
         ColumnPtr argument_columns[argument_size];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
@@ -1414,10 +1426,14 @@ public:
         res_offsets.resize(input_rows_count);
 
         const size_t argument_size = arguments.size();
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
         ColumnPtr argument_columns[argument_size];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();
@@ -2021,10 +2037,14 @@ public:
         DCHECK_GE(arguments.size(), 1);
 
         int argument_size = arguments.size();
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
         ColumnPtr argument_columns[argument_size];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
@@ -2241,10 +2261,14 @@ public:
         size_t argument_size = arguments.size();
         bool has_key = argument_size >= 3;
 
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
         ColumnPtr argument_columns[argument_size];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
         for (size_t i = 0; i < argument_size; ++i) {
             argument_columns[i] =
                     block.get_by_position(arguments[i]).column->convert_to_full_column_if_const();

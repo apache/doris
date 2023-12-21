@@ -92,16 +92,21 @@ Status LocalFileWriter::abort() {
     return io::global_local_filesystem()->delete_file(_path);
 }
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wvla"
 Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     DCHECK(!_closed);
     _dirty = true;
 
     // Convert the results into the iovec vector to request
     // and calculate the total bytes requested.
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
     size_t bytes_req = 0;
     struct iovec iov[data_cnt];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     for (size_t i = 0; i < data_cnt; i++) {
         const Slice& result = data[i];
         bytes_req += result.size;
@@ -145,7 +150,6 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     _bytes_appended += bytes_req;
     return Status::OK();
 }
-#pragma clang diagnostic pop
 
 Status LocalFileWriter::write_at(size_t offset, const Slice& data) {
     DCHECK(!_closed);

@@ -332,10 +332,14 @@ public:
 
     void streaming_agg_serialize(const IColumn** columns, BufferWritable& buf,
                                  const size_t num_rows, Arena* arena) const override {
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
         char place[size_of_data()];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
         for (size_t i = 0; i != num_rows; ++i) {
             assert_cast<const Derived*>(this)->create(place);
             DEFER({ assert_cast<const Derived*>(this)->destroy(place); });
@@ -456,10 +460,14 @@ public:
         for (size_t i = begin; i <= end; ++i) {
             VectorBufferReader buffer_reader(
                     (assert_cast<const ColumnString&>(column)).get_data_at(i));
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
             char deserialized_data[size_of_data()];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
             AggregateDataPtr deserialized_place = (AggregateDataPtr)deserialized_data;
             assert_cast<const Derived*>(this)->create(deserialized_place);
             DEFER({ assert_cast<const Derived*>(this)->destroy(deserialized_place); });

@@ -40,10 +40,14 @@ static Status parse_thrift_footer(io::FileReaderSPtr file, FileMetaData** file_m
                                   size_t* meta_size, io::IOContext* io_ctx) {
     size_t file_size = file->size();
     size_t bytes_read = std::min(file_size, INIT_META_SIZE);
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
     uint8_t footer[bytes_read];
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
     RETURN_IF_ERROR(
             file->read_at(file_size - bytes_read, Slice(footer, bytes_read), &bytes_read, io_ctx));
 

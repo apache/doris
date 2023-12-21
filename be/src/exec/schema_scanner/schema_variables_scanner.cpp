@@ -85,8 +85,10 @@ Status SchemaVariablesScanner::get_next_block(vectorized::Block* block, bool* eo
     return _fill_block_impl(block);
 }
 
+#ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wvla"
+#endif
 Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto row_num = _var_result.variables.size();
@@ -115,6 +117,8 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
     }
     return Status::OK();
 }
+#ifdef __clang__
 #pragma clang diagnostic pop
+#endif
 
 } // namespace doris
