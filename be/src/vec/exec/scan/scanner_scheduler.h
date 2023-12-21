@@ -36,7 +36,7 @@ class BlockingQueue;
 } // namespace doris
 
 namespace doris::vectorized {
-
+class ScannerDelegate;
 class ScannerContext;
 
 // Responsible for the scheduling and execution of all Scanners of a BE node.

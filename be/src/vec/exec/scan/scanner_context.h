@@ -53,6 +53,7 @@ class TaskGroup;
 namespace vectorized {
 
 class VScanner;
+class ScannerDelegate;
 class VScanNode;
 class ScannerScheduler;
 class SimplifiedScanScheduler;
