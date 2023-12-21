@@ -29,10 +29,10 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "olap/data_dir.h"
-#include "olap/reader.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/tablet.h"
+#include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
 #include "vec/exec/scan/vscanner.h"
 

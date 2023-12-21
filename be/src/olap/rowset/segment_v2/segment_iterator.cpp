@@ -1056,7 +1056,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
             return res;
         } else {
             //TODO:mock until AndBlockColumnPredicate evaluate is ok.
-            if (res.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+            if (res.code() == ErrorCode::INVERTED_INDEX_NOT_IMPLEMENTED) {
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -2069,6 +2069,11 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
         auto col_ptr_nullable = reinterpret_cast<vectorized::ColumnNullable*>(output_col.get());
         col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
         output_col = col_ptr_nullable->get_nested_column_ptr();
+    } else if (!output_col->is_nullable() && input_col_ptr->is_nullable()) {
+        LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
+                     << " input_column: " << input_col_ptr->dump_structure()
+                     << " select_size: " << select_size;
+        return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
 
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);

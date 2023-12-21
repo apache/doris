@@ -148,7 +148,11 @@ public class StatisticsUtil {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
-            return r.connectContext.getState();
+            QueryState state = r.connectContext.getState();
+            if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+                throw new Exception(state.getErrorMessage());
+            }
+            return state;
         }
     }
 

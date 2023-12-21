@@ -876,6 +876,29 @@ class Suite implements GroovyInterceptable {
         return result.last().get(0);
     }
 
+    String getFeConfig(String key) {
+        return sql_return_maparray("ADMIN SHOW FRONTEND CONFIG LIKE '${key}'")[0].Value
+    }
+
+    void setFeConfig(String key, Object value) {
+        sql "ADMIN SET FRONTEND CONFIG ('${key}' = '${value}')"
+    }
+
+    void setFeConfigTemporary(Map<String, Object> tempConfig, Closure actionSupplier) {
+        def oldConfig = tempConfig.keySet().collectEntries { [it, getFeConfig(it)] }
+
+        def updateConfig = { conf ->
+            conf.each { key, value -> setFeConfig(key, value) }
+        }
+
+        try {
+            updateConfig tempConfig
+            actionSupplier()
+        } finally {
+            updateConfig oldConfig
+        }
+    }
+
     void waiteCreateTableFinished(String tableName) {
         Thread.sleep(2000);
         String showCreateTable = "SHOW CREATE TABLE ${tableName}"

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 #include <brpc/http_header.h>
 #include <brpc/http_method.h>

@@ -24,6 +24,7 @@
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 
+#include <algorithm>
 #include <ostream>
 #include <string>
 #include <utility>
@@ -83,6 +84,17 @@ Status VMetaScanner::prepare(RuntimeState* state, const VExprContextSPtrs& conju
     VLOG_CRITICAL << "VMetaScanner::prepare";
     RETURN_IF_ERROR(VScanner::prepare(_state, conjuncts));
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
+    bool has_col_nullable =
+            std::any_of(std::begin(_tuple_desc->slots()), std::end(_tuple_desc->slots()),
+                        [](SlotDescriptor* slot_desc) { return slot_desc->is_nullable(); });
+
+    if (has_col_nullable) {
+        // We do not allow any columns to be Nullable here, since FE can not
+        // transmit a NULL value to BE, so we can not distinguish a empty string
+        // from a NULL value.
+        return Status::InternalError("Logical error, VMetaScanner do not allow ColumnNullable");
+    }
+
     RETURN_IF_ERROR(_fetch_metadata(_scan_range.meta_scan_range));
     return Status::OK();
 }
@@ -112,7 +124,7 @@ Status VMetaScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eo
             }
         }
         // fill block
-        static_cast<void>(_fill_block_with_remote_data(columns));
+        RETURN_IF_ERROR(_fill_block_with_remote_data(columns));
         if (_meta_eos == true) {
             if (block->rows() == 0) {
                 *eof = true;
@@ -146,11 +158,9 @@ Status VMetaScanner::_fill_block_with_remote_data(const std::vector<MutableColum
         }
 
         for (int _row_idx = 0; _row_idx < _batch_data.size(); _row_idx++) {
+            // No need to check nullable column since no nullable column is
+            // guaranteed in VMetaScanner::prepare
             vectorized::IColumn* col_ptr = columns[col_idx].get();
-            if (slot_desc->is_nullable() == true) {
-                auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
-                col_ptr = &nullable_column->get_nested_column();
-            }
             switch (slot_desc->type().type) {
             case TYPE_BOOLEAN: {
                 bool data = _batch_data[_row_idx].column_value[col_idx].boolVal;

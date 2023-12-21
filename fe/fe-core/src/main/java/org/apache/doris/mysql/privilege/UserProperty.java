@@ -63,6 +63,7 @@ public class UserProperty implements Writable {
     // advanced properties
     private static final String PROP_MAX_USER_CONNECTIONS = "max_user_connections";
     private static final String PROP_MAX_QUERY_INSTANCES = "max_query_instances";
+    private static final String PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM = "parallel_fragment_exec_instance_num";
     private static final String PROP_RESOURCE_TAGS = "resource_tags";
     private static final String PROP_RESOURCE = "resource";
     private static final String PROP_SQL_BLOCK_RULES = "sql_block_rules";
@@ -113,6 +114,8 @@ public class UserProperty implements Writable {
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_LOAD_CLUSTER + "." + DppConfig.CLUSTER_NAME_REGEX + "."
                 + DppConfig.PRIORITY + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_MAX_QUERY_INSTANCES + "$", Pattern.CASE_INSENSITIVE));
+        ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM + "$",
+                Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_SQL_BLOCK_RULES + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_CPU_RESOURCE_LIMIT + "$", Pattern.CASE_INSENSITIVE));
         ADVANCED_PROPERTIES.add(Pattern.compile("^" + PROP_RESOURCE_TAGS + "$", Pattern.CASE_INSENSITIVE));
@@ -154,6 +157,10 @@ public class UserProperty implements Writable {
         return commonProperties.getMaxQueryInstances(); // maxQueryInstances;
     }
 
+    public int getParallelFragmentExecInstanceNum() {
+        return commonProperties.getParallelFragmentExecInstanceNum();
+    }
+
     public String[] getSqlBlockRules() {
         return commonProperties.getSqlBlockRulesSplit();
     }
@@ -187,6 +194,7 @@ public class UserProperty implements Writable {
         // copy
         long newMaxConn = this.commonProperties.getMaxConn();
         long newMaxQueryInstances = this.commonProperties.getMaxQueryInstances();
+        int newParallelFragmentExecInstanceNum = this.commonProperties.getParallelFragmentExecInstanceNum();
         String sqlBlockRules = this.commonProperties.getSqlBlockRules();
         int cpuResourceLimit = this.commonProperties.getCpuResourceLimit();
         Set<Tag> resourceTags = this.commonProperties.getResourceTags();
@@ -241,6 +249,17 @@ public class UserProperty implements Writable {
                     newMaxQueryInstances = Long.parseLong(value);
                 } catch (NumberFormatException e) {
                     throw new DdlException(PROP_MAX_QUERY_INSTANCES + " is not number");
+                }
+            } else if (keyArr[0].equalsIgnoreCase(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)) {
+                // set property "parallel_fragment_exec_instance_num" = "16"
+                if (keyArr.length != 1) {
+                    throw new DdlException(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM + " format error");
+                }
+
+                try {
+                    newParallelFragmentExecInstanceNum = Integer.parseInt(value);
+                } catch (NumberFormatException e) {
+                    throw new DdlException(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM + " is not number");
                 }
             } else if (keyArr[0].equalsIgnoreCase(PROP_SQL_BLOCK_RULES)) {
                 // set property "sql_block_rules" = "test_rule1,test_rule2"
@@ -337,6 +356,7 @@ public class UserProperty implements Writable {
         // set
         this.commonProperties.setMaxConn(newMaxConn);
         this.commonProperties.setMaxQueryInstances(newMaxQueryInstances);
+        this.commonProperties.setParallelFragmentExecInstanceNum(newParallelFragmentExecInstanceNum);
         this.commonProperties.setSqlBlockRules(sqlBlockRules);
         this.commonProperties.setCpuResourceLimit(cpuResourceLimit);
         this.commonProperties.setResourceTags(resourceTags);
@@ -455,6 +475,10 @@ public class UserProperty implements Writable {
         // max query instance
         result.add(Lists.newArrayList(PROP_MAX_QUERY_INSTANCES,
                 String.valueOf(commonProperties.getMaxQueryInstances())));
+
+        // parallel fragment exec instance num
+        result.add(Lists.newArrayList(PROP_PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM,
+                String.valueOf(commonProperties.getParallelFragmentExecInstanceNum())));
 
         // sql block rules
         result.add(Lists.newArrayList(PROP_SQL_BLOCK_RULES, commonProperties.getSqlBlockRules()));
