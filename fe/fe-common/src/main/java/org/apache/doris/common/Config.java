@@ -2275,6 +2275,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
+    @ConfField(mutable = true)
+    public static int workload_sched_policy_interval_ms = 10000; // 10s
+
+    @ConfField(mutable = true)
+    public static int workload_action_interval_ms = 10000; // 10s
+
     @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})
     public static int check_wal_queue_timeout_threshold = 180000;   // 3 min
@@ -2331,4 +2337,8 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
+
+    @ConfField(description = {"用于SQL方言转换的服务地址。",
+            "The service address for SQL dialect conversion."})
+    public static String sql_convertor_service = "";
 }

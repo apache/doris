@@ -134,6 +134,8 @@ import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSCachedClientFactory;
 import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.external.elasticsearch.EsRepository;
+import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
 import org.apache.doris.persist.AlterDatabasePropertyInfo;
 import org.apache.doris.persist.AutoIncrementIdUpdateLog;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -254,6 +256,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (StringUtils.isEmpty(dbName)) {
             return null;
         }
+        // ATTN: this should be removed in v3.0
+        dbName = ClusterNamespace.getNameFromFullName(dbName);
         if (fullNameToDb.containsKey(dbName)) {
             return fullNameToDb.get(dbName);
         } else {
@@ -886,6 +890,9 @@ public class InternalCatalog implements CatalogIf<Database> {
                                 + " please use \"DROP table FORCE\".");
                     }
                 }
+                if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                    Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
+                }
                 unprotectDropTable(db, table, stmt.isForceDrop(), false, 0);
                 if (!stmt.isForceDrop()) {
                     recycleTime = Env.getCurrentRecycleBin().getRecycleTimeById(table.getId());
@@ -898,9 +905,6 @@ public class InternalCatalog implements CatalogIf<Database> {
             Env.getCurrentEnv().getQueryStats().clear(Env.getCurrentEnv().getCurrentCatalog().getId(),
                     db.getId(), table.getId());
             Env.getCurrentEnv().getAnalysisManager().removeTableStats(table.getId());
-            if (table.getType() == TableType.MATERIALIZED_VIEW) {
-                Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
-            }
             Env.getCurrentEnv().getMtmvService().dropTable(table);
         } catch (UserException e) {
             throw new DdlException(e.getMessage(), e);
@@ -1261,7 +1265,6 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void replayCreateTable(String dbName, Table table) throws MetaNotFoundException {
-
         Database db = this.fullNameToDb.get(dbName);
         try {
             db.createTableWithLock(table, true, false);
@@ -1706,7 +1709,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
-        if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST) {
+        if (partitionInfo.getType() != PartitionType.RANGE && partitionInfo.getType() != PartitionType.LIST
+                && !isTempPartition) {
             throw new DdlException("Alter table [" + olapTable.getName() + "] failed. Not a partitioned table");
         }
 
@@ -2589,7 +2593,20 @@ public class InternalCatalog implements CatalogIf<Database> {
             throw e;
         }
         if (olapTable instanceof MTMV) {
-            Env.getCurrentEnv().getMtmvService().createMTMV((MTMV) olapTable);
+            try {
+                Env.getCurrentEnv().getMtmvService().createMTMV((MTMV) olapTable);
+            } catch (Throwable t) {
+                LOG.warn("create mv failed, start rollback, error msg: " + t.getMessage());
+                try {
+                    DropMTMVInfo dropMTMVInfo = new DropMTMVInfo(
+                            new TableNameInfo(olapTable.getDatabase().getFullName(), olapTable.getName()), true);
+                    Env.getCurrentEnv().dropTable(dropMTMVInfo.translateToLegacyStmt());
+                } catch (Throwable throwable) {
+                    LOG.warn("rollback mv failed, please drop mv by manual, error msg: " + t.getMessage());
+                }
+                throw t;
+            }
+
         }
     }
 

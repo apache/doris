@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/sink/vtablet_sink_v2.h"
+#include "vec/sink/volap_table_sink_v2.h"
 
 #include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/Descriptors_types.h>

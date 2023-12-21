@@ -163,8 +163,6 @@ public class FileSystemManager {
     private static final String DFS_CLIENT_AUTH_METHOD = "dfs.client.auth.method";
     private static final String DFS_RPC_TIMEOUT = "dfs.rpc.timeout";
 
-    private ScheduledExecutorService handleManagementPool = Executors.newScheduledThreadPool(2);
-
     private int readBufferSize = 128 << 10; // 128k
     private int writeBufferSize = 128 << 10; // 128k
 
@@ -173,7 +171,7 @@ public class FileSystemManager {
 
     public FileSystemManager() {
         cachedFileSystem = new ConcurrentHashMap<>();
-        clientContextManager = new ClientContextManager(handleManagementPool);
+        clientContextManager = new ClientContextManager();
         readBufferSize = BrokerConfig.hdfs_read_buffer_size_kb << 10;
         writeBufferSize = BrokerConfig.hdfs_write_buffer_size_kb << 10;
     }

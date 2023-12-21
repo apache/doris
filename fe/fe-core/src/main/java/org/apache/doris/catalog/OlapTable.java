@@ -947,6 +947,17 @@ public class OlapTable extends Table {
         return getPartition(partitionName, true);
     }
 
+    public Partition getPartitionOrAnalysisException(String partitionName) throws AnalysisException {
+        Partition partition = getPartition(partitionName, false);
+        if (partition == null) {
+            partition = getPartition(partitionName, true);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionName);
+        }
+        return partition;
+    }
+
     // get partition by name
     public Partition getPartition(String partitionName, boolean isTempPartition) {
         if (isTempPartition) {
@@ -961,6 +972,17 @@ public class OlapTable extends Table {
         Partition partition = idToPartition.get(partitionId);
         if (partition == null) {
             partition = tempPartitions.getPartition(partitionId);
+        }
+        return partition;
+    }
+
+    public Partition getPartitionOrAnalysisException(long partitionId) throws AnalysisException {
+        Partition partition = idToPartition.get(partitionId);
+        if (partition == null) {
+            partition = tempPartitions.getPartition(partitionId);
+        }
+        if (partition == null) {
+            throw new AnalysisException("partition not found: " + partitionId);
         }
         return partition;
     }

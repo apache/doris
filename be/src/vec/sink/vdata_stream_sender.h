@@ -129,7 +129,7 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    void registe_channels(pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer);
+    void register_pipeline_channels(pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer);
 
     bool channel_all_can_write();
 
@@ -530,7 +530,7 @@ public:
         return Status::OK();
     }
 
-    void registe(pipeline::ExchangeSinkBuffer<Parent>* buffer) {
+    void register_exchange_buffer(pipeline::ExchangeSinkBuffer<Parent>* buffer) {
         _buffer = buffer;
         _buffer->register_sink(Channel<Parent>::_fragment_instance_id);
     }

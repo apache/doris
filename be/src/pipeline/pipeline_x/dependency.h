@@ -276,16 +276,6 @@ public:
     AndDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AndDependency", query_ctx) {}
 
-    [[nodiscard]] std::string name() const override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}[", Dependency::_name);
-        for (auto& child : Dependency::_children) {
-            fmt::format_to(debug_string_buffer, "{}, ", child->name());
-        }
-        fmt::format_to(debug_string_buffer, "]");
-        return fmt::to_string(debug_string_buffer);
-    }
-
     std::string debug_string(int indentation_level = 0) override;
 
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
@@ -489,8 +479,6 @@ struct SetSharedState : public BasicSharedState {
 public:
     SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
-    //record memory during running
-    int64_t mem_used = 0;
     vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;

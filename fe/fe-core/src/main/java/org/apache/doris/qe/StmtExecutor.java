@@ -127,6 +127,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitPlanner;
 import org.apache.doris.planner.OlapScanNode;
@@ -439,6 +440,14 @@ public class StmtExecutor {
         execute(queryId);
     }
 
+    public boolean notAllowFallback() {
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+            return logicalPlan instanceof NotAllowFallback;
+        }
+        return false;
+    }
+
     public void execute(TUniqueId queryId) throws Exception {
         SessionVariable sessionVariable = context.getSessionVariable();
         if (context.getConnectType() == ConnectType.ARROW_FLIGHT_SQL) {
@@ -457,6 +466,10 @@ public class StmtExecutor {
                     // try to fall back to legacy planner
                     LOG.debug("nereids cannot process statement\n" + originStmt.originStmt
                             + "\n because of " + e.getMessage(), e);
+                    if (notAllowFallback()) {
+                        LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
+                        throw ((NereidsException) e).getException();
+                    }
                     boolean isInsertIntoCommand = parsedStmt != null && parsedStmt instanceof LogicalPlanAdapter
                             && ((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof InsertIntoTableCommand;
                     if (e instanceof NereidsException
@@ -1229,11 +1242,21 @@ public class StmtExecutor {
     // Handle kill statement.
     private void handleKill() throws DdlException {
         KillStmt killStmt = (KillStmt) parsedStmt;
+        ConnectContext killCtx = null;
         int id = killStmt.getConnectionId();
-        ConnectContext killCtx = context.getConnectScheduler().getContext(id);
-        if (killCtx == null) {
-            ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
+        String queryId = killStmt.getQueryId();
+        if (id == -1) {
+            killCtx = context.getConnectScheduler().getContextWithQueryId(queryId);
+            if (killCtx == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_QUERY, queryId);
+            }
+        } else {
+            killCtx = context.getConnectScheduler().getContext(id);
+            if (killCtx == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_NO_SUCH_THREAD, id);
+            }
         }
+
         if (context == killCtx) {
             // Suicide
             context.setKilled();

@@ -19,7 +19,7 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.mtmv.MVCache;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
@@ -59,17 +59,17 @@ public class MaterializationContext {
         this.mvScanPlan = mvScanPlan;
         this.baseTables = baseTables;
         this.baseViews = baseViews;
-        MVCache mvCache = mtmv.getMvCache();
+        MTMVCache mtmvCache = mtmv.getCache();
         // TODO This logic should move to materialized view cache manager
-        if (mvCache == null) {
-            mvCache = MVCache.from(mtmv, cascadesContext.getConnectContext());
-            mtmv.setMvCache(mvCache);
+        if (mtmvCache == null) {
+            mtmvCache = mtmvCache.from(mtmv, cascadesContext.getConnectContext());
+            mtmv.setCache(mtmvCache);
         }
         // mv output expression shuttle, this will be used to expression rewrite
         this.mvExprToMvScanExprMapping = ExpressionMapping.generate(
                 ExpressionUtils.shuttleExpressionWithLineage(
-                        mvCache.getMvOutputExpressions(),
-                        mvCache.getLogicalPlan()),
+                        mtmvCache.getMvOutputExpressions(),
+                        mtmvCache.getLogicalPlan()),
                 mvScanPlan.getExpressions());
     }
 

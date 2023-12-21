@@ -475,10 +475,11 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
         auto fragment_instance_id = local_params.fragment_instance_id;
         _fragment_instance_ids.push_back(fragment_instance_id);
         std::unique_ptr<RuntimeFilterMgr> runtime_filter_mgr;
-        auto set_runtime_state = [&](std::unique_ptr<RuntimeState>& runtime_state) {
+        auto init_runtime_state = [&](std::unique_ptr<RuntimeState>& runtime_state) {
             runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
             runtime_state->set_query_ctx(_query_ctx.get());
+            runtime_state->set_task_execution_context(shared_from_this());
             runtime_state->set_be_number(local_params.backend_num);
 
             if (request.__isset.backend_id) {
@@ -567,7 +568,7 @@ Status PipelineXFragmentContext::_build_pipeline_tasks(
                         request.fragment_id, request.query_options, _query_ctx->query_globals,
                         _exec_env));
                 auto& task_runtime_state = _task_runtime_states.back();
-                set_runtime_state(task_runtime_state);
+                init_runtime_state(task_runtime_state);
                 auto cur_task_id = _total_tasks++;
                 auto task = std::make_unique<PipelineXTask>(
                         pipeline, cur_task_id, get_task_runtime_state(cur_task_id), this,
@@ -1270,7 +1271,8 @@ void PipelineXFragmentContext::_close_fragment_instance() {
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
-    _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
+    _exec_env->fragment_mgr()->remove_pipeline_context(
+            std::dynamic_pointer_cast<PipelineXFragmentContext>(shared_from_this()));
 }
 
 Status PipelineXFragmentContext::send_report(bool done) {
@@ -1307,7 +1309,7 @@ Status PipelineXFragmentContext::send_report(bool done) {
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2),
              nullptr},
-            shared_from_this());
+            std::dynamic_pointer_cast<PipelineXFragmentContext>(shared_from_this()));
 }
 
 bool PipelineXFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {

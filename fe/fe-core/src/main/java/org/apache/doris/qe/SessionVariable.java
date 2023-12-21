@@ -956,7 +956,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROJECTION)
     private boolean enableProjection = true;
 
-    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL, varType = VariableAnnotation.DEPRECATED)
+    @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
     private boolean checkOverflowForDecimal = true;
 
     @VariableMgr.VarAttr(name = DECIMAL_OVERFLOW_SCALE, needForward = true, description = {
@@ -1969,6 +1969,14 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public int getParallelExecInstanceNum() {
+        ConnectContext connectContext = ConnectContext.get();
+        if (connectContext != null && connectContext.getEnv() != null && connectContext.getEnv().getAuth() != null) {
+            int userParallelExecInstanceNum = connectContext.getEnv().getAuth()
+                    .getParallelFragmentExecInstanceNum(connectContext.getQualifiedUser());
+            if (userParallelExecInstanceNum > 0) {
+                return userParallelExecInstanceNum;
+            }
+        }
         if (getEnablePipelineEngine() && parallelPipelineTaskNum == 0) {
             int size = Env.getCurrentSystemInfo().getMinPipelineExecutorSize();
             int autoInstance = (size + 1) / 2;
