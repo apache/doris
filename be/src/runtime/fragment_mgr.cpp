@@ -260,7 +260,11 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                     detailed_param.__isset.fragment_instance_id = false;
                     detailed_param.__isset.profile = true;
                     detailed_param.__isset.loadChannelProfile = false;
-                    pipeline_profile->to_thrift(&detailed_param.profile);
+                    if (req.runtime_state->enable_profile_merge_by_be()) {
+                        pipeline_profile->merge_child_profile()->to_thrift(&detailed_param.profile);
+                    } else {
+                        pipeline_profile->to_thrift(&detailed_param.profile);
+                    }
                     params.detailed_report.push_back(detailed_param);
                 }
             }

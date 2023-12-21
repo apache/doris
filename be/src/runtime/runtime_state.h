@@ -468,6 +468,11 @@ public:
         return _query_options.__isset.enable_profile && _query_options.enable_profile;
     }
 
+    bool enable_profile_merge_by_be() const {
+        return _query_options.__isset.enable_profile_merge_by_be &&
+               _query_options.enable_profile_merge_by_be;
+    }
+
     bool enable_scan_node_run_serial() const {
         return _query_options.__isset.enable_scan_node_run_serial &&
                _query_options.enable_scan_node_run_serial;

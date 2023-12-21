@@ -27,7 +27,11 @@
 
 #include <iomanip>
 #include <iostream>
+#include <memory>
+#include <mutex>
+#include <vector>
 
+#include "common/logging.h"
 #include "common/object_pool.h"
 #include "util/container_util.hpp"
 
@@ -575,14 +579,26 @@ void RuntimeProfile::to_thrift(std::vector<TRuntimeProfileNode>* nodes) {
         node.child_counters_map = _child_counter_map;
     }
 
-    for (std::map<std::string, Counter*>::const_iterator iter = counter_map.begin();
-         iter != counter_map.end(); ++iter) {
-        TCounter counter;
-        counter.name = iter->first;
-        counter.value = iter->second->value();
-        counter.type = iter->second->type();
-        counter.__set_level(iter->second->level());
-        node.counters.push_back(counter);
+    for (auto iter = counter_map.begin(); iter != counter_map.end(); ++iter) {
+        if (iter->second->is_agg()) {
+            TAggCounter counter;
+            counter.name = iter->first;
+            counter.type = iter->second->type();
+            counter.__set_level(iter->second->level());
+            auto* agg_counter = static_cast<AggCounter*>(iter->second);
+            counter.__set_max_value(agg_counter->_max_value);
+            counter.__set_min_value(agg_counter->_min_value);
+            counter.__set_sum_value(agg_counter->_sum_value);
+            counter.__set_number(agg_counter->_number);
+            node.agg_counters.push_back(counter);
+        } else {
+            TCounter counter;
+            counter.name = iter->first;
+            counter.value = iter->second->value();
+            counter.type = iter->second->type();
+            counter.__set_level(iter->second->level());
+            node.counters.push_back(counter);
+        }
     }
 
     {
@@ -699,6 +715,111 @@ void RuntimeProfile::print_child_counters(const std::string& prefix,
             RuntimeProfile::print_child_counters(prefix + "  ", child_counter, counter_map,
                                                  child_counter_map, s);
         }
+    }
+}
+
+RuntimeProfile::AggCounter* RuntimeProfile::add_agg_counter(
+        const std::string& name, TUnit::type type, const std::string& parent_counter_name) {
+    std::lock_guard<std::mutex> l(_counter_map_lock);
+
+    DCHECK(parent_counter_name == ROOT_COUNTER ||
+           _counter_map.find(parent_counter_name) != _counter_map.end());
+    AggCounter* counter = _pool->add(new AggCounter(type));
+    _counter_map[name] = counter;
+    std::set<std::string>* child_counters =
+            find_or_insert(&_child_counter_map, parent_counter_name, std::set<std::string>());
+    child_counters->insert(name);
+    return counter;
+}
+
+void RuntimeProfile::add_agg_counter(const std::string& name, AggCounter* newCounter,
+                                     const std::string& parentCounterName) {
+    if (_counter_map.contains(name)) {
+        return;
+    }
+
+    _counter_map[name] = newCounter;
+    _child_counter_map[parentCounterName].insert(name);
+}
+
+RuntimeProfile* RuntimeProfile::merge_child_profile() {
+    RuntimeProfile* simpleProfile = _pool->add(new RuntimeProfile(name()));
+    std::vector<RuntimeProfile*> profiles;
+    for (auto& [profile, _] : _children) {
+        profiles.push_back(profile);
+    }
+    merge_profile(profiles, simpleProfile, _pool.get());
+    return simpleProfile;
+}
+
+void RuntimeProfile::merge_profile(std::vector<RuntimeProfile*>& profiles,
+                                   RuntimeProfile* simpleProfile, ObjectPool* obj_pool) {
+    if (profiles.empty()) {
+        return;
+    }
+    {
+        std::vector<std::unique_lock<std::mutex>> counter_map_lock;
+        counter_map_lock.reserve(profiles.size());
+        for (auto* profile : profiles) {
+            counter_map_lock.emplace_back(profile->_counter_map_lock);
+        }
+        merge_counters(ROOT_COUNTER, profiles, simpleProfile, obj_pool);
+    }
+    auto getChildListFromLists =
+            [](const std::string& profileName,
+               std::vector<RuntimeProfile*>& profiles) -> std::vector<RuntimeProfile*> {
+        std::vector<RuntimeProfile*> ret;
+        for (RuntimeProfile* profile : profiles) {
+            RuntimeProfile* tmp = profile->_child_map[profileName];
+            if (tmp) {
+                ret.push_back(tmp);
+            } else {
+                LOG_WARNING("could not find {} from {}", profileName, profile->name());
+            }
+        }
+        return ret;
+    };
+
+    RuntimeProfile* templateProfile = profiles[0];
+    for (int i = 0; i < templateProfile->_children.size(); i++) {
+        RuntimeProfile* templateChildProfile = templateProfile->_children[i].first;
+        std::vector<RuntimeProfile*> allChilds =
+                getChildListFromLists(templateChildProfile->name(), profiles);
+        RuntimeProfile* newCreatedMergedChildProfile = obj_pool->add(
+                new RuntimeProfile(templateChildProfile->name(), templateChildProfile->metadata()));
+        merge_profile(allChilds, newCreatedMergedChildProfile, obj_pool);
+        // RuntimeProfile has at least one counter named TotalTime, should exclude it.
+        if (newCreatedMergedChildProfile->_counter_map.size() > 1) {
+            simpleProfile->add_child(newCreatedMergedChildProfile, true, nullptr);
+        }
+    }
+}
+
+void RuntimeProfile::merge_counters(std::string parentCounterName,
+                                    std::vector<RuntimeProfile*>& profiles,
+                                    RuntimeProfile* simpleProfile, ObjectPool* obj_pool) {
+    if (profiles.empty()) {
+        return;
+    }
+    RuntimeProfile* templateProfile = profiles[0];
+    if (!templateProfile->_child_counter_map.contains(parentCounterName)) {
+        return;
+    }
+    std::set<std::string>& childCounterSet = templateProfile->_child_counter_map[parentCounterName];
+
+    for (std::string childCounterName : childCounterSet) {
+        Counter* oldCounter = templateProfile->_counter_map[childCounterName];
+        AggCounter* aggCounter = obj_pool->add(new AggCounter(oldCounter->type()));
+        for (RuntimeProfile* profile : profiles) {
+            Counter* orgCounter = profile->_counter_map[childCounterName];
+            aggCounter->addCounter(orgCounter);
+        }
+        if (simpleProfile->_counter_map.contains(parentCounterName)) {
+            simpleProfile->add_agg_counter(childCounterName, aggCounter, parentCounterName);
+        } else {
+            simpleProfile->add_agg_counter(childCounterName, aggCounter, ROOT_COUNTER);
+        }
+        merge_counters(childCounterName, profiles, simpleProfile, obj_pool);
     }
 }
 
