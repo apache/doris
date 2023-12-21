@@ -233,7 +233,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                 continue;
             }
             scanner_delegate->_scanner->start_wait_worker_timer();
-            TabletStorageType type = (*iter)->get_storage_type();
+            TabletStorageType type = scanner_delegate->_scanner->get_storage_type();
             bool ret = false;
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                 if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
