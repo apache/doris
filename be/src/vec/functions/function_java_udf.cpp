@@ -134,8 +134,15 @@ Status JavaFunctionCall::execute_impl(FunctionContext* context, Block& block,
     JniEnv* jni_env =
             reinterpret_cast<JniEnv*>(context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
     int arg_size = arguments.size();
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
     ColumnPtr data_cols[arg_size];
     ColumnPtr null_cols[arg_size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     jclass obj_class = env->FindClass("[Ljava/lang/Object;");
     jclass arraylist_class = env->FindClass("Ljava/util/ArrayList;");
     jclass hashmap_class = env->FindClass("Ljava/util/HashMap;");

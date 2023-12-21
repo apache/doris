@@ -132,6 +132,10 @@ Status SchemaTablesScanner::_get_new_table() {
     return Status::OK();
 }
 
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
 Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto table_num = _table_result.tables.size();
@@ -149,9 +153,9 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             for (int i = 0; i < table_num; ++i) {
                 datas[i] = &str_slot;
             }
-            fill_dest_column_for_range(block, 0, datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, datas));
         } else {
-            fill_dest_column_for_range(block, 0, null_datas);
+            RETURN_IF_ERROR(fill_dest_column_for_range(block, 0, null_datas));
         }
     }
     // schema
@@ -161,7 +165,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < table_num; ++i) {
             datas[i] = &str_slot;
         }
-        fill_dest_column_for_range(block, 1, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 1, datas));
     }
     // name
     {
@@ -171,7 +175,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 2, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 2, datas));
     }
     // type
     {
@@ -181,7 +185,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 3, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 3, datas));
     }
     // engine
     {
@@ -196,12 +200,12 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 4, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 4, datas));
     }
     // version
-    { fill_dest_column_for_range(block, 5, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 5, null_datas)); }
     // row_format
-    { fill_dest_column_for_range(block, 6, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 6, null_datas)); }
     // rows
     {
         int64_t srcs[table_num];
@@ -214,7 +218,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 7, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 7, datas));
     }
     // avg_row_length
     {
@@ -228,7 +232,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 8, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 8, datas));
     }
     // data_length
     {
@@ -242,16 +246,16 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 9, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 9, datas));
     }
     // max_data_length
-    { fill_dest_column_for_range(block, 10, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 10, null_datas)); }
     // index_length
-    { fill_dest_column_for_range(block, 11, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 11, null_datas)); }
     // data_free
-    { fill_dest_column_for_range(block, 12, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 12, null_datas)); }
     // auto_increment
-    { fill_dest_column_for_range(block, 13, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 13, null_datas)); }
     // creation_time
     {
         vectorized::VecDateTimeValue srcs[table_num];
@@ -269,7 +273,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 14, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 14, datas));
     }
     // update_time
     {
@@ -288,7 +292,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 15, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 15, datas));
     }
     // check_time
     {
@@ -307,7 +311,7 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 16, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 16, datas));
     }
     // collation
     {
@@ -322,12 +326,12 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[i] = nullptr;
             }
         }
-        fill_dest_column_for_range(block, 17, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 17, datas));
     }
     // checksum
-    { fill_dest_column_for_range(block, 18, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 18, null_datas)); }
     // create_options
-    { fill_dest_column_for_range(block, 19, null_datas); }
+    { RETURN_IF_ERROR(fill_dest_column_for_range(block, 19, null_datas)); }
     // create_comment
     {
         StringRef strs[table_num];
@@ -336,10 +340,13 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
             strs[i] = StringRef(src->c_str(), src->size());
             datas[i] = strs + i;
         }
-        fill_dest_column_for_range(block, 20, datas);
+        RETURN_IF_ERROR(fill_dest_column_for_range(block, 20, datas));
     }
     return Status::OK();
 }
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
 Status SchemaTablesScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {

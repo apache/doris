@@ -583,7 +583,14 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         }
     } else if (_part_type == TPartitionType::RANDOM) {
         // 1. select channel
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         Channel* current_channel = _channels[_current_channel_idx];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         if (!current_channel->is_receiver_eof()) {
             // 2. serialize, send and rollover block
             if (current_channel->is_local()) {
@@ -605,7 +612,14 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         auto column_to_keep = block->columns();
 
         int result_size = _partition_expr_ctxs.size();
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         int result[result_size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         {
             SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
             RETURN_IF_ERROR(get_partition_column_result(block, result));

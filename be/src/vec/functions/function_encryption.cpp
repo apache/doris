@@ -111,7 +111,14 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         size_t argument_size = arguments.size();
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         ColumnPtr argument_columns[argument_size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         std::vector<const ColumnString::Offsets*> offsets_list(argument_size);
         std::vector<const ColumnString::Chars*> chars_list(argument_size);
 

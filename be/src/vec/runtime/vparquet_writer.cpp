@@ -543,7 +543,14 @@ Status VParquetWriterWrapper::write(const Block& block) {
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         def_level[row_id] = null_data[row_id] == 0;
                     }
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
                     int64_t tmp_data[sz];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
                     int idx = 0;
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         if (null_data[row_id] == 0) {
@@ -609,7 +616,14 @@ Status VParquetWriterWrapper::write(const Block& block) {
                         return Status::InternalError("create epoch date from string error");
                     }
                     int32_t days_from_epoch = epoch_date.daynr();
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
                     int32_t tmp_data[sz];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
                     int idx = 0;
                     for (size_t row_id = 0; row_id < sz; row_id++) {
                         if (null_data[row_id] == 0) {

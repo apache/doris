@@ -63,7 +63,14 @@ Status MatchPredicate::evaluate(const Schema& schema, InvertedIndexIterator* ite
                 column_desc->name(), &match_value, inverted_index_query_type, num_rows, &roaring));
     } else if (column_desc->type() == FieldType::OLAP_FIELD_TYPE_ARRAY &&
                is_numeric_type(column_desc->get_sub_field(0)->type_info()->type())) {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         char buf[column_desc->get_sub_field(0)->type_info()->size()];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         column_desc->get_sub_field(0)->from_string(buf, _value);
         RETURN_IF_ERROR(iterator->read_from_inverted_index(
                 column_desc->name(), buf, inverted_index_query_type, num_rows, &roaring, true));

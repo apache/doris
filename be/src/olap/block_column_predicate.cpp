@@ -87,7 +87,14 @@ uint16_t OrBlockColumnPredicate::evaluate(vectorized::MutableColumns& block, uin
         if (!selected_size) {
             return 0;
         }
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         bool ret_flags[selected_size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         memset(ret_flags, false, selected_size);
         for (int i = 0; i < num_of_column_predicate(); ++i) {
             auto column_predicate = _block_column_predicate_vec[i];
@@ -116,7 +123,14 @@ void OrBlockColumnPredicate::evaluate_and(vectorized::MutableColumns& block, uin
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_and(block, sel, selected_size, flags);
     } else {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         bool ret_flags[selected_size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         memset(ret_flags, false, selected_size);
         for (int i = 0; i < num_of_column_predicate(); ++i) {
             auto column_predicate = _block_column_predicate_vec[i];
@@ -178,8 +192,15 @@ void AndBlockColumnPredicate::evaluate_or(vectorized::MutableColumns& block, uin
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_or(block, sel, selected_size, flags);
     } else {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         bool new_flags[selected_size];
         memset(new_flags, true, selected_size);
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
         for (auto block_column_predicate : _block_column_predicate_vec) {
             block_column_predicate->evaluate_and(block, sel, selected_size, new_flags);
@@ -197,7 +218,14 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
     if (num_of_column_predicate() == 1) {
         _block_column_predicate_vec[0]->evaluate_vec(block, size, flags);
     } else {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         bool new_flags[size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         bool initialized = false;
         for (auto block_column_predicate : _block_column_predicate_vec) {
             if (initialized) {

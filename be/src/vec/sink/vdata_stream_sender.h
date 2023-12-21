@@ -395,7 +395,14 @@ template <typename Channels>
 Status VDataStreamSender::channel_add_rows(RuntimeState* state, Channels& channels,
                                            int num_channels, const uint64_t* __restrict channel_ids,
                                            int rows, Block* block) {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
     std::vector<int> channel2rows[num_channels];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
     for (int i = 0; i < rows; i++) {
         channel2rows[channel_ids[i]].emplace_back(i);

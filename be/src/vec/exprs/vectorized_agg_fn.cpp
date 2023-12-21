@@ -300,7 +300,14 @@ std::string AggFnEvaluator::debug_string() const {
 Status AggFnEvaluator::_calc_argument_columns(Block* block) {
     SCOPED_TIMER(_expr_timer);
     _agg_columns.resize(_input_exprs_ctxs.size());
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
     int column_ids[_input_exprs_ctxs.size()];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     for (int i = 0; i < _input_exprs_ctxs.size(); ++i) {
         int column_id = -1;
         RETURN_IF_ERROR(_input_exprs_ctxs[i]->execute(block, &column_id));

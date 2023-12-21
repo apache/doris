@@ -100,7 +100,14 @@ Status LocalFileWriter::appendv(const Slice* data, size_t data_cnt) {
     // Convert the results into the iovec vector to request
     // and calculate the total bytes requested.
     size_t bytes_req = 0;
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
     struct iovec iov[data_cnt];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
     for (size_t i = 0; i < data_cnt; i++) {
         const Slice& result = data[i];
         bytes_req += result.size;

@@ -92,7 +92,14 @@ private:
 
     void insert_string_to_res_column(const uint16_t* sel, size_t sel_size,
                                      vectorized::ColumnString* res_ptr) {
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
         StringRef refs[sel_size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
         size_t length = 0;
         for (size_t i = 0; i < sel_size; i++) {
             uint16_t n = sel[i];
