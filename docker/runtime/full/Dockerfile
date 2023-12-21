@@ -28,7 +28,8 @@ RUN sed -i 's@http://deb.debian.org@http://mirrors.aliyun.com@g' /etc/apt/source
 ARG TARGETARCH
 ARG DORIS_VERSION=2.0.3
 
-RUN arch=$([ "${TARGETARCH:-amd64}" == "arm64" ] && echo "arm64" || echo "x64") &&\
+RUN arch=$([ "${TARGETARCH:-amd64}" = "arm64" ] && echo "arm64" || echo "x64") &&\
+     echo "TARGETARCH=${TARGETARCH}\narch=${arch}" > /opt/bin.info &&\
      cd /opt &&\
      wget https://apache-doris-releases.oss-accelerate.aliyuncs.com/apache-doris-${DORIS_VERSION}-bin-${arch}.tar.gz &&\
      tar -xf ./apache-doris-${DORIS_VERSION}-bin-${arch}.tar.gz &&\
@@ -41,3 +42,4 @@ ADD ./resource/init.sh /opt/apache-doris/
 RUN chmod 755 /opt/apache-doris/init.sh
 
 ENTRYPOINT ["/opt/apache-doris/init.sh"]
+
