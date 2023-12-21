@@ -126,8 +126,7 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDateTime getDateTime() {
-        return Instant.ofEpochMilli(record.getTimestamp(idx, 6)
-            .getMillisecond()).atZone(ZoneOffset.ofHours(0)).toLocalDateTime();
+        return record.getTimestamp(idx, dorisType.getPrecision()).toLocalDateTime();
     }
 
     @Override
