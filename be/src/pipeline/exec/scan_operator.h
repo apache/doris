@@ -350,7 +350,7 @@ protected:
     Status _prepare_scanners();
 
     // Submit the scanner to the thread pool and start execution
-    Status _start_scanners(const std::list<vectorized::VScannerSPtr>& scanners);
+    Status _start_scanners(const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners);
 
     // For some conjunct there is chance to elimate cast operator
     // Eg. Variant's sub column could eliminate cast in storage layer if
@@ -414,6 +414,9 @@ protected:
     std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 
     std::shared_ptr<Dependency> _finish_dependency;
+
+    // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
+    std::list<std::shared_ptr<ScannerDelegate>> _scanners;
 };
 
 template <typename LocalStateType>

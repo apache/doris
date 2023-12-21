@@ -1224,19 +1224,23 @@ template <typename Derived>
 Status ScanLocalState<Derived>::_prepare_scanners() {
     std::list<vectorized::VScannerSPtr> scanners;
     RETURN_IF_ERROR(_init_scanners(&scanners));
+    // Init scanner wrapper
+    for (auto it = scanners.begin(); it != scanners.end(); ++it) {
+        _scanners.emplace_back(std::make_shared<ScannerDelegate>(*it));
+    }
     if (scanners.empty()) {
         _eos = true;
         _scan_dependency->set_ready();
     } else {
         COUNTER_SET(_num_scanners, static_cast<int64_t>(scanners.size()));
-        RETURN_IF_ERROR(_start_scanners(scanners));
+        RETURN_IF_ERROR(_start_scanners(_scanners));
     }
     return Status::OK();
 }
 
 template <typename Derived>
 Status ScanLocalState<Derived>::_start_scanners(
-        const std::list<vectorized::VScannerSPtr>& scanners) {
+        const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners) {
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
