@@ -24,20 +24,12 @@ suite("query21") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_21 '''
-    explain shape plan
-
-
-
-
-select  *
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """select  *
  from(select w_warehouse_name
             ,i_item_id
             ,sum(case when (cast(d_date as date) < cast ('2002-02-27' as date))
@@ -63,7 +55,9 @@ select  *
              end) between 2.0/3.0 and 3.0/2.0
  order by w_warehouse_name
          ,i_item_id
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_21 """
+    explain shape plan
+    ${ds}
+    """
 }

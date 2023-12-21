@@ -17,7 +17,7 @@
  * under the License.
  */
 
-suite("ds_rf{--}") {
+suite("query{--}") {
     String db = context.config.getDbNameByFile(new File(context.file.parent))
     sql "use ${db}"
     sql 'set enable_nereids_planner=true'
@@ -27,32 +27,12 @@ suite("ds_rf{--}") {
     sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'set enable_pipeline_engine=true'
-    sql 'set enable_runtime_filter_prune=false'
-    String stmt = '''
-    explain physical plan
-    {query}
-    '''
-    String plan = sql "${stmt}"
-    log.info(plan)
-    def getRuntimeFilters = { plantree ->
-        {
-            def lst = []
-            plantree.eachMatch("RF\\d+\\[[^#]+#\\d+->\\[[^\\]]+\\]") {
-                ch ->
-                    {
-                        lst.add(ch.replaceAll("#\\d+", ''))
-                    }
-            }
-            return lst.join(',')
-        }
-    }
-    
-    // def outFile = "regression-test/suites/nereids_tpcds_shape_sf100_p0/ddl/rf/rf.{--}"
-    // File file = new File(outFile)
-    // file.write(getRuntimeFilters(plan))
-    
-     assertEquals("{rfs}", getRuntimeFilters(plan))
+    sql 'set enable_runtime_filter_prune=true'
+
+    def ds = """{query}"""
+    qt_ds_shape_{--} """
+    explain shape plan
+    ${ds}
+    """
 }
