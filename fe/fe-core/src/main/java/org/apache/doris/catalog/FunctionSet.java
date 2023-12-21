@@ -388,7 +388,6 @@ public class FunctionSet<T> {
             ArrayList<Type> args = new ArrayList<>();
             Collections.addAll(args, specializedFunction.getArgs());
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
-            boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
             int i = 0;
             for (; i < args.size(); i++) {
                 if (args.get(i).hasTemplateType()) {
@@ -402,10 +401,10 @@ public class FunctionSet<T> {
                             && FunctionTypeDeducers.DEDUCERS.containsKey(specializedFunction.functionName())) {
                         deduceType = FunctionTypeDeducers.deduce(specializedFunction.functionName(), i, requestFunction.getArgs());
                         args.set(i, args.get(i).specializeTemplateType(deduceType == null ? requestFunction.getArgs()[i]
-                                : deduceType, specializedTypeMap, false, enableDecimal256));
+                                : deduceType, specializedTypeMap, false));
                     } else {
                         args.set(i, args.get(i).specializeTemplateType(requestFunction.getArgs()[i],
-                                specializedTypeMap, false, enableDecimal256));
+                                specializedTypeMap, false));
                     }
                 }
             }

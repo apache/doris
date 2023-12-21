@@ -52,7 +52,7 @@ public class FunctionTypeDeducers {
                 } else if (args[0].isNull()) {
                     // first arg is null, later element is not contains
                     return args[argIdx];
-                } else if (Type.isImplicitlyCastable(args[argIdx], ((ArrayType) args[0]).getItemType(), false, true)) {
+                } else if (Type.isImplicitlyCastable(args[argIdx], ((ArrayType) args[0]).getItemType(), false)) {
                     return args[argIdx];
                 } else {
                     return null;
