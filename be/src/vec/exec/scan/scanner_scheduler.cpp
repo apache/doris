@@ -97,7 +97,7 @@ void ScannerScheduler::stop() {
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
-    _remote_scan_thread_pool->join();
+    _remote_scan_thread_pool->wait();
     _limited_scan_thread_pool->wait();
     _group_local_scan_thread_pool->wait();
 
@@ -259,8 +259,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                             work_func, ctx, ctx->get_task_group()->local_scan_task_entity(), nice};
                     ret = _task_group_local_scan_queue->push_back(scan_task);
                 } else {
-                    PriorityThreadPool::Task task;
-                    task.work_function = [this, scanner = *iter, ctx] {
+                    ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
                     };
                     task.priority = nice;
@@ -451,7 +450,7 @@ void ScannerScheduler::_register_metrics() {
     REGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size,
                          [this]() { return _remote_scan_thread_pool->get_queue_size(); });
     REGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num,
-                         [this]() { return _remote_scan_thread_pool->get_active_threads(); });
+                         [this]() { return _remote_scan_thread_pool->num_threads(); });
     REGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size,
                          [this]() { return _limited_scan_thread_pool->get_queue_size(); });
     REGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num,
@@ -472,4 +471,5 @@ void ScannerScheduler::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_thread_num);
 }
+
 } // namespace doris::vectorized
