@@ -1088,6 +1088,11 @@ public class EditLog {
                     env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
                     break;
                 }
+                case OperationType.OP_ALTER_REPOSITORY: {
+                    Repository repository = (Repository) journal.getData();
+                    env.getBackupHandler().getRepoMgr().alterRepo(repository, true);
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}", opCode, e);
@@ -1492,6 +1497,10 @@ public class EditLog {
 
     public void logDropRepository(String repoName) {
         logEdit(OperationType.OP_DROP_REPOSITORY, new Text(repoName));
+    }
+
+    public void logAlterRepository(Repository repo) {
+        logEdit(OperationType.OP_ALTER_REPOSITORY, repo);
     }
 
     public void logRestoreJob(RestoreJob job) {

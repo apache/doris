@@ -325,6 +325,8 @@ public class OperationType {
 
     public static final short OP_ALTER_CATALOG_COMMENT = 458;
 
+    public static final short OP_ALTER_REPOSITORY = 459;
+
     /**
      * Get opcode name by op code.
      **/

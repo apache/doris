@@ -1378,6 +1378,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterUserStmt(ifExists, user, null, passwdOptions);
     :}
+    | KW_ALTER KW_REPOSITORY ident:repoName opt_properties:properties
+    {:
+        RESULT = new AlterRepositoryStmt(repoName, properties);
+    :}
     ;
 
 opt_datasource_properties ::=
