@@ -255,8 +255,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
                     auto work_func = [this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
                     };
-                    taskgroup::ScanTask scan_task = {
-                            work_func, ctx, ctx->get_task_group()->local_scan_task_entity(), nice};
+                    taskgroup::ScanTask scan_task = {work_func, ctx};
                     ret = _task_group_local_scan_queue->push_back(scan_task);
                 } else {
                     PriorityThreadPool::Task task;

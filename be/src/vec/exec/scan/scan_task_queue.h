@@ -29,33 +29,22 @@ namespace taskgroup {
 
 using WorkFunction = std::function<void()>;
 
-// Like PriorityThreadPool::Task
 struct ScanTask {
     ScanTask();
-    ScanTask(WorkFunction scan_func, std::shared_ptr<vectorized::ScannerContext> scanner_context,
-             TGSTEntityPtr scan_entity, int priority);
-    bool operator<(const ScanTask& o) const { return priority < o.priority; }
-    ScanTask& operator++() {
-        priority += 2;
-        return *this;
-    }
+    ScanTask(WorkFunction scan_func, std::shared_ptr<vectorized::ScannerContext> scanner_context);
 
     WorkFunction scan_func;
     std::shared_ptr<vectorized::ScannerContext> scanner_context = nullptr;
-    TGSTEntityPtr scan_entity;
-    int priority;
 };
 
-// Like pipeline::PriorityTaskQueue use BlockingPriorityQueue directly?
 class ScanTaskQueue {
 public:
-    ScanTaskQueue();
     Status try_push_back(ScanTask);
-    bool try_get(ScanTask* scan_task, uint32_t timeout_ms);
-    int size() { return _queue.get_size(); }
+    bool try_get(ScanTask* scan_task);
+    size_t size() { return _queue.size(); }
 
 private:
-    BlockingPriorityQueue<ScanTask> _queue;
+    std::queue<ScanTask> _queue;
 };
 
 // Like TaskGroupTaskQueue
