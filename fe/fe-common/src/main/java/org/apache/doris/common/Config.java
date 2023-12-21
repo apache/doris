@@ -523,7 +523,7 @@ public class Config extends ConfigBase {
             "Default pre-commit timeout for stream load job, in seconds."})
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
-    @ConfField(description = {"Stream Load 是否默认打开 memtable 前移",
+    @ConfField(mutable = true, masterOnly = true, description = {"Stream Load 是否默认打开 memtable 前移",
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
