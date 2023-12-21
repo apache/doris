@@ -64,10 +64,6 @@ public:
 
     void add_output_header(const char* key, const char* value);
 
-    void add_header(const char* key, const char* value);
-
-    void clear_header();
-
     std::string debug_string() const;
 
     void set_handler(HttpHandler* handler) { _handler = handler; }

@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
-
 #include <mutex>
 #include <string>
 #include <unordered_map>
