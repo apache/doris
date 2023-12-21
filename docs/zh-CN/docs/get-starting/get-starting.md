@@ -40,7 +40,7 @@ java -version
 接下来，[下载 Doris 的最新二进制版本](https://doris.apache.org/zh-CN/download)，然后解压。
 
 ```
-tar zxf apache-doris-x.x.x.tar.gz
+tar xf apache-doris-x.x.x.tar.gz
 ```
 
 ## 配置 Doris
