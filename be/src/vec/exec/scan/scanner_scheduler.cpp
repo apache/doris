@@ -97,7 +97,7 @@ void ScannerScheduler::stop() {
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
-    _remote_scan_thread_pool->join();
+    _remote_scan_thread_pool->wait();
     _limited_scan_thread_pool->wait();
     _group_local_scan_thread_pool->wait();
 
@@ -126,9 +126,12 @@ Status ScannerScheduler::init(ExecEnv* env) {
     _remote_thread_pool_max_size = config::doris_max_remote_scanner_thread_pool_thread_num != -1
                                            ? config::doris_max_remote_scanner_thread_pool_thread_num
                                            : std::max(512, CpuInfo::num_cores() * 10);
-    _remote_scan_thread_pool = std::make_unique<PriorityThreadPool>(
-            _remote_thread_pool_max_size, config::doris_remote_scanner_thread_pool_queue_size,
-            "RemoteScanThreadPool");
+    static_cast<void>(
+            ThreadPoolBuilder("RemoteScanThreadPool")
+                    .set_min_threads(config::doris_scanner_thread_pool_thread_num) // 48 default
+                    .set_max_threads(_remote_thread_pool_max_size)
+                    .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+                    .build(&_remote_scan_thread_pool));
 
     // 4. limited scan thread pool
     static_cast<void>(ThreadPoolBuilder("LimitedScanThreadPool")
@@ -246,6 +249,7 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 (*iter)->start_wait_worker_timer();
                 TabletStorageType type = (*iter)->get_storage_type();
                 bool ret = false;
+                (void) ret;
                 if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
                     if (auto* scan_sche = ctx->get_simple_scan_scheduler()) {
                         auto work_func = [this, scanner = *iter, ctx] {
@@ -270,19 +274,9 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                         ret = _local_scan_thread_pool->offer(task);
                     }
                 } else {
-                    PriorityThreadPool::Task task;
-                    task.work_function = [this, scanner = *iter, ctx] {
+                    ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
                         this->_scanner_scan(this, ctx, scanner);
-                    };
-                    task.priority = nice;
-                    ret = _remote_scan_thread_pool->offer(task);
-                }
-                if (ret) {
-                    this_run.erase(iter++);
-                } else {
-                    ctx->set_status_on_error(
-                            Status::InternalError("failed to submit scanner to scanner pool"));
-                    break;
+                    });
                 }
             }
         }
@@ -450,7 +444,7 @@ void ScannerScheduler::_register_metrics() {
     REGISTER_HOOK_METRIC(remote_scan_thread_pool_queue_size,
                          [this]() { return _remote_scan_thread_pool->get_queue_size(); });
     REGISTER_HOOK_METRIC(remote_scan_thread_pool_thread_num,
-                         [this]() { return _remote_scan_thread_pool->get_active_threads(); });
+                         [this]() { return _remote_scan_thread_pool->num_threads(); });
     REGISTER_HOOK_METRIC(limited_scan_thread_pool_queue_size,
                          [this]() { return _limited_scan_thread_pool->get_queue_size(); });
     REGISTER_HOOK_METRIC(limited_scan_thread_pool_thread_num,
@@ -471,4 +465,5 @@ void ScannerScheduler::_deregister_metrics() {
     DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_queue_size);
     DEREGISTER_HOOK_METRIC(group_local_scan_thread_pool_thread_num);
 }
+
 } // namespace doris::vectorized

@@ -111,7 +111,7 @@ private:
     // _remote_scan_thread_pool is for remote scan task(cold data on s3, hdfs, etc.)
     // _limited_scan_thread_pool is a special pool for queries with resource limit
     std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
-    std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
+    std::unique_ptr<ThreadPool> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
     std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
