@@ -1018,7 +1018,7 @@ struct CurrentDateImpl {
             dtv.from_unixtime(context->state()->timestamp_ms() / 1000,
                               context->state()->timezone_obj());
             reinterpret_cast<VecDateTimeValue*>(&dtv)->set_type(TIME_DATE);
-            auto date_packed_int = binary_cast<doris::VecDateTimeValue, int64_t>(
+            auto date_packed_int = binary_cast<VecDateTimeValue, int64_t>(
                     *reinterpret_cast<VecDateTimeValue*>(&dtv));
             col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
                                 0);
