@@ -355,14 +355,16 @@ void Daemon::block_spill_gc_thread() {
 }
 
 void Daemon::je_purge_dirty_pages_thread() const {
-    _je_purge_dirty_pages_thread_latch.reset(1);
     do {
-        _je_purge_dirty_pages_thread_latch.wait();
-        if (_is_stopped) {
+        {
+            std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
+            doris::MemInfo::je_purge_dirty_pages_cv.wait(l);
+        }
+        if (_stop_background_threads_latch.count() == 0) {
             break;
         }
+        // cannot lock je_purge_all_arena_dirty_pages, otherwise it will block GC thread.
         doris::MemInfo::je_purge_all_arena_dirty_pages();
-        _je_purge_dirty_pages_thread_latch.reset(1);
     } while (true);
 }
 
@@ -407,9 +409,7 @@ void Daemon::stop() {
         LOG(INFO) << "Doris daemon stop returned since no bg threads latch.";
         return;
     }
-    _is_stopped = true;
     _stop_background_threads_latch.count_down();
-    _je_purge_dirty_pages_thread_latch.count_down();
     for (auto&& t : _threads) {
         if (t) {
             t->join();
