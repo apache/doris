@@ -301,8 +301,12 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
             // wait stream load finish
             RETURN_IF_ERROR(ctx->future.get());
             if (ctx->status.ok()) {
-                RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
-                need_retry = false;
+                auto commit_st = _exec_env->stream_load_executor()->commit_txn(ctx.get());
+                if (commit_st.ok() || commit_st.is<ErrorCode::PUBLISH_TIMEOUT>()) {
+                    need_retry = false;
+                } else {
+                    need_retry = true;
+                }
             } else if (!ctx->status.ok()) {
                 LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
                              << ", errmsg=" << ctx->status;
