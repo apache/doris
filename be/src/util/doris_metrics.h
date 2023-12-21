@@ -194,8 +194,6 @@ public:
     UIntGauge* add_batch_task_queue_size = nullptr;
     UIntGauge* send_batch_thread_pool_thread_num = nullptr;
     UIntGauge* send_batch_thread_pool_queue_size = nullptr;
-    UIntGauge* download_cache_thread_pool_thread_num = nullptr;
-    UIntGauge* download_cache_thread_pool_queue_size = nullptr;
     UIntGauge* fragment_thread_pool_queue_size = nullptr;
 
     // Upload metrics
