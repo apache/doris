@@ -19,29 +19,22 @@
 
 #include <CLucene.h>
 #include <CLucene/index/IndexReader.h>
-#include <CLucene/index/IndexVersion.h>
-#include <CLucene/index/Term.h>
-#include <CLucene/search/query/TermIterator.h>
 
-#include "roaring/roaring.hh"
+#include <cstdint>
 
 CL_NS_USE(index)
 
 namespace doris {
 
-class DisjunctionQuery {
+class PrefixQuery {
 public:
-    DisjunctionQuery(IndexReader* reader);
-    ~DisjunctionQuery();
+    PrefixQuery() = default;
+    ~PrefixQuery() = default;
 
-    void add(const std::wstring& field_name, const std::vector<std::string>& terms);
-    void search(roaring::Roaring& roaring);
-
-private:
-    IndexReader* _reader = nullptr;
-    std::vector<Term*> _terms;
-    std::vector<TermDocs*> _term_docs;
-    std::vector<TermIterator> _term_iterators;
+    static void get_prefix_terms(IndexReader* reader, const std::wstring& field_name,
+                                 const std::string& prefix,
+                                 std::vector<CL_NS(index)::Term*>& prefix_terms,
+                                 int32_t max_expansions = 50);
 };
 
 } // namespace doris
