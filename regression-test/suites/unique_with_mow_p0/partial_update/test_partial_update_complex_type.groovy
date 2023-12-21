@@ -33,7 +33,7 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
                         `id` int(11) NOT NULL COMMENT "用户 ID",
                         `c_varchar` varchar(65533) NULL COMMENT "用户姓名",
                         `c_jsonb` JSONB NULL,
-                        `c_array` ARRAY<INT> NULL DEFAULT [],
+                        `c_array` ARRAY<INT> NULL DEFAULT "[]",
                         `c_struct` STRUCT<a:INT, b:INT> NULL)
                         UNIQUE KEY(`id`) DISTRIBUTED BY HASH(`id`) BUCKETS 1
                         PROPERTIES("replication_num" = "1", "enable_unique_key_merge_on_write" = "true",
