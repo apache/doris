@@ -80,7 +80,8 @@ public class DecimalLiteral extends Literal {
         int realScale = value.scale();
         boolean valid = true;
         if (precision != -1 && scale != -1) {
-            if (precision < realPrecision || scale < realScale) {
+            if (precision < realPrecision || scale < realScale
+                    || realPrecision - realScale > DecimalV2Type.MAX_PRECISION - DecimalV2Type.MAX_SCALE) {
                 valid = false;
             }
         } else {

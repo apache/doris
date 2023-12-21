@@ -103,24 +103,6 @@ public class DecimalV2Type extends FractionalType {
     }
 
     /**
-     * validate DecimalV2Type can hold bigDecimal literal, throw exception if overflows
-     */
-    public static void validateDecimalV2Type(BigDecimal bigDecimal) {
-        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
-        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
-
-        Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION,
-                "precision should in (0, " + MAX_PRECISION + "], but real precision is "
-                        + precision);
-        Preconditions.checkArgument(scale >= 0 && scale <= MAX_SCALE,
-                "scale should in (0, " + MAX_SCALE + "], but real precision is " + scale);
-        int integerPart = precision - scale;
-        Preconditions.checkArgument(integerPart >= 0 && integerPart <= MAX_PRECISION - MAX_SCALE,
-                "precision - scale should in (0, " + integerPart + "], but real precision is "
-                        + integerPart);
-    }
-
-    /**
      * create DecimalV2Type with appropriate scale and precision, not truncate to MAX_PRECISION, MAX_SCALE.
      */
     public static DecimalV2Type createDecimalV2TypeWithoutTruncate(int precision, int scale) {
