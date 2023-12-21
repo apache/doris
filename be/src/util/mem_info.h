@@ -24,6 +24,7 @@
 #include <stdint.h>
 
 #include <atomic>
+#include <condition_variable>
 #include <string>
 
 #if !defined(__APPLE__) || !defined(_POSIX_C_SOURCE)
