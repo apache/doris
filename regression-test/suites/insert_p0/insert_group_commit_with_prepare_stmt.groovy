@@ -81,7 +81,7 @@ suite("insert_group_commit_with_prepare_stmt") {
     def url = getServerPrepareJdbcUrl(context.config.jdbcUrl, realDb)
     logger.info("url: " + url)
 
-    def result1 = connect(user=user, password=password, url=url) {
+    def result1 = connect(user, password, url + "&sessionVariables=group_commit=async_mode") {
         try {
             // create table
             sql """ drop table if exists ${table}; """
@@ -99,7 +99,6 @@ suite("insert_group_commit_with_prepare_stmt") {
             );
             """
 
-            sql """ set group_commit = async_mode; """
             sql """ set enable_insert_strict = false; """
 
             // 1. insert into
