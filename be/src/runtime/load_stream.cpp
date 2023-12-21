@@ -18,6 +18,7 @@
 #include "runtime/load_stream.h"
 
 #include <brpc/stream.h>
+#include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
 #include <olap/rowset/rowset_factory.h>
@@ -136,7 +137,11 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "write data failed " << *this;
         }
     };
-    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(flush_func);
+    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
+        bthread_usleep(10 * 1000); // 10ms
+    }
+    return flush_token->submit_func(flush_func);
 }
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
@@ -170,7 +175,11 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "add segment failed " << *this;
         }
     };
-    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(add_segment_func);
+    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
+        bthread_usleep(10 * 1000); // 10ms
+    }
+    return flush_token->submit_func(add_segment_func);
 }
 
 Status TabletStream::close() {
