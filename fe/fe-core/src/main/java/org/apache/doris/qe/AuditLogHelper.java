@@ -113,6 +113,11 @@ public class AuditLogHelper {
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor.isForwardToMaster()) {
                 ctx.getAuditEventBuilder().setState(ctx.executor.getProxyStatus());
+                int proxyStatusCode = ctx.executor.getProxyStatusCode();
+                if (proxyStatusCode != 0) {
+                    ctx.getAuditEventBuilder().setErrorCode(proxyStatusCode);
+                    ctx.getAuditEventBuilder().setErrorMessage(ctx.executor.getProxyErrMsg());
+                }
             }
         }
         Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());

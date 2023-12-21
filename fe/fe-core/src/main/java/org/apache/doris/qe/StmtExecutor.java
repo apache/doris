@@ -386,6 +386,20 @@ public class StmtExecutor {
         return masterOpExecutor.getProxyStatus();
     }
 
+    public int getProxyStatusCode() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.ordinal();
+        }
+        return masterOpExecutor.getProxyStatusCode();
+    }
+
+    public String getProxyErrMsg() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.name();
+        }
+        return masterOpExecutor.getProxyErrMsg();
+    }
+
     public boolean isSyncLoadKindStmt() {
         if (parsedStmt == null) {
             return false;
