@@ -63,8 +63,6 @@
 
 namespace doris {
 
-CountDownLatch Daemon::_je_purge_dirty_pages_thread_latch {1};
-
 void Daemon::tcmalloc_gc_thread() {
     // TODO All cache GC wish to be supported
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && \
@@ -357,11 +355,15 @@ void Daemon::block_spill_gc_thread() {
 void Daemon::je_purge_dirty_pages_thread() const {
     do {
         std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
-        doris::MemInfo::je_purge_dirty_pages_cv.wait(l);
+        while (_stop_background_threads_latch.count() != 0 &&
+               !doris::MemInfo::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
+            doris::MemInfo::je_purge_dirty_pages_cv.wait_for(l, std::chrono::seconds(1));
+        }
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
         doris::MemInfo::je_purge_all_arena_dirty_pages();
+        doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
     } while (true);
 }
 

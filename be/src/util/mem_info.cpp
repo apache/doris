@@ -37,7 +37,6 @@
 #include <vector>
 
 #include "common/config.h"
-#include "common/daemon.h"
 #include "common/status.h"
 #include "gutil/strings/split.h"
 #include "runtime/exec_env.h"
@@ -81,6 +80,9 @@ int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
 int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
 int64_t MemInfo::_s_process_minor_gc_size = -1;
 int64_t MemInfo::_s_process_full_gc_size = -1;
+std::mutex MemInfo::je_purge_dirty_pages_lock;
+std::condition_variable MemInfo::je_purge_dirty_pages_cv;
+std::atomic<bool> MemInfo::je_purge_dirty_pages_notify {false};
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -130,7 +132,7 @@ bool MemInfo::process_minor_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        je_purge_dirty_pages_cv.notify_all();
+        notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -140,7 +142,7 @@ bool MemInfo::process_minor_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    je_purge_dirty_pages_cv.notify_all();
+    notify_je_purge_dirty_pages();
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
     }
@@ -181,7 +183,7 @@ bool MemInfo::process_full_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        je_purge_dirty_pages_cv.notify_all();
+        notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -191,7 +193,7 @@ bool MemInfo::process_full_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    je_purge_dirty_pages_cv.notify_all();
+    notify_je_purge_dirty_pages();
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
