@@ -592,8 +592,10 @@ public class ReportHandler extends Daemon {
         int publishTaskSize = runningTasks.get(TTaskType.PUBLISH_VERSION) != null
                 ? runningTasks.get(TTaskType.PUBLISH_VERSION).size() : 0;
         LOG.info("finished to handle task report from backend {}, "
-                + "diff task num: {}, runningTasks size {}, publishSize: {}, cost: {} ms.",
-                backendId, batchTask.getTaskNum(), runningTasks.values().stream().mapToLong(Set::size).sum(),
+                + "diff task num: {}, runningTasks: {}, publishSize: {}, cost: {} ms.",
+                backendId, batchTask.getTaskNum(), runningTasks.entrySet().stream()
+                    .filter(entry -> entry.getValue().size() > 0)
+                    .map(entry -> entry.getKey() + "=" + entry.getValue().size()).collect(Collectors.toList()),
                 publishTaskSize, (System.currentTimeMillis() - start));
     }
 
