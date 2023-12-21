@@ -123,7 +123,7 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
     
 ## 向木桩传递参数
 
-激活木桩时，除了前文所述的 timeout 和 execute，还可以传递其它自定义参数。<br>
+激活木桩时，除了前文所述的 timeout 和 execute，还可以传递其它自定义参数。<br/>
 一个参数是一个形如 key=value 的 key-value 对，在 url 的路径部分，紧跟在木桩名称后，以字符 '?' 开头。
 
 ### API
@@ -281,8 +281,8 @@ def enableDebugPointForAllBEs(String name, Map<String, String> params = null);
 def disableDebugPointForAllFEs(String name);
 def disableDebugPointForAllFEs(String name);
 ```
-需要在调用测试 action 之前调用 `enableDebugPointForAllFEs()` 或 `enableDebugPointForAllBEs()` 来开启木桩， <br>
-这样执行到木桩代码时，相关代码才会被执行，<br>
+需要在调用测试 action 之前调用 `enableDebugPointForAllFEs()` 或 `enableDebugPointForAllBEs()` 来开启木桩， <br/>
+这样执行到木桩代码时，相关代码才会被执行，<br/>
 然后在调用测试 action 之后调用 `disableDebugPointForAllFEs()` 或 `disableDebugPointForAllBEs()` 来关闭木桩。
 
 ### 并发问题
