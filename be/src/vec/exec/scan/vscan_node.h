@@ -109,7 +109,7 @@ public:
             }
         }
     }
-    ~VScanNode() override = default;
+    ~VScanNode() { LOG(INFO) << Status::InternalError("closed"); }
 
     friend class VScanner;
     friend class NewOlapScanner;
