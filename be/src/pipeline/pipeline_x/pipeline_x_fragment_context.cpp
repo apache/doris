@@ -726,7 +726,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
         return Status::OK();
     }
 
-    if (!cur_pipe->need_to_local_shuffle(data_distribution)) {
+    if (!cur_pipe->need_to_local_exchange(data_distribution)) {
         return Status::OK();
     }
     *do_local_exchange = true;
