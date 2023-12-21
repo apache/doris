@@ -12,6 +12,7 @@ Usage:
 }
 
 if [[ $1 == 'get' ]]; then
+    if [[ ! -f "${tmp_env_file_path}" ]]; then touch "${tmp_env_file_path}"; fi
     echo "${tmp_env_file_path}"
 elif [[ $1 == 'set' ]]; then
     if [[ -z $2 ]]; then usage; fi
