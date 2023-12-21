@@ -122,14 +122,30 @@ public:
         return _collect_query_statistics_with_every_batch;
     }
 
-    bool need_to_local_shuffle(const DataDistribution target_data_distribution) const {
-        if (target_data_distribution.distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE ||
-            target_data_distribution.distribution_type == ExchangeType::HASH_SHUFFLE) {
-            // If `_data_distribution` of this pipeline does not match the `target_data_distribution`,
-            // we should do local shuffle.
-            return target_data_distribution.operator!=(_data_distribution);
+    static bool is_hash_exchange(ExchangeType idx) {
+        return idx == ExchangeType::HASH_SHUFFLE || idx == ExchangeType::BUCKET_HASH_SHUFFLE;
+    }
+
+    bool need_to_local_exchange(const DataDistribution target_data_distribution) const {
+        if (target_data_distribution.distribution_type != ExchangeType::BUCKET_HASH_SHUFFLE &&
+            target_data_distribution.distribution_type != ExchangeType::HASH_SHUFFLE) {
+            return true;
+        } else if (operatorXs.front()->ignore_data_hash_distribution()) {
+            if (_data_distribution.distribution_type ==
+                        target_data_distribution.distribution_type &&
+                (_data_distribution.partition_exprs.empty() ||
+                 target_data_distribution.partition_exprs.empty())) {
+                return true;
+            }
+            return _data_distribution.distribution_type !=
+                           target_data_distribution.distribution_type ||
+                   _data_distribution.partition_exprs != target_data_distribution.partition_exprs;
+        } else {
+            return _data_distribution.distribution_type !=
+                           target_data_distribution.distribution_type &&
+                   !(is_hash_exchange(_data_distribution.distribution_type) &&
+                     is_hash_exchange(target_data_distribution.distribution_type));
         }
-        return true;
     }
     void init_data_distribution() {
         set_data_distribution(operatorXs.front()->get_local_exchange_type());

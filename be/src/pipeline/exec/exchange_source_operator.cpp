@@ -109,11 +109,9 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
         : OperatorX<ExchangeLocalState>(pool, tnode, operator_id, descs),
           _num_senders(num_senders),
           _is_merging(tnode.exchange_node.__isset.sort_info),
-          _is_hash_partition(
-                  tnode.exchange_node.__isset.partition_type &&
-                  (tnode.exchange_node.partition_type == TPartitionType::HASH_PARTITIONED ||
-                   tnode.exchange_node.partition_type ==
-                           TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED)),
+          _partition_type(tnode.exchange_node.__isset.partition_type
+                                  ? tnode.exchange_node.partition_type
+                                  : TPartitionType::UNPARTITIONED),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
