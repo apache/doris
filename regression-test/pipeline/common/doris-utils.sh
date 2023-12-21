@@ -55,13 +55,13 @@ function start_doris_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if ! java -version >/dev/null ||
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
-        sudo apt install openjdk-8-jdk -y >/dev/null
+        sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
     fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
 
-    if ! mysql --version >/dev/null; then sudo apt install -y mysql-client; fi
+    if ! mysql --version >/dev/null; then sudo apt update && sudo apt install -y mysql-client; fi
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
     local i=1
@@ -80,7 +80,7 @@ function start_doris_be() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     if ! java -version >/dev/null ||
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
-        sudo apt install openjdk-8-jdk -y >/dev/null
+        sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
     fi
     JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
     export JAVA_HOME
@@ -106,7 +106,7 @@ function start_doris_be() {
 
 function add_doris_be_to_fe() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if ! mysql --version >/dev/null; then sudo apt install -y mysql-client; fi
+    if ! mysql --version >/dev/null; then sudo sudo apt update && apt install -y mysql-client; fi
     query_port=$(get_doris_conf_value "${DORIS_HOME}"/fe/conf/fe.conf query_port)
     heartbeat_service_port=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be.conf heartbeat_service_port)
     cl="mysql -h127.0.0.1 -P${query_port} -uroot "
