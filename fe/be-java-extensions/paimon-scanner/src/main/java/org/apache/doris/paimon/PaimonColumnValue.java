@@ -24,6 +24,8 @@ import org.apache.paimon.data.DataGetters;
 import org.apache.paimon.data.InternalArray;
 import org.apache.paimon.data.InternalMap;
 import org.apache.paimon.data.InternalRow;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
@@ -34,6 +36,7 @@ import java.time.ZoneOffset;
 import java.util.List;
 
 public class PaimonColumnValue implements ColumnValue {
+    private static final Logger LOG = LoggerFactory.getLogger(PaimonColumnValue.class);
     private int idx;
     private DataGetters record;
     private ColumnType dorisType;
@@ -118,12 +121,12 @@ public class PaimonColumnValue implements ColumnValue {
 
     @Override
     public LocalDate getDate() {
-        return LocalDate.ofEpochDay(record.getLong(idx));
+        return LocalDate.ofEpochDay(record.getInt(idx));
     }
 
     @Override
     public LocalDateTime getDateTime() {
-        return Instant.ofEpochMilli(record.getTimestamp(idx, 3)
+        return Instant.ofEpochMilli(record.getTimestamp(idx, 6)
             .getMillisecond()).atZone(ZoneOffset.ofHours(0)).toLocalDateTime();
     }
 
