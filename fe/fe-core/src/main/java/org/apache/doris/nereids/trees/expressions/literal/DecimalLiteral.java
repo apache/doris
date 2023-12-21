@@ -74,7 +74,7 @@ public class DecimalLiteral extends Literal {
     /**
      * check precision and scale is enough for value.
      */
-    public static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
+    private static void checkPrecisionAndScale(int precision, int scale, BigDecimal value) throws AnalysisException {
         Preconditions.checkNotNull(value);
         int realPrecision = value.precision();
         int realScale = value.scale();
