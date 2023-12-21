@@ -1226,7 +1226,7 @@ Status ScanLocalState<Derived>::_prepare_scanners() {
     RETURN_IF_ERROR(_init_scanners(&scanners));
     // Init scanner wrapper
     for (auto it = scanners.begin(); it != scanners.end(); ++it) {
-        _scanners.emplace_back(std::make_shared<ScannerDelegate>(*it));
+        _scanners.emplace_back(std::make_shared<vectorized::ScannerDelegate>(*it));
     }
     if (scanners.empty()) {
         _eos = true;
