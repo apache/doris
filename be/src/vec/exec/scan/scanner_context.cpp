@@ -392,7 +392,7 @@ bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
     return false;
 }
 
-Status ScannerContext::stop_scanners(RuntimeState* state) {
+void ScannerContext::stop_scanners(RuntimeState* state) {
     std::unique_lock l(_transfer_lock);
     _should_stop = true;
     _set_scanner_done();
@@ -442,7 +442,6 @@ Status ScannerContext::stop_scanners(RuntimeState* state) {
     }
 
     _blocks_queue_added_cv.notify_one();
-    return Status::OK();
 }
 
 void ScannerContext::_set_scanner_done() {

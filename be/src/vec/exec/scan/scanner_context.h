@@ -157,7 +157,7 @@ public:
 
     SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
-    Status stop_scanners(RuntimeState* state);
+    void stop_scanners(RuntimeState* state);
 
     void reschedule_scanner_ctx();
 
