@@ -93,7 +93,7 @@ class ScannerDelegate {
 public:
     VScannerSPtr _scanner;
     ScannerDelegate(VScannerSPtr& scanner_ptr) : _scanner(scanner_ptr) {}
-    ~ScannerDelegate() { _scanner->close(_scanner->runtime_state()); }
+    ~ScannerDelegate() { static_cast<void>(_scanner->close(_scanner->runtime_state())); }
 };
 
 class VScanNode : public ExecNode, public RuntimeFilterConsumer {
