@@ -417,7 +417,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler,
     if (eos || should_stop) {
         scanner->mark_to_need_to_close();
     }
-    ctx->push_back_scanner_and_reschedule(scanner);
+    ctx->push_back_scanner_and_reschedule(std::make_shared<ScannerDelegate>(scanner));
 }
 
 void ScannerScheduler::_register_metrics() {
