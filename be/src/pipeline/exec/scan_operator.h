@@ -215,7 +215,6 @@ class ScanLocalState : public ScanLocalStateBase {
     Dependency* dependency() override { return _scan_dependency.get(); }
 
     RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
-    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
 protected:
     template <typename LocalStateType>
@@ -413,8 +412,6 @@ protected:
     std::mutex _block_lock;
 
     std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
-
-    std::shared_ptr<Dependency> _finish_dependency;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
     std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;

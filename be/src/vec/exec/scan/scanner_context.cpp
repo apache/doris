@@ -50,8 +50,7 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
                                int64_t limit_, int64_t max_bytes_in_blocks_queue,
                                const int num_parallel_instances,
                                pipeline::ScanLocalStateBase* local_state,
-                               std::shared_ptr<pipeline::ScanDependency> dependency,
-                               std::shared_ptr<pipeline::Dependency> finish_dependency)
+                               std::shared_ptr<pipeline::ScanDependency> dependency)
         : _state(state),
           _parent(nullptr),
           _local_state(local_state),
@@ -65,8 +64,7 @@ ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* outpu
           _scanners(scanners.begin(), scanners.end()),
           _all_scanners(scanners.begin(), scanners.end()),
           _num_parallel_instances(num_parallel_instances),
-          _dependency(dependency),
-          _finish_dependency(finish_dependency) {
+          _dependency(dependency) {
     // Use the task exec context as a lock between scanner threads and fragment exection threads
     _task_exec_ctx = _state->get_task_execution_context();
     _query_id = _state->get_query_ctx()->query_id();

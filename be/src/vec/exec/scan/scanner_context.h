@@ -281,7 +281,6 @@ protected:
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
 
     std::shared_ptr<pipeline::ScanDependency> _dependency = nullptr;
-    std::shared_ptr<pipeline::Dependency> _finish_dependency = nullptr;
 };
 } // namespace vectorized
 } // namespace doris
