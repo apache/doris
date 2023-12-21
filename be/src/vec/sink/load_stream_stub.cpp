@@ -185,7 +185,7 @@ Status LoadStreamStub::open(BrpcClientCache<PBackendService_Stub>* client_cache,
 
 // APPEND_DATA
 Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, std::span<const Slice> data,
+                                   int64_t segment_id, uint64_t offset, std::span<const Slice> data,
                                    bool segment_eos) {
     PStreamHeader header;
     header.set_src_id(_src_id);
@@ -195,13 +195,15 @@ Status LoadStreamStub::append_data(int64_t partition_id, int64_t index_id, int64
     header.set_tablet_id(tablet_id);
     header.set_segment_id(segment_id);
     header.set_segment_eos(segment_eos);
+    header.set_offset(offset);
     header.set_opcode(doris::PStreamHeader::APPEND_DATA);
     return _encode_and_send(header, data);
 }
 
 // ADD_SEGMENT
 Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64_t tablet_id,
-                                   int64_t segment_id, const SegmentStatistics& segment_stat) {
+                                   int64_t segment_id, const SegmentStatistics& segment_stat,
+                                   TabletSchemaSPtr flush_schema) {
     PStreamHeader header;
     header.set_src_id(_src_id);
     *header.mutable_load_id() = _load_id;
@@ -211,6 +213,9 @@ Status LoadStreamStub::add_segment(int64_t partition_id, int64_t index_id, int64
     header.set_segment_id(segment_id);
     header.set_opcode(doris::PStreamHeader::ADD_SEGMENT);
     segment_stat.to_pb(header.mutable_segment_statistics());
+    if (flush_schema != nullptr) {
+        flush_schema->to_schema_pb(header.mutable_flush_schema());
+    }
     return _encode_and_send(header);
 }
 
@@ -335,10 +340,10 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
         case 0:
             return Status::OK();
         case EAGAIN: {
-            const timespec time = butil::seconds_from_now(60);
+            const timespec time = butil::seconds_from_now(config::load_stream_eagain_wait_seconds);
             int wait_ret = brpc::StreamWait(_stream_id, &time);
             if (wait_ret != 0) {
-                return Status::InternalError("StreamWait failed, err=", wait_ret);
+                return Status::InternalError("StreamWait failed, err={}", wait_ret);
             }
             break;
         }

@@ -92,16 +92,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_bytes_total, MetricUnit::BY
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_bytes_total, MetricUnit::BYTES, "",
                                      compaction_bytes_total, Labels({{"type", "cumulative"}}));
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_write_request_total, MetricUnit::REQUESTS, "",
-                                     meta_request_total, Labels({{"type", "write"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_read_request_total, MetricUnit::REQUESTS, "",
-                                     meta_request_total, Labels({{"type", "read"}}));
-
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_write_request_duration_us, MetricUnit::MICROSECONDS, "",
-                                     meta_request_duration, Labels({{"type", "write"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_read_request_duration_us, MetricUnit::MICROSECONDS, "",
-                                     meta_request_duration, Labels({{"type", "read"}}));
-
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
                                      Labels({{"type", "segment_read_total"}}));
@@ -162,8 +152,6 @@ DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_memory_total_byte, MetricUni
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_sql_total_count, MetricUnit::NOUNIT);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(query_cache_partition_total_count, MetricUnit::NOUNIT);
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(tablet_schema_cache_count, MetricUnit::NOUNIT);
-DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(tablet_schema_cache_memory_bytes, MetricUnit::BYTES);
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(lru_cache_memory_bytes, MetricUnit::BYTES);
 
 DEFINE_GAUGE_CORE_METRIC_PROTOTYPE_2ARG(upload_total_byte, MetricUnit::BYTES);
@@ -239,11 +227,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_deltas_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_bytes_total);
 
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_write_request_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_write_request_duration_us);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_read_request_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_read_request_duration_us);
-
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);
 
@@ -288,8 +271,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_sql_total_count);
     INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, query_cache_partition_total_count);
 
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, tablet_schema_cache_count);
-    INT_UGAUGE_METRIC_REGISTER(_server_metric_entity, tablet_schema_cache_memory_bytes);
     INT_GAUGE_METRIC_REGISTER(_server_metric_entity, lru_cache_memory_bytes);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, local_file_reader_total);

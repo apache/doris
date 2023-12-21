@@ -20,11 +20,13 @@ package org.apache.doris.nereids.trees.plans.visitor;
 import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.AlterMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.BatchInsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.DeleteCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
@@ -67,8 +69,12 @@ public interface CommandVisitor<R, C> {
         return visitCommand(updateCommand, context);
     }
 
-    default R visitDeleteCommand(DeleteCommand deleteCommand, C context) {
-        return visitCommand(deleteCommand, context);
+    default R visitDeleteFromCommand(DeleteFromCommand deleteFromCommand, C context) {
+        return visitCommand(deleteFromCommand, context);
+    }
+
+    default R visitDeleteFromUsingCommand(DeleteFromUsingCommand deleteFromUsingCommand, C context) {
+        return visitCommand(deleteFromUsingCommand, context);
     }
 
     default R visitLoadCommand(LoadCommand loadCommand, C context) {
@@ -105,5 +111,9 @@ public interface CommandVisitor<R, C> {
 
     default R visitDropMTMVCommand(DropMTMVCommand dropMTMVCommand, C context) {
         return visitCommand(dropMTMVCommand, context);
+    }
+
+    default R visitCallCommand(CallCommand callCommand, C context) {
+        return visitCommand(callCommand, context);
     }
 }

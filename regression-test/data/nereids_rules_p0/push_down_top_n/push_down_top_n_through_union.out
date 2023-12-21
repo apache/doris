@@ -2,193 +2,132 @@
 -- !push_down_topn_through_union --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_with_conditions --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t1.score > 10))
---------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t2.name = 'Test'))
---------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t3.id < 5))
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------filter((t1.score > 10))
+--------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------filter((t2.name = 'Test'))
+--------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------filter((t3.id < 5))
+--------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_with_order_by --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_nested_union --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_after_join --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t] apply RFs: RF0
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------PhysicalOlapScan[table1] apply RFs: RF0
+--------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_different_projections --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_with_subquery --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalProject
---------------------filter((t.score > 20))
-----------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------filter((table1.score > 20))
+--------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_with_limit --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalTopN[LOCAL_SORT]
-----------------PhysicalLimit[GLOBAL]
-------------------PhysicalDistribute
---------------------PhysicalLimit[LOCAL]
-----------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalTopN[LOCAL_SORT]
-----------------PhysicalLimit[GLOBAL]
-------------------PhysicalDistribute
---------------------PhysicalLimit[LOCAL]
-----------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalLimit[GLOBAL]
+--------------PhysicalLimit[LOCAL]
+----------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------PhysicalLimit[GLOBAL]
+--------------PhysicalLimit[LOCAL]
+----------------PhysicalOlapScan[table1]
 
 -- !push_down_topn_union_complex_conditions --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------PhysicalUnion
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t1.name = 'Test') and (t1.score > 10))
---------------------PhysicalOlapScan[t]
-----------PhysicalDistribute
-------------PhysicalTopN[MERGE_SORT]
---------------PhysicalDistribute
-----------------PhysicalTopN[LOCAL_SORT]
-------------------filter((t2.id < 5) and (t2.score < 20))
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------PhysicalUnion
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------filter((t1.name = 'Test') and (t1.score > 10))
+--------------PhysicalOlapScan[table1]
+--------PhysicalTopN[MERGE_SORT]
+----------PhysicalTopN[LOCAL_SORT]
+------------filter((t2.id < 5) and (t2.score < 20))
+--------------PhysicalOlapScan[table1]
 

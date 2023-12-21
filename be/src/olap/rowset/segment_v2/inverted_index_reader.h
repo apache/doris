@@ -108,11 +108,12 @@ public:
 
     [[nodiscard]] bool has_null() const { return _has_null; }
 
-    static std::vector<std::string> get_analyse_result(lucene::util::Reader* reader,
-                                                       lucene::analysis::Analyzer* analyzer,
-                                                       const std::string& field_name,
-                                                       InvertedIndexQueryType query_type,
-                                                       bool drop_duplicates = true);
+    static void get_analyse_result(std::vector<std::string>& analyse_result,
+                                   lucene::util::Reader* reader,
+                                   lucene::analysis::Analyzer* analyzer,
+                                   const std::string& field_name, InvertedIndexQueryType query_type,
+                                   bool drop_duplicates = true);
+
     static std::unique_ptr<lucene::util::Reader> create_reader(InvertedIndexCtx* inverted_index_ctx,
                                                                const std::string& value);
     static std::unique_ptr<lucene::analysis::Analyzer> create_analyzer(
@@ -171,6 +172,11 @@ private:
             const std::vector<std::string>& analyse_result,
             const FulltextIndexSearcherPtr& index_searcher,
             const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
+
+    Status match_regexp_index_search(OlapReaderStatistics* stats, RuntimeState* runtime_state,
+                                     const std::wstring& field_ws, const std::string& pattern,
+                                     const FulltextIndexSearcherPtr& index_searcher,
+                                     const std::shared_ptr<roaring::Roaring>& term_match_bitmap);
 
     void check_null_bitmap(const FulltextIndexSearcherPtr& index_searcher,
                            bool& null_bitmap_already_read);
@@ -286,7 +292,7 @@ public:
 
     Status read_from_inverted_index(const std::string& column_name, const void* query_value,
                                     InvertedIndexQueryType query_type, uint32_t segment_num_rows,
-                                    roaring::Roaring* bit_map, bool skip_try = true);
+                                    roaring::Roaring* bit_map, bool skip_try = false);
     Status try_read_from_inverted_index(const std::string& column_name, const void* query_value,
                                         InvertedIndexQueryType query_type, uint32_t* count);
 

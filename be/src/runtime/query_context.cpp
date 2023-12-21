@@ -22,18 +22,28 @@
 
 namespace doris {
 
+class DelayReleaseToken : public Runnable {
+public:
+    DelayReleaseToken(std::unique_ptr<ThreadPoolToken>&& token) { token_ = std::move(token); }
+    ~DelayReleaseToken() override = default;
+    void run() override {}
+    std::unique_ptr<ThreadPoolToken> token_;
+};
+
 QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* exec_env,
                            const TQueryOptions& query_options)
         : fragment_num(total_fragment_num),
           timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
-          _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
           _query_options(query_options) {
     _start_time = VecDateTimeValue::local_time();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    _execution_dependency.reset(new pipeline::Dependency(-1, -1, "ExecutionDependency", this));
+    _execution_dependency =
+            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
+    _runtime_filter_mgr.reset(
+            new RuntimeFilterMgr(TUniqueId(), RuntimeFilterParamsContext::create(this)));
 }
 
 QueryContext::~QueryContext() {
@@ -55,6 +65,14 @@ QueryContext::~QueryContext() {
     }
 
     LOG_INFO("Query {} deconstructed, {}", print_id(_query_id), mem_tracker_msg);
+    // Not release the the thread token in query context's dector method, because the query
+    // conext may be dectored in the thread token it self. It is very dangerous and may core.
+    // And also thread token need shutdown, it may take some time, may cause the thread that
+    // release the token hang, the thread maybe a pipeline task scheduler thread.
+    if (_thread_token) {
+        static_cast<void>(ExecEnv::GetInstance()->lazy_release_obj_pool()->submit(
+                std::make_shared<DelayReleaseToken>(std::move(_thread_token))));
+    }
 }
 
 void QueryContext::set_ready_to_execute(bool is_cancelled) {

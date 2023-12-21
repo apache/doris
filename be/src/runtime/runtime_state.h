@@ -39,6 +39,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
@@ -47,6 +48,7 @@ namespace doris {
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
+class PipelineXFragmentContext;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -73,6 +75,11 @@ public:
     RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
+
+    // for only use in pipelineX
+    RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
@@ -437,7 +444,17 @@ public:
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
 
-    RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+    RuntimeFilterMgr* runtime_filter_mgr() {
+        if (_pipeline_x_runtime_filter_mgr) {
+            return _pipeline_x_runtime_filter_mgr;
+        } else {
+            return _runtime_filter_mgr.get();
+        }
+    }
+
+    void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
+        _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
+    }
 
     void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
@@ -513,12 +530,25 @@ public:
 
     void resize_op_id_to_local_state(int operator_size, int sink_size);
 
+    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
+
+    void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
+        _task_execution_context = context;
+    }
+
+    std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
+        return _task_execution_context;
+    }
+
 private:
     Status create_error_log_file();
 
-    static const int DEFAULT_BATCH_SIZE = 2048;
+    static const int DEFAULT_BATCH_SIZE = 4062;
 
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+
+    // Hold execution context for other threads
+    std::weak_ptr<TaskExecutionContext> _task_execution_context;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
@@ -530,6 +560,9 @@ private:
 
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
+
+    // owned by PipelineXFragmentContext
+    RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
     // Protects _data_stream_recvrs_pool
     std::mutex _data_stream_recvrs_lock;
@@ -615,13 +648,15 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
-            _op_id_to_sink_local_state;
+
+    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
+
+    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

@@ -256,9 +256,8 @@ struct ConvertImpl {
 
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t /*input_rows_count*/,
-                          bool check_overflow [[maybe_unused]] = false,
-                          Additions additions [[maybe_unused]] = Additions()) {
+                          size_t result, size_t input_rows_count,
+                          Additions additions = Additions()) {
         const ColumnWithTypeAndName& named_from = block.get_by_position(arguments[0]);
 
         using ColVecFrom =
@@ -278,16 +277,13 @@ struct ConvertImpl {
         if (const ColVecFrom* col_from =
                     check_and_get_column<ColVecFrom>(named_from.column.get())) {
             typename ColVecTo::MutablePtr col_to = nullptr;
-            UInt32 from_precision = 0;
+            UInt32 from_precision = NumberTraits::max_ascii_len<FromFieldType>();
             UInt32 from_scale = 0;
 
             if constexpr (IsDataTypeDecimal<FromDataType>) {
                 const auto& from_decimal_type = assert_cast<const FromDataType&>(*named_from.type);
                 from_precision = from_decimal_type.get_precision();
                 from_scale = from_decimal_type.get_scale();
-            }
-            if constexpr (std::is_integral_v<FromFieldType>) {
-                from_precision = NumberTraits::max_ascii_len<FromFieldType>();
             }
 
             UInt32 to_max_digits = 0;
@@ -326,71 +322,37 @@ struct ConvertImpl {
             vec_to.resize(size);
 
             if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
-                bool narrow_integral = (to_precision - to_scale) < (from_precision - from_scale);
+                bool narrow_integral = context->check_overflow_for_decimal() &&
+                                       (to_precision - to_scale) < (from_precision - from_scale);
 
-                bool multiply_may_overflow = false;
+                bool multiply_may_overflow = context->check_overflow_for_decimal();
                 if (to_scale > from_scale) {
-                    multiply_may_overflow =
-                            (from_precision + to_scale - from_scale) > to_max_digits;
+                    multiply_may_overflow &=
+                            (from_precision + to_scale - from_scale) >= to_max_digits;
                 }
 
-                if constexpr (IsDataTypeDecimal<FromDataType> && IsDataTypeDecimal<ToDataType>) {
-                    convert_decimal_cols<FromDataType, ToDataType>(
-                            vec_from.data(), vec_to.data(), from_precision, vec_from.get_scale(),
-                            to_precision, vec_to.get_scale(), vec_from.size());
-                } else {
-                    std::visit(
-                            [&](auto multiply_may_overflow, auto narrow_integral) {
-                                for (size_t i = 0; i < size; ++i) {
-                                    if constexpr (IsDataTypeDecimal<FromDataType> &&
-                                                  IsDataTypeNumber<ToDataType>) {
-                                        vec_to[i] = convert_from_decimal<FromDataType, ToDataType,
-                                                                         narrow_integral>(
-                                                vec_from[i], vec_from.get_scale(), min_result,
-                                                max_result);
-                                    } else if constexpr (IsDataTypeNumber<FromDataType> &&
-                                                         IsDataTypeDecimal<ToDataType>) {
-                                        vec_to[i] = convert_to_decimal<FromDataType, ToDataType,
-                                                                       multiply_may_overflow,
-                                                                       narrow_integral>(
-                                                vec_from[i], from_scale, to_scale, min_result,
-                                                max_result);
-                                    } else if constexpr (IsTimeType<FromDataType> &&
-                                                         IsDataTypeDecimal<ToDataType>) {
-                                        vec_to[i] = convert_to_decimal<DataTypeInt64, ToDataType,
-                                                                       multiply_may_overflow,
-                                                                       narrow_integral>(
-                                                reinterpret_cast<const VecDateTimeValue&>(
-                                                        vec_from[i])
-                                                        .to_int64(),
-                                                from_scale, to_scale, min_result, max_result);
-                                    } else if constexpr (IsDateV2Type<FromDataType> &&
-                                                         IsDataTypeDecimal<ToDataType>) {
-                                        vec_to[i] = convert_to_decimal<DataTypeUInt32, ToDataType,
-                                                                       multiply_may_overflow,
-                                                                       narrow_integral>(
-                                                reinterpret_cast<
-                                                        const DateV2Value<DateV2ValueType>&>(
-                                                        vec_from[i])
-                                                        .to_date_int_val(),
-                                                from_scale, to_scale, min_result, max_result);
-                                    } else if constexpr (IsDateTimeV2Type<FromDataType> &&
-                                                         IsDataTypeDecimal<ToDataType>) {
-                                        // TODO: should we consider the scale of datetimev2?
-                                        vec_to[i] = convert_to_decimal<DataTypeUInt64, ToDataType,
-                                                                       multiply_may_overflow,
-                                                                       narrow_integral>(
-                                                reinterpret_cast<
-                                                        const DateV2Value<DateTimeV2ValueType>&>(
-                                                        vec_from[i])
-                                                        .to_date_int_val(),
-                                                from_scale, to_scale, min_result, max_result);
-                                    }
-                                }
-                            },
-                            make_bool_variant(multiply_may_overflow),
-                            make_bool_variant(narrow_integral));
-                }
+                std::visit(
+                        [&](auto multiply_may_overflow, auto narrow_integral) {
+                            if constexpr (IsDataTypeDecimal<FromDataType> &&
+                                          IsDataTypeDecimal<ToDataType>) {
+                                convert_decimal_cols<FromDataType, ToDataType,
+                                                     multiply_may_overflow, narrow_integral>(
+                                        vec_from.data(), vec_to.data(), from_precision,
+                                        vec_from.get_scale(), to_precision, vec_to.get_scale(),
+                                        vec_from.size());
+                            } else if constexpr (IsDataTypeDecimal<FromDataType>) {
+                                convert_from_decimal<FromDataType, ToDataType, narrow_integral>(
+                                        vec_to.data(), vec_from.data(), vec_from.get_scale(),
+                                        min_result, max_result, size);
+                            } else {
+                                convert_to_decimal<FromDataType, ToDataType, multiply_may_overflow,
+                                                   narrow_integral>(vec_to.data(), vec_from.data(),
+                                                                    from_scale, to_scale,
+                                                                    min_result, max_result, size);
+                            }
+                        },
+                        make_bool_variant(multiply_may_overflow),
+                        make_bool_variant(narrow_integral));
 
                 block.replace_by_position(result, std::move(col_to));
 
@@ -546,22 +508,11 @@ struct ConvertImplToTimeType {
                 from_scale = from_decimal_type.get_scale();
             }
             bool narrow_integral = to_precision < (from_precision - from_scale);
-            auto max_result = type_limit<DataTypeInt64::FieldType>::max();
-            auto min_result = type_limit<DataTypeInt64::FieldType>::min();
             std::visit(
                     [&](auto narrow_integral) {
                         for (size_t i = 0; i < size; ++i) {
                             auto& date_value = reinterpret_cast<DateValueType&>(vec_to[i]);
-                            if constexpr (IsDecimalNumber<FromFieldType>) {
-                                // TODO: should we consider the scale of datetimev2?
-                                vec_null_map_to[i] = !date_value.from_date_int64(
-                                        convert_from_decimal<FromDataType, DataTypeInt64,
-                                                             narrow_integral>(
-                                                vec_from[i], vec_from.get_scale(), min_result,
-                                                max_result));
-                            } else {
-                                vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
-                            }
+                            vec_null_map_to[i] = !date_value.from_date_int64(vec_from[i]);
                             // DateType of VecDateTimeValue should cast to date
                             if constexpr (IsDateType<ToDataType>) {
                                 date_value.cast_to_date();
@@ -958,8 +909,7 @@ struct ConvertImpl<DataTypeString, ToDataType, Name> {
     template <typename Additions = void*>
 
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
-                          size_t result, size_t /*input_rows_count*/,
-                          bool check_overflow [[maybe_unused]] = false,
+                          size_t result, size_t input_rows_count,
                           Additions additions [[maybe_unused]] = Additions()) {
         return Status::RuntimeError("not support convert from string");
     }
@@ -1325,12 +1275,12 @@ public:
 
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            context, block, arguments, result, input_rows_count, false,
+                            context, block, arguments, result, input_rows_count,
                             scale_column.type->get_scale());
                 } else if constexpr (IsDataTypeDateTimeV2<RightDataType>) {
                     const ColumnWithTypeAndName& scale_column = block.get_by_position(result);
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
-                            context, block, arguments, result, input_rows_count, false,
+                            context, block, arguments, result, input_rows_count,
                             scale_column.type->get_scale());
                 } else {
                     ret_status = ConvertImpl<LeftDataType, RightDataType, Name>::execute(
@@ -1535,7 +1485,6 @@ struct ConvertThroughParsing {
     template <typename Additions = void*>
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count,
-                          bool check_overflow [[maybe_unused]] = false,
                           Additions additions [[maybe_unused]] = Additions()) {
         using ColVecTo = std::conditional_t<IsDecimalNumber<ToFieldType>,
                                             ColumnDecimal<ToFieldType>, ColumnVector<ToFieldType>>;
@@ -1838,7 +1787,7 @@ private:
                         using RightDataType = typename Types::RightType;
 
                         auto state = ConvertImpl<LeftDataType, RightDataType, NameCast>::execute(
-                                context, block, arguments, result, input_rows_count, false,
+                                context, block, arguments, result, input_rows_count,
                                 PrecisionScaleArg {precision, scale});
                         if (!state) {
                             throw Exception(state.code(), state.to_string());
@@ -2070,11 +2019,19 @@ private:
             if (!variant.is_finalized()) {
                 variant.assume_mutable()->finalize();
             }
-
-            if (variant.is_scalar_variant()) {
+            // It's important to convert as many elements as possible in this context. For instance,
+            // if the root of this variant column is a number column, converting it to a number column
+            // is acceptable. However, if the destination type is a string and root is none scalar root, then
+            // we should convert the entire tree to a string.
+            bool is_root_valuable =
+                    variant.is_scalar_variant() ||
+                    (!variant.is_null_root() &&
+                     !WhichDataType(remove_nullable(variant.get_root_type())).is_nothing() &&
+                     !WhichDataType(data_type_to).is_string());
+            if (is_root_valuable) {
                 ColumnPtr nested = variant.get_root();
                 auto nested_from_type = variant.get_root_type();
-                DCHECK(nested_from_type->is_nullable());
+                // DCHECK(nested_from_type->is_nullable());
                 DCHECK(!data_type_to->is_nullable());
                 auto new_context = context->clone();
                 new_context->set_jsonb_string_as_string(true);
@@ -2104,12 +2061,6 @@ private:
                     col_to = make_nullable(col_to, true);
                 } else if (!data_type_to->is_nullable() &&
                            !WhichDataType(data_type_to).is_string()) {
-                    // Could not cast to any other types when it hierarchical like '{"a" : 1}'
-                    // TODO we should convert as many as possible here, for examle
-                    // this variant column's root is a number column, to convert to number column
-                    // is also acceptable
-                    // return Status::InvalidArgument(fmt::format("Could not cast from variant to {}",
-                    //                                            data_type_to->get_name()));
                     col_to->assume_mutable()->insert_many_defaults(input_rows_count);
                     col_to = make_nullable(col_to, true);
                 } else if (WhichDataType(data_type_to).is_string()) {

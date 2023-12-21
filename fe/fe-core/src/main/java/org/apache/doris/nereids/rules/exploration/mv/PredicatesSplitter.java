@@ -20,17 +20,16 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
-import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Split the expression to equal, range and residual predicate.
@@ -39,27 +38,26 @@ import java.util.List;
  */
 public class PredicatesSplitter {
 
-    private final List<Expression> equalPredicates = new ArrayList<>();
-    private final List<Expression> rangePredicates = new ArrayList<>();
-    private final List<Expression> residualPredicates = new ArrayList<>();
+    private final Set<Expression> equalPredicates = new HashSet<>();
+    private final Set<Expression> rangePredicates = new HashSet<>();
+    private final Set<Expression> residualPredicates = new HashSet<>();
     private final List<Expression> conjunctExpressions;
-
-    private final PredicateExtract instance = new PredicateExtract();
 
     public PredicatesSplitter(Expression target) {
         this.conjunctExpressions = ExpressionUtils.extractConjunction(target);
+        PredicateExtract instance = new PredicateExtract();
         for (Expression expression : conjunctExpressions) {
-            expression.accept(instance, expression);
+            expression.accept(instance, null);
         }
     }
 
     /**
-     * PredicateExtract
+     * extract to equal, range, residual predicate set
      */
-    public class PredicateExtract extends DefaultExpressionVisitor<Void, Expression> {
+    public class PredicateExtract extends DefaultExpressionVisitor<Void, Void> {
 
         @Override
-        public Void visitComparisonPredicate(ComparisonPredicate comparisonPredicate, Expression sourceExpression) {
+        public Void visitComparisonPredicate(ComparisonPredicate comparisonPredicate, Void context) {
             Expression leftArg = comparisonPredicate.getArgument(0);
             Expression rightArg = comparisonPredicate.getArgument(1);
             boolean leftArgOnlyContainsColumnRef = containOnlyColumnRef(leftArg, true);
@@ -81,12 +79,9 @@ public class PredicatesSplitter {
         }
 
         @Override
-        public Void visitCompoundPredicate(CompoundPredicate compoundPredicate, Expression context) {
-            if (compoundPredicate instanceof Or) {
-                residualPredicates.add(compoundPredicate);
-                return null;
-            }
-            return super.visit(compoundPredicate, context);
+        public Void visit(Expression expr, Void context) {
+            residualPredicates.add(expr);
+            return null;
         }
     }
 
@@ -98,7 +93,7 @@ public class PredicatesSplitter {
     }
 
     private static boolean containOnlyColumnRef(Expression expression, boolean allowCast) {
-        if (expression instanceof SlotReference && ((SlotReference) expression).isColumnFromTable()) {
+        if (expression instanceof SlotReference && expression.isColumnFromTable()) {
             return true;
         }
         if (allowCast && expression instanceof Cast) {

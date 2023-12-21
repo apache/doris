@@ -62,9 +62,12 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     if (p._is_broadcast_join) {
         profile()->add_info_string("BroadcastJoin", "true");
         if (state->enable_share_hash_table_for_broadcast_join()) {
-            profile()->add_info_string("ShareHashTableEnabled", "true");
-            _should_build_hash_table = p._shared_hashtable_controller->should_build_hash_table(
-                    state->fragment_instance_id(), p.node_id());
+            _should_build_hash_table = info.task_idx == 0;
+            if (_should_build_hash_table) {
+                profile()->add_info_string("ShareHashTableEnabled", "true");
+                CHECK(p._shared_hashtable_controller->should_build_hash_table(
+                        state->fragment_instance_id(), p.node_id()));
+            }
         } else {
             profile()->add_info_string("ShareHashTableEnabled", "false");
         }
@@ -100,7 +103,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options(), _build_expr_ctxs.size() == 1));
+                p._runtime_filter_descs[i], state->query_options(), _build_expr_ctxs.size() == 1,
+                p._use_global_rf, p._child_x->parallel_tasks()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
                 p._runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
@@ -383,12 +387,14 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 
 HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
                                                        const TPlanNode& tnode,
-                                                       const DescriptorTbl& descs)
+                                                       const DescriptorTbl& descs,
+                                                       bool use_global_rf)
         : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
-                             tnode.hash_join_node.is_broadcast_join) {
+                             tnode.hash_join_node.is_broadcast_join),
+          _use_global_rf(use_global_rf) {
     _runtime_filter_descs = tnode.runtime_filters;
 }
 
@@ -514,10 +520,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer = ADD_TIMER(local_state.profile(), "WaitForSharedHashTableTime");
-        SCOPED_TIMER(wait_timer);
-        RETURN_IF_ERROR(
-                _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
+        CHECK(_shared_hash_table_context->signaled);
 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",

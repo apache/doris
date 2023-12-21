@@ -22,7 +22,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
-import org.apache.doris.system.SystemInfoService;
 
 /**
  * Manages Flight User Session ConnectContext.
@@ -50,7 +49,6 @@ public interface FlightSessionsManager {
         ConnectContext connectContext = new FlightSqlConnectContext(peerIdentity);
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         connectContext.getSessionVariable().setEnablePipelineEngine(false); // TODO
         connectContext.getSessionVariable().setEnablePipelineXEngine(false); // TODO
         connectContext.setQualifiedUser(userIdentity.getQualifiedUser());

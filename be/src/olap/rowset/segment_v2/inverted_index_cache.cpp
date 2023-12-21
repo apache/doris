@@ -44,9 +44,10 @@ namespace segment_v2 {
 Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
                                            OptionalIndexSearcherPtr& output_searcher) {
     auto closeDirectory = true;
-    auto reader = lucene::index::IndexReader::open(
+    auto* reader = lucene::index::IndexReader::open(
             directory, config::inverted_index_read_buffer_size, closeDirectory);
-    auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader);
+    bool close_reader = true;
+    auto index_searcher = std::make_shared<lucene::search::IndexSearcher>(reader, close_reader);
     if (!index_searcher) {
         _CLDECDELETE(directory)
         output_searcher = std::nullopt;
@@ -175,9 +176,11 @@ Status InvertedIndexSearcherCache::get_index_searcher(
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                     "InvertedIndexSearcherCache do not support reader type.");
         }
-        auto* directory =
-                new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
-                                        file_name.c_str(), config::inverted_index_read_buffer_size);
+        // During the process of opening the index, write the file information read to the idx file cache.
+        bool open_idx_file_cache = true;
+        auto* directory = new DorisCompoundReader(
+                DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), file_name.c_str(),
+                config::inverted_index_read_buffer_size, open_idx_file_cache);
         auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (!directory->fileExists(null_bitmap_file_name.c_str())) {
             has_null = false;
@@ -191,6 +194,7 @@ Status InvertedIndexSearcherCache::get_index_searcher(
         }
         OptionalIndexSearcherPtr result;
         RETURN_IF_ERROR(index_builder->build(directory, result));
+        directory->getDorisIndexInput()->setIdxFileCache(false);
         if (!result.has_value()) {
             LOG(ERROR) << "InvertedIndexReaderType:" << reader_type_to_string(reader_type)
                        << " build for InvertedIndexSearcherCache error";

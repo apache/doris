@@ -106,19 +106,17 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
             }
             // record rows return (after filter) for _limit check
             _num_rows_return += block->rows();
-        } while (!state->is_cancelled() && block->rows() == 0 && !(*eof) &&
+        } while (!_should_stop && !state->is_cancelled() && block->rows() == 0 && !(*eof) &&
                  _num_rows_read < rows_read_threshold);
     }
 
     if (state->is_cancelled()) {
         return Status::Cancelled("cancelled");
     }
-
+    *eof = *eof || _should_stop;
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
-    if (_limit > 0 && _num_rows_return >= _limit) {
-        *eof = true;
-    }
+    *eof = *eof || (_limit > 0 && _num_rows_return >= _limit);
 
     return Status::OK();
 }

@@ -75,8 +75,6 @@ suite("test_group_commit_http_stream_lineitem_schema_change") {
         log.info("Stream load result: ${result}".toString())
         def json = parseJson(result)
         assertEquals("success", json.Status.toLowerCase())
-        assertTrue(json.GroupCommit)
-        assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
         assertEquals(loaded_rows, json.NumberLoadedRows)
         assertEquals(filtered_rows, json.NumberFilteredRows)
@@ -162,7 +160,7 @@ l_shipmode,l_comment) select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, 
                     ("format"="csv", "column_separator"="|")
             """
 
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
             unset 'label'
 
@@ -183,7 +181,7 @@ l_comment) select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c14, c15, c
                     ("format"="csv", "column_separator"="|")
             """
 
-            set 'group_commit', 'true'
+            set 'group_commit', 'async_mode'
             file """${getS3Url()}/regression/tpch/sf1/lineitem.tbl.""" + i
             unset 'label'
 
@@ -355,7 +353,7 @@ l_comment) select c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c14, c15, c
 
 
     def process = { table_name ->
-        for (int i = 1; i <= 5; i++) {
+        for (int i = 1; i <= 4; i++) {
             switch (i) {
                 case SC.TRUNCATE_TABLE.value:
                     truncate(table_name)

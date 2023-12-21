@@ -88,6 +88,12 @@ Status RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_
 }
 Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                const RowsetMetaPB& rowset_meta_pb, bool enable_binlog) {
+    if (rowset_meta_pb.partition_id() <= 0) {
+        LOG(WARNING) << "invalid partition id " << rowset_meta_pb.partition_id() << " tablet "
+                     << rowset_meta_pb.tablet_id();
+        return Status::InternalError("invalid partition id {}, tablet {}",
+                                     rowset_meta_pb.partition_id(), rowset_meta_pb.tablet_id());
+    }
     if (enable_binlog) {
         return _save_with_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb);
     } else {

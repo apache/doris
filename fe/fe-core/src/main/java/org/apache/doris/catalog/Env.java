@@ -93,7 +93,6 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -112,6 +111,7 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
+import org.apache.doris.common.publish.WorkloadActionPublishThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -228,6 +228,7 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
@@ -485,6 +486,7 @@ public class Env {
 
     private WorkloadGroupMgr workloadGroupMgr;
 
+    private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
@@ -505,6 +507,8 @@ public class Env {
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
+
+    private WorkloadActionPublishThread workloadActionPublisherThread;
 
     private MTMVService mtmvService;
 
@@ -725,6 +729,7 @@ public class Env {
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
+        this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
@@ -734,6 +739,8 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
+        this.workloadActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
+                Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
     }
 
@@ -808,6 +815,10 @@ public class Env {
 
     public WorkloadGroupMgr getWorkloadGroupMgr() {
         return workloadGroupMgr;
+    }
+
+    public WorkloadSchedPolicyMgr getWorkloadSchedPolicyMgr() {
+        return workloadSchedPolicyMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -985,6 +996,8 @@ public class Env {
         topicPublisherThread.start();
 
         workloadGroupMgr.startUpdateThread();
+        workloadSchedPolicyMgr.start();
+        workloadActionPublisherThread.start();
     }
 
     // wait until FE is ready.
@@ -997,9 +1010,10 @@ public class Env {
             }
 
             Thread.sleep(100);
-            if (counter++ % 20 == 0) {
-                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}, counter: {}", feType, isReady.get(),
-                        counter);
+            if (counter++ % 100 == 0) {
+                String reason = editLog == null ? "editlog is null" : editLog.getNotReadyReason();
+                LOG.info("wait catalog to be ready. feType:{} isReady:{}, counter:{} reason: {}",
+                        feType, isReady.get(), counter, reason);
             }
         }
     }
@@ -2066,6 +2080,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadWorkloadSchedPolicy(DataInputStream in, long checksum) throws IOException {
+        workloadSchedPolicyMgr = WorkloadSchedPolicyMgr.read(in);
+        LOG.info("finished replay workload sched policy from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2333,6 +2353,11 @@ public class Env {
         return checksum;
     }
 
+    public long saveWorkloadSchedPolicy(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getWorkloadSchedPolicyMgr().write(dos);
+        return checksum;
+    }
+
     public long saveSmallFiles(CountingDataOutputStream dos, long checksum) throws IOException {
         smallFileMgr.write(dos);
         return checksum;
@@ -2399,7 +2424,7 @@ public class Env {
     }
 
     public void createFeDiskUpdater() {
-        feDiskUpdater = new Daemon("feDiskUpdater", FeConstants.heartbeat_interval_second * 1000L) {
+        feDiskUpdater = new Daemon("feDiskUpdater", Config.heartbeat_interval_second * 1000L) {
             @Override
             protected void runOneCycle() {
                 ExecuteEnv.getInstance().refreshAndGetDiskInfo(true);
@@ -2460,8 +2485,8 @@ public class Env {
         if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
             // we still need this log to observe this situation
             // but service may be continued when there is no log being replayed.
-            LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
-                    currentTimeMs, synchronizedTimeMs, hasLog, feType);
+            LOG.warn("meta out of date. current time: {}, sync time: {}, delta: {} ms, hasLog: {}, feType: {}",
+                    currentTimeMs, synchronizedTimeMs, (currentTimeMs - synchronizedTimeMs), hasLog, feType);
             if (hasLog || feType == FrontendNodeType.UNKNOWN) {
                 // 1. if we read log from BDB, which means master is still alive.
                 // So we need to set meta out of date.
@@ -2471,6 +2496,13 @@ public class Env {
                 metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
                 canRead.set(false);
                 isReady.set(false);
+
+                if (editLog != null) {
+                    String reason = editLog.getNotReadyReason();
+                    if (!Strings.isNullOrEmpty(reason)) {
+                        LOG.warn("Not ready reason:{}", reason);
+                    }
+                }
             }
 
             // sleep 5s to avoid numerous 'meta out of date' log
@@ -2768,6 +2800,10 @@ public class Env {
                 throw new DdlException(role.toString() + " does not exist[" + NetUtils
                         .getHostPortInAccessibleFormat(host, port) + "]");
             }
+            if (role == FrontendNodeType.FOLLOWER && fe.isAlive()) {
+                // Try drop an alive follower, check the quorum safety.
+                ensureSafeToDropAliveFollower();
+            }
 
             int targetFollowerCount = getFollowerCount() - 1;
             if (fe.getRole() == FrontendNodeType.FOLLOWER || fe.getRole() == FrontendNodeType.REPLICA) {
@@ -2794,6 +2830,30 @@ public class Env {
         // ip may be changed, so we need use both ip and hostname to check.
         // use node.getIdent() for simplicity here.
         helperNodes.removeIf(node -> node.getHost().equals(host) && node.getPort() == port);
+    }
+
+    private void ensureSafeToDropAliveFollower() throws DdlException {
+        int numFollower = 0;
+        int numAliveFollower = 0;
+        for (Frontend fe : frontends.values()) {
+            if (fe.getRole() == FrontendNodeType.FOLLOWER) {
+                numFollower += 1;
+                if (fe.isAlive()) {
+                    numAliveFollower += 1;
+                }
+            }
+        }
+
+        int nextMajority = ((numFollower - 1) / 2) + 1;
+        if (nextMajority + 1 <= numAliveFollower) {
+            return;
+        }
+
+        LOG.warn("Drop an alive follower is not safety. Current alive followers {}, followers {}, next majority: {}",
+                numAliveFollower, numFollower, nextMajority);
+        throw new DdlException("Unable to drop this alive follower, because the quorum requirements "
+                + "are not met after this command execution. Current num alive followers "
+                + numAliveFollower + ", num followers " + numFollower + ", majority after execution " + nextMajority);
     }
 
     public Frontend checkFeExist(String host, int port) {
@@ -3215,8 +3275,8 @@ public class Env {
                 sb.append(olapTable.getEstimatePartitionSize()).append("\"");
             }
 
-            // unique key table with merge on write
-            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            // unique key table with merge on write, always print this property for unique table
+            if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
                 sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
             }
@@ -4698,6 +4758,7 @@ public class Env {
                 .buildTimeSeriesCompactionFileCountThreshold()
                 .buildTimeSeriesCompactionTimeThresholdSeconds()
                 .buildSkipWriteIndexOnLoad()
+                .buildDisableAutoCompaction()
                 .buildEnableSingleReplicaCompaction();
 
         // need to update partition info meta
@@ -4865,8 +4926,7 @@ public class Env {
             ctx.setDatabase(lastDb);
         }
         if (catalogIf instanceof EsExternalCatalog) {
-            ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
-                    + EsExternalCatalog.DEFAULT_DB);
+            ctx.setDatabase(EsExternalCatalog.DEFAULT_DB);
         }
     }
 
@@ -5862,6 +5922,11 @@ public class Env {
             sb.append(frontend.toString()).append("\n");
         }
 
+        String reason = editLog.getNotReadyReason();
+        if (!Strings.isNullOrEmpty(reason)) {
+            sb.append("Reason: ").append(reason).append("%\n");
+        }
+
         if (haProtocol instanceof BDBHA) {
             try {
                 BDBHA ha = (BDBHA) haProtocol;
@@ -5881,7 +5946,7 @@ public class Env {
                 }
 
             } catch (Exception e) {
-                // pass
+                LOG.warn("checkReadyOrThrow:", e);
             }
         }
 

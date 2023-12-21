@@ -228,7 +228,7 @@ select count(*)  from  revenue0;
 >1. 目前Doris的查询优化器和统计信息功能还不完善，所以我们在TPC-H中重写了一些查询以适应Doris的执行框架，但不影响结果的正确性
 >
 >2. Doris 新的查询优化器将在后续的版本中发布
->3. 执行查询之前设置 `set mem_exec_limit=8G`
+>3. 执行查询之前设置 `set exec_mem_limit=8G`
 
 ## 7.6.2 单个 SQL 执行
 

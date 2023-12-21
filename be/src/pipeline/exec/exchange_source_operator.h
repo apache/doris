@@ -71,21 +71,22 @@ private:
 };
 
 class ExchangeSourceOperatorX;
-class ExchangeLocalState final : public PipelineXLocalState<> {
+class ExchangeLocalState final : public PipelineXLocalState<AndDependency> {
     ENABLE_FACTORY_CREATOR(ExchangeLocalState);
+
+public:
+    using Base = PipelineXLocalState<AndDependency>;
     ExchangeLocalState(RuntimeState* state, OperatorXBase* parent);
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
-    Dependency* dependency() override { return source_dependency.get(); }
     std::string debug_string(int indentation_level) const override;
     std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
     doris::vectorized::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
     bool is_ready;
 
-    std::shared_ptr<AndDependency> source_dependency;
     std::vector<std::shared_ptr<ExchangeDataDependency>> deps;
 
     std::vector<RuntimeProfile::Counter*> metrics;
@@ -116,7 +117,12 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
-    bool need_to_local_shuffle() const override { return !_is_hash_partition; }
+    DataDistribution get_local_exchange_type() const override {
+        if (!_is_hash_partition || OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
+            return {ExchangeType::NOOP};
+        }
+        return {ExchangeType::HASH_SHUFFLE};
+    }
 
 private:
     friend class ExchangeLocalState;

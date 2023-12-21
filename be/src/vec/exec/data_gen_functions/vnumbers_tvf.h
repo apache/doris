@@ -17,8 +17,7 @@
 
 #pragma once
 
-#include <stdint.h>
-
+#include <cstdint>
 #include <vector>
 
 #include "common/global_types.h"
@@ -43,8 +42,10 @@ public:
 
     Status set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) override;
 
-protected:
-    int64_t _total_numbers;
+private:
+    bool _use_const = false;
+    int64_t _const_value = 0;
+    int64_t _total_numbers = 0;
     // Number of returned columns, actually only 1 column
     int _slot_num = 1;
     int64_t _next_number = 0;

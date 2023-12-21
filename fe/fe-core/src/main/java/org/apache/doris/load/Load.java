@@ -49,7 +49,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -232,8 +231,9 @@ public class Load {
                      * ->
                      * (A, B, C) SET (__doris_shadow_B = B)
                      */
-                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(),
-                            new SlotRef(null, originCol));
+                    SlotRef slot = new SlotRef(null, originCol);
+                    slot.setType(column.getType());
+                    ImportColumnDesc importColumnDesc = new ImportColumnDesc(column.getName(), slot);
                     shadowColumnDescs.add(importColumnDesc);
                 }
             } else {
@@ -343,10 +343,12 @@ public class Load {
         for (ImportColumnDesc importColumnDesc : copiedColumnExprs) {
             columnExprMap.put(importColumnDesc.getColumnName(), importColumnDesc.getExpr());
         }
+        HashMap<String, Type> colToType = new HashMap<>();
 
         // check default value and auto-increment column
         for (Column column : tbl.getBaseSchema()) {
             String columnName = column.getName();
+            colToType.put(columnName, column.getType());
             if (columnExprMap.containsKey(columnName)) {
                 continue;
             }
@@ -426,9 +428,15 @@ public class Load {
                 exprsByName.put(realColName, expr);
             } else {
                 SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
-                // columns default be varchar type
-                slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+
+                if (formatType == TFileFormatType.FORMAT_ARROW) {
+                    slotDesc.setColumn(new Column(realColName, colToType.get(realColName)));
+                } else {
+                    // columns default be varchar type
+                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                }
+
                 // ISSUE A: src slot should be nullable even if the column is not nullable.
                 // because src slot is what we read from file, not represent to real column value.
                 // If column is not nullable, error will be thrown when filling the dest slot,
@@ -462,6 +470,30 @@ public class Load {
         // otherwise analyze exprs with varchar type
         analyzeAllExprs(tbl, analyzer, exprsByName, mvDefineExpr, slotDescByName);
         LOG.debug("after init column, exprMap: {}", exprsByName);
+    }
+
+    private static Expr getExprFromDesc(Analyzer analyzer, SlotDescriptor slotDesc, SlotRef slot)
+            throws AnalysisException {
+        SlotRef newSlot = new SlotRef(slotDesc);
+        newSlot.setType(slotDesc.getType());
+        Expr rhs = newSlot;
+        rhs = rhs.castTo(slot.getType());
+
+        if (slot.getDesc() == null) {
+            // shadow column
+            return rhs;
+        }
+
+        if (newSlot.isNullable() && !slot.isNullable()) {
+            rhs = new FunctionCallExpr("non_nullable", Lists.newArrayList(rhs));
+            rhs.setType(slotDesc.getType());
+            rhs.analyze(analyzer);
+        } else if (!newSlot.isNullable() && slot.isNullable()) {
+            rhs = new FunctionCallExpr("nullable", Lists.newArrayList(rhs));
+            rhs.setType(slotDesc.getType());
+            rhs.analyze(analyzer);
+        }
+        return rhs;
     }
 
     private static void analyzeAllExprs(Table tbl, Analyzer analyzer, Map<String, Expr> exprsByName,
@@ -521,8 +553,7 @@ public class Load {
             for (SlotRef slot : slots) {
                 if (slotDescByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
-                    smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
-                            new SlotRef(slotDescByName.get(slot.getColumnName()))));
+                    smap.getRhs().add(getExprFromDesc(analyzer, slotDescByName.get(slot.getColumnName()), slot));
                 } else if (exprsByName.get(slot.getColumnName()) != null) {
                     smap.getLhs().add(slot);
                     smap.getRhs().add(new CastExpr(tbl.getColumn(slot.getColumnName()).getType(),
@@ -1323,22 +1354,20 @@ public class Load {
         public String dbName;
         public Set<String> tblNames = Sets.newHashSet();
         public String label;
-        public String clusterName;
         public JobState state;
         public String failMsg;
         public String trackingUrl;
 
-        public JobInfo(String dbName, String label, String clusterName) {
+        public JobInfo(String dbName, String label) {
             this.dbName = dbName;
             this.label = label;
-            this.clusterName = clusterName;
         }
     }
 
     // Get job state
     // result saved in info
     public void getJobInfo(JobInfo info) throws DdlException, MetaNotFoundException {
-        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
+        String fullDbName = info.dbName;
         info.dbName = fullDbName;
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
         readLock();

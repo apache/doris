@@ -112,6 +112,12 @@ inline bool k_doris_exit = false;
 // once to properly initialise service state.
 class ExecEnv {
 public:
+#ifdef CLOUD_MODE
+    using Engine = CloudStorageEngine; // TODO(plat1ko)
+#else
+    using Engine = StorageEngine;
+#endif
+
     // Empty destructor because the compiler-generated one requires full
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
@@ -169,6 +175,7 @@ public:
     ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
+    ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
 
     void set_serial_download_cache_thread_token() {
         _serial_download_cache_thread_token =
@@ -328,6 +335,8 @@ private:
     std::unique_ptr<ThreadPool> _send_report_thread_pool;
     // Pool used by join node to build hash table
     std::unique_ptr<ThreadPool> _join_node_thread_pool;
+    // Pool to use a new thread to release object
+    std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     FragmentMgr* _fragment_mgr = nullptr;

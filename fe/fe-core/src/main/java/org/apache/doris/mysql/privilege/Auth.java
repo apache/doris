@@ -60,7 +60,6 @@ import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
 import com.google.common.base.Joiner;
@@ -954,12 +953,18 @@ public class Auth implements Writable {
             throws UserException {
         writeLock();
         try {
-            propertyMgr.updateUserProperty(user, properties);
+            propertyMgr.updateUserProperty(user, properties, isReplay);
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
             }
             LOG.info("finished to set properties for user: {}", user);
+        } catch (DdlException e) {
+            if (isReplay && e.getMessage().contains("Unknown user property")) {
+                LOG.warn("ReplayUpdateUserProperty failed, maybe FE rolled back version, " + e.getMessage());
+            } else {
+                throw e;
+            }
         } finally {
             writeUnlock();
         }
@@ -996,6 +1001,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxQueryInstances(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getParallelFragmentExecInstanceNum(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getParallelFragmentExecInstanceNum(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1114,7 +1128,7 @@ public class Auth implements Writable {
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
             // ============== Roles ==============
-            userAuthInfo.add(ldapUserInfo.getPaloRoles().stream().map(role -> role.getRoleName())
+            userAuthInfo.add(ldapUserInfo.getRoles().stream().map(role -> role.getRoleName())
                     .collect(Collectors.joining(",")));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
@@ -1695,8 +1709,7 @@ public class Auth implements Writable {
             CatalogPrivEntry catalogPrivEntry = (CatalogPrivEntry) privEntry;
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(catalogPrivEntry.origCtl),
                     "*", "*");
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(catalogPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(catalogPrivEntry.userIdentity),
                     tablePattern, catalogPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);
@@ -1707,8 +1720,7 @@ public class Auth implements Writable {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) privEntry;
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(dbPrivEntry.origCtl),
                     ClusterNamespace.getNameFromFullName(dbPrivEntry.origDb), "*");
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(dbPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(dbPrivEntry.userIdentity),
                     tablePattern, dbPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);
@@ -1720,8 +1732,7 @@ public class Auth implements Writable {
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(tblPrivEntry.origCtl),
                     ClusterNamespace.getNameFromFullName(tblPrivEntry.origDb),
                     ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigTbl()));
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(tblPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(tblPrivEntry.userIdentity),
                     tablePattern, tblPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);

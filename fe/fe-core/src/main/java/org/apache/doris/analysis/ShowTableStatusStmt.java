@@ -91,8 +91,6 @@ public class ShowTableStatusStmt extends ShowStmt {
             if (Strings.isNullOrEmpty(db)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-        } else {
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
         if (Strings.isNullOrEmpty(catalog)) {
             catalog = analyzer.getDefaultCatalog();

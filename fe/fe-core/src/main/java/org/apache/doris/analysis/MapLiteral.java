@@ -64,8 +64,11 @@ public class MapLiteral extends LiteralExpr {
         // 1. limit key type with map-key support
         // 2. check type can be assigment for cast
         for (int idx = 0; idx < exprs.length && idx + 1 < exprs.length; idx += 2) {
-            if (!MapType.MAP.supportSubType(exprs[idx].getType())) {
+            if (exprs[idx].getType().isComplexType() || !MapType.MAP.supportSubType(exprs[idx].getType())) {
                 throw new AnalysisException("Invalid key type in Map, not support " + exprs[idx].getType());
+            }
+            if (!MapType.MAP.supportSubType(exprs[idx + 1].getType())) {
+                throw new AnalysisException("Invalid value type in Map, not support " + exprs[idx + 1].getType());
             }
             boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
             keyType = Type.getAssignmentCompatibleType(keyType, exprs[idx].getType(), true, enableDecimal256);
@@ -152,14 +155,43 @@ public class MapLiteral extends LiteralExpr {
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
         for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
-            list.add(children.get(i).getStringValue() + ":" + children.get(i + 1).getStringValue());
+            list.add(getStringValue(children.get(i)) + ":" + getStringValue(children.get(i + 1)));
+        }
+        return "{" + StringUtils.join(list, ", ") + "}";
+    }
+
+    private String getStringValue(Expr expr) {
+        if (expr instanceof NullLiteral) {
+            return "null";
+        }
+        if (expr instanceof StringLiteral) {
+            return "\"" + expr.getStringValue() + "\"";
+        }
+        return expr.getStringValue();
+    }
+
+    @Override
+    public String getStringValueForArray() {
+        List<String> list = new ArrayList<>(children.size());
+        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
+            list.add(children.get(i).getStringValueForArray() + ":" + children.get(i + 1).getStringValueForArray());
         }
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 
     @Override
-    public String getStringValueForArray() {
-        return null;
+    public String getStringValueInFe() {
+        List<String> list = new ArrayList<>(children.size());
+        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
+            // we should use type to decide we output array is suitable for json format
+            if (children.get(i).getType().isComplexType()) {
+                // map key type do not support complex type
+                throw new UnsupportedOperationException("Unsupport key type for MAP: " + children.get(i).getType());
+            }
+            list.add(children.get(i).getStringValueForArray()
+                    + ":" + getStringLiteralForComplexType(children.get(i + 1)));
+        }
+        return "{" + StringUtils.join(list, ", ") + "}";
     }
 
     @Override

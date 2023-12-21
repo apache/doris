@@ -264,6 +264,12 @@ under the License.
      
     注意，这里的值是单个 HDFS Client 的累计值，而不是单个查询的数值。同一个 HDFS Client 会被多个查询复用。
 
+3. `Couldn't create proxy provider class org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider`
+
+    在 FE 和 BE 的 start 脚本中，会将环境变量 `HADOOP_CONF_DIR` 加入 CLASSPATH。如果 `HADOOP_CONF_DIR` 设置错误，比如指向了不存在的路径或错误路径，则可能加载到错误的 xxx-site.xml 文件，从而读取到错误的信息。
+
+    需检查 `HADOOP_CONF_DIR` 是否配置正确，或将这个环境变量删除。 
+
 ## DLF Catalog 
 
 1. 使用DLF Catalog时，BE读在取JindoFS数据出现`Invalid address`，需要在`/ets/hosts`中添加日志中出现的域名到IP的映射。

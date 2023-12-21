@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.MaterializedViewException;
+import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.expression.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rules.FoldConstantRule;
@@ -205,6 +207,16 @@ public class ExpressionUtils {
                 .orElse(BooleanLiteral.of(type == And.class));
     }
 
+    public static Expression shuttleExpressionWithLineage(Expression expression, Plan plan) {
+        return shuttleExpressionWithLineage(Lists.newArrayList(expression),
+                plan, ImmutableSet.of(), ImmutableSet.of()).get(0);
+    }
+
+    public static List<? extends Expression> shuttleExpressionWithLineage(List<? extends Expression> expressions,
+            Plan plan) {
+        return shuttleExpressionWithLineage(expressions, plan, ImmutableSet.of(), ImmutableSet.of());
+    }
+
     /**
      * Replace the slot in expressions with the lineage identifier from specifiedbaseTable sets or target table types
      * example as following:
@@ -221,13 +233,18 @@ public class ExpressionUtils {
 
         ExpressionLineageReplacer.ExpressionReplaceContext replaceContext =
                 new ExpressionLineageReplacer.ExpressionReplaceContext(
-                        expressions.stream().map(NamedExpression.class::cast).collect(Collectors.toList()),
+                        expressions.stream().map(Expression.class::cast).collect(Collectors.toList()),
                         targetTypes,
                         tableIdentifiers);
 
         plan.accept(ExpressionLineageReplacer.INSTANCE, replaceContext);
         // Replace expressions by expression map
-        return replaceContext.getReplacedExpressions();
+        List<Expression> replacedExpressions = replaceContext.getReplacedExpressions();
+        if (expressions.size() != replacedExpressions.size()) {
+            throw new NereidsException("shuttle expression fail",
+                    new MaterializedViewException("shuttle expression fail"));
+        }
+        return replacedExpressions;
     }
 
     /**
@@ -348,6 +365,32 @@ public class ExpressionUtils {
                 return replaceMap.get(expr);
             }
             return super.visit(expr, replaceMap);
+        }
+    }
+
+    private static class ExpressionReplacerContext {
+        private final Map<? extends Expression, ? extends Expression> replaceMap;
+        // if the key of replaceMap is named expr and withAlias is true, we should
+        // add alias after replaced
+        private final boolean withAliasIfKeyNamed;
+
+        private ExpressionReplacerContext(Map<? extends Expression, ? extends Expression> replaceMap,
+                boolean withAliasIfKeyNamed) {
+            this.replaceMap = replaceMap;
+            this.withAliasIfKeyNamed = withAliasIfKeyNamed;
+        }
+
+        public static ExpressionReplacerContext of(Map<? extends Expression, ? extends Expression> replaceMap,
+                boolean withAliasIfKeyNamed) {
+            return new ExpressionReplacerContext(replaceMap, withAliasIfKeyNamed);
+        }
+
+        public Map<? extends Expression, ? extends Expression> getReplaceMap() {
+            return replaceMap;
+        }
+
+        public boolean isWithAliasIfKeyNamed() {
+            return withAliasIfKeyNamed;
         }
     }
 

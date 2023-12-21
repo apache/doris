@@ -67,8 +67,8 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.util.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -211,11 +211,19 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public Analyzer newAnalyzer() {
-        return new Analyzer(this);
+        return newAnalyzer(false);
+    }
+
+    public Analyzer newAnalyzer(boolean analyzeView) {
+        return new Analyzer(this, analyzeView);
+    }
+
+    public Analyzer newAnalyzer(boolean analyzeView, Optional<CustomTableResolver> customTableResolver) {
+        return new Analyzer(this, analyzeView, customTableResolver);
     }
 
     public Analyzer newAnalyzer(Optional<CustomTableResolver> customTableResolver) {
-        return new Analyzer(this, customTableResolver);
+        return newAnalyzer(false, customTableResolver);
     }
 
     @Override
@@ -318,7 +326,9 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public List<MaterializationContext> getMaterializationContexts() {
-        return materializationContexts;
+        return materializationContexts.stream()
+                .filter(MaterializationContext::isAvailable)
+                .collect(Collectors.toList());
     }
 
     public void addMaterializationContext(MaterializationContext materializationContext) {
@@ -485,9 +495,6 @@ public class CascadesContext implements ScheduleContext {
             case 2: { // db.table
                 String ctlName = getConnectContext().getEnv().getCurrentCatalog().getName();
                 String dbName = nameParts.get(0);
-                if (!dbName.equals(getConnectContext().getDatabase())) {
-                    dbName = getConnectContext().getClusterName() + ":" + dbName;
-                }
                 return getTable(ctlName, dbName, nameParts.get(1), getConnectContext().getEnv());
             }
             case 3: { // catalog.db.table

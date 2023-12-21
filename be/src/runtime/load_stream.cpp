@@ -18,6 +18,7 @@
 #include "runtime/load_stream.h"
 
 #include <brpc/stream.h>
+#include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
 #include <olap/rowset/rowset_factory.h>
@@ -26,9 +27,13 @@
 #include <olap/tablet_manager.h>
 #include <runtime/exec_env.h>
 
+#include <memory>
+
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/tablet_fwd.h"
+#include "olap/tablet_schema.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
@@ -123,7 +128,7 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
     auto flush_func = [this, new_segid, eos, buf, header]() {
-        auto st = _load_stream_writer->append_data(new_segid, buf);
+        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf);
         if (eos && st.ok()) {
             st = _load_stream_writer->close_segment(new_segid);
         }
@@ -132,13 +137,22 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "write data failed " << *this;
         }
     };
-    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(flush_func);
+    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
+        bthread_usleep(10 * 1000); // 10ms
+    }
+    return flush_token->submit_func(flush_func);
 }
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
     SCOPED_TIMER(_add_segment_timer);
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
+    TabletSchemaSPtr flush_schema;
+    if (header.has_flush_schema()) {
+        flush_schema = std::make_shared<TabletSchema>();
+        flush_schema->init_from_pb(header.flush_schema());
+    }
 
     int64_t src_id = header.src_id();
     uint32_t segid = header.segment_id();
@@ -154,14 +168,18 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    auto add_segment_func = [this, new_segid, stat]() {
-        auto st = _load_stream_writer->add_segment(new_segid, stat);
+    auto add_segment_func = [this, new_segid, stat, flush_schema]() {
+        auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
         if (!st.ok() && _failed_st->ok()) {
             _failed_st = std::make_shared<Status>(st);
             LOG(INFO) << "add segment failed " << *this;
         }
     };
-    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(add_segment_func);
+    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
+        bthread_usleep(10 * 1000); // 10ms
+    }
+    return flush_token->submit_func(add_segment_func);
 }
 
 Status TabletStream::close() {
@@ -241,8 +259,11 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
     return Status::OK();
 }
 
+// TODO: Profile is temporary disabled, because:
+// 1. It's not being processed by the upstream for now
+// 2. There are some problems in _profile->to_thrift()
 LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
-        : _load_id(load_id), _enable_profile(enable_profile), _load_stream_mgr(load_stream_mgr) {
+        : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
