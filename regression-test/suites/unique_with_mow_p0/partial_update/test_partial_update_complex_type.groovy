@@ -27,6 +27,10 @@ suite("test_primary_key_partial_update_complex_type", "p0") {
         connect(user = context.config.jdbcUser, password = context.config.jdbcPassword, url = context.config.jdbcUrl) {
             sql "use ${db};"
             def tableName = "test_primary_key_partial_update_complex_type"
+            // NOTE:
+            // 1. variant type don't support partial update
+            // 2. the combination of map type and row store may result in bugs, so we skip map type in temporary
+            //
             // create table
             sql """ DROP TABLE IF EXISTS ${tableName} """
             sql """ CREATE TABLE ${tableName} (
