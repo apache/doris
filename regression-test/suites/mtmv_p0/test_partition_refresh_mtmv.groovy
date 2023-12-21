@@ -391,11 +391,13 @@ suite("test_partition_refresh_mtmv") {
      sql """
          REFRESH MATERIALIZED VIEW ${mvName};
         """
+     waitingMTMVTaskFinished(jobName)
      order_qt_exclude_will_not_change "SELECT * FROM ${mvName} order by user_id,age,date,num"
      order_qt_not_change_status "select SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
      sql """
           REFRESH MATERIALIZED VIEW ${mvName} COMPLETE;
          """
+     waitingMTMVTaskFinished(jobName)
      order_qt_exclude_will_change "SELECT * FROM ${mvName} order by user_id,age,date,num"
      order_qt_change_status "select SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 }
