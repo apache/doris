@@ -58,8 +58,15 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
         }
         List<SlotRef> slotRefs =  Lists.newArrayList();
         expr.collect(SlotRef.class, slotRefs);
+        if (slotRefs.size() != 1) {
+            throw new AnalysisException("only support syntax like v[\"a\"][\"b\"][\"c\"]");
+        }
         SlotRef slot = slotRefs.get(0);
         List<Expr> pathsExpr = Lists.newArrayList();
+        // Traverse the expression tree to gather literals.
+        // For instance, consider the expression v["a"]["b"]["c"], where it's represented as
+        // element_at(element_at(element_at(v, 'a'), 'b'), 'c').The pathsExpr will contain
+        // literals ['a', 'b', 'c'] representing the sequence of keys in the structure.
         expr.collect(Expr::isLiteral, pathsExpr);
         List<String> fullPaths = pathsExpr.stream()
                 .map(node -> ((LiteralExpr) node).getStringValue())
@@ -69,13 +76,19 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
         return slot;
     }
 
+    // check if expr is element_at with variant slot type
     private static boolean isElementAtOfVariantType(Expr expr) {
         if (!(expr instanceof FunctionCallExpr)) {
             return false;
         }
         FunctionCallExpr functionCallExpr = (FunctionCallExpr) expr;
+        List<SlotRef> slotRefs =  Lists.newArrayList();
+        expr.collect(SlotRef.class, slotRefs);
+        if (slotRefs.size() != 1) {
+            return false;
+        }
         return functionCallExpr.getFnName().getFunction().equalsIgnoreCase("element_at")
-                && functionCallExpr.getType() == Type.VARIANT;
+                && slotRefs.get(0).getType() == Type.VARIANT;
     }
 
     public static boolean containsElementAtFunction(Expr expr) {
@@ -90,11 +103,6 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
             return;
         }
         for (Expr child : expr.getChildren()) {
-            if (isElementAtOfVariantType(expr)) {
-                // get the top level element at function, ignore its child
-                result.add(child);
-                continue;
-            }
             getElementAtFunction(child, result);
         }
     }
@@ -102,24 +110,25 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
     public Expr rewrite(Expr inputExpr, Analyzer analyzer)
             throws AnalysisException {
         List<Expr> originalFunctionElementAtExprs = Lists.newArrayList();
-        Expr newExpr = null;
+        boolean changed = false;
+        Expr newExpr = inputExpr.clone();
         getElementAtFunction(inputExpr, originalFunctionElementAtExprs);
         for (Expr expr : originalFunctionElementAtExprs) {
             Expr rewriteExpr = apply(expr, analyzer);
+            if (inputExpr.getId().equals(expr.getId())) {
+                return rewriteExpr;
+            }
             if (rewriteExpr != expr) {
-                if (newExpr == null) {
-                    newExpr = inputExpr.clone();
-                }
-                newExpr = replaceExpr(newExpr, expr.getId().toString(), rewriteExpr);
+                changed = true;
+                replaceChildExpr(newExpr, expr.getId().toString(), rewriteExpr);
             }
         }
-        return newExpr != null ? newExpr : inputExpr;
+        return changed ? newExpr : inputExpr;
     }
 
-    private Expr replaceExpr(Expr expr, String key, Expr replacExpr) {
-        if (expr.getId().toString().equals(key)) {
-            return replacExpr;
-        }
+    // Find child expr which id matches key and replace this child expr
+    // with replacExpr and set replacExpr with same expr id.
+    private void replaceChildExpr(Expr expr, String key, Expr replacExpr) {
         // ATTN: make sure the child order of expr keep unchanged
         for (int i = 0; i < expr.getChildren().size(); i++) {
             Expr child = expr.getChild(i);
@@ -128,8 +137,7 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
                 expr.setChild(i, replacExpr);
                 break;
             }
-            replaceExpr(child, key, replacExpr);
+            replaceChildExpr(child, key, replacExpr);
         }
-        return expr;
     }
 }

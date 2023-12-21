@@ -413,7 +413,6 @@ public class Analyzer {
         private final Map<SlotId, Analyzer> blockBySlot = Maps.newHashMap();
 
         // Expr rewriter for normalizing and rewriting expressions.
-
         private final ExprRewriter exprRewriter;
 
         private final ExprRewriter mvExprRewriter;

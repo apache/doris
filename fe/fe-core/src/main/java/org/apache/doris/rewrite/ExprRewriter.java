@@ -204,7 +204,6 @@ public class ExprRewriter {
 
     public Expr rewriteElementAtToSlot(Expr inputExpr, Analyzer analyzer)
             throws AnalysisException {
-        // rewrite constant expr
         boolean changed = false;
         for (ExprRewriteRule rule : rules) {
             if (rule instanceof ElementAtToSlotRefRule) {
