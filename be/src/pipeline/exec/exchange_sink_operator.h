@@ -185,7 +185,7 @@ public:
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
     std::string name_suffix() override;
-    segment_v2::CompressionTypePB& compression_type();
+    segment_v2::CompressionTypePB compression_type() const;
     std::string debug_string(int indentation_level) const override;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;

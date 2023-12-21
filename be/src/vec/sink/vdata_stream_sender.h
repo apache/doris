@@ -149,7 +149,7 @@ public:
     QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
     bool transfer_large_data_by_brpc() { return _transfer_large_data_by_brpc; }
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
-    segment_v2::CompressionTypePB& compression_type() { return _compression_type; }
+    segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
 protected:
     friend class BlockSerializer<VDataStreamSender>;

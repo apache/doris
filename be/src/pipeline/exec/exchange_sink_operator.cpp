@@ -254,7 +254,7 @@ std::string ExchangeSinkLocalState::name_suffix() {
     return name;
 }
 
-segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
+segment_v2::CompressionTypePB ExchangeSinkLocalState::compression_type() const {
     return _parent->cast<ExchangeSinkOperatorX>()._compression_type;
 }
 
