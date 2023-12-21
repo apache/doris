@@ -90,6 +90,7 @@ public class JdbcExecutor {
     private int minIdleSize;
     private int maxIdleTime;
     private int maxWaitTime;
+    private boolean isKeepAlive;
     private TOdbcTableType tableType;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
@@ -105,12 +106,14 @@ public class JdbcExecutor {
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdleTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDLE_TIME", "300000"));
         maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
+        isKeepAlive = Boolean.valueOf(System.getProperty("JDBC_KEEP_ALIVE", "false"));
         minIdleSize = minPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
                 + ", maxIdleTime = " + maxIdleTime
                 + ", maxWaitTime = " + maxWaitTime
-                + ", minIdleSize = " + minIdleSize);
+                + ", minIdleSize = " + minIdleSize
+                + ", isKeepAlive = " + isKeepAlive);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
@@ -441,6 +444,7 @@ public class JdbcExecutor {
                             setValidationQuery(ds, tableType);
                             ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
                             ds.setMinEvictableIdleTimeMillis(maxIdleTime);
+                            ds.setKeepAlive(isKeepAlive);
                             druidDataSource = ds;
                             // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
                             // jdbcPassword) as key.
