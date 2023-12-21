@@ -134,7 +134,7 @@ suite("test_partition_refresh_mtmv") {
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_range_date_build "SELECT * FROM ${mvName} order by user_id,age,date,num"
+    order_qt_range_date_build "SELECT * FROM ${mvName} order by user_id,date,num"
 
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -180,7 +180,7 @@ suite("test_partition_refresh_mtmv") {
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_range_int_build "SELECT * FROM ${mvName} order by user_id,age,date,num"
+    order_qt_range_int_build "SELECT * FROM ${mvName} order by user_id,date,num"
 
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -226,7 +226,7 @@ suite("test_partition_refresh_mtmv") {
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_list_int_build "SELECT * FROM ${mvName} order by user_id,age,date,num"
+    order_qt_list_int_build "SELECT * FROM ${mvName} order by user_id,date,num"
 
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
