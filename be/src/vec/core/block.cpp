@@ -1109,7 +1109,9 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
 size_t MutableBlock::allocated_bytes() const {
     size_t res = 0;
     for (const auto& col : _columns) {
-        res += col->allocated_bytes();
+        if (col) {
+            res += col->allocated_bytes();
+        }
     }
 
     return res;

@@ -512,6 +512,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             context.addKeyIfSlot(rightExpr);
             return statistics;
         }
+        if (leftRange.isInfinite() || rightRange.isInfinite()) {
+            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+        }
+
         double leftOverlapPercent = leftRange.overlapPercentWith(rightRange);
         // Left always greater than right
         if (leftOverlapPercent == 0) {

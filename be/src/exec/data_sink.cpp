@@ -35,10 +35,10 @@
 #include "vec/sink/multi_cast_data_stream_sink.h"
 #include "vec/sink/vdata_stream_sender.h"
 #include "vec/sink/vmemory_scratch_sink.h"
+#include "vec/sink/volap_table_sink.h"
+#include "vec/sink/volap_table_sink_v2.h"
 #include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
-#include "vec/sink/vtablet_sink.h"
-#include "vec/sink/vtablet_sink_v2.h"
 
 namespace doris {
 class DescriptorTbl;

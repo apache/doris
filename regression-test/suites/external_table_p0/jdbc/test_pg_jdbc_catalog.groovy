@@ -31,7 +31,7 @@ suite("test_pg_jdbc_catalog", "p0,external,pg,external_docker,external_docker_pg
         String test_insert = "test_insert";
         String test_all_types = "test_all_types";
         String test_insert_all_types = "test_pg_insert_all_types";
-        String test_ctas = "test_ctas";
+        String test_ctas = "test_pg_ctas";
 
         sql """create database if not exists ${internal_db_name}; """
 

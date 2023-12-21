@@ -43,6 +43,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.analyzer.UnboundResultSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
@@ -54,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.OneRowRelation;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSink;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector.TableCollectorContext;
@@ -174,6 +176,18 @@ public class CreateMTMVInfo {
             mvProperties.put(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD, gracePeriod);
             properties.remove(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD);
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
+            String refreshPartitionNum = properties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
+            try {
+                Integer.parseInt(refreshPartitionNum);
+            } catch (NumberFormatException e) {
+                throw new AnalysisException(
+                        "valid refresh_partition_num: " + properties
+                                .get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
+            }
+            mvProperties.put(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM, refreshPartitionNum);
+            properties.remove(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM);
+        }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES)) {
             String excludedTriggerTables = properties.get(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES);
             mvProperties.put(PropertyAnalyzer.PROPERTIES_EXCLUDED_TRIGGER_TABLES, excludedTriggerTables);
@@ -187,7 +201,9 @@ public class CreateMTMVInfo {
     public void analyzeQuery(ConnectContext ctx) {
         // create table as select
         NereidsPlanner planner = new NereidsPlanner(ctx.getStatementContext());
-        Plan plan = planner.plan(logicalQuery, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
+        // this is for expression column name infer when not use alias
+        LogicalSink<Plan> logicalSink = new UnboundResultSink<>(logicalQuery);
+        Plan plan = planner.plan(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
         if (plan.anyMatch(node -> node instanceof OneRowRelation)) {
             throw new AnalysisException("at least contain one table");
         }
@@ -228,9 +244,9 @@ public class CreateMTMVInfo {
             if (!(followTable instanceof OlapTable)) {
                 throw new AnalysisException("base table for partitioning only can be OlapTable.");
             }
-            Set<String> partitionColumnNames;
+            Set<String> partitionColumnNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             try {
-                partitionColumnNames = ((OlapTable) followTable).getPartitionColumnNames();
+                partitionColumnNames.addAll(((OlapTable) followTable).getPartitionColumnNames());
             } catch (DdlException e) {
                 throw new AnalysisException(e.getMessage(), e);
             }

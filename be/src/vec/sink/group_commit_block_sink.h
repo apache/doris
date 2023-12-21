@@ -18,7 +18,7 @@
 #pragma once
 #include "exec/data_sink.h"
 #include "vec/exprs/vexpr_fwd.h"
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace doris {
 
@@ -70,6 +70,11 @@ private:
     std::vector<std::shared_ptr<vectorized::Block>> _blocks;
     bool _is_block_appended = false;
     double _max_filter_ratio = 0.0;
+    VOlapTablePartitionParam* _vpartition = nullptr;
+    // reuse for find_tablet.
+    std::vector<VOlapTablePartition*> _partitions;
+    Bitmap _filter_bitmap;
+    bool _has_filtered_rows = false;
 };
 
 } // namespace vectorized

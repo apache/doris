@@ -105,6 +105,7 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
                                   TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
+    request->partition_id = 10001;
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 6;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;
@@ -268,6 +269,7 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
                                                     bool enable_mow = false) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
+    request->partition_id = 30004;
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::UNIQUE_KEYS;
