@@ -16,16 +16,18 @@
 // under the License.
 
 suite("test_partition_refresh_mtmv") {
-    def tableName = "t_test_pr_mtmv_user"
+    def tableNameNum = "t_test_pr_mtmv_user_num"
+    def tableNameUser = "t_test_pr_mtmv_user"
     def mvName = "test_pr_mtmv"
     def dbName = "regression_test_mtmv_p0"
-    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableNameNum}`"""
+    sql """drop table if exists `${tableNameUser    }`"""
     sql """drop materialized view if exists ${mvName};"""
 
 
     // Inconsistent partition fields with baseTable
     sql """
-        CREATE TABLE `${tableName}` (
+        CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
           `num` SMALLINT NULL COMMENT '\"数量\"'
@@ -48,18 +50,18 @@ suite("test_partition_refresh_mtmv") {
                 DISTRIBUTED BY RANDOM BUCKETS 2
                 PROPERTIES ('replication_num' = '1')
                 AS
-                SELECT * FROM ${tableName};
+                SELECT * FROM ${tableNameNum};
         """
         Assert.fail();
     } catch (Exception e) {
         log.info(e.getMessage())
     }
-    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
 
     // base table has two partition col
      sql """
-        CREATE TABLE `${tableName}` (
+        CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
           `num` SMALLINT NULL COMMENT '\"数量\"'
@@ -82,18 +84,18 @@ suite("test_partition_refresh_mtmv") {
                     DISTRIBUTED BY RANDOM BUCKETS 2
                     PROPERTIES ('replication_num' = '1')
                     AS
-                    SELECT * FROM ${tableName};
+                    SELECT * FROM ${tableNameNum};
             """
             Assert.fail();
         } catch (Exception e) {
             log.info(e.getMessage())
         }
-        sql """drop table if exists `${tableName}`"""
+        sql """drop table if exists `${tableNameNum}`"""
         sql """drop materialized view if exists ${mvName};"""
 
     // range date partition
     sql """
-        CREATE TABLE `${tableName}` (
+        CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
           `num` SMALLINT NULL COMMENT '\"数量\"'
@@ -108,7 +110,7 @@ suite("test_partition_refresh_mtmv") {
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableName} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
+        insert into ${tableNameNum} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
         """
 
     sql """
@@ -118,7 +120,7 @@ suite("test_partition_refresh_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableName};
+            SELECT * FROM ${tableNameNum};
     """
     def showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -134,12 +136,12 @@ suite("test_partition_refresh_mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_range_date_build "SELECT * FROM ${mvName}"
 
-    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
 
     // range int partition
     sql """
-        CREATE TABLE `${tableName}` (
+        CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
           `num` SMALLINT NULL COMMENT '\"数量\"'
@@ -154,7 +156,7 @@ suite("test_partition_refresh_mtmv") {
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableName} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
+        insert into ${tableNameNum} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
         """
 
     sql """
@@ -164,7 +166,7 @@ suite("test_partition_refresh_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableName};
+            SELECT * FROM ${tableNameNum};
     """
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -180,12 +182,12 @@ suite("test_partition_refresh_mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_range_int_build "SELECT * FROM ${mvName}"
 
-    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
 
     // list int partition
     sql """
-        CREATE TABLE `${tableName}` (
+        CREATE TABLE `${tableNameNum}` (
           `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
           `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
           `num` SMALLINT NOT NULL COMMENT '\"数量\"'
@@ -201,7 +203,7 @@ suite("test_partition_refresh_mtmv") {
         PROPERTIES ('replication_num' = '1') ;
         """
     sql """
-        insert into ${tableName} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
+        insert into ${tableNameNum} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
         """
 
     sql """
@@ -211,7 +213,7 @@ suite("test_partition_refresh_mtmv") {
             DISTRIBUTED BY RANDOM BUCKETS 2
             PROPERTIES ('replication_num' = '1')
             AS
-            SELECT * FROM ${tableName};
+            SELECT * FROM ${tableNameNum};
     """
     showPartitionsResult = sql """show partitions from ${mvName}"""
     logger.info("showPartitionsResult: " + showPartitionsResult.toString())
@@ -226,6 +228,62 @@ suite("test_partition_refresh_mtmv") {
     waitingMTMVTaskFinished(jobName)
     order_qt_list_int_build "SELECT * FROM ${mvName}"
 
-    sql """drop table if exists `${tableName}`"""
+    sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
+
+    // refresh
+    sql """
+        CREATE TABLE `${tableNameNum}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`)
+        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
+        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
+        PARTITION p201703_all VALUES [('2017-03-01'), ('2017-04-01')))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableNameNum} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
+        """
+    sql """
+        CREATE TABLE ${tableNameUser}
+        (
+            user_id LARGEINT,
+            age INT
+        )
+        COMMENT "my first table"
+        DISTRIBUTED BY HASH(user_id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+    sql """
+        insert into ${tableNameUser} values(1,10);
+        """
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            select ${tableNameUser}.user_id,${tableNameUser}.age,${tableNameNum}.date,${tableNameNum}.num from ${tableNameUser} join ${tableNameNum} on ${tableNameUser}.user_id = ${tableNameNum}.user_id;
+        """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} partitions(p_00000101_20170201,p_20170201_20170301);
+        """
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_refresh_two_partition "SELECT * FROM ${mvName}"
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName}
+        """
+    waitingMTMVTaskFinished(jobName)
+    order_qt_refresh_other_partition "SELECT * FROM ${mvName}"
 }
