@@ -174,8 +174,6 @@ protected:
     RuntimeProfile::Counter* _wait_for_scanner_done_timer = nullptr;
     // time of prefilter input block from scanner
     RuntimeProfile::Counter* _wait_for_eos_timer = nullptr;
-    RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
-    RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
 };
 
 template <typename LocalStateType>

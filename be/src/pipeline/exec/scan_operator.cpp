@@ -100,9 +100,6 @@ std::string ScanOperator::debug_string() const {
 template <typename Derived>
 ScanLocalState<Derived>::ScanLocalState(RuntimeState* state, OperatorXBase* parent)
         : ScanLocalStateBase(state, parent) {
-    _finish_dependency = std::make_shared<FinishDependency>(
-            parent->operator_id(), parent->node_id(), parent->get_name() + "_FINISH_DEPENDENCY",
-            state->get_query_ctx());
     _filter_dependency = std::make_shared<RuntimeFilterDependency>(
             parent->operator_id(), parent->node_id(), parent->get_name() + "_FILTER_DEPENDENCY",
             state->get_query_ctx());
@@ -176,7 +173,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
 
     auto status = _eos ? Status::OK() : _prepare_scanners();
     if (_scanner_ctx) {
-        _finish_dependency->block();
         DCHECK(!_eos && _num_scanners->value() > 0);
         RETURN_IF_ERROR(_scanner_ctx->init());
         RETURN_IF_ERROR(state->exec_env()->scanner_scheduler()->submit(_scanner_ctx));
@@ -1244,8 +1240,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx = PipScannerContext::create_shared(state(), this, p._output_tuple_desc, scanners,
                                                     p.limit(), state()->scan_queue_mem_limit(),
-                                                    p._col_distribute_ids, 1, _scan_dependency,
-                                                    _finish_dependency);
+                                                    p._col_distribute_ids, 1, _scan_dependency);
     return Status::OK();
 }
 
@@ -1320,9 +1315,6 @@ Status ScanLocalState<Derived>::_init_profile() {
     _scanner_wait_worker_timer = ADD_TIMER(_runtime_profile, "ScannerWorkerWaitTime");
 
     _max_scanner_thread_num = ADD_COUNTER(_runtime_profile, "MaxScannerThreadNum", TUnit::UNIT);
-
-    _wait_for_finish_dependency_timer =
-            ADD_TIMER(_runtime_profile, "WaitForPendingFinishDependency");
 
     return Status::OK();
 }
@@ -1456,7 +1448,6 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
         _scanner_ctx->stop_scanners(state);
     }
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
-    COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, _filter_dependency->watcher_elapse_time());
 
     return PipelineXLocalState<>::close(state);
