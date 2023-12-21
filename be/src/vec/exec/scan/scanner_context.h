@@ -105,7 +105,7 @@ public:
     }
 
     // Return true if this ScannerContext need no more process
-    virtual bool done() const { return _is_finished || _should_stop; }
+    bool done() const { return _is_finished || _should_stop; }
     bool is_finished() { return _is_finished.load(); }
     bool should_stop() { return _should_stop.load(); }
     bool status_error() { return _status_error.load(); }
