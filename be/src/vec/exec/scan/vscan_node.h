@@ -94,6 +94,7 @@ public:
     VScannerSPtr _scanner;
     ScannerDelegate(VScannerSPtr& scanner_ptr) : _scanner(scanner_ptr) {}
     ~ScannerDelegate() { static_cast<void>(_scanner->close(_scanner->runtime_state())); }
+    ScannerDelegate(ScannerDelegate&&) = delete;
 };
 
 class VScanNode : public ExecNode, public RuntimeFilterConsumer {
@@ -109,7 +110,7 @@ public:
             }
         }
     }
-    ~VScanNode() { LOG(INFO) << Status::InternalError("closed"); }
+    ~VScanNode() = default;
 
     friend class VScanner;
     friend class NewOlapScanner;
