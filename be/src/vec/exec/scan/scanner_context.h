@@ -70,7 +70,7 @@ class ScannerContext : public std::enable_shared_from_this<ScannerContext> {
 
 public:
     ScannerContext(RuntimeState* state, VScanNode* parent, const TupleDescriptor* output_tuple_desc,
-                   const std::list<VScannerSPtr>& scanners, int64_t limit_,
+                   const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
                    int64_t max_bytes_in_blocks_queue, const int num_parallel_instances = 1,
                    pipeline::ScanLocalStateBase* local_state = nullptr);
 
@@ -92,7 +92,7 @@ public:
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
-    void push_back_scanner_and_reschedule(VScannerSPtr scanner);
+    void push_back_scanner_and_reschedule(std::shared_ptr<ScannerDelegate> scanner);
 
     bool set_status_on_error(const Status& status, bool need_lock = true);
 
@@ -103,10 +103,6 @@ public:
         return _process_status;
     }
 
-    // Called by ScanNode.
-    // Used to notify the scheduler that this ScannerContext can stop working.
-    void set_should_stop();
-
     // Return true if this ScannerContext need no more process
     virtual bool done() { return _is_finished || _should_stop; }
     bool is_finished() { return _is_finished.load(); }
@@ -115,22 +111,13 @@ public:
 
     void inc_num_running_scanners(int32_t scanner_inc);
 
-    void set_ready_to_finish();
+    void dec_num_running_scanners(int32_t scanner_dec);
 
     int get_num_running_scanners() const { return _num_running_scanners; }
 
     int get_num_unfinished_scanners() const { return _num_unfinished_scanners; }
 
-    void dec_num_scheduling_ctx();
-
-    int get_num_scheduling_ctx() const { return _num_scheduling_ctx; }
-
-    void get_next_batch_of_scanners(std::list<VScannerSPtr>* current_run);
-
-    template <typename Parent>
-    void clear_and_join(Parent* parent, RuntimeState* state);
-
-    bool no_schedule();
+    void get_next_batch_of_scanners(std::list<std::weak_ptr<ScannerDelegate>>* current_run);
 
     virtual std::string debug_string();
 
@@ -146,7 +133,7 @@ public:
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
     inline bool should_be_scheduled() const {
-        return (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
+        return !done() && (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
                (_serving_blocks_num < allowed_blocks_num());
     }
 
@@ -169,6 +156,8 @@ public:
 
     SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
+    Status stop_scanners(RuntimeState* state);
+
     void reschedule_scanner_ctx();
 
     // the unique id of this context
@@ -181,13 +170,9 @@ public:
 
     std::weak_ptr<TaskExecutionContext> get_task_execution_context() { return _task_exec_ctx; }
 
-private:
-    template <typename Parent>
-    Status _close_and_clear_scanners(Parent* parent, RuntimeState* state);
-
 protected:
     ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
-                   const std::list<VScannerSPtr>& scanners_, int64_t limit_,
+                   const std::list<std::shared_ptr<ScannerDelegate>>& scanners_, int64_t limit_,
                    int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
                    pipeline::ScanLocalStateBase* local_state,
                    std::shared_ptr<pipeline::ScanDependency> dependency,
@@ -275,9 +260,11 @@ protected:
     // and then if the scanner is not finished, will be pushed back to this list.
     // Not need to protect by lock, because only one scheduler thread will access to it.
     std::mutex _scanners_lock;
-    std::list<VScannerSPtr> _scanners;
+    // Scanner's ownership belong to vscannode or scanoperator, scanner context does not own it.
+    // ScannerContext has to check if scanner is deconstructed before use it.
+    std::list<std::weak_ptr<ScannerDelegate>> _scanners;
     // weak pointer for _scanners, used in stop function
-    std::vector<VScannerWPtr> _scanners_ref;
+    std::vector<std::weak_ptr<ScannerDelegate>> _all_scanners;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
     std::vector<int64_t> _finished_scanner_wait_worker_time;

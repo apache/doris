@@ -79,7 +79,7 @@ private:
     void _schedule_scanners(std::shared_ptr<ScannerContext> ctx);
     // execution thread function
     void _scanner_scan(ScannerScheduler* scheduler, std::shared_ptr<ScannerContext> ctx,
-                       VScannerSPtr scanner);
+                       std::weak_ptr<ScannerDelegate> scanner);
 
     void _register_metrics();
 

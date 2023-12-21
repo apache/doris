@@ -65,7 +65,7 @@ bool ScanOperator::can_read() {
 }
 
 bool ScanOperator::is_pending_finish() const {
-    return _node->_scanner_ctx && !_node->_scanner_ctx->no_schedule();
+    return false;
 }
 
 Status ScanOperator::try_close(RuntimeState* state) {
@@ -81,9 +81,8 @@ std::string ScanOperator::debug_string() const {
     fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
                    SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
     if (_node->_scanner_ctx) {
-        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}, num_scheduling_ctx = {} ",
-                       _node->_scanner_ctx->get_num_running_scanners(),
-                       _node->_scanner_ctx->get_num_scheduling_ctx());
+        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}",
+                       _node->_scanner_ctx->get_num_running_scanners());
     }
     return fmt::to_string(debug_string_buffer);
 }
@@ -570,15 +569,14 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
                    PipelineXLocalState<>::debug_string(indentation_level), _eos.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
-        fmt::format_to(
-                debug_string_buffer,
-                ", Scanner Context: (_is_finished = {}, _should_stop = {}, "
-                "_num_running_scanners={}, "
-                "_num_scheduling_ctx = {}, _num_unfinished_scanners = {}, status = {}, error = {})",
-                _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
-                _scanner_ctx->get_num_running_scanners(), _scanner_ctx->get_num_scheduling_ctx(),
-                _scanner_ctx->get_num_unfinished_scanners(), _scanner_ctx->status().to_string(),
-                _scanner_ctx->status_error());
+        fmt::format_to(debug_string_buffer,
+                       ", Scanner Context: (_is_finished = {}, _should_stop = {}, "
+                       "_num_running_scanners={}, "
+                       " _num_unfinished_scanners = {}, status = {}, error = {})",
+                       _scanner_ctx->is_finished(), _scanner_ctx->should_stop(),
+                       _scanner_ctx->get_num_running_scanners(),
+                       _scanner_ctx->get_num_unfinished_scanners(),
+                       _scanner_ctx->status().to_string(), _scanner_ctx->status_error());
     }
 
     return fmt::to_string(debug_string_buffer);
@@ -1435,7 +1433,7 @@ Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
     if (local_state._scanner_ctx) {
         // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
         // TODO: there is a lock in `set_should_stop` may cause some slight impact
-        local_state._scanner_ctx->set_should_stop();
+        local_state._scanner_ctx->stop_scanners(state);
     }
     return Status::OK();
 }
@@ -1451,7 +1449,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
 
     SCOPED_TIMER(exec_time_counter());
     if (_scanner_ctx) {
-        _scanner_ctx->clear_and_join(reinterpret_cast<ScanLocalStateBase*>(this), state);
+        _scanner_ctx->stop_scanners(state);
     }
     COUNTER_SET(_wait_for_dependency_timer, _scan_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
@@ -1511,7 +1509,7 @@ Status ScanOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized:
     if (eos) {
         source_state = SourceState::FINISHED;
         // reach limit, stop the scanners.
-        local_state._scanner_ctx->set_should_stop();
+        local_state._scanner_ctx->stop_scanners(state);
     }
 
     return Status::OK();
