@@ -55,6 +55,7 @@
 #include "common/utils.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/stream_load_pipe.h"
+#include "olap/storage_engine.h"
 #include "pipeline/pipeline_fragment_context.h"
 #include "runtime/client_cache.h"
 #include "runtime/descriptors.h"
@@ -80,6 +81,7 @@
 #include "util/mem_info.h"
 #include "util/network_util.h"
 #include "util/pretty_printer.h"
+#include "util/profile_recorder.h"
 #include "util/runtime_profile.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
@@ -274,6 +276,15 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
                 params.__isset.loadChannelProfile = true;
             } else {
                 params.__isset.profile = false;
+            }
+        }
+
+        if (req.profile != nullptr) {
+            auto profile_recorder = StorageEngine::instance()->get_profile_recorder();
+            if (profile_recorder != nullptr) {
+                auto st = profile_recorder->put_profile(print_id(req.query_id), params.profile);
+            } else {
+                LOG(WARNING) << "put profile_record rocksdb failed. profile_record is null.";
             }
         }
 

@@ -63,6 +63,7 @@ class SingleReplicaCompaction;
 class CumulativeCompactionPolicy;
 class MemTracker;
 class StreamLoadRecorder;
+class ProfileRecorder;
 class TCloneReq;
 class TCreateTabletReq;
 class TabletManager;
@@ -198,6 +199,8 @@ public:
 
     std::shared_ptr<StreamLoadRecorder> get_stream_load_recorder() { return _stream_load_recorder; }
 
+    std::shared_ptr<ProfileRecorder> get_profile_recorder() { return _profile_recorder; }
+
     Status get_compaction_status_json(std::string* result);
 
     std::shared_ptr<MemTracker> segment_meta_mem_tracker() { return _segment_meta_mem_tracker; }
@@ -312,6 +315,8 @@ private:
                                                CompactionType compaction_type);
 
     Status _init_stream_load_recorder(const std::string& stream_load_record_path);
+
+    Status _init_profile_recorder(const std::string& profile_record_path);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                    bool force);
@@ -477,6 +482,8 @@ private:
     std::condition_variable _compaction_producer_sleep_cv;
 
     std::shared_ptr<StreamLoadRecorder> _stream_load_recorder;
+
+    std::shared_ptr<ProfileRecorder> _profile_recorder;
 
     // we use unordered_map to store all cumulative compaction policy sharded ptr
     std::unordered_map<std::string_view, std::shared_ptr<CumulativeCompactionPolicy>>
