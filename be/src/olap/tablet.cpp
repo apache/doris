@@ -245,7 +245,8 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
     if (tablet_meta->partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
                      << tablet_meta->tablet_id();
-        return nullptr;
+        // TODO(dx): after fix partition id eq 0 bug, fix it
+        // return nullptr;
     }
     return std::make_shared<Tablet>(tablet_meta, data_dir);
 }
