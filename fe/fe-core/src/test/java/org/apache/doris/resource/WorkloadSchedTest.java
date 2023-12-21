@@ -36,161 +36,161 @@ public class WorkloadSchedTest {
 
     @Test
     public void testPolicyCondition() {
-        // 1 test compare operator
-        // 1.1 >
-        {
-            List<WorkloadCondition> operatorList = new ArrayList<>();
-            WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.GREATER, 100);
-            operatorList.add(intCondition);
+            // 1 test compare operator
+            // 1.1 >
+            {
+                List<WorkloadCondition> operatorList = new ArrayList<>();
+                WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.GREATER, 100);
+                operatorList.add(intCondition);
 
-            WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
-            workloadSchedPolicy1.setWorkloadConditionList(operatorList);
+                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
-            WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
-            queryInfo.metricMap = new HashMap<>();
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "101");
+                WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
+                queryInfo.metricMap = new HashMap<>();
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "101");
 
-            // match
-            Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                // match
+                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
-            // not match
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
-            Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
-        }
+                // not match
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
+                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+            }
 
-        // 1.2 >=
-        {
-            List<WorkloadCondition> operatorList = new ArrayList<>();
-            WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.GREATER_EQUAL, 100);
-            operatorList.add(intCondition);
+            // 1.2 >=
+            {
+                List<WorkloadCondition> operatorList = new ArrayList<>();
+                WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.GREATER_EQUAL, 100);
+                operatorList.add(intCondition);
 
-            WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
-            workloadSchedPolicy1.setWorkloadConditionList(operatorList);
+                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
-            WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
-            queryInfo.metricMap = new HashMap<>();
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
+                WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
+                queryInfo.metricMap = new HashMap<>();
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
 
-            // match
-            Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                // match
+                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
-            // not match
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "10");
-            Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
-        }
+                // not match
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "10");
+                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+            }
 
-        // 1.3 =
-        {
-            List<WorkloadCondition> operatorList = new ArrayList<>();
-            WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.EQUAL, 100);
-            operatorList.add(intCondition);
+            // 1.3 =
+            {
+                List<WorkloadCondition> operatorList = new ArrayList<>();
+                WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.EQUAL, 100);
+                operatorList.add(intCondition);
 
-            WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
-            workloadSchedPolicy1.setWorkloadConditionList(operatorList);
+                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
-            WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
-            queryInfo.metricMap = new HashMap<>();
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
+                WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
+                queryInfo.metricMap = new HashMap<>();
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
 
-            // match
-            Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                // match
+                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
-            // not match
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "10");
-            Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
-        }
+                // not match
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "10");
+                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+            }
 
-        // 1.4 <
-        {
-            List<WorkloadCondition> operatorList = new ArrayList<>();
-            WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.LESS, 100);
-            operatorList.add(intCondition);
+            // 1.4 <
+            {
+                List<WorkloadCondition> operatorList = new ArrayList<>();
+                WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.LESS, 100);
+                operatorList.add(intCondition);
 
-            WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
-            workloadSchedPolicy1.setWorkloadConditionList(operatorList);
+                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
-            WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
-            queryInfo.metricMap = new HashMap<>();
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "99");
+                WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
+                queryInfo.metricMap = new HashMap<>();
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "99");
 
-            // match
-            Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                // match
+                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
-            // not match
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
-            Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
-        }
+                // not match
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
+                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+            }
 
-        // 1.5 <=
-        {
-            List<WorkloadCondition> operatorList = new ArrayList<>();
-            WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.LESS_EQUAl, 100);
-            operatorList.add(intCondition);
+            // 1.5 <=
+            {
+                List<WorkloadCondition> operatorList = new ArrayList<>();
+                WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.LESS_EQUAl, 100);
+                operatorList.add(intCondition);
 
-            WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
-            workloadSchedPolicy1.setWorkloadConditionList(operatorList);
+                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
-            WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
-            queryInfo.metricMap = new HashMap<>();
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
+                WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
+                queryInfo.metricMap = new HashMap<>();
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
 
-            // match
-            Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                // match
+                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
-            // not match
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "101");
-            Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
-        }
+                // not match
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "101");
+                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+            }
 
-        // 2 string compare
-        {
-            List<WorkloadCondition> operatorList = new ArrayList<>();
-            WorkloadCondition strCondition = new WorkloadConditionUsername(WorkloadConditionOperator.EQUAL, "root");
-            operatorList.add(strCondition);
+            // 2 string compare
+            {
+                List<WorkloadCondition> operatorList = new ArrayList<>();
+                WorkloadCondition strCondition = new WorkloadConditionUsername(WorkloadConditionOperator.EQUAL, "root");
+                operatorList.add(strCondition);
 
-            WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
-            workloadSchedPolicy1.setWorkloadConditionList(operatorList);
+                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
-            WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
-            queryInfo.metricMap = new HashMap<>();
-            queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "root");
+                WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
+                queryInfo.metricMap = new HashMap<>();
+                queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "root");
 
-            // match
-            Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                // match
+                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
-            // not match
-            queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "abc");
-            Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
-        }
+                // not match
+                queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "abc");
+                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+            }
 
-        // 3 mixed condition
-        {
-            List<WorkloadCondition> operatorList = new ArrayList<>();
-            WorkloadCondition strCondition = new WorkloadConditionUsername(WorkloadConditionOperator.EQUAL, "root");
-            operatorList.add(strCondition);
+            // 3 mixed condition
+            {
+                List<WorkloadCondition> operatorList = new ArrayList<>();
+                WorkloadCondition strCondition = new WorkloadConditionUsername(WorkloadConditionOperator.EQUAL, "root");
+                operatorList.add(strCondition);
 
-            WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.EQUAL, 100);
-            operatorList.add(intCondition);
+                WorkloadCondition intCondition = new WorkloadConditionQueryTime(WorkloadConditionOperator.EQUAL, 100);
+                operatorList.add(intCondition);
 
-            WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
-            workloadSchedPolicy1.setWorkloadConditionList(operatorList);
+                WorkloadSchedPolicy workloadSchedPolicy1 = new WorkloadSchedPolicy();
+                workloadSchedPolicy1.setWorkloadConditionList(operatorList);
 
-            WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
-            queryInfo.metricMap = new HashMap<>();
-            queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "root");
-            queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
+                WorkloadQueryInfo queryInfo = new WorkloadQueryInfo();
+                queryInfo.metricMap = new HashMap<>();
+                queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "root");
+                queryInfo.metricMap.put(WorkloadMetricType.QUERY_TIME, "100");
 
-            // match
-            Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
+                // match
+                Assert.assertTrue(workloadSchedPolicy1.isMatch(queryInfo));
 
-            // not match 1
-            queryInfo.metricMap.remove(WorkloadMetricType.USERNAME);
-            Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+                // not match 1
+                queryInfo.metricMap.remove(WorkloadMetricType.USERNAME);
+                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
 
-            // not match 2
-            queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "abc");
-            Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
-        }
+                // not match 2
+                queryInfo.metricMap.put(WorkloadMetricType.USERNAME, "abc");
+                Assert.assertFalse(workloadSchedPolicy1.isMatch(queryInfo));
+            }
 
     }
 
