@@ -25,7 +25,6 @@
 #include "http/http_headers.h"
 #include "http/utils.h"
 #include "io/fs/local_file_system.h"
-#include "io/fs/stream_load_pipe.h"
 #include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
@@ -37,11 +36,7 @@
 namespace doris {
 
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
-        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {
-    _http_stream_action = std::make_shared<HttpStreamAction>(_exec_env);
-    _evhttp_req = evhttp_request_new(nullptr, nullptr);
-    _req = std::make_shared<HttpRequest>(_evhttp_req);
-}
+        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {}
 WalTable::~WalTable() {}
 
 #ifdef BE_TEST
@@ -225,7 +220,7 @@ Status WalTable::_get_wal_info(const std::string& wal,
 }
 
 Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std::string& label) {
-    bool retry = false;
+    bool need_retry = false;
 #ifndef BE_TEST
     std::string columns;
     RETURN_IF_ERROR(_read_wal_header(wal, columns));
@@ -259,33 +254,62 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
     ss << "insert into doris_internal_table_id(" << _table_id << ") WITH LABEL " << label << " ("
        << name << ") select " << id << " from http_stream(\"format\" = \"wal\", \"table_id\" = \""
        << std::to_string(_table_id) << "\")";
-    _req->clear_header();
-    _req->add_header(HTTP_SQL.c_str(), ss.str().c_str());
-    _req->add_header(HTTP_LABEL_KEY.c_str(), label.c_str());
-    _req->add_header(HTTP_AUTH_CODE.c_str(), std::to_string(wal_id).c_str());
-    _req->add_header(HTTP_WAL_ID_KY.c_str(), std::to_string(wal_id).c_str());
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->wal_id = wal_id;
     ctx->auth.auth_code = wal_id;
-    auto st = _http_stream_action->process_put(_req.get(), ctx);
-    auto msg = st.msg();
-    if (st.ok()) {
-        // wait stream load finish
-        RETURN_IF_ERROR(ctx->future.get());
-        if (ctx->status.ok()) {
-            RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
-        }
-        if (!ctx->status.ok() && !ctx->status.is<ErrorCode::PUBLISH_TIMEOUT>()) {
-            LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
-                         << ", errmsg=" << ctx->status;
-            _exec_env->stream_load_executor()->rollback_txn(ctx.get());
-            retry = true;
-        }
-    } else if (msg.find("LabelAlreadyUsedException") != msg.npos) {
-        LOG(INFO) << "skip relay wal " << wal << ",reason " << msg;
-        retry = false;
+    UniqueId load_id = UniqueId::gen_uid();
+    TUniqueId tload_id;
+    tload_id.__set_hi(load_id.hi);
+    tload_id.__set_lo(load_id.lo);
+    TStreamLoadPutRequest request;
+    request.__set_auth_code(ctx->auth.auth_code);
+    request.__set_load_sql(ss.str());
+    request.__set_loadId(tload_id);
+    request.__set_label(label);
+    if (_exec_env->master_info()->__isset.backend_id) {
+        request.__set_backend_id(_exec_env->master_info()->backend_id);
     } else {
-        retry = true;
+        LOG(WARNING) << "_exec_env->master_info not set backend_id";
+    }
+    // plan this load
+    TNetworkAddress master_addr = _exec_env->master_info()->network_address;
+    int64_t stream_load_put_start_time = MonotonicNanos();
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, ctx](FrontendServiceConnection& client) {
+                client->streamLoadPut(ctx->put_result, request);
+            }));
+    ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
+    Status plan_status(Status::create(ctx->put_result.status));
+    if (!plan_status.ok()) {
+        auto msg = plan_status.msg();
+        LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
+        if (msg.find("LabelAlreadyUsedException") != msg.npos) {
+            LOG(INFO) << "skip relay wal " << wal << ",reason " << msg;
+            need_retry = false;
+        } else {
+            need_retry = true;
+        }
+    } else {
+        ctx->db = ctx->put_result.params.db_name;
+        ctx->table = ctx->put_result.params.table_name;
+        ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
+        ctx->label = ctx->put_result.params.import_label;
+        ctx->put_result.params.__set_wal_id(ctx->wal_id);
+        auto st = _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+        if (st.ok()) {
+            // wait stream load finish
+            RETURN_IF_ERROR(ctx->future.get());
+            if (ctx->status.ok()) {
+                RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx.get()));
+                need_retry = false;
+            } else if (!ctx->status.ok()) {
+                LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
+                             << ", errmsg=" << ctx->status;
+                _exec_env->stream_load_executor()->rollback_txn(ctx.get());
+                need_retry = true;
+            }
+        }
     }
 #else
     std::stringstream out;
@@ -295,12 +319,12 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
     doc.Parse(out_str.c_str());
     auto status = std::string(doc["Status"].GetString());
     if (status.find("Fail") != status.npos) {
-        retry = true;
+        need_retry = true;
     } else {
-        retry = false;
+        need_retry = false;
     }
 #endif
-    if (retry) {
+    if (need_retry) {
         LOG(INFO) << "fail to replay wal =" << wal;
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
         auto it = _replay_wal_map.find(wal);

@@ -15,10 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
-#include <event2/bufferevent.h>
-#include <event2/event.h>
-#include <event2/event_struct.h>
-#include <event2/http.h>
 
 #include <mutex>
 #include <string>
@@ -26,11 +22,9 @@
 #include <vector>
 
 #include "common/status.h"
-#include "evhttp.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
-#include "http/action/http_stream.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_context.h"
 namespace doris {
@@ -70,8 +64,5 @@ private:
     std::atomic<bool> _stop;
     std::map<int64_t, std::string> _column_id_name_map;
     std::map<int64_t, int64_t> _column_id_index_map;
-    std::shared_ptr<HttpStreamAction> _http_stream_action = nullptr;
-    evhttp_request* _evhttp_req = nullptr;
-    std::shared_ptr<HttpRequest> _req = nullptr;
 };
 } // namespace doris
