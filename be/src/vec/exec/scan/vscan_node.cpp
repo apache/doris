@@ -1327,7 +1327,7 @@ Status VScanNode::_prepare_scanners(const int query_parallel_instance_num) {
     RETURN_IF_ERROR(_init_scanners(&scanners));
     // Init scanner wrapper
     for (auto it = scanners.begin(); it != scanners.end(); ++it) {
-        _scanners.emplace_back(*it);
+        _scanners.emplace_back(std::make_shared<ScannerDelegate>(*it));
     }
     if (scanners.empty()) {
         _eos = true;
