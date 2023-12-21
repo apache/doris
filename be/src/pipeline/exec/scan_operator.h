@@ -31,6 +31,9 @@
 namespace doris {
 class ExecNode;
 } // namespace doris
+namespace doris::vectorized {
+class ScannerDelegate;
+}
 
 namespace doris::pipeline {
 class PipScannerContext;
