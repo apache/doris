@@ -60,8 +60,6 @@ suite("query18") {
         ca_county,
 	i_item_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_18 memo: ${memo}")    
     qt_ds_shape_18 """
     explain shape plan
     ${ds}

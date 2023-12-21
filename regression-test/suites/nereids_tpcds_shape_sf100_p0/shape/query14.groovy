@@ -130,8 +130,6 @@ suite("query14") {
  group by rollup (channel, i_brand_id,i_class_id,i_category_id)
  order by channel,i_brand_id,i_class_id,i_category_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_14 memo: ${memo}")    
     qt_ds_shape_14 """
     explain shape plan
     ${ds}

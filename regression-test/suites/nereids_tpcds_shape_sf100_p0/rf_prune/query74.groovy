@@ -29,6 +29,7 @@ suite("query74") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with year_total as (
  select c_customer_id customer_id
        ,c_first_name customer_first_name
@@ -87,8 +88,6 @@ suite("query74") {
            > case when t_s_firstyear.year_total > 0 then t_s_secyear.year_total / t_s_firstyear.year_total else null end
  order by 2,1,3
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_74 memo: ${memo}")    
     qt_ds_shape_74 """
     explain shape plan
     ${ds}

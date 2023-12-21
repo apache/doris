@@ -70,8 +70,6 @@ order by i_category
         ,sumsales
         ,rk
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_67 memo: ${memo}")    
     qt_ds_shape_67 """
     explain shape plan
     ${ds}

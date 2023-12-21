@@ -29,6 +29,7 @@ suite("query94") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  
    count(distinct ws_order_number) as "order count"
   ,sum(ws_ext_ship_cost) as "total shipping cost"
@@ -55,8 +56,6 @@ and not exists(select *
                where ws1.ws_order_number = wr1.wr_order_number)
 order by count(distinct ws_order_number)
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_94 memo: ${memo}")    
     qt_ds_shape_94 """
     explain shape plan
     ${ds}

@@ -84,8 +84,6 @@ order by
   other_chan_sales_price,
   ratio
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_78 memo: ${memo}")    
     qt_ds_shape_78 """
     explain shape plan
     ${ds}

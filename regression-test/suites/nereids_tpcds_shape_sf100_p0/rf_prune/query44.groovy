@@ -29,6 +29,7 @@ suite("query44") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing
 from(select *
      from (select item_sk,rank() over (order by rank_col asc) rnk
@@ -61,8 +62,6 @@ where asceding.rnk = descending.rnk
   and i2.i_item_sk=descending.item_sk
 order by asceding.rnk
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_44 memo: ${memo}")    
     qt_ds_shape_44 """
     explain shape plan
     ${ds}

@@ -57,8 +57,6 @@ and not exists(select *
                where cs1.cs_order_number = cr1.cr_order_number)
 order by count(distinct cs_order_number)
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_16 memo: ${memo}")    
     qt_ds_shape_16 """
     explain shape plan
     ${ds}

@@ -49,8 +49,6 @@ suite("query38") {
       and d_month_seq between 1183 and 1183 + 11
 ) hot_cust
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_38 memo: ${memo}")    
     qt_ds_shape_38 """
     explain shape plan
     ${ds}

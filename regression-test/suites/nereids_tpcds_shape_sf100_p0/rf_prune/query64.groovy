@@ -29,6 +29,7 @@ suite("query64") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with cs_ui as
  (select cs_item_sk
         ,sum(cs_ext_list_price) as sale,sum(cr_refunded_cash+cr_reversed_charge+cr_store_credit) as refund
@@ -147,8 +148,6 @@ order by cs1.product_name
        ,cs2.cnt
        ,cs1.s1
        ,cs2.s1"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_64 memo: ${memo}")    
     qt_ds_shape_64 """
     explain shape plan
     ${ds}

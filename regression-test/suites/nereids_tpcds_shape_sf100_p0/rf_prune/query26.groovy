@@ -29,6 +29,7 @@ suite("query26") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  i_item_id, 
         avg(cs_quantity) agg1,
         avg(cs_list_price) agg2,
@@ -47,8 +48,6 @@ suite("query26") {
  group by i_item_id
  order by i_item_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_26 memo: ${memo}")    
     qt_ds_shape_26 """
     explain shape plan
     ${ds}

@@ -29,6 +29,7 @@ suite("query72") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select /*+ SET_VAR(max_join_number_bushy_tree=10, memo_max_group_expression_size=15000)*/  i_item_desc
       ,w_warehouse_name
       ,d1.d_week_seq
@@ -55,8 +56,6 @@ where d1.d_week_seq = d2.d_week_seq
 group by i_item_desc,w_warehouse_name,d1.d_week_seq
 order by total_cnt desc, i_item_desc, w_warehouse_name, d_week_seq
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_72 memo: ${memo}")    
     qt_ds_shape_72 """
     explain shape plan
     ${ds}

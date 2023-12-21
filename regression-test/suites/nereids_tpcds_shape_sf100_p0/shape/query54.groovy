@@ -82,8 +82,6 @@ suite("query54") {
  group by segment
  order by segment, num_customers
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_54 memo: ${memo}")    
     qt_ds_shape_54 """
     explain shape plan
     ${ds}

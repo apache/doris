@@ -29,6 +29,7 @@ suite("query49") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  channel, item, return_ratio, return_rank, currency_rank from
  (select
  'web' as channel
@@ -155,8 +156,6 @@ suite("query49") {
  )
   t order by 1,4,5,2
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_49 memo: ${memo}")    
     qt_ds_shape_49 """
     explain shape plan
     ${ds}

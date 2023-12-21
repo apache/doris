@@ -29,6 +29,7 @@ suite("query42") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  dt.d_year
  	,item.i_category_id
  	,item.i_category
@@ -48,8 +49,6 @@ suite("query42") {
  		,item.i_category_id
  		,item.i_category
 limit 100 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_42 memo: ${memo}")    
     qt_ds_shape_42 """
     explain shape plan
     ${ds}

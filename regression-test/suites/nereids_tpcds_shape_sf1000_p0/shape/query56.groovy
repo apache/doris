@@ -96,8 +96,6 @@ where i_color in ('powder','orchid','pink'))
  order by total_sales,
           i_item_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_56 memo: ${memo}")   
     qt_ds_shape_56 '''
     explain shape plan
     with ss as (

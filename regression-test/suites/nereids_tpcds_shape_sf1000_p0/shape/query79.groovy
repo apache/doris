@@ -50,8 +50,6 @@ suite("query79") {
     where ss_customer_sk = c_customer_sk
  order by c_last_name,c_first_name,substr(s_city,1,30), profit
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_79 memo: ${memo}")   
     qt_ds_shape_79 '''
     explain shape plan
     select 

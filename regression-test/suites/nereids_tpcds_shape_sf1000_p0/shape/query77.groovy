@@ -135,8 +135,6 @@ suite("query77") {
  order by channel
          ,id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_77 memo: ${memo}")   
     qt_ds_shape_77 '''
     explain shape plan
     with ss as

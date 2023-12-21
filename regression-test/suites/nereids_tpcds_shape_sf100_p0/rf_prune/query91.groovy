@@ -29,6 +29,7 @@ suite("query91") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  
         cc_call_center_id Call_Center,
         cc_name Call_Center_Name,
@@ -57,8 +58,6 @@ and     hd_buy_potential like '1001-5000%'
 and     ca_gmt_offset           = -6
 group by cc_call_center_id,cc_name,cc_manager,cd_marital_status,cd_education_status
 order by sum(cr_net_loss) desc"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_91 memo: ${memo}")    
     qt_ds_shape_91 """
     explain shape plan
     ${ds}

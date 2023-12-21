@@ -29,6 +29,7 @@ suite("query66") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select   
          w_warehouse_name
  	,w_warehouse_sq_ft
@@ -246,8 +247,6 @@ suite("query66") {
        ,year
  order by w_warehouse_name
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_66 memo: ${memo}")    
     qt_ds_shape_66 """
     explain shape plan
     ${ds}

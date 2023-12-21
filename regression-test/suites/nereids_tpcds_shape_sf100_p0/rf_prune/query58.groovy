@@ -29,6 +29,7 @@ suite("query58") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with ss_items as
  (select i_item_id item_id
         ,sum(ss_ext_sales_price) ss_item_rev 
@@ -91,8 +92,6 @@ suite("query58") {
  order by item_id
          ,ss_item_rev
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_58 memo: ${memo}")    
     qt_ds_shape_58 """
     explain shape plan
     ${ds}

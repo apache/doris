@@ -101,8 +101,6 @@ where i_category in ('Home'))
  group by i_manufact_id
  order by total_sales
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_33 memo: ${memo}")    
     qt_ds_shape_33 """
     explain shape plan
     ${ds}

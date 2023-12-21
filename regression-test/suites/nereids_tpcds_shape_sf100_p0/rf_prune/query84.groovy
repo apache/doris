@@ -29,6 +29,7 @@ suite("query84") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  c_customer_id as customer_id
        , concat(concat(coalesce(c_last_name,''), ','), coalesce(c_first_name,'')) as customername
  from customer
@@ -47,8 +48,6 @@ suite("query84") {
    and sr_cdemo_sk = cd_demo_sk
  order by c_customer_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_84 memo: ${memo}")    
     qt_ds_shape_84 """
     explain shape plan
     ${ds}

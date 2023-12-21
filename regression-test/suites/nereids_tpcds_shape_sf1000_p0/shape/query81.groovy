@@ -58,8 +58,6 @@ suite("query81") {
                    ,ca_street_type,ca_suite_number,ca_city,ca_county,ca_state,ca_zip,ca_country,ca_gmt_offset
                   ,ca_location_type,ctr_total_return
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_81 memo: ${memo}")   
     qt_ds_shape_81 '''
     explain shape plan
     with customer_total_return as

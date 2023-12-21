@@ -78,8 +78,6 @@ suite("query9") {
 from reason
 where r_reason_sk = 1
 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_9 memo: ${memo}")   
     qt_ds_shape_9 '''
     explain shape plan
     select case when (select count(*) 

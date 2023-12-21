@@ -71,8 +71,6 @@ from
    and   d_moy  = 12) all_sales
 order by promotions, total
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_61 memo: ${memo}")   
     qt_ds_shape_61 '''
     explain shape plan
     select  promotions,total,cast(promotions as decimal(15,4))/cast(total as decimal(15,4))*100

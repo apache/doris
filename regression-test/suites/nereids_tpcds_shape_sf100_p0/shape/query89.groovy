@@ -54,8 +54,6 @@ group by i_category, i_class, i_brand,
 where case when (avg_monthly_sales <> 0) then (abs(sum_sales - avg_monthly_sales) / avg_monthly_sales) else null end > 0.1
 order by sum_sales - avg_monthly_sales, s_store_name
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_89 memo: ${memo}")    
     qt_ds_shape_89 """
     explain shape plan
     ${ds}

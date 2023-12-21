@@ -29,6 +29,7 @@ suite("query4") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with year_total as (
  select c_customer_id customer_id
        ,c_first_name customer_first_name
@@ -142,8 +143,6 @@ union all
          ,t_s_secyear.customer_last_name
          ,t_s_secyear.customer_birth_country
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_4 memo: ${memo}")    
     qt_ds_shape_4 """
     explain shape plan
     ${ds}

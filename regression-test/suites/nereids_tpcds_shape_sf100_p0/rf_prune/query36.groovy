@@ -29,6 +29,7 @@ suite("query36") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  
     sum(ss_net_profit)/sum(ss_ext_sales_price) as gross_margin
    ,i_category
@@ -56,8 +57,6 @@ suite("query36") {
   ,case when lochierarchy = 0 then i_category end
   ,rank_within_parent
   limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_36 memo: ${memo}")    
     qt_ds_shape_36 """
     explain shape plan
     ${ds}

@@ -29,6 +29,7 @@ suite("query61") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  promotions,total,cast(promotions as decimal(15,4))/cast(total as decimal(15,4))*100
 from
   (select sum(ss_ext_sales_price) promotions
@@ -70,8 +71,6 @@ from
    and   d_moy  = 11) all_sales
 order by promotions, total
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_61 memo: ${memo}")    
     qt_ds_shape_61 """
     explain shape plan
     ${ds}

@@ -79,8 +79,6 @@ suite("query41") {
         )))) > 0
  order by i_product_name
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_41 memo: ${memo}")   
     qt_ds_shape_41 '''
     explain shape plan
     select  distinct(i_product_name)

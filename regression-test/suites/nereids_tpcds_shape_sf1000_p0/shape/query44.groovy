@@ -62,8 +62,6 @@ where asceding.rnk = descending.rnk
   and i2.i_item_sk=descending.item_sk
 order by asceding.rnk
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_44 memo: ${memo}")   
     qt_ds_shape_44 '''
     explain shape plan
     select  asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing

@@ -108,8 +108,6 @@ suite("query11") {
          ,t_s_secyear.customer_last_name
          ,t_s_secyear.customer_email_address
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_11 memo: ${memo}")   
     qt_ds_shape_11 '''
     explain shape plan
     with year_total as (

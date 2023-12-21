@@ -50,8 +50,6 @@ suite("query27") {
  order by i_item_id
          ,s_state
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_27 memo: ${memo}")   
     qt_ds_shape_27 '''
     explain shape plan
     select  i_item_id,

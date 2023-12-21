@@ -78,8 +78,6 @@ suite("query47") {
         case when avg_monthly_sales > 0 then abs(sum_sales - avg_monthly_sales) / avg_monthly_sales else null end > 0.1
  order by sum_sales - avg_monthly_sales, nsum
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_47 memo: ${memo}")   
     qt_ds_shape_47 '''
     explain shape plan
     with v1 as(

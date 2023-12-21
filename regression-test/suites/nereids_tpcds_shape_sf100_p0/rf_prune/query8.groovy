@@ -29,6 +29,7 @@ suite("query8") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  s_store_name
       ,sum(ss_net_profit)
  from store_sales
@@ -134,8 +135,6 @@ suite("query8") {
  group by s_store_name
  order by s_store_name
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_8 memo: ${memo}")    
     qt_ds_shape_8 """
     explain shape plan
     ${ds}

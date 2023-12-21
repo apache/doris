@@ -148,8 +148,6 @@ order by cs1.product_name
        ,cs2.cnt
        ,cs1.s1
        ,cs2.s1"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_64 memo: ${memo}")   
     qt_ds_shape_64 '''
     explain shape plan
     with cs_ui as

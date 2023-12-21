@@ -40,8 +40,6 @@ suite("query55") {
  group by i_brand, i_brand_id
  order by ext_price desc, i_brand_id
 limit 100 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_55 memo: ${memo}")    
     qt_ds_shape_55 """
     explain shape plan
     ${ds}

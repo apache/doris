@@ -53,8 +53,6 @@ suite("query6") {
  having count(*) >= 10
  order by cnt, a.ca_state 
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_6 memo: ${memo}")   
     qt_ds_shape_6 '''
     explain shape plan
     select  a.ca_state state, count(*) cnt

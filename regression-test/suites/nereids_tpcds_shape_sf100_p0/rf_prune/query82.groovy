@@ -29,6 +29,7 @@ suite("query82") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  i_item_id
        ,i_item_desc
        ,i_current_price
@@ -43,8 +44,6 @@ suite("query82") {
  group by i_item_id,i_item_desc,i_current_price
  order by i_item_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_82 memo: ${memo}")    
     qt_ds_shape_82 """
     explain shape plan
     ${ds}

@@ -29,6 +29,7 @@ suite("query46") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  c_last_name
        ,c_first_name
        ,ca_city
@@ -61,8 +62,6 @@ suite("query46") {
           ,bought_city
           ,ss_ticket_number
   limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_46 memo: ${memo}")    
     qt_ds_shape_46 """
     explain shape plan
     ${ds}

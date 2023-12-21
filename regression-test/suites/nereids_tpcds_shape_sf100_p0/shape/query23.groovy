@@ -78,8 +78,6 @@ from
          and ws_item_sk in (select item_sk from frequent_ss_items)
          and ws_bill_customer_sk in (select c_customer_sk from best_ss_customer)) t2 
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_23 memo: ${memo}")    
     qt_ds_shape_23 """
     explain shape plan
     ${ds}

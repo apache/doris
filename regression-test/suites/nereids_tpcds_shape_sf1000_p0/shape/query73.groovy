@@ -55,8 +55,6 @@ suite("query73") {
     where ss_customer_sk = c_customer_sk
       and cnt between 1 and 5
     order by cnt desc, c_last_name asc"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_73 memo: ${memo}")   
     qt_ds_shape_73 '''
     explain shape plan
     select c_last_name

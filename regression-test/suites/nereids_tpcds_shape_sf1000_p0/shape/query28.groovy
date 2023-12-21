@@ -80,8 +80,6 @@ from (select avg(ss_list_price) B1_LP
           or ss_coupon_amt between 5792 and 5792+1000
           or ss_wholesale_cost between 73 and 73+20)) B6
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_28 memo: ${memo}")   
     qt_ds_shape_28 '''
     explain shape plan
     select  *

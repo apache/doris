@@ -52,8 +52,6 @@ suite("query19") {
          ,i_manufact_id
          ,i_manufact
 limit 100 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_19 memo: ${memo}")   
     qt_ds_shape_19 '''
     explain shape plan
     select  i_brand_id brand_id, i_brand brand, i_manufact_id, i_manufact,

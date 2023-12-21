@@ -29,6 +29,7 @@ suite("query20") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  i_item_id
        ,i_item_desc 
        ,i_category 
@@ -56,8 +57,6 @@ suite("query20") {
          ,i_item_desc
          ,revenueratio
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_20 memo: ${memo}")    
     qt_ds_shape_20 """
     explain shape plan
     ${ds}

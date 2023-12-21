@@ -70,8 +70,6 @@ suite("query59") {
    and d_week_seq1=d_week_seq2-52
  order by s_store_name1,s_store_id1,d_week_seq1
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_59 memo: ${memo}")    
     qt_ds_shape_59 """
     explain shape plan
     ${ds}

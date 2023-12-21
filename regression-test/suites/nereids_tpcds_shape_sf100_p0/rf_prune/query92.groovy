@@ -29,6 +29,7 @@ suite("query92") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  
    sum(ws_ext_discount_amt)  as "Excess Discount Amount" 
 from 
@@ -56,8 +57,6 @@ and ws_ext_discount_amt
       ) 
 order by sum(ws_ext_discount_amt)
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_92 memo: ${memo}")    
     qt_ds_shape_92 """
     explain shape plan
     ${ds}

@@ -29,6 +29,7 @@ suite("query59") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with wss as 
  (select d_week_seq,
         ss_store_sk,
@@ -70,8 +71,6 @@ suite("query59") {
    and d_week_seq1=d_week_seq2-52
  order by s_store_name1,s_store_id1,d_week_seq1
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_59 memo: ${memo}")    
     qt_ds_shape_59 """
     explain shape plan
     ${ds}

@@ -61,8 +61,6 @@ order by substr(w_warehouse_name,1,20)
         ,sm_type
         ,cc_name
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_99 memo: ${memo}")    
     qt_ds_shape_99 """
     explain shape plan
     ${ds}

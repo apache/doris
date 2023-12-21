@@ -29,6 +29,7 @@ suite("query24") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with ssales as
 (select c_last_name
       ,c_first_name
@@ -81,8 +82,6 @@ order by c_last_name
         ,c_first_name
         ,s_store_name
 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_24 memo: ${memo}")    
     qt_ds_shape_24 """
     explain shape plan
     ${ds}

@@ -111,8 +111,6 @@ order by substr(r_reason_desc,1,20)
         ,avg(wr_refunded_cash)
         ,avg(wr_fee)
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_85 memo: ${memo}")   
     qt_ds_shape_85 '''
     explain shape plan
     select  substr(r_reason_desc,1,20)

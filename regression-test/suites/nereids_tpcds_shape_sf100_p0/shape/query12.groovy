@@ -60,8 +60,6 @@ order by
         ,i_item_desc
         ,revenueratio
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_12 memo: ${memo}")    
     qt_ds_shape_12 """
     explain shape plan
     ${ds}

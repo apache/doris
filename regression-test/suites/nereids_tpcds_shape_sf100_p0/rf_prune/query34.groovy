@@ -29,6 +29,7 @@ suite("query34") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select c_last_name
        ,c_first_name
        ,c_salutation
@@ -57,8 +58,6 @@ suite("query34") {
     where ss_customer_sk = c_customer_sk
       and cnt between 15 and 20
     order by c_last_name,c_first_name,c_salutation,c_preferred_cust_flag desc, ss_ticket_number"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_34 memo: ${memo}")    
     qt_ds_shape_34 """
     explain shape plan
     ${ds}

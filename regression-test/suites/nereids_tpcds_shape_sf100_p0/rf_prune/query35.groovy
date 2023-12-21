@@ -29,6 +29,7 @@ suite("query35") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select   
   ca_state,
   cd_gender,
@@ -84,8 +85,6 @@ suite("query35") {
           cd_dep_employed_count,
           cd_dep_college_count
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_35 memo: ${memo}")    
     qt_ds_shape_35 """
     explain shape plan
     ${ds}

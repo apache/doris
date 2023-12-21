@@ -29,6 +29,7 @@ suite("query51") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """WITH web_v1 as (
 select
   ws_item_sk item_sk, d_date,
@@ -71,8 +72,6 @@ where web_cumulative > store_cumulative
 order by item_sk
         ,d_date
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_51 memo: ${memo}")    
     qt_ds_shape_51 """
     explain shape plan
     ${ds}

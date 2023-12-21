@@ -56,8 +56,6 @@ suite("query65") {
        i_item_sk = sc.ss_item_sk
  order by s_store_name, i_item_desc
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_65 memo: ${memo}")   
     qt_ds_shape_65 '''
     explain shape plan
     select 

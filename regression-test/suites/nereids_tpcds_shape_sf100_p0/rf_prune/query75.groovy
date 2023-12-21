@@ -29,6 +29,7 @@ suite("query75") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """WITH all_sales AS (
  SELECT d_year
        ,i_brand_id
@@ -96,8 +97,6 @@ suite("query75") {
    AND CAST(curr_yr.sales_cnt AS DECIMAL(17,2))/CAST(prev_yr.sales_cnt AS DECIMAL(17,2))<0.9
  ORDER BY sales_cnt_diff,sales_amt_diff
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_75 memo: ${memo}")    
     qt_ds_shape_75 """
     explain shape plan
     ${ds}

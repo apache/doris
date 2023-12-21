@@ -155,8 +155,6 @@ suite("query49") {
  )
   t order by 1,4,5,2
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_49 memo: ${memo}")    
     qt_ds_shape_49 """
     explain shape plan
     ${ds}

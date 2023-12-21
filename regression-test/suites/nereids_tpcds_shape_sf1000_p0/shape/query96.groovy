@@ -43,8 +43,6 @@ where ss_sold_time_sk = time_dim.t_time_sk
     and store.s_store_name = 'ese'
 order by count(*)
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_96 memo: ${memo}")   
     qt_ds_shape_96 '''
     explain shape plan
     select  count(*) 

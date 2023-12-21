@@ -29,6 +29,7 @@ suite("query54") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with my_customers as (
  select distinct c_customer_sk
         , c_current_addr_sk
@@ -82,8 +83,6 @@ suite("query54") {
  group by segment
  order by segment, num_customers
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_54 memo: ${memo}")    
     qt_ds_shape_54 """
     explain shape plan
     ${ds}

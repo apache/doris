@@ -44,8 +44,6 @@ suite("query93") {
       group by ss_customer_sk
       order by sumsales, ss_customer_sk
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_93 memo: ${memo}")    
     qt_ds_shape_93 """
     explain shape plan
     ${ds}

@@ -29,6 +29,7 @@ suite("query90") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
  from ( select count(*) amc
        from web_sales, household_demographics , time_dim, web_page
@@ -48,8 +49,6 @@ suite("query90") {
          and web_page.wp_char_count between 5000 and 5200) pt
  order by am_pm_ratio
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_90 memo: ${memo}")    
     qt_ds_shape_90 """
     explain shape plan
     ${ds}

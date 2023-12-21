@@ -29,6 +29,7 @@ suite("query14") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with  cross_items as
  (select i_item_sk ss_item_sk
  from item,
@@ -130,8 +131,6 @@ suite("query14") {
  group by rollup (channel, i_brand_id,i_class_id,i_category_id)
  order by channel,i_brand_id,i_class_id,i_category_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_14 memo: ${memo}")    
     qt_ds_shape_14 """
     explain shape plan
     ${ds}

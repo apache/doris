@@ -29,6 +29,7 @@ suite("query78") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with ws as
   (select d_year AS ws_sold_year, ws_item_sk,
     ws_bill_customer_sk ws_customer_sk,
@@ -84,8 +85,6 @@ order by
   other_chan_sales_price,
   ratio
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_78 memo: ${memo}")    
     qt_ds_shape_78 """
     explain shape plan
     ${ds}

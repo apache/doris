@@ -247,8 +247,6 @@ suite("query66") {
        ,year
  order by w_warehouse_name
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_66 memo: ${memo}")   
     qt_ds_shape_66 '''
     explain shape plan
     select   

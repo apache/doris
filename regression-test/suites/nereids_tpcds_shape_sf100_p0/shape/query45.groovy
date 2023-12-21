@@ -46,8 +46,6 @@ suite("query45") {
  group by ca_zip, ca_city
  order by ca_zip, ca_city
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_45 memo: ${memo}")    
     qt_ds_shape_45 """
     explain shape plan
     ${ds}

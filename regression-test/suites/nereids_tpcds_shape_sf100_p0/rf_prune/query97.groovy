@@ -29,6 +29,7 @@ suite("query97") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with ssci as (
 select ss_customer_sk customer_sk
       ,ss_item_sk item_sk
@@ -51,8 +52,6 @@ group by cs_bill_customer_sk
 from ssci full outer join csci on (ssci.customer_sk=csci.customer_sk
                                and ssci.item_sk = csci.item_sk)
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_97 memo: ${memo}")    
     qt_ds_shape_97 """
     explain shape plan
     ${ds}

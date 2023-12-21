@@ -29,6 +29,7 @@ suite("query63") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  * 
 from (select i_manager_id
              ,sum(ss_sales_price) sum_sales
@@ -55,8 +56,6 @@ order by i_manager_id
         ,avg_monthly_sales
         ,sum_sales
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_63 memo: ${memo}")    
     qt_ds_shape_63 """
     explain shape plan
     ${ds}

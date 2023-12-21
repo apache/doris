@@ -143,8 +143,6 @@ union all
          ,t_s_secyear.customer_last_name
          ,t_s_secyear.customer_birth_country
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_4 memo: ${memo}")   
     qt_ds_shape_4 '''
     explain shape plan
     with year_total as (

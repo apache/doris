@@ -71,8 +71,6 @@ suite("query17") {
          ,i_item_desc
          ,s_state
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_17 memo: ${memo}")    
     qt_ds_shape_17 """
     explain shape plan
     ${ds}

@@ -29,9 +29,8 @@ suite("query{--}") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """{query}"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_{--} memo: ${memo}")    
     qt_ds_shape_{--} """
     explain shape plan
     ${ds}

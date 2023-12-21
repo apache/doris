@@ -57,8 +57,6 @@ and ws_ext_discount_amt
       ) 
 order by sum(ws_ext_discount_amt)
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_92 memo: ${memo}")   
     qt_ds_shape_92 '''
     explain shape plan
     select  

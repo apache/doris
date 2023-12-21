@@ -73,8 +73,6 @@ suite("query69") {
           cd_purchase_estimate,
           cd_credit_rating
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_69 memo: ${memo}")    
     qt_ds_shape_69 """
     explain shape plan
     ${ds}

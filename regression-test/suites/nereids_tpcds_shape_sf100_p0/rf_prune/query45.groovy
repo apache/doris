@@ -29,6 +29,7 @@ suite("query45") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  ca_zip, ca_city, sum(ws_sales_price)
  from web_sales, customer, customer_address, date_dim, item
  where ws_bill_customer_sk = c_customer_sk
@@ -46,8 +47,6 @@ suite("query45") {
  group by ca_zip, ca_city
  order by ca_zip, ca_city
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_45 memo: ${memo}")    
     qt_ds_shape_45 """
     explain shape plan
     ${ds}

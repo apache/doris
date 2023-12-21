@@ -29,6 +29,7 @@ suite("query13") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select avg(ss_quantity)
        ,avg(ss_ext_sales_price)
        ,avg(ss_ext_wholesale_cost)
@@ -78,8 +79,6 @@ suite("query13") {
   and ss_net_profit between 50 and 250  
      ))
 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_13 memo: ${memo}")    
     qt_ds_shape_13 """
     explain shape plan
     ${ds}

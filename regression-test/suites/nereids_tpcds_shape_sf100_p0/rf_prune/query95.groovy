@@ -29,6 +29,7 @@ suite("query95") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with ws_wh as
 (select ws1.ws_order_number,ws1.ws_warehouse_sk wh1,ws2.ws_warehouse_sk wh2
  from web_sales ws1,web_sales ws2
@@ -58,8 +59,6 @@ and ws1.ws_order_number in (select wr_order_number
                             where wr_order_number = ws_wh.ws_order_number)
 order by count(distinct ws_order_number)
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_95 memo: ${memo}")    
     qt_ds_shape_95 """
     explain shape plan
     ${ds}

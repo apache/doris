@@ -55,8 +55,6 @@ order by avg_quarterly_sales,
 	 sum_sales,
 	 i_manufact_id
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_53 memo: ${memo}")   
     qt_ds_shape_53 '''
     explain shape plan
     select  * from 

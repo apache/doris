@@ -49,8 +49,6 @@ suite("query52") {
  	,ext_price desc
  	,brand_id
 limit 100 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_52 memo: ${memo}")   
     qt_ds_shape_52 '''
     explain shape plan
     select  dt.d_year

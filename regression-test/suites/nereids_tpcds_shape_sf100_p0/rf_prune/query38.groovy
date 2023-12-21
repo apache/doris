@@ -29,6 +29,7 @@ suite("query38") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  count(*) from (
     select distinct c_last_name, c_first_name, d_date
     from store_sales, date_dim, customer
@@ -49,8 +50,6 @@ suite("query38") {
       and d_month_seq between 1183 and 1183 + 11
 ) hot_cust
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_38 memo: ${memo}")    
     qt_ds_shape_38 """
     explain shape plan
     ${ds}

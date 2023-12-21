@@ -52,8 +52,6 @@ and s_state = 'TN'
 and ctr1.ctr_customer_sk = c_customer_sk
 order by c_customer_id
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_1 memo: ${memo}")   
     qt_ds_shape_1 '''
     explain shape plan
     with customer_total_return as

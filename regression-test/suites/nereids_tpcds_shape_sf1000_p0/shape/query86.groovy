@@ -53,8 +53,6 @@ suite("query86") {
    case when lochierarchy = 0 then i_category end,
    rank_within_parent
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_86 memo: ${memo}")   
     qt_ds_shape_86 '''
     explain shape plan
     select   

@@ -47,8 +47,6 @@ suite("query84") {
    and sr_cdemo_sk = cd_demo_sk
  order by c_customer_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_84 memo: ${memo}")    
     qt_ds_shape_84 """
     explain shape plan
     ${ds}

@@ -79,8 +79,6 @@ suite("query31") {
     and case when ws2.web_sales > 0 then ws3.web_sales/ws2.web_sales else null end
        > case when ss2.store_sales > 0 then ss3.store_sales/ss2.store_sales else null end
  order by store_q2_q3_increase"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_31 memo: ${memo}")   
     qt_ds_shape_31 '''
     explain shape plan
     with ss as

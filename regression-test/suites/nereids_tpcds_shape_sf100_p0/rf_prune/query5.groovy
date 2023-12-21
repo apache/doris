@@ -29,6 +29,7 @@ suite("query5") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with ssr as
  (select s_store_id,
         sum(sales_price) as sales,
@@ -154,8 +155,6 @@ suite("query5") {
  order by channel
          ,id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_5 memo: ${memo}")    
     qt_ds_shape_5 """
     explain shape plan
     ${ds}

@@ -29,6 +29,7 @@ suite("query56") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """with ss as (
  select i_item_id,sum(ss_ext_sales_price) total_sales
  from
@@ -95,8 +96,6 @@ where i_color in ('powder','green','cyan'))
  order by total_sales,
           i_item_id
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_56 memo: ${memo}")    
     qt_ds_shape_56 """
     explain shape plan
     ${ds}

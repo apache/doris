@@ -120,8 +120,6 @@ from
           (household_demographics.hd_dep_count = 3 and household_demographics.hd_vehicle_count<=3+2))
      and store.s_store_name = 'ese') s8
 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_88 memo: ${memo}")    
     qt_ds_shape_88 """
     explain shape plan
     ${ds}

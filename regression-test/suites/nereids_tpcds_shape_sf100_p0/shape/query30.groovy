@@ -57,8 +57,6 @@ suite("query30") {
                   ,c_birth_day,c_birth_month,c_birth_year,c_birth_country,c_login,c_email_address
                   ,c_last_review_date_sk,ctr_total_return
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_30 memo: ${memo}")    
     qt_ds_shape_30 """
     explain shape plan
     ${ds}

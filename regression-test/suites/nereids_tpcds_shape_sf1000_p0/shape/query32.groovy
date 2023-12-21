@@ -55,8 +55,6 @@ and cs_ext_discount_amt
           and d_date_sk = cs_sold_date_sk 
       ) 
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_32 memo: ${memo}")   
     qt_ds_shape_32 '''
     explain shape plan
     select  sum(cs_ext_discount_amt)  as "excess discount amount" 

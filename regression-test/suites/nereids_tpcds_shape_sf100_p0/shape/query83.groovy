@@ -93,8 +93,6 @@ suite("query83") {
  order by sr_items.item_id
          ,sr_item_qty
  limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_83 memo: ${memo}")    
     qt_ds_shape_83 """
     explain shape plan
     ${ds}

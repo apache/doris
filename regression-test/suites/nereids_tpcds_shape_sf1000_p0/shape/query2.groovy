@@ -87,8 +87,6 @@ suite("query2") {
         d_year = 1998+1) z
  where d_week_seq1=d_week_seq2-53
  order by d_week_seq1"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_2 memo: ${memo}")   
     qt_ds_shape_2 '''
     explain shape plan
     with wscs as

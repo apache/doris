@@ -49,8 +49,6 @@ from ((select distinct c_last_name, c_first_name, d_date
          and d_month_seq between 1184 and 1184+11)
 ) cool_cust
 """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_87 memo: ${memo}")    
     qt_ds_shape_87 """
     explain shape plan
     ${ds}

@@ -67,8 +67,6 @@ suite("query71") {
  group by i_brand, i_brand_id,t_hour,t_minute
  order by ext_price desc, i_brand_id
  """
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_71 memo: ${memo}")   
     qt_ds_shape_71 '''
     explain shape plan
     select i_brand_id brand_id, i_brand brand,t_hour,t_minute,

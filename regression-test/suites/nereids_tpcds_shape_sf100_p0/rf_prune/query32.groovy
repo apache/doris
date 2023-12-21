@@ -29,6 +29,7 @@ suite("query32") {
     sql 'set forbid_unknown_col_stats=true'
     sql 'set enable_nereids_timeout = false'
     sql 'set enable_runtime_filter_prune=true'
+
     def ds = """select  sum(cs_ext_discount_amt)  as "excess discount amount" 
 from 
    catalog_sales 
@@ -54,8 +55,6 @@ and cs_ext_discount_amt
           and d_date_sk = cs_sold_date_sk 
       ) 
 limit 100"""
-    def memo = sql """explain memo plan ${ds}"""
-    logger.info("tpcds_query_32 memo: ${memo}")    
     qt_ds_shape_32 """
     explain shape plan
     ${ds}
