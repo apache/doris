@@ -22,7 +22,6 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriter.ClauseType;
 
@@ -88,7 +87,7 @@ public class ElementAtToSlotRefRule implements ExprRewriteRule  {
             return false;
         }
         return functionCallExpr.getFnName().getFunction().equalsIgnoreCase("element_at")
-                && slotRefs.get(0).getType() == Type.VARIANT;
+                && slotRefs.get(0).getType().isVariantType();
     }
 
     public static boolean containsElementAtFunction(Expr expr) {
