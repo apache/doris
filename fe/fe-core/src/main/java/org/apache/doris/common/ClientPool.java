@@ -72,5 +72,5 @@ public class ClientPool {
     public static GenericPool<BackendService.Client> backendPool =
             new GenericPool("BackendService", backendConfig, Config.backend_rpc_timeout_ms);
     public static GenericPool<TPaloBrokerService.Client> brokerPool =
-            new GenericPool("TPaloBrokerService", brokerPoolConfig, brokerTimeoutMs);
+            new BrokerGenericPool("TPaloBrokerService", brokerPoolConfig, brokerTimeoutMs);
 }
