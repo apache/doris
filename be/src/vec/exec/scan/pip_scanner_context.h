@@ -110,9 +110,6 @@ public:
         return Status::OK();
     }
 
-    // We should make those method lock free.
-    bool done() override { return _is_finished || _should_stop; }
-
     void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) override {
         const int queue_size = _blocks_queues.size();
         const int block_size = blocks.size();
