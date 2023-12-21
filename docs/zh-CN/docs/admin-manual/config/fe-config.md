@@ -587,6 +587,16 @@ FE向BE的BackendService发送rpc请求时的超时时间，单位：毫秒。
 
 是否为 Master FE 节点独有的配置项：true
 
+#### `abort_txn_after_lost_heartbeat_time_second`
+
+丢失be心跳后丢弃be事务的时间。默认时间为三百秒，当三百秒fe没有接收到be心跳时，会丢弃该be的所有事务。
+
+默认值：300(秒)
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
 #### `enable_access_file_without_broker`
 
 默认值：false
