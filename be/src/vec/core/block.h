@@ -105,9 +105,6 @@ public:
     /// insert the column to the end
     void insert(const ColumnWithTypeAndName& elem);
     void insert(ColumnWithTypeAndName&& elem);
-    /// insert the column to the end, if there is no column with that name yet
-    void insert_unique(const ColumnWithTypeAndName& elem);
-    void insert_unique(ColumnWithTypeAndName&& elem);
     /// remove the column at the specified position
     void erase(size_t position);
     /// remove the column at the [start, end)

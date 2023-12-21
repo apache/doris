@@ -702,10 +702,7 @@ Status execute_bitmap_op_count_null_to_zero(
                 exec_impl_func) {
     NullPresence null_presence = get_null_presence(block, arguments);
 
-    if (null_presence.has_null_constant) {
-        block.get_by_position(result).column =
-                block.get_by_position(result).type->create_column_const(input_rows_count, 0);
-    } else if (null_presence.has_nullable) {
+    if (null_presence.has_nullable) {
         auto [temporary_block, new_args, new_result] =
                 create_block_with_nested_columns(block, arguments, result);
         RETURN_IF_ERROR(exec_impl_func(context, temporary_block, new_args, new_result,

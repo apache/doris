@@ -62,7 +62,6 @@ void has_variadic_argument_types(...);
 
 struct NullPresence {
     bool has_nullable = false;
-    bool has_null_constant = false;
 };
 
 template <typename T>

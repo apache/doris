@@ -183,25 +183,17 @@ void Block::clear_names() {
 }
 
 void Block::insert(const ColumnWithTypeAndName& elem) {
-    index_by_name.emplace(elem.name, data.size());
+    if (!elem.name.empty()) {
+        index_by_name.emplace(elem.name, data.size());
+    }
     data.emplace_back(elem);
 }
 
 void Block::insert(ColumnWithTypeAndName&& elem) {
-    index_by_name.emplace(elem.name, data.size());
+    if (!elem.name.empty()) {
+        index_by_name.emplace(elem.name, data.size());
+    }
     data.emplace_back(std::move(elem));
-}
-
-void Block::insert_unique(const ColumnWithTypeAndName& elem) {
-    if (index_by_name.end() == index_by_name.find(elem.name)) {
-        insert(elem);
-    }
-}
-
-void Block::insert_unique(ColumnWithTypeAndName&& elem) {
-    if (index_by_name.end() == index_by_name.find(elem.name)) {
-        insert(std::move(elem));
-    }
 }
 
 void Block::erase(const std::set<size_t>& positions) {
@@ -235,7 +227,15 @@ void Block::erase(size_t position) {
 }
 
 void Block::erase_impl(size_t position) {
-    data.erase(data.begin() + position);
+    if (position == data.size() - 1) {
+        bool have_name = !data.back().name.empty();
+        data.pop_back();
+        if (!have_name) {
+            return;
+        }
+    } else {
+        data.erase(data.begin() + position);
+    }
 
     for (auto it = index_by_name.begin(); it != index_by_name.end();) {
         if (it->second == position) {
