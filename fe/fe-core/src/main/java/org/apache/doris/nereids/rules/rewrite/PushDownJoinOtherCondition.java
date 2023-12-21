@@ -88,8 +88,12 @@ public class PushDownJoinOtherCondition extends OneRewriteRuleFactory {
                     Plan left = PlanUtils.filterOrSelf(leftConjuncts, join.left());
                     Plan right = PlanUtils.filterOrSelf(rightConjuncts, join.right());
 
-                    return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
-                            remainingOther, join.getHint(), join.getMarkJoinSlotReference(), left, right);
+                    if (!join.getJoinType().isOuterJoin()) {
+                        return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
+                                remainingOther, join.getHint(), join.getMarkJoinSlotReference(), left, right);
+                    } else {
+                        return join.withChildren(left, right);
+                    }
 
                 }).toRule(RuleType.PUSH_DOWN_JOIN_OTHER_CONDITION);
     }
