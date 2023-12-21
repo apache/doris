@@ -419,7 +419,7 @@ protected:
     std::shared_ptr<Dependency> _finish_dependency;
 
     // ScanLocalState owns the ownership of scanner, scanner context only has its weakptr
-    std::list<std::shared_ptr<ScannerDelegate>> _scanners;
+    std::list<std::shared_ptr<vectorized::ScannerDelegate>> _scanners;
 };
 
 template <typename LocalStateType>
