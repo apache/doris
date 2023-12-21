@@ -80,7 +80,7 @@ To enable debug points globally, we need to set `enable_debug_points` to true,
 
 ## Activate A Specified Debug Point
 
-After debug points are enabled globally, a http request with a debug point name should be send to FE or BE node, <br>
+After debug points are enabled globally, a http request with a debug point name should be send to FE or BE node, <br/>
 only after that, when the program running into the specified debug point, related code can be executed.
 
 ### API
@@ -128,8 +128,8 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/add/foo?execute=5"
 
 
 ## Pass Custom Parameters
-When activating debug point, besides "timeout" and "execute" mentioned above, passing custom parameters is also allowed.<br>
-A parameter is a key-value pair in the form of "key=value" in url path, after debug point name glued by charactor '?'.<br> 
+When activating debug point, besides "timeout" and "execute" mentioned above, passing custom parameters is also allowed.<br/>
+A parameter is a key-value pair in the form of "key=value" in url path, after debug point name glued by charactor '?'.<br/> 
 See examples below.
 
 ### API
@@ -137,10 +137,10 @@ See examples below.
 ```
 POST /api/debug_point/add/{debug_point_name}[?k1=v1&k2=v2&k3=v3...]
 ```
-* `k1=v1` <br>
-  k1 is parameter name, <br>
-  v1 is parameter value, <br>
-  multiple key-value pairs are concatenated by `&`, <br>
+* `k1=v1` <br/>
+  k1 is parameter name <br/>
+  v1 is parameter value <br/>
+  multiple key-value pairs are concatenated by `&` <br/>
   
 
   
@@ -158,7 +158,7 @@ None
 ```
 
 ### Examples
-Assuming a FE node with configuration http_port=8030 in fe.conf, <br>
+Assuming a FE node with configuration http_port=8030 in fe.conf, <br/>
 the following http request activates a debug point named `foo` in FE node and passe parameter `percent` and `duration`:
 >NOTE: User name and password may be needed.
 ```
@@ -281,7 +281,7 @@ curl -X POST "http://127.0.0.1:8030/api/debug_point/clear"
 
 >In community's CI system, `enable_debug_points` configuration of FE and BE are true by default.
 
-The Regression test framework also provides methods to activate and deactivate a particular debug point, <br>
+The Regression test framework also provides methods to activate and deactivate a particular debug point, <br />
 they are declared as below:
 ```groovy
 // "name" is the debug point to activate, "params" is a list of key-value pairs passed to debug point
@@ -291,13 +291,13 @@ def enableDebugPointForAllBEs(String name, Map<String, String> params = null);
 def disableDebugPointForAllFEs(String name);
 def disableDebugPointForAllFEs(String name);
 ```
-`enableDebugPointForAllFEs()` or `enableDebugPointForAllBEs()` needs to be called before the test actions you want to generate error, <br>
+`enableDebugPointForAllFEs()` or `enableDebugPointForAllBEs()` needs to be called before the test actions you want to generate error, <br/>
 and `disableDebugPointForAllFEs()` or `disableDebugPointForAllBEs()` needs to be called afterward.
 
 ### Concurrent Issue
 
-Enabled debug points affects FE or BE globally, which could cause other concurrent tests to fail unexpectly in your pull request. <br>
-To avoid this, there's a convension that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0, <br>
+Enabled debug points affects FE or BE globally, which could cause other concurrent tests to fail unexpectly in your pull request. <br/>
+To avoid this, there's a convension that regression tests using debug points must be in directory regression-test/suites/fault_injection_p0, <br/>
 and their group name must be "nonConcurrent", as these regression tests will be executed serially by pull request workflow. 
 
 ### Examples
