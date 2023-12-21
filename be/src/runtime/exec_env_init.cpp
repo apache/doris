@@ -559,7 +559,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
     SAFE_STOP(_runtime_filter_timer_queue);
-    // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
+    // NewLoadStreamMgr should be destroyed before storage_engine & after fragment_mgr stopped.
     _new_load_stream_mgr.reset();
     _stream_load_executor.reset();
     _memtable_memory_limiter.reset();
@@ -597,15 +597,15 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_segment_loader);
     SAFE_DELETE(_row_cache);
 
-    // StorageEngine must be destoried before _page_no_cache_mem_tracker.reset
-    // StorageEngine must be destoried before _cache_manager destory
+    // StorageEngine must be destroyed before _page_no_cache_mem_tracker.reset
+    // StorageEngine must be destroyed before _cache_manager destroy
     SAFE_DELETE(_storage_engine);
 
     // _scanner_scheduler must be desotried before _storage_page_cache
     SAFE_DELETE(_scanner_scheduler);
-    // _storage_page_cache must be destoried before _cache_manager
+    // _storage_page_cache must be destroyed before _cache_manager
     SAFE_DELETE(_storage_page_cache);
-    // cache_manager must be destoried after _inverted_index_query_cache
+    // cache_manager must be destroyed after _inverted_index_query_cache
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
 
@@ -648,7 +648,7 @@ void ExecEnv::destroy() {
     _serial_download_cache_thread_token.reset(nullptr);
     _download_cache_thread_pool.reset(nullptr);
 
-    // _heartbeat_flags must be destoried after staroge engine
+    // _heartbeat_flags must be destroyed after staroge engine
     SAFE_DELETE(_heartbeat_flags);
 
     // Master Info is a thrift object, it could be the last one to deconstruct.
@@ -657,7 +657,7 @@ void ExecEnv::destroy() {
     // info is deconstructed then BE process will core at coordinator back method in fragment mgr.
     SAFE_DELETE(_master_info);
 
-    LOG(INFO) << "Doris exec envorinment is destoried.";
+    LOG(INFO) << "Doris exec envorinment is destroyed.";
 }
 
 } // namespace doris

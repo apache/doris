@@ -49,7 +49,7 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
 }
 
 WalManager::~WalManager() {
-    LOG(INFO) << "WalManager is destoried";
+    LOG(INFO) << "WalManager is destroyed";
 }
 
 void WalManager::stop() {
