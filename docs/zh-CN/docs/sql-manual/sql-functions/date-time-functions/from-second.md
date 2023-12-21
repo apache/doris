@@ -32,21 +32,16 @@ under the License.
 `DATETIME FROM_MILLISECOND(BIGINT unix_timestamp)`
 `DATETIME FROM_MICROSECOND(BIGINT unix_timestamp)`
 
-将时间戳转化为对应的 DATETIME，传入的是整型，返回的是DATETIME类型。若使时间超出`[0000-01-01 00:00:00.000000, 9999-12-31 23:59:59.999999]`范围，则返回`NULL`。
+将时间戳转化为对应的 DATETIME，传入的是整型，返回的是DATETIME类型。若`unix_timestamp < 0` 或函数结果大于 `9999-12-31 23:59:59.999999`，则返回`NULL`。
 
 ### example
 
 ```
-mysql> select from_second(-62167246602);
-+---------------------------+
-| from_second(-62167246602) |
-+---------------------------+
-| 0000-01-01 00:00:00       |
-+---------------------------+
+mysql> set time_zone='Asia/Shanghai';
 
-mysql> select from_second(-62167246603);
+mysql> select from_second(-1);
 +---------------------------+
-| from_second(-62167246603) |
+| from_second(-1)           |
 +---------------------------+
 | NULL                      |
 +---------------------------+

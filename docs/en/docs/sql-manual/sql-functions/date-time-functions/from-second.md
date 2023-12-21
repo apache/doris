@@ -32,21 +32,16 @@ under the License.
 `DATETIME FROM_MILLISECOND(BIGINT unix_timestamp)`
 `DATETIME FROM_MICROSECOND(BIGINT unix_timestamp)`
 
-Converts a timestamp to its DATETIME represent, with argument as an integer and returned as a DATETIME type. Returns `NULL` if the time is made to be out of the range `[0000-01-01 00:00:00.000000, 9999-12-31 23:59:59.999999]`.
+Converts a timestamp to its DATETIME represent, with argument as an integer and returned as a DATETIME type. Returns `NULL` if `unix_timestamp < 0` or if the function result is greater than `9999-12-31 23:59:59.999999`.
 
 ### example
 
 ```
-mysql> select from_second(-62167246602);
-+---------------------------+
-| from_second(-62167246602) |
-+---------------------------+
-| 0000-01-01 00:00:00       |
-+---------------------------+
+mysql> set time_zone='Asia/Shanghai';
 
-mysql> select from_second(-62167246603);
+mysql> select from_second(-1);
 +---------------------------+
-| from_second(-62167246603) |
+| from_second(-1)           |
 +---------------------------+
 | NULL                      |
 +---------------------------+
