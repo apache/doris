@@ -38,6 +38,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -192,10 +193,34 @@ public class StatisticsRepository {
     public static void dropStatisticsByColName(long tblId, Set<String> colNames, String statsTblName)
             throws DdlException {
         Map<String, String> params = new HashMap<>();
-        String right = colNames.stream().map(s -> "'" + s + "'").collect(Collectors.joining(","));
-        String inPredicate = String.format("tbl_id = %s AND %s IN (%s)", tblId, "col_id", right);
         params.put("tblName", statsTblName);
-        params.put("condition", inPredicate);
+        Iterator<String> iterator = colNames.iterator();
+        int columnCount = 0;
+        StringBuilder inPredicate = new StringBuilder();
+        while (iterator.hasNext()) {
+            inPredicate.append("'");
+            inPredicate.append(iterator.next());
+            inPredicate.append("'");
+            inPredicate.append(",");
+            columnCount++;
+            if (columnCount == Config.max_allowed_in_element_num_of_delete) {
+                executeDropSql(inPredicate, tblId, params);
+                columnCount = 0;
+                inPredicate.setLength(0);
+            }
+        }
+        if (inPredicate.length() > 0) {
+            executeDropSql(inPredicate, tblId, params);
+        }
+    }
+
+    public static void executeDropSql(StringBuilder inPredicate, long tblId, Map<String, String> params)
+            throws DdlException {
+        if (inPredicate.length() > 0) {
+            inPredicate.delete(inPredicate.length() - 1, inPredicate.length());
+        }
+        String predicate = String.format("tbl_id = '%s' AND %s IN (%s)", tblId, "col_id", inPredicate);
+        params.put("condition", predicate);
         try {
             StatisticsUtil.execUpdate(new StringSubstitutor(params).replace(DROP_TABLE_STATISTICS_TEMPLATE));
         } catch (Exception e) {

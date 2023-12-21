@@ -497,7 +497,7 @@ std::string Block::dump_data(size_t begin, size_t row_limit) const {
     // content
     for (size_t row_num = begin; row_num < rows() && row_num < row_limit + begin; ++row_num) {
         for (size_t i = 0; i < columns(); ++i) {
-            if (data[i].column->empty()) {
+            if (!data[i].column || data[i].column->empty()) {
                 out << std::setfill(' ') << std::setw(1) << "|" << std::setw(headers_size[i])
                     << std::right;
                 continue;
@@ -1109,7 +1109,9 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
 size_t MutableBlock::allocated_bytes() const {
     size_t res = 0;
     for (const auto& col : _columns) {
-        res += col->allocated_bytes();
+        if (col) {
+            res += col->allocated_bytes();
+        }
     }
 
     return res;

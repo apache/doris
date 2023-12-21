@@ -60,6 +60,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
 import org.apache.doris.nereids.rules.rewrite.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateOrderByConstant;
+import org.apache.doris.nereids.rules.rewrite.EliminateSemiJoin;
 import org.apache.doris.nereids.rules.rewrite.EliminateSort;
 import org.apache.doris.nereids.rules.rewrite.EliminateSortUnderSubquery;
 import org.apache.doris.nereids.rules.rewrite.EliminateUnnecessaryProject;
@@ -73,13 +74,13 @@ import org.apache.doris.nereids.rules.rewrite.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
-import org.apache.doris.nereids.rules.rewrite.JoinCommute;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
@@ -184,7 +185,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             new EliminateFilter(),
                             new EliminateAggregate(),
                             new EliminateJoinCondition(),
-                            new EliminateAssertNumRows()
+                            new EliminateAssertNumRows(),
+                            new EliminateSemiJoin()
                     )
             ),
             // please note: this rule must run before NormalizeAggregate
@@ -228,7 +230,6 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     ),
                     // push down SEMI Join
                     bottomUp(
-                            new JoinCommute(),
                             new TransposeSemiJoinLogicalJoin(),
                             new TransposeSemiJoinLogicalJoinProject(),
                             new TransposeSemiJoinAgg(),
@@ -405,6 +406,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("rewrite cte sub-tree",
                         custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(jobs))
                 ),
+                topic("or expansion",
+                        topDown(new OrExpansion())),
                 topic("whole plan check",
                         custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                 )

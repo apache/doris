@@ -17,6 +17,7 @@
 
 import org.apache.doris.regression.suite.Suite
 import org.apache.doris.regression.util.Http
+import org.apache.doris.regression.util.NodeType
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 Suite.metaClass.curl = { String method, String url /* param */-> 
@@ -97,10 +98,38 @@ Suite.metaClass.update_all_be_config = { String key, Object value ->
     backendId_to_backendIP.each { beId, beIp ->
         def port = backendId_to_backendHttpPort.get(beId)
         def url = "http://${beIp}:${port}/api/update_config?${key}=${value}"
-        def result = Http.http_post(url, null, true)
+        def result = Http.POST(url, null, true)
         assert result.size() == 1, result.toString()
         assert result[0].status == "OK", result.toString()
     }
 }
 
 logger.info("Added 'update_all_be_config' function to Suite")
+
+
+Suite.metaClass._be_report = { String ip, int port, String reportName ->
+    def url = "http://${ip}:${port}/api/report/${reportName}"
+    def result = Http.GET(url, true)
+    Http.checkHttpResult(result, NodeType.BE)
+}
+
+// before report, be need random sleep 5s
+Suite.metaClass.be_report_disk = { String ip, int port ->
+    _be_report(ip, port, "disk")
+}
+
+logger.info("Added 'be_report_disk' function to Suite")
+
+// before report, be need random sleep 5s
+Suite.metaClass.be_report_tablet = { String ip, int port ->
+    _be_report(ip, port, "tablet")
+}
+
+logger.info("Added 'be_report_tablet' function to Suite")
+
+// before report, be need random sleep 5s
+Suite.metaClass.be_report_task = { String ip, int port ->
+    _be_report(ip, port, "task")
+}
+
+logger.info("Added 'be_report_task' function to Suite")

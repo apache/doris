@@ -90,11 +90,6 @@ public:
     IntCounter* publish_task_request_total = nullptr;
     IntCounter* publish_task_failed_total = nullptr;
 
-    IntCounter* meta_write_request_total = nullptr;
-    IntCounter* meta_write_request_duration_us = nullptr;
-    IntCounter* meta_read_request_total = nullptr;
-    IntCounter* meta_read_request_duration_us = nullptr;
-
     // Counters for segment_v2
     // -----------------------
     // total number of segments read

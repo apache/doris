@@ -103,7 +103,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options(), _build_expr_ctxs.size() == 1));
+                p._runtime_filter_descs[i], state->query_options(), _build_expr_ctxs.size() == 1,
+                p._use_global_rf, p._child_x->parallel_tasks()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
                 p._runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
@@ -386,12 +387,14 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 
 HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
                                                        const TPlanNode& tnode,
-                                                       const DescriptorTbl& descs)
+                                                       const DescriptorTbl& descs,
+                                                       bool use_global_rf)
         : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
-                             tnode.hash_join_node.is_broadcast_join) {
+                             tnode.hash_join_node.is_broadcast_join),
+          _use_global_rf(use_global_rf) {
     _runtime_filter_descs = tnode.runtime_filters;
 }
 

@@ -39,6 +39,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
@@ -531,12 +532,23 @@ public:
 
     auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
 
+    void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
+        _task_execution_context = context;
+    }
+
+    std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
+        return _task_execution_context;
+    }
+
 private:
     Status create_error_log_file();
 
-    static const int DEFAULT_BATCH_SIZE = 2048;
+    static const int DEFAULT_BATCH_SIZE = 4062;
 
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+
+    // Hold execution context for other threads
+    std::weak_ptr<TaskExecutionContext> _task_execution_context;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
@@ -648,24 +660,6 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
-};
-
-// from runtime state
-struct RuntimeFilterParamsContext {
-    RuntimeFilterParamsContext() = default;
-    static RuntimeFilterParamsContext* create(RuntimeState* state);
-
-    bool runtime_filter_wait_infinitely;
-    int32_t runtime_filter_wait_time_ms;
-    bool enable_pipeline_exec;
-    int32_t execution_timeout;
-    RuntimeFilterMgr* runtime_filter_mgr;
-    ExecEnv* exec_env;
-    PUniqueId query_id;
-    PUniqueId fragment_instance_id;
-    int be_exec_version;
-    QueryContext* query_ctx;
-    QueryContext* get_query_ctx() const { return query_ctx; }
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

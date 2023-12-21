@@ -32,6 +32,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
@@ -537,6 +538,8 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(mv.getQuerySql()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getEnvInfo().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().toNameString()));
+                trow.addToColumnValue(new TCell().setBoolVal(MTMVUtil.isMTMVSync(mv)));
                 dataBatch.add(trow);
             }
         }

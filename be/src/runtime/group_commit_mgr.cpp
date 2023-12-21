@@ -52,7 +52,8 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block, bool 
     return Status::OK();
 }
 
-Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, bool* eos) {
+Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block* block,
+                                 bool* find_block, bool* eos) {
     *find_block = false;
     *eos = false;
     std::unique_lock l(mutex);
@@ -65,21 +66,39 @@ Status LoadBlockQueue::get_block(vectorized::Block* block, bool* find_block, boo
             need_commit = true;
         }
     }
-    while (status.ok() && _block_queue.empty() &&
+    while (!runtime_state->is_cancelled() && status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
         CHECK_EQ(_single_block_queue_bytes->load(), 0);
         auto left_milliseconds = _group_commit_interval_ms;
+        auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                std::chrono::steady_clock::now() - _start_time)
+                                .count();
         if (!need_commit) {
-            left_milliseconds = _group_commit_interval_ms -
-                                std::chrono::duration_cast<std::chrono::milliseconds>(
-                                        std::chrono::steady_clock::now() - _start_time)
-                                        .count();
+            left_milliseconds = _group_commit_interval_ms - duration;
             if (left_milliseconds <= 0) {
                 need_commit = true;
                 break;
             }
+        } else {
+            if (duration >= 10 * _group_commit_interval_ms) {
+                std::stringstream ss;
+                ss << "[";
+                for (auto& id : _load_ids) {
+                    ss << id.to_string() << ", ";
+                }
+                ss << "]";
+                LOG(INFO) << "find one group_commit need to commit, txn_id=" << txn_id
+                          << ", label=" << label << ", instance_id=" << load_instance_id
+                          << ", duration=" << duration << ", load_ids=" << ss.str()
+                          << ", runtime_state=" << runtime_state;
+            }
         }
         _get_cond.wait_for(l, std::chrono::milliseconds(left_milliseconds));
+    }
+    if (runtime_state->is_cancelled()) {
+        auto st = Status::Cancelled(runtime_state->cancel_reason());
+        _cancel_without_lock(st);
+        return st;
     }
     if (!_block_queue.empty()) {
         auto fblock = _block_queue.front();
@@ -120,6 +139,12 @@ Status LoadBlockQueue::add_load_id(const UniqueId& load_id) {
 void LoadBlockQueue::cancel(const Status& st) {
     DCHECK(!st.ok());
     std::unique_lock l(mutex);
+    _cancel_without_lock(st);
+}
+
+void LoadBlockQueue::_cancel_without_lock(const Status& st) {
+    LOG(INFO) << "cancel group_commit, instance_id=" << load_instance_id << ", label=" << label
+              << ", status=" << st.to_string();
     status = st;
     while (!_block_queue.empty()) {
         {
@@ -341,11 +366,15 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                     std::vector<std::string> {wal_path}));
             _exec_env->wal_mgr()->add_wal_status_queue(table_id, txn_id,
                                                        WalManager::WAL_STATUS::REPLAY);
+        } else {
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(txn_id));
+            RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
         }
         return st;
     }
     // TODO handle execute and commit error
-    if (!prepare_failed && !result_status.ok()) {
+    if (!prepare_failed && !result_status.ok() &&
+        !(result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         RETURN_IF_ERROR(_exec_env->wal_mgr()->add_wal_path(_db_id, table_id, txn_id, label));
         std::string wal_path;
         RETURN_IF_ERROR(_exec_env->wal_mgr()->get_wal_path(txn_id, wal_path));
@@ -458,7 +487,7 @@ Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                   const std::string& import_label, WalManager* wal_manager,
                                   std::vector<TSlotDescriptor>& slot_desc, int be_exe_version) {
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
-            db_id, tb_id, txn_id, label, wal_manager, slot_desc, be_exe_version);
+            db_id, tb_id, wal_id, import_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();
 }
 

@@ -128,6 +128,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state =
             RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
     _runtime_state->set_query_ctx(_query_ctx.get());
+    _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -218,9 +219,10 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     RuntimeProfile* sink_profile = nullptr;
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
-                obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state(), &_sink, *_desc_tbl));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                DataSink::create_data_sink(_runtime_state->obj_pool(), request.fragment.output_sink,
+                                           request.fragment.output_exprs, params, row_desc(),
+                                           runtime_state(), &_sink, *_desc_tbl));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
         sink_profile = _sink->profile();
         if (sink_profile != nullptr) {

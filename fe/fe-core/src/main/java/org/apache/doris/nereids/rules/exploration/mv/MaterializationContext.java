@@ -19,7 +19,8 @@ package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.mtmv.MVCache;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.mtmv.MTMVCache;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.memo.GroupId;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
@@ -27,6 +28,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.List;
@@ -37,6 +40,7 @@ import java.util.Set;
  */
 public class MaterializationContext {
 
+    private static final Logger LOG = LogManager.getLogger(MaterializationContext.class);
     private MTMV mtmv;
     // Should use stmt id generator in query context
     private final Plan mvScanPlan;
@@ -46,6 +50,7 @@ public class MaterializationContext {
     private final Set<GroupId> matchedGroups = new HashSet<>();
     // generate form mv scan plan
     private ExpressionMapping mvExprToMvScanExprMapping;
+    private boolean available = true;
 
     /**
      * MaterializationContext, this contains necessary info for query rewriting by mv
@@ -59,17 +64,22 @@ public class MaterializationContext {
         this.mvScanPlan = mvScanPlan;
         this.baseTables = baseTables;
         this.baseViews = baseViews;
-        MVCache mvCache = mtmv.getMvCache();
-        // TODO This logic should move to materialized view cache manager
-        if (mvCache == null) {
-            mvCache = MVCache.from(mtmv, cascadesContext.getConnectContext());
-            mtmv.setMvCache(mvCache);
+
+        MTMVCache mtmvCache = null;
+        try {
+            mtmvCache = mtmv.getOrGenerateCache();
+        } catch (AnalysisException e) {
+            LOG.warn("MaterializationContext init mv cache generate fail", e);
+        }
+        if (mtmvCache == null) {
+            this.available = false;
+            return;
         }
         // mv output expression shuttle, this will be used to expression rewrite
         this.mvExprToMvScanExprMapping = ExpressionMapping.generate(
                 ExpressionUtils.shuttleExpressionWithLineage(
-                        mvCache.getMvOutputExpressions(),
-                        mvCache.getLogicalPlan()),
+                        mtmvCache.getMvOutputExpressions(),
+                        mtmvCache.getLogicalPlan()),
                 mvScanPlan.getExpressions());
     }
 
@@ -85,7 +95,7 @@ public class MaterializationContext {
         matchedGroups.add(groupId);
     }
 
-    public MTMV getMtmv() {
+    public MTMV getMTMV() {
         return mtmv;
     }
 
@@ -103,6 +113,10 @@ public class MaterializationContext {
 
     public ExpressionMapping getMvExprToMvScanExprMapping() {
         return mvExprToMvScanExprMapping;
+    }
+
+    public boolean isAvailable() {
+        return available;
     }
 
     /**

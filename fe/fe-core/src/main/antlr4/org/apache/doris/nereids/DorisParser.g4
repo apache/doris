@@ -90,10 +90,11 @@ statement
         (REFRESH refreshMethod? refreshTrigger?)?
         (KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
+        (PARTITION BY LEFT_PAREN partitionKey = identifier RIGHT_PAREN)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
-    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier              #refreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE)?      #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
@@ -120,7 +121,6 @@ partitionSpec
     // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
     // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
     // | PARTITIONS WITH RECENT
-        LEFT_PAREN referenceSlots+=errorCapturingIdentifier (COMMA referenceSlots+=errorCapturingIdentifier)* RIGHT_PAREN
     ;
 
 dataDesc
@@ -158,15 +158,11 @@ refreshTrigger
     ;
 
 refreshSchedule
-    : EVERY INTEGER_VALUE mvRefreshUnit (STARTS STRING_LITERAL)?
-    ;
-
-mvRefreshUnit
-    : SECOND | MINUTE | HOUR | DAY | WEEK
+    : EVERY INTEGER_VALUE refreshUnit = identifier (STARTS STRING_LITERAL)?
     ;
 
 refreshMethod
-    : COMPLETE
+    : COMPLETE | AUTO
     ;
 
 identifierOrText
@@ -597,7 +593,7 @@ rowConstructorItem
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -756,7 +752,7 @@ specifiedPartition
 
 constant
     : NULL                                                                                     #nullLiteral
-    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral

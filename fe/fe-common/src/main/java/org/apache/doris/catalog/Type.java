@@ -103,6 +103,7 @@ public abstract class Type {
     public static final ScalarType DECIMAL64 = DEFAULT_DECIMAL64;
     public static final ScalarType DECIMAL128 = DEFAULT_DECIMAL128;
     public static final ScalarType DECIMAL256 = DEFAULT_DECIMAL256;
+    public static final ScalarType WILDCARD_DECIMAL = ScalarType.createDecimalType(-1, -1);
     public static final ScalarType JSONB = new ScalarType(PrimitiveType.JSONB);
     // (ScalarType) ScalarType.createDecimalTypeInternal(-1, -1);
     public static final ScalarType DEFAULT_VARCHAR = ScalarType.createVarcharType(-1);

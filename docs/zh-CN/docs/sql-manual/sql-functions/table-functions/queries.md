@@ -51,11 +51,11 @@ mysql> desc function queries();
 +------------------+--------+------+-------+---------+-------+
 | QueryId          | TEXT   | No   | false | NULL    | NONE  |
 | StartTime        | BIGINT | No   | false | NULL    | NONE  |
-| EndTime          | BIGINT | Yes  | false | NULL    | NONE  |
-| EventTime        | BIGINT | Yes  | false | NULL    | NONE  |
+| EndTime          | BIGINT | No   | false | NULL    | NONE  |
+| EventTime        | BIGINT | No   | false | NULL    | NONE  |
 | Latency          | BIGINT | No   | false | NULL    | NONE  |
 | State            | TEXT   | No   | false | NULL    | NONE  |
-| Database         | TEXT   | Yes  | false | NULL    | NONE  |
+| Database         | TEXT   | No   | false | NULL    | NONE  |
 | Sql              | TEXT   | No   | false | NULL    | NONE  |
 | FrontendInstance | TEXT   | No   | false | NULL    | NONE  |
 +------------------+--------+------+-------+---------+-------+

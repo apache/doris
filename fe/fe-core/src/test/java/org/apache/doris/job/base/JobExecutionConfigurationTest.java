@@ -64,7 +64,7 @@ public class JobExecutionConfigurationTest {
         Assertions.assertArrayEquals(new Long[]{ 500L}, delayTimes.toArray());
         delayTimes = configuration.getTriggerDelayTimes(
                 1001000L, 0L, 1000000L);
-        Assertions.assertEquals(0, delayTimes.size());
+        Assertions.assertEquals(1, delayTimes.size());
     }
 
 }
