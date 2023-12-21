@@ -134,7 +134,7 @@ suite("test_partition_refresh_mtmv") {
     def jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_range_date_build "SELECT * FROM ${mvName}"
+    order_qt_range_date_build "SELECT * FROM ${mvName} order by user_id,age,date,num"
 
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -180,7 +180,7 @@ suite("test_partition_refresh_mtmv") {
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_range_int_build "SELECT * FROM ${mvName}"
+    order_qt_range_int_build "SELECT * FROM ${mvName} order by user_id,age,date,num"
 
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -226,7 +226,7 @@ suite("test_partition_refresh_mtmv") {
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_list_int_build "SELECT * FROM ${mvName}"
+    order_qt_list_int_build "SELECT * FROM ${mvName} order by user_id,age,date,num"
 
     sql """drop table if exists `${tableNameNum}`"""
     sql """drop materialized view if exists ${mvName};"""
@@ -274,16 +274,57 @@ suite("test_partition_refresh_mtmv") {
             AS
             select ${tableNameUser}.user_id,${tableNameUser}.age,${tableNameNum}.date,${tableNameNum}.num from ${tableNameUser} join ${tableNameNum} on ${tableNameUser}.user_id = ${tableNameNum}.user_id;
         """
+
+    // refresh two partitions
     sql """
             REFRESH MATERIALIZED VIEW ${mvName} partitions(p_00000101_20170201,p_20170201_20170301);
         """
     jobName = getJobName(dbName, mvName);
     log.info(jobName)
     waitingMTMVTaskFinished(jobName)
-    order_qt_refresh_two_partition "SELECT * FROM ${mvName}"
+    order_qt_refresh_two_partition "SELECT * FROM ${mvName} order by user_id,age,date,num"
+
+    //refresh other partitions
     sql """
             REFRESH MATERIALIZED VIEW ${mvName}
         """
     waitingMTMVTaskFinished(jobName)
-    order_qt_refresh_other_partition "SELECT * FROM ${mvName}"
+    order_qt_refresh_other_partition "SELECT * FROM ${mvName} order by user_id,age,date,num"
+
+    // force refresh all partitions
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName} COMPLETE;
+        """
+    waitingMTMVTaskFinished(jobName)
+    order_qt_refresh_complete_partition "select RefreshMode from tasks('type'='mv') where JobName='${jobName}' order by CreateTime desc limit 1"
+
+    // test related table data change
+    sql """
+        insert into ${tableNameNum} values(1,"2017-01-15",1);
+        """
+    // only refresh one partition ,data will be fresh
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} partitions(p_00000101_20170201);
+        """
+    waitingMTMVTaskFinished(jobName)
+    order_qt_refresh_related_table_change "SELECT * FROM ${mvName} order by user_id,age,date,num"
+
+    // test other table data change
+    sql """
+    insert into ${tableNameUser} values(1,9);
+    """
+
+    // only refresh one partition ,data will not be fresh
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} partitions(p_00000101_20170201);
+        """
+    waitingMTMVTaskFinished(jobName)
+    order_qt_refresh_other_table_change_one "SELECT * FROM ${mvName} order by user_id,age,date,num"
+
+    //refresh other partition ,data will be fresh
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName};
+        """
+    waitingMTMVTaskFinished(jobName)
+    order_qt_refresh_other_table_change_other "SELECT * FROM ${mvName} order by user_id,age,date,num"
 }
