@@ -2361,7 +2361,7 @@ public class Config extends ConfigBase {
     public static String sql_convertor_service = "";
 
     @ConfField(mutable = true)
-    public static boolean enable_profile_when_analyze = false;    
+    public static boolean enable_profile_when_analyze = false;
     @ConfField(mutable = true)
     public static boolean enable_collect_internal_query_profile = false;
 }
