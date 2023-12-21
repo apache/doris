@@ -1157,7 +1157,8 @@ public class NativeInsertStmt extends InsertStmt {
 
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
-        if (execPlanFragmentParamsBytes != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+        if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+            LOG.debug("reuse group commit plan, table={}", olapTable);
             return groupCommitPlanner;
         }
         if (!targetColumns.isEmpty()) {
