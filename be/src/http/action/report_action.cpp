@@ -24,16 +24,17 @@
 namespace doris {
 
 ReportAction::ReportAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type,
-                           const std::string& report_name)
-        : HttpHandlerWithAuth(exec_env, hier, type), _report_name(report_name) {}
+                           TaskWorkerPool::TaskWorkerType report_type)
+        : HttpHandlerWithAuth(exec_env, hier, type), _report_type(report_type) {}
 
 void ReportAction::handle(HttpRequest* req) {
-    if (StorageEngine::instance()->notify_listener(_report_name)) {
+    if (StorageEngine::instance()->notify_listener(_report_type)) {
         HttpChannel::send_reply(req, HttpStatus::OK, Status::OK().to_json());
     } else {
         HttpChannel::send_reply(
                 req, HttpStatus::INTERNAL_SERVER_ERROR,
-                Status::InternalError("unknown reporter with name: " + _report_name).to_json());
+                Status::InternalError("unknown reporter with name: " + std::to_string(_report_type))
+                        .to_json());
     }
 }
 

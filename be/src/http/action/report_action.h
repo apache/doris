@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "agent/task_worker_pool.h"
 #include "http/http_handler_with_auth.h"
 #include "http/http_request.h"
 
@@ -27,11 +28,11 @@ namespace doris {
 class ReportAction : public HttpHandlerWithAuth {
 public:
     ReportAction(ExecEnv* exec_env, TPrivilegeHier::type hier, TPrivilegeType::type type,
-                 const std::string& report_name);
+                 TaskWorkerPool::TaskWorkerType report_type);
     void handle(HttpRequest* req) override;
 
 private:
-    const std::string _report_name;
+    const TaskWorkerPool::TaskWorkerType _report_type;
 };
 
 } // namespace doris
