@@ -110,7 +110,7 @@ public:
             }
         }
     }
-    ~VScanNode() = default;
+    ~VScanNode() override = default;
 
     friend class VScanner;
     friend class NewOlapScanner;
