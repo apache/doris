@@ -20,7 +20,7 @@
 : <<EOF
 #!/bin/bash
 export DEBUG=true
-export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'}
+
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-clickbench.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash -x run-clickbench.sh
@@ -41,8 +41,7 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 # upload_doris_log_to_oss
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
-if ${DEBUG:-false}; then
-    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'
+if ${DEBUG:-false}; then 
     pull_request_num="28431"
     commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
 fi

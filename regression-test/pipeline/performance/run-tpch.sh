@@ -20,7 +20,7 @@
 : <<EOF
 #!/bin/bash
 export DEBUG=true
-export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'}
+
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/run-tpch.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash -x run-tpch.sh
@@ -42,7 +42,6 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
 if ${DEBUG:-false}; then
-    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'
     pull_request_num="28431"
     commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
     SF="1"
@@ -103,7 +102,7 @@ exit_flag=0
         bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh -s "${SF}"
         rm -rf "${TPCH_DATA_DIR_LINK}"
         ln -s "${TPCH_DATA_DIR}" "${TPCH_DATA_DIR_LINK}"
-        bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh -c 10
+        bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh -c 2
         if ! check_tpch_table_rows "${db_name}" "${SF}"; then
             exit 1
         fi

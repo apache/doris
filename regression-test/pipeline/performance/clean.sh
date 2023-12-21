@@ -22,7 +22,7 @@
 
 # Execute step even if some of the previous steps failed
 
-export teamcity_build_checkoutDir=${teamcity_build_checkoutDir:-'/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'}
+
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/clean.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance
     bash -x clean.sh

@@ -25,7 +25,6 @@ pwd
 rm -rf ../.old/*
 set +x
 
-teamcity_build_checkoutDir="%teamcity.build.checkoutDir%"
 if [[ -f "${teamcity_build_checkoutDir:-}"/regression-test/pipeline/performance/prepare.sh ]]; then
     cd "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/
     bash prepare.sh
@@ -37,14 +36,17 @@ EOF
 ## run.sh content ##
 
 if ${DEBUG:-false}; then
-    teamcity_build_checkoutDir='/home/work/unlimit_teamcity/TeamCity/Agents/20231216100311agent_172.16.0.84_1/work/ad600b267ee7ed84'
     pull_request_num="28431"
     commit_id_from_trigger="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
     commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
 fi
 echo "#### Check env"
-if [[ -z "${commit_id_from_trigger}" || -z ${commit_id:-} || -z ${pull_request_num:-} ]]; then
-    echo "ERROR: env commit_id_from_trigger or commit_id or pull_request_num not set" && exit 1
+if [[ -z "${teamcity_build_checkoutDir}" ||
+    -z "${commit_id_from_trigger}" ||
+    -z ${commit_id:-} ||
+    -z ${pull_request_num:-} ]]; then
+    echo "ERROR: env teamcity_build_checkoutDir or commit_id_from_trigger
+    or commit_id or pull_request_num not set" && exit 1
 fi
 commit_id_from_checkout=${commit_id}
 
