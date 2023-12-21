@@ -1690,12 +1690,13 @@ public class OlapScanNode extends ScanNode {
     @Override
     public boolean pushDownAggNoGrouping(FunctionCallExpr aggExpr) {
         KeysType type = getOlapTable().getKeysType();
-        if (type == KeysType.UNIQUE_KEYS || type == KeysType.PRIMARY_KEYS) {
+        //mow table could push count function
+        if ((type == KeysType.UNIQUE_KEYS && !getOlapTable().getEnableUniqueKeyMergeOnWrite()) || type == KeysType.PRIMARY_KEYS) {
             return false;
         }
 
         String aggFunctionName = aggExpr.getFnName().getFunction();
-        if (aggFunctionName.equalsIgnoreCase("COUNT") && type != KeysType.DUP_KEYS) {
+        if (aggFunctionName.equalsIgnoreCase("COUNT") && type != KeysType.DUP_KEYS && type != KeysType.UNIQUE_KEYS) {
             return false;
         }
 

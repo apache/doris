@@ -65,4 +65,29 @@ suite("test_pushdown_explain") {
         sql("select count(cast(lo_orderkey as bigint)) from test_lineorder;")
         contains "pushAggOp=COUNT"
     }
+
+    sql "DROP TABLE IF EXISTS table_mow"
+    sql """
+        CREATE TABLE `table_mow` (
+        `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+        `username` VARCHAR(50) NOT NULL COMMENT '\"用户昵称\"'
+        ) ENGINE=OLAP
+        UNIQUE KEY(`user_id`, `username`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "enable_unique_key_merge_on_write" = "true",
+        "disable_auto_compaction" = "true"
+        );
+    """
+    sql """ insert into table_mow values(1,"asd"); """
+    sql """ insert into table_mow values(1,"asd"); """
+    sql """ insert into table_mow values(1,"asd"); """
+    sql """ set experimental_enable_nereids_planner = false; """
+    explain {
+        sql("select count(1) from table_mow;")
+        contains "pushAggOp=COUNT"
+    }
+    qt_sql_1 "select count(1) from table_mow;"
 }

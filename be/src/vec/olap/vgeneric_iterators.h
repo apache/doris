@@ -67,6 +67,7 @@ private:
     TPushAggOp::type _push_down_agg_type_opt;
     std::map<int32_t, std::unique_ptr<ColumnIterator>> _column_iterators_map;
     std::vector<ColumnIterator*> _column_iterators;
+    int _delete_map_rows = 0;
 
     static constexpr size_t MAX_ROW_SIZE_IN_COUNT = 65535;
 };

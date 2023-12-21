@@ -51,8 +51,10 @@ import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -416,9 +418,20 @@ public class SingleNodePlanner {
 
     private void pushDownAggNoGrouping(AggregateInfo aggInfo, SelectStmt selectStmt, Analyzer analyzer, PlanNode root) {
         do {
-            if (CollectionUtils.isNotEmpty(root.getConjuncts())
-                    || CollectionUtils.isNotEmpty(root.getProjectList())) {
+            if (CollectionUtils.isNotEmpty(root.getProjectList())) {
                 break;
+            }
+
+            if (CollectionUtils.isNotEmpty(root.getConjuncts())) {
+                if (!(root instanceof OlapScanNode)) {
+                    break;
+                }
+                OlapTable table = ((OlapScanNode) root).getOlapTable();
+                // MOW table have __DORIS_DELETE_SIGN__
+                if (!(table.getKeysType() == KeysType.UNIQUE_KEYS && table.getEnableUniqueKeyMergeOnWrite()
+                        && root.getConjuncts().size() == 1)) {
+                    break;
+                }
             }
 
             // TODO: Support muti table in the future

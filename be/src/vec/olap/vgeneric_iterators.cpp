@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/olap/vgeneric_iterators.h"
+#include <glog/logging.h>
 
 #include <algorithm>
 #include <memory>
@@ -45,7 +46,11 @@ namespace vectorized {
 Status VStatisticsIterator::init(const StorageReadOptions& opts) {
     if (!_init) {
         _push_down_agg_type_opt = opts.push_down_agg_type_opt;
-
+        auto segment_id = _segment->id();
+        if (opts.delete_bitmap.contains(segment_id)) {
+            auto cur_delete_bitmap = opts.delete_bitmap.at(segment_id);
+            _delete_map_rows = _delete_map_rows + cur_delete_bitmap->cardinality();
+        }
         for (size_t i = 0; i < _schema.num_column_ids(); i++) {
             auto cid = _schema.column_id(i);
             auto unique_id = _schema.column(cid)->unique_id();
@@ -58,6 +63,8 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
         }
 
         _target_rows = _push_down_agg_type_opt == TPushAggOp::MINMAX ? 2 : _segment->num_rows();
+        DCHECK_GE(_target_rows, _delete_map_rows) <<_target_rows<<" "<<_delete_map_rows;
+        _target_rows = _target_rows - _delete_map_rows;
         _init = true;
     }
 
@@ -75,6 +82,7 @@ Status VStatisticsIterator::next_batch(Block* block) {
                               : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
+            LOG(INFO)<<"_target_rows: _output_rows : size: "<<_target_rows<<" "<<_output_rows<<" "<<size;
             for (int i = 0; i < block->columns(); ++i) {
                 columns[i]->resize(size);
             }

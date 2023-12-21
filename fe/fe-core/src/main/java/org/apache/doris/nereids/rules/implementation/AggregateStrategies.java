@@ -341,8 +341,10 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
 
         if (logicalScan instanceof LogicalOlapScan) {
-            KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
-            if (keysType != KeysType.AGG_KEYS && keysType != KeysType.DUP_KEYS) {
+            OlapTable table = ((LogicalOlapScan) logicalScan).getTable();
+            KeysType keysType = table.getKeysType();
+            boolean isMOWTable = (keysType == KeysType.UNIQUE_KEYS) && (table.getEnableUniqueKeyMergeOnWrite());
+            if (keysType != KeysType.AGG_KEYS && keysType != KeysType.DUP_KEYS && !isMOWTable) {
                 return canNotPush;
             }
         }
@@ -363,7 +365,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         }
         if (logicalScan instanceof LogicalOlapScan) {
             KeysType keysType = ((LogicalOlapScan) logicalScan).getTable().getKeysType();
-            if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS) {
+            //before have check, UNIQUE_KEYS and NOT MOW canNotPush
+            if (functionClasses.contains(Count.class) && keysType != KeysType.DUP_KEYS && keysType != KeysType.UNIQUE_KEYS) {
                 return canNotPush;
             }
         }
