@@ -555,6 +555,12 @@ public abstract class ConnectProcessor {
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setPacket(getResultPacket());
         result.setStatus(ctx.getState().toString());
+        if (ctx.getState().getStateType() == MysqlStateType.OK) {
+            result.setStatusCode(0);
+        } else {
+            result.setStatusCode(ctx.getState().getErrorCode().getCode());
+            result.setErrMessage(ctx.getState().getErrorMessage());
+        }
         if (executor != null && executor.getProxyResultSet() != null) {
             result.setResultSet(executor.getProxyResultSet().tothrift());
         }
