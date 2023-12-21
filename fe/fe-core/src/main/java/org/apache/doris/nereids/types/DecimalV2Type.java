@@ -38,6 +38,8 @@ public class DecimalV2Type extends FractionalType {
     public static int MAX_PRECISION = 27;
     public static int MAX_SCALE = 9;
     public static final DecimalV2Type SYSTEM_DEFAULT = new DecimalV2Type(MAX_PRECISION, MAX_SCALE, true);
+    public static final DecimalV2Type SYSTEM_DEFAULT_NOT_CONVERSION =
+            new DecimalV2Type(MAX_PRECISION, MAX_SCALE, false);
     public static final DecimalV2Type CATALOG_DEFAULT = new DecimalV2Type(DEFAULT_PRECISION, DEFAULT_SCALE, true);
     public static final DecimalV2Type CATALOG_DEFAULT_NOT_CONVERSION =
             new DecimalV2Type(DEFAULT_PRECISION, DEFAULT_SCALE, false);
@@ -101,6 +103,24 @@ public class DecimalV2Type extends FractionalType {
     }
 
     /**
+     * validate DecimalV2Type can hold bigDecimal literal, throw exception if overflows
+     */
+    public static void validateDecimalV2Type(BigDecimal bigDecimal) {
+        int precision = org.apache.doris.analysis.DecimalLiteral.getBigDecimalPrecision(bigDecimal);
+        int scale = org.apache.doris.analysis.DecimalLiteral.getBigDecimalScale(bigDecimal);
+
+        Preconditions.checkArgument(precision > 0 && precision <= MAX_PRECISION,
+                "precision should in (0, " + MAX_PRECISION + "], but real precision is "
+                        + precision);
+        Preconditions.checkArgument(scale >= 0 && scale <= MAX_SCALE,
+                "scale should in (0, " + MAX_SCALE + "], but real precision is " + scale);
+        int integerPart = precision - scale;
+        Preconditions.checkArgument(integerPart >= 0 && integerPart <= MAX_PRECISION - MAX_SCALE,
+                "precision - scale should in (0, " + integerPart + "], but real precision is "
+                        + integerPart);
+    }
+
+    /**
      * create DecimalV2Type with appropriate scale and precision, not truncate to MAX_PRECISION, MAX_SCALE.
      */
     public static DecimalV2Type createDecimalV2TypeWithoutTruncate(int precision, int scale) {
@@ -120,10 +140,10 @@ public class DecimalV2Type extends FractionalType {
     public static DecimalV2Type createDecimalV2TypeWithoutTruncate(int precision, int scale,
             boolean shouldConversion) {
         if (precision == SYSTEM_DEFAULT.precision && scale == SYSTEM_DEFAULT.scale) {
-            return SYSTEM_DEFAULT;
+            return shouldConversion ? SYSTEM_DEFAULT : SYSTEM_DEFAULT_NOT_CONVERSION;
         }
         if (precision == CATALOG_DEFAULT.precision && scale == CATALOG_DEFAULT.scale) {
-            return CATALOG_DEFAULT;
+            return shouldConversion ? CATALOG_DEFAULT : CATALOG_DEFAULT_NOT_CONVERSION;
         }
         return new DecimalV2Type(precision, scale, shouldConversion);
     }

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
+import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
 import java.math.BigDecimal;
@@ -200,6 +201,7 @@ public class NumericArithmetic {
     @ExecFunction(name = "add", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
     public static Expression addDecimalDecimal(DecimalLiteral first, DecimalLiteral second) {
         BigDecimal result = first.getValue().add(second.getValue());
+        DecimalV2Type.validateDecimalV2Type(result);
         return new DecimalLiteral(result);
     }
 
@@ -371,6 +373,7 @@ public class NumericArithmetic {
     @ExecFunction(name = "subtract", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
     public static Expression subtractDecimalDecimal(DecimalLiteral first, DecimalLiteral second) {
         BigDecimal result = first.getValue().subtract(second.getValue());
+        DecimalV2Type.validateDecimalV2Type(result);
         return new DecimalLiteral(result);
     }
 
@@ -542,6 +545,7 @@ public class NumericArithmetic {
     @ExecFunction(name = "multiply", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
     public static Expression multiplyDecimalDecimal(DecimalLiteral first, DecimalLiteral second) {
         BigDecimal result = first.getValue().multiply(second.getValue());
+        DecimalV2Type.validateDecimalV2Type(result);
         return new DecimalLiteral(result);
     }
 
@@ -570,12 +574,16 @@ public class NumericArithmetic {
         return new DoubleLiteral(result);
     }
 
+    /**
+     * Executable arithmetic functions divide
+     */
     @ExecFunction(name = "divide", argTypes = {"DECIMAL", "DECIMAL"}, returnType = "DECIMAL")
     public static Expression divideDecimal(DecimalLiteral first, DecimalLiteral second) {
         if (first.getValue().compareTo(BigDecimal.ZERO) == 0) {
             return new NullLiteral(first.getDataType());
         }
         BigDecimal result = first.getValue().divide(second.getValue());
+        DecimalV2Type.validateDecimalV2Type(result);
         return new DecimalLiteral(result);
     }
 
