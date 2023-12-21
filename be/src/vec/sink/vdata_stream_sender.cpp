@@ -107,6 +107,22 @@ Status Channel<Parent>::init(RuntimeState* state) {
 }
 
 template <typename Parent>
+std::shared_ptr<pipeline::LocalExchangeChannelDependency>
+PipChannel<Parent>::get_local_channel_dependency() {
+    if (!Channel<Parent>::_local_recvr) {
+        if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "_local_recvr is null: " +
+                                    std::to_string(Channel<Parent>::_parent->parent()->node_id()));
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
+        }
+    }
+    return Channel<Parent>::_local_recvr->get_local_channel_dependency(
+            Channel<Parent>::_parent->sender_id());
+}
+
+template <typename Parent>
 Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
     // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
     // so this feature is turned off here by default. We need to re-examine this logic
@@ -791,9 +807,10 @@ Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** hol
     return Status::OK();
 }
 
-void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer) {
+void VDataStreamSender::register_pipeline_channels(
+        pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer) {
     for (auto channel : _channels) {
-        ((PipChannel<VDataStreamSender>*)channel)->registe(buffer);
+        ((PipChannel<VDataStreamSender>*)channel)->register_exchange_buffer(buffer);
     }
 }
 
@@ -824,6 +841,8 @@ bool VDataStreamSender::channel_all_can_write() {
 
 template class Channel<pipeline::ExchangeSinkLocalState>;
 template class Channel<VDataStreamSender>;
+template class PipChannel<pipeline::ExchangeSinkLocalState>;
+template class PipChannel<VDataStreamSender>;
 template class Channel<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ExchangeSinkLocalState>;

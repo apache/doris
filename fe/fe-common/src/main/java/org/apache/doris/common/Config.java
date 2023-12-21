@@ -456,6 +456,10 @@ public class Config extends ConfigBase {
             + " dead lock" })
     public static boolean publish_version_check_alter_replica = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"单个事务 publish 失败打日志间隔",
+            "print log interval for publish transaction failed interval"})
+    public static long publish_fail_log_interval_second = 5 * 60;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -2274,6 +2278,12 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
+
+    @ConfField(mutable = true)
+    public static int workload_sched_policy_interval_ms = 10000; // 10s
+
+    @ConfField(mutable = true)
+    public static int workload_action_interval_ms = 10000; // 10s
 
     @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})

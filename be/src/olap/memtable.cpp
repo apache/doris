@@ -468,10 +468,7 @@ void MemTable::shrink_memtable_by_agg() {
         return;
     }
     size_t same_keys_num = _sort();
-    if (same_keys_num == 0) {
-        vectorized::Block in_block = _input_mutable_block.to_block();
-        _put_into_output(in_block);
-    } else {
+    if (same_keys_num != 0) {
         _aggregate<false>();
     }
 }

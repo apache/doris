@@ -230,6 +230,17 @@ public:
         return Status::OK();
     }
 
+    Status add_null_document() {
+        try {
+            _index_writer->addNullDocument(_doc.get());
+        } catch (const CLuceneError& e) {
+            _dir->deleteDirectory();
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError add_null_document: {}", e.what());
+        }
+        return Status::OK();
+    }
+
     Status add_nulls(uint32_t count) override {
         _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
@@ -242,7 +253,7 @@ public:
 
             for (int i = 0; i < count; ++i) {
                 new_fulltext_field(empty_value.c_str(), 0);
-                RETURN_IF_ERROR(add_document());
+                RETURN_IF_ERROR(add_null_document());
             }
         }
         return Status::OK();
@@ -285,8 +296,18 @@ public:
             }
             auto* v = (Slice*)values;
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(v->get_data(), v->get_size());
-                RETURN_IF_ERROR(add_document());
+                auto ignore_above_value =
+                        get_parser_ignore_above_value_from_properties(_index_meta->properties());
+                auto ignore_above = std::stoi(ignore_above_value);
+                if (v->get_size() > ignore_above) {
+                    VLOG_DEBUG << "fulltext index value length can be at most 256, but got "
+                               << "value length:" << v->get_size() << ", ignore this value";
+                    new_fulltext_field(empty_value.c_str(), 0);
+                    RETURN_IF_ERROR(add_null_document());
+                } else {
+                    new_fulltext_field(v->get_data(), v->get_size());
+                    RETURN_IF_ERROR(add_document());
+                }
                 ++v;
                 _rid++;
             }
@@ -325,9 +346,19 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                new_fulltext_field(value.c_str(), value.length());
+                auto ignore_above_value =
+                        get_parser_ignore_above_value_from_properties(_index_meta->properties());
+                auto ignore_above = std::stoi(ignore_above_value);
+                if (value.length() > ignore_above) {
+                    VLOG_DEBUG << "fulltext index value length can be at most 256, but got "
+                               << "value length:" << value.length() << ", ignore this value";
+                    new_fulltext_field(empty_value.c_str(), 0);
+                    RETURN_IF_ERROR(add_null_document());
+                } else {
+                    new_fulltext_field(value.c_str(), value.length());
+                    RETURN_IF_ERROR(add_document());
+                }
                 _rid++;
-                _index_writer->addDocument(_doc.get());
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
             for (int i = 0; i < count; ++i) {

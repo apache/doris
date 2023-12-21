@@ -509,21 +509,4 @@ bool RuntimeState::enable_page_cache() const {
            (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
 }
 
-RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* state) {
-    RuntimeFilterParamsContext* params = state->obj_pool()->add(new RuntimeFilterParamsContext());
-    params->runtime_filter_wait_infinitely = state->runtime_filter_wait_infinitely();
-    params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
-    params->enable_pipeline_exec = state->enable_pipeline_exec();
-    params->execution_timeout = state->execution_timeout();
-    params->runtime_filter_mgr = state->runtime_filter_mgr();
-    params->exec_env = state->exec_env();
-    params->query_id.set_hi(state->query_id().hi);
-    params->query_id.set_lo(state->query_id().lo);
-
-    params->fragment_instance_id.set_hi(state->fragment_instance_id().hi);
-    params->fragment_instance_id.set_lo(state->fragment_instance_id().lo);
-    params->be_exec_version = state->be_exec_version();
-    params->query_ctx = state->get_query_ctx();
-    return params;
-}
 } // end namespace doris

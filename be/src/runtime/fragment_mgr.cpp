@@ -220,6 +220,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     DCHECK(req.runtime_state != nullptr);
 
     if (req.query_statistics) {
+        // use to report 'insert into select'
         TQueryStatistics queryStatistics;
         DCHECK(req.query_statistics->collect_dml_statistics());
         req.query_statistics->to_thrift(&queryStatistics);
