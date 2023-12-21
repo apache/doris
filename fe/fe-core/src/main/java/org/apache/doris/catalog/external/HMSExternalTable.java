@@ -301,7 +301,7 @@ public class HMSExternalTable extends ExternalTable {
                 rowCount = StatisticsUtil.getIcebergRowCount(this);
                 break;
             default:
-                LOG.warn("getRowCount for dlaType {} is not supported.", dlaType);
+                LOG.debug("getRowCount for dlaType {} is not supported.", dlaType);
                 rowCount = -1;
         }
         return rowCount;
