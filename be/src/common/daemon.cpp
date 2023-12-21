@@ -356,14 +356,11 @@ void Daemon::block_spill_gc_thread() {
 
 void Daemon::je_purge_dirty_pages_thread() const {
     do {
-        {
-            std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
-            doris::MemInfo::je_purge_dirty_pages_cv.wait(l);
-        }
+        std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
+        doris::MemInfo::je_purge_dirty_pages_cv.wait(l);
         if (_stop_background_threads_latch.count() == 0) {
             break;
         }
-        // cannot lock je_purge_all_arena_dirty_pages, otherwise it will block GC thread.
         doris::MemInfo::je_purge_all_arena_dirty_pages();
     } while (true);
 }

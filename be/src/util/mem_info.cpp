@@ -130,7 +130,7 @@ bool MemInfo::process_minor_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        notify_all_je_purge_dirty_pages_cv();
+        je_purge_dirty_pages_cv.notify_all();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -140,7 +140,7 @@ bool MemInfo::process_minor_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    notify_all_je_purge_dirty_pages_cv();
+    je_purge_dirty_pages_cv.notify_all();
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
     }
@@ -181,7 +181,7 @@ bool MemInfo::process_full_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        notify_all_je_purge_dirty_pages_cv();
+        je_purge_dirty_pages_cv.notify_all();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -191,7 +191,7 @@ bool MemInfo::process_full_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    notify_all_je_purge_dirty_pages_cv();
+    je_purge_dirty_pages_cv.notify_all();
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }

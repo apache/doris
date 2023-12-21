@@ -129,10 +129,6 @@ public:
 
     static std::mutex je_purge_dirty_pages_lock;
     static std::condition_variable je_purge_dirty_pages_cv;
-    static void notify_all_je_purge_dirty_pages_cv() {
-        std::lock_guard l(je_purge_dirty_pages_lock);
-        je_purge_dirty_pages_cv.notify_all();
-    }
 
     static inline size_t allocator_virtual_mem() {
         return _s_virtual_memory_used.load(std::memory_order_relaxed);
