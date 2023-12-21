@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -346,7 +345,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
                 && hasTopLevelAggWithoutGroupBy(exists.getQueryPlan());
     }
 
-    private boolean hasTopLevelAggWithoutGroupBy(Plan plan) {
+    private static boolean hasTopLevelAggWithoutGroupBy(Plan plan) {
         if (plan instanceof LogicalAggregate) {
             return ((LogicalAggregate) plan).getGroupByExpressions().isEmpty();
         } else if (plan instanceof LogicalProject || plan instanceof LogicalSort) {
@@ -430,7 +429,7 @@ public class SubqueryToApply implements AnalysisRuleFactory {
             // it will always consider the returned result to be true
             boolean needCreateMarkJoinSlot = isMarkJoin || shouldOutputMarkJoinSlot;
             MarkJoinSlotReference markJoinSlotReference = null;
-            if (exists.getQueryPlan().anyMatch(Aggregate.class::isInstance) && needCreateMarkJoinSlot) {
+            if (hasTopLevelAggWithoutGroupBy(exists.getQueryPlan()) && needCreateMarkJoinSlot) {
                 markJoinSlotReference =
                         new MarkJoinSlotReference(statementContext.generateColumnName(), true);
             } else if (needCreateMarkJoinSlot) {
