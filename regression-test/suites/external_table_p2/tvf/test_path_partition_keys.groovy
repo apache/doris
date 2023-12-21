@@ -29,6 +29,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
             "uri" = "${baseUri}/dt1=cyw/*",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = ",",
             "path_partition_keys"="dt1" ) order by c1,c2 ;
         """ 
 
@@ -37,6 +38,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
             "uri" = "${baseUri}/dt1=cyw/*",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = ",",
             "path_partition_keys"="dt1") where dt1!="cyw" order by c1,c2 limit 3;
         """ 
 
@@ -45,6 +47,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
             "uri" = "${baseUri}/dt1=hello/*",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = ",",
             "path_partition_keys"="dt1") group by c1,dt1 order by c1;
         """ 
     
@@ -53,6 +56,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
             "uri" = "${baseUri}/dt2=two/dt1=hello/*",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = ",",
             "path_partition_keys"="dt1") order by c1;
         """ 
 
@@ -61,6 +65,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
             "uri" = "${baseUri}/dt2=two/dt1=cyw/*",
             "hadoop.username" = "hadoop",
             "format" = "csv",
+            "column_separator" = ",",
             "path_partition_keys"="dt2,dt1");
         """
 
@@ -83,6 +88,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "file_path" = "${outFilePath}/dt1=cyw/a.csv",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator" = ",",
         "path_partition_keys"="dt1") order by c1,c2;
     """
     
@@ -91,6 +97,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "file_path" = "${outFilePath}/dt1=cyw/*",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator" = ",",
         "path_partition_keys"="dt1") order by c1,c2  limit 2;
     """
     
@@ -99,6 +106,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "file_path" = "${outFilePath}/dt1=hello/c.csv",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator" = ",",
         "path_partition_keys"="dt1") order by c1,c2  limit 7;
     """
 
@@ -107,6 +115,7 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "file_path" = "${outFilePath}/dt2=two/dt1=hello/c.csv",
         "backend_id" = "${be_id}",
         "format" = "csv",
+        "column_separator" = ",",
         "path_partition_keys"="dt2,dt1") order by c1,c2  limit 9;
     """
     
@@ -114,7 +123,6 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
-    String region = getS3Region()
     String bucket = context.config.otherConfigs.get("s3BucketName");
     
     sql """ set query_timeout=3600; """ 
@@ -125,8 +133,8 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_path_partition_keys/dt1=cyw/b.csv",    
         "s3.access_key" = "${ak}",     
         "s3.secret_key" = "${sk}",     
-        "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "path_partition_keys"="dt1") 
     """
@@ -139,8 +147,8 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_path_partition_keys/dt1=hello/c.csv",    
         "s3.access_key" = "${ak}",     
         "s3.secret_key" = "${sk}",     
-        "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "path_partition_keys"="dt1") limit 3;
     """
@@ -152,8 +160,8 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_path_partition_keys/dt2=two/dt1=hello/c.csv",    
         "s3.access_key" = "${ak}",     
         "s3.secret_key" = "${sk}",     
-        "REGION" = "${region}",    
         "FORMAT" = "csv",
+        "column_separator" = ",",
         "use_path_style" = "true",
         "path_partition_keys"="dt1") limit 3;
     """
@@ -165,9 +173,9 @@ suite("test_path_partition_keys", "p2,external,tvf,external_remote,external_remo
         "URI" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_path_partition_keys/dt2=two/dt1=cyw/b.csv",    
         "s3.access_key" = "${ak}",     
         "s3.secret_key" = "${sk}",     
-        "REGION" = "${region}",    
         "FORMAT" = "csv",
         "use_path_style" = "true",
+        "column_separator" = ",",
         "path_partition_keys"="dt2,dt1") limit 3;
     """
 }
