@@ -50,6 +50,9 @@ private:
     Status _read_wal_header(const std::string& wal, std::string& columns);
     bool _need_replay(const replay_wal_info& info);
     Status _replay_wal_internal(const std::string& wal);
+    Status _parse_sql(int64_t wal_id, const std::string& wal, const std::string& label,
+                      std::string& sql_str);
+    Status _handle_stream_load(int64_t wal_id, const std::string& wal, const std::string& label);
 
 private:
     ExecEnv* _exec_env;
