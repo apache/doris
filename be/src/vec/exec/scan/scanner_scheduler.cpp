@@ -211,7 +211,11 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
     if (ctx->thread_token != nullptr) {
         // TODO llj tg how to treat this?
         while (iter != this_run.end()) {
-            (*iter)->start_wait_worker_timer();
+            std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
+            if (scanner_delegate == nullptr) {
+                continue;
+            }
+            scanner_delegate->_scanner->start_wait_worker_timer();
             auto s = ctx->thread_token->submit_func([this, scanner_ref = *iter, ctx]() {
                 this->_scanner_scan(this, ctx, scanner_ref);
             });
@@ -224,7 +228,11 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
         }
     } else {
         while (iter != this_run.end()) {
-            (*iter)->start_wait_worker_timer();
+            std::shared_ptr<ScannerDelegate> scanner_delegate = (*iter).lock();
+            if (scanner_delegate == nullptr) {
+                continue;
+            }
+            scanner_delegate->_scanner->start_wait_worker_timer();
             TabletStorageType type = (*iter)->get_storage_type();
             bool ret = false;
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {

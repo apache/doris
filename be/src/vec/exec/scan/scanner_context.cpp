@@ -479,7 +479,7 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
     // calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
     // to schedule that scanner right away, and in that schedule run, the scanner may be marked as closed
     // before we call the following if() block.
-    if (scanner->need_to_close()) {
+    if (scanner->_scanner->need_to_close()) {
         --_num_unfinished_scanners;
         if (_num_unfinished_scanners == 0) {
             _dispose_coloate_blocks_not_in_queue();
