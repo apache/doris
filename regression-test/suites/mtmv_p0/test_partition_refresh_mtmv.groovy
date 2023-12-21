@@ -327,4 +327,75 @@ suite("test_partition_refresh_mtmv") {
         """
     waitingMTMVTaskFinished(jobName)
     order_qt_refresh_other_table_change_other "SELECT * FROM ${mvName} order by user_id,age,date,num"
+
+    // test exclude table
+    sql """drop materialized view if exists ${mvName};"""
+    sql """drop table if exists `${tableNameNum}`"""
+    sql """drop table if exists `${tableNameUser}`"""
+
+    sql """
+        CREATE TABLE `${tableNameNum}` (
+          `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+          `date` DATE NOT NULL COMMENT '\"数据灌入日期时间\"',
+          `num` SMALLINT NULL COMMENT '\"数量\"'
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`user_id`, `date`, `num`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`date`)
+        (PARTITION p201701_1000 VALUES [('0000-01-01'), ('2017-02-01')),
+        PARTITION p201702_2000 VALUES [('2017-02-01'), ('2017-03-01')),
+        PARTITION p201703_all VALUES [('2017-03-01'), ('2017-04-01')))
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 2
+        PROPERTIES ('replication_num' = '1') ;
+        """
+    sql """
+        insert into ${tableNameNum} values(1,"2017-01-15",1),(1,"2017-02-15",2),(1,"2017-03-15",3);
+        """
+    sql """
+        CREATE TABLE ${tableNameUser}
+        (
+            user_id LARGEINT,
+            age INT
+        )
+        COMMENT "my first table"
+        DISTRIBUTED BY HASH(user_id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+        """
+    sql """
+        insert into ${tableNameUser} values(1,10);
+        """
+
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+            BUILD DEFERRED REFRESH AUTO ON MANUAL
+            partition by(`date`)
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1','excluded_trigger_tables'='${tableNameUser}')
+            AS
+            select ${tableNameUser}.user_id,${tableNameUser}.age,${tableNameNum}.date,${tableNameNum}.num from ${tableNameUser} join ${tableNameNum} on ${tableNameUser}.user_id = ${tableNameNum}.user_id;
+        """
+    sql """
+            REFRESH MATERIALIZED VIEW ${mvName};
+        """
+    jobName = getJobName(dbName, mvName);
+    log.info(jobName)
+    waitingMTMVTaskFinished(jobName)
+    order_qt_exclude_init "SELECT * FROM ${mvName} order by user_id,age,date,num"
+
+    // excluded table data change
+    sql """
+        insert into ${tableNameUser} values(1,9);
+        """
+     sql """
+         REFRESH MATERIALIZED VIEW ${mvName};
+        """
+     order_qt_exclude_will_not_change "SELECT * FROM ${mvName} order by user_id,age,date,num"
+     order_qt_not_change_status "select SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
+     sql """
+          REFRESH MATERIALIZED VIEW ${mvName} COMPLETE;
+         """
+     order_qt_exclude_will_change "SELECT * FROM ${mvName} order by user_id,age,date,num"
+     order_qt_change_status "select SyncWithBaseTables  from mv_infos('database'='${dbName}') where Name='${mvName}'"
 }
