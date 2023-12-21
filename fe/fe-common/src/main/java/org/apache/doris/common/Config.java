@@ -1789,6 +1789,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int abort_txn_after_lost_heartbeat_time_second = 300;
 
+    /**
      * Heartbeat interval in seconds.
      * Default is 10, which means every 10 seconds, the master will send a heartbeat to all backends.
      */
