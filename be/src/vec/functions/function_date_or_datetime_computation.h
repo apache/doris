@@ -1127,15 +1127,13 @@ struct TimestampToDateTime : IFunction {
 
         for (int i = 0; i < input_rows_count; ++i) {
             Int64 value = column_data.get_element(i);
-            auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
-
-            dt.from_unixtime(value / Impl::ratio, time_zone);
-            // for data less than 1 second with negative ms. we have to fix subtraction borrowing
-            if (value < 0 && value > -Impl::ratio) {
-                dt.date_add_interval<TimeUnit::SECOND, false>(
-                        TimeInterval {TimeUnit::SECOND, 1, true});
-                value += Impl::ratio;
+            if (value < 0) {
+                null_map[i] = true;
+                continue;
             }
+
+            auto& dt = reinterpret_cast<DateV2Value<DateTimeV2ValueType>&>(res_data[i]);
+            dt.from_unixtime(value / Impl::ratio, time_zone);
 
             if (dt.is_valid_date()) [[likely]] {
                 dt.set_microsecond((value % Impl::ratio) * ratio_to_micro);
