@@ -180,6 +180,11 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
             qt_all all
             qt_all_with_parquet all_with_parquet
+            qt_predict_like_1 predict_like_1
+            qt_predict_like_2 predict_like_2
+            qt_predict_like_3 predict_like_3
+            qt_predict_like_4 predict_like_4
+            qt_predict_like_5 predict_like_5
             qt_c1 c1
             qt_c2 c2
             qt_c3 c3
