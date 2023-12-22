@@ -535,6 +535,10 @@ public class SlotRef extends Expr {
         this.label = label;
     }
 
+    public void setSubColPath(List<String> subColPath) {
+        this.subColPath = subColPath;
+    }
+
     public boolean hasCol() {
         return this.col != null;
     }

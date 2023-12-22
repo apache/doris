@@ -83,6 +83,11 @@ visible_functions = {
         [['map_values'], 'ARRAY<V>', ['MAP<K, V>'], '', ['K', 'V']],
     ],
 
+    # variant functions
+    "variant": [
+        [['element_at', '%element_extract%'], 'VARIANT', ['VARIANT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
+    ],
+
     # struct functions
     "struct": [
         [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
