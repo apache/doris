@@ -418,6 +418,12 @@ public interface TableIf {
                 getName());
     }
 
+    default String getNameWithFullQualifiers() {
+        return String.format("%s.%s.%s", getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getName());
+    }
+
     default boolean isManagedTable() {
         return getType() == TableType.OLAP || getType() == TableType.MATERIALIZED_VIEW;
     }

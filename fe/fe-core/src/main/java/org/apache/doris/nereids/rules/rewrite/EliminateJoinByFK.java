@@ -326,7 +326,11 @@ public class EliminateJoinByFK extends DefaultPlanRewriter<JobContext> implement
                         .map(e -> e.rewriteUp(
                                 s -> s instanceof Slot ? primarySlotToForeign.getOrDefault(s, (Slot) s) : s))
                         .collect(Collectors.toSet());
-                return columnWithPredicates.get(fp.getKey()).containsAll(primaryPredicates);
+                if (columnWithPredicates.get(fp.getKey()) == null && !columnWithPredicates.isEmpty()) {
+                    return false;
+                } else {
+                    return columnWithPredicates.get(fp.getKey()).containsAll(primaryPredicates);
+                }
             });
         }
     }

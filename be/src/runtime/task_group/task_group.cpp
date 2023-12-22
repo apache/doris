@@ -33,7 +33,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
-#include "vec/exec/scan/scan_task_queue.h"
 #include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
@@ -102,7 +101,6 @@ std::string TaskGroupEntity<QueueType>::debug_string() const {
 }
 
 template class TaskGroupEntity<std::queue<pipeline::PipelineTask*>>;
-template class TaskGroupEntity<ScanTaskQueue>;
 
 TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
         : _id(tg_info.id),
@@ -112,7 +110,6 @@ TaskGroup::TaskGroup(const TaskGroupInfo& tg_info)
           _enable_memory_overcommit(tg_info.enable_memory_overcommit),
           _cpu_share(tg_info.cpu_share),
           _task_entity(this, "pipeline task entity"),
-          _local_scan_entity(this, "local scan entity"),
           _mem_tracker_limiter_pool(MEM_TRACKER_GROUP_NUM),
           _cpu_hard_limit(tg_info.cpu_hard_limit) {}
 
@@ -150,8 +147,6 @@ void TaskGroup::check_and_update(const TaskGroupInfo& tg_info) {
     }
     ExecEnv::GetInstance()->pipeline_task_group_scheduler()->task_queue()->update_tg_cpu_share(
             tg_info, &_task_entity);
-    ExecEnv::GetInstance()->scanner_scheduler()->local_scan_task_queue()->update_tg_cpu_share(
-            tg_info, &_local_scan_entity);
 }
 
 int64_t TaskGroup::memory_used() {

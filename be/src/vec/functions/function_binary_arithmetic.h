@@ -265,7 +265,8 @@ private:
                     make_bool_variant(need_adjust_scale && check_overflow));
 
             if (OpTraits::is_multiply && need_adjust_scale && !check_overflow) {
-                int8_t sig[size];
+                auto sig_uptr = std::unique_ptr<int8_t[]>(new int8_t[size]);
+                int8_t* sig = sig_uptr.get();
                 for (size_t i = 0; i < size; i++) {
                     sig[i] = sgn(c[i].value);
                 }
@@ -917,7 +918,7 @@ public:
                     if constexpr (!std::is_same_v<ResultDataType, InvalidType>) {
                         need_replace_null_data_to_default_ =
                                 IsDataTypeDecimal<ResultDataType> ||
-                                (name == "pow" &&
+                                (get_name() == "pow" &&
                                  std::is_floating_point_v<typename ResultDataType::FieldType>);
                         if constexpr (IsDataTypeDecimal<LeftDataType> &&
                                       IsDataTypeDecimal<RightDataType>) {

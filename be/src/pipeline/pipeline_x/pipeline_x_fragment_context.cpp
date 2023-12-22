@@ -290,10 +290,10 @@ Status PipelineXFragmentContext::_plan_local_exchange(
         do_local_exchange = false;
         // Plan local exchange for each operator.
         for (; idx < ops.size();) {
-            if (ops[idx]->get_local_exchange_type().need_local_exchange()) {
+            if (ops[idx]->required_data_distribution().need_local_exchange()) {
                 RETURN_IF_ERROR(_add_local_exchange(
                         pip_idx, idx, ops[idx]->node_id(), _runtime_state->obj_pool(), pip,
-                        ops[idx]->get_local_exchange_type(), &do_local_exchange, num_buckets,
+                        ops[idx]->required_data_distribution(), &do_local_exchange, num_buckets,
                         bucket_seq_to_instance_idx, ignore_data_hash_distribution));
             }
             if (do_local_exchange) {
@@ -307,10 +307,10 @@ Status PipelineXFragmentContext::_plan_local_exchange(
             idx++;
         }
     } while (do_local_exchange);
-    if (pip->sink_x()->get_local_exchange_type().need_local_exchange()) {
+    if (pip->sink_x()->required_data_distribution().need_local_exchange()) {
         RETURN_IF_ERROR(_add_local_exchange(
                 pip_idx, idx, pip->sink_x()->node_id(), _runtime_state->obj_pool(), pip,
-                pip->sink_x()->get_local_exchange_type(), &do_local_exchange, num_buckets,
+                pip->sink_x()->required_data_distribution(), &do_local_exchange, num_buckets,
                 bucket_seq_to_instance_idx, ignore_data_hash_distribution));
     }
     return Status::OK();

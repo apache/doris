@@ -117,7 +117,7 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
             return {ExchangeType::NOOP};
         }
