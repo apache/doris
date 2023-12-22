@@ -970,8 +970,6 @@ DEFINE_Bool(enable_fuzzy_mode, "false");
 DEFINE_Bool(enable_debug_points, "false");
 
 DEFINE_Int32(pipeline_executor_size, "0");
-DEFINE_Bool(enable_workload_group_for_scan, "false");
-DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
