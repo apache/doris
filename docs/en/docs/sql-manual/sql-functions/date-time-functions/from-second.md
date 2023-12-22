@@ -1,7 +1,7 @@
 ---
 {
     "title": "FROM_SECOND",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -26,13 +26,13 @@ under the License.
 
 ## from_second
 ### description
-#### Syntax
+#### syntax
 
 `DATETIME FROM_SECOND(BIGINT unix_timestamp)`
 `DATETIME FROM_MILLISECOND(BIGINT unix_timestamp)`
 `DATETIME FROM_MICROSECOND(BIGINT unix_timestamp)`
 
-将时间戳转化为对应的 DATETIME，传入的是整型，返回的是DATETIME类型。若`unix_timestamp < 0` 或函数结果大于 `9999-12-31 23:59:59.999999`，则返回`NULL`。
+Converts a timestamp to its DATETIME represent, with argument as an integer and returned as a DATETIME type. Returns `NULL` if `unix_timestamp < 0` or if the function result is greater than `9999-12-31 23:59:59.999999`.
 
 ### example
 
