@@ -43,7 +43,7 @@ suite("test_db_mtmv") {
         AS 
         SELECT * FROM ${tableName};
     """
-    def jobName = getJobName("regression_test_mtmv_p0", mvName);
+    def jobName = getJobName(dbName, mvName);
     order_qt_count_init "select count(*)  from jobs('type'='mv') where Name='${jobName}'"
      sql """
         drop database `${dbName}`
