@@ -116,7 +116,7 @@ private:
                                const TPipelineFragmentParams& pipeline_params);
     Status _finish_group_commit_load(int64_t db_id, int64_t table_id, const std::string& label,
                                      int64_t txn_id, const TUniqueId& instance_id, Status& status,
-                                     bool prepare_failed, RuntimeState* state);
+                                     RuntimeState* state);
 
     ExecEnv* _exec_env = nullptr;
     ThreadPool* _thread_pool = nullptr;
