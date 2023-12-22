@@ -1073,8 +1073,6 @@ build_arrow() {
     strip_lib libarrow.a
     strip_lib libjemalloc_arrow.a
     strip_lib libparquet.a
-
-    cp -rf "${TP_INSTALL_DIR}/lib64/libjemalloc_arrow.a" "${TP_INSTALL_DIR}/lib64/libjemalloc.a" # TODO delete
 }
 
 # abseil
