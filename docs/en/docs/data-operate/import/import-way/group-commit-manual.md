@@ -1,7 +1,7 @@
 ---
 {
     "title": "Group Commit",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -26,7 +26,7 @@ under the License.
 
 # Group Commit
 
-Group commit load does not introduce a new import method, but an extension of `INSERT INTO tbl VALUS(...)`, `Stream Load` and `Http Stream`. It is a way to improve the write performance of Doris with high-concurrency and small-data writes. Your application can directly use JDBC to perform high-frequency data writes into Doris, at the same time, leveraging PreparedStatement can get even higher performance. In logging scenarios, you can also use Stream Load or Http Stream to perform high-frequency data writes into Doris. 
+Group commit load does not introduce a new data import method, but an extension of `INSERT INTO tbl VALUS(...)`, `Stream Load` and `Http Stream`. It is a way to improve the write performance of Doris with high-concurrency and small-data writes. Your application can directly use JDBC to do high-concurrency insert operation into Doris, at the same time, combining PreparedStatement can get even higher performance. In logging scenarios, you can also do high-concurrency Stream Load or Http Stream into Doris. 
 
 ## Group Commit Mode
 
@@ -38,11 +38,11 @@ Disable group commit, keep the original behavior for `INSERT INTO VALUES`, `Stre
 
 * `sync_mode`
 
-Doris groups multiple loads into one transaction commit based on the `group_commit_interval` property of the table. The load is returned after the transaction commit. This mode is suitable for high-concurrency writing scenarios and requires immediate data visibility after the load is finished.
+Doris groups multiple loads into one transaction commit based on the `group_commit_interval` table property. The load is returned after the transaction commit. This mode is suitable for high-concurrency writing scenarios and requires immediate data visibility after the load is finished.
 
 * `async_mode`
 
-Doris writes data to the Write Ahead Log (WAL) firstly, then the load is returned. Doris groups multiple loads into one transaction commit based on the `group_commit_interval` property of the table, and the data becomes visible after the commit. To prevent excessive disk space usage by the WAL, it automatically switches to `sync_mode` when loading a large amount of data. This is suitable for latency-sensitive and high-frequency writing.
+Doris writes data to the Write Ahead Log (WAL) firstly, then the load is returned. Doris groups multiple loads into one transaction commit based on the `group_commit_interval` table property, and the data is visible after the commit. To prevent excessive disk space usage by the WAL, it automatically switches to `sync_mode`. This is suitable for latency-sensitive and high-frequency writing.
 
 ## Basic operations
 
@@ -372,29 +372,29 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
 * The limit of `max_filter_ratio`
 
-  * For non group commit load, filter_ratio is calculated by the failed rows and total rows when load is finished, if the filter_ratio does not match, the transaction will not commit
+  * For non group commit load, filter_ratio is calculated by the failed rows and total rows when load is finished. If the filter_ratio does not match, the transaction will not commit
 
-  * In the group commit mode, multiple user loads are executed through a single internal load. The internal load will commit all user loads.
+  * In the group commit mode, multiple user loads are executed by one internal load. The internal load will commit all user loads.
 
-  * Currently, group commit supports a certain degree of max_filter_ratio semantics. When the total number of rows does not exceed group_commit_memory_rows_for_max_filter_ratio (configured in be.conf, defaulting to 10000 rows), max_filter_ratio will work.
+  * Currently, group commit supports a certain degree of max_filter_ratio semantics. When the total number of rows does not exceed group_commit_memory_rows_for_max_filter_ratio (configured in `be.conf`, defaulting to `10000` rows), max_filter_ratio will work.
 
 * The limit of WAL
 
   * For async_mode group commit, data is written to the Write Ahead Log (WAL). If the internal load succeeds, the WAL is immediately deleted. If the internal load fails, data is recovery by importing the WAL.
 
-  * Currently, WAL files are stored only on one Backend (BE). If the BE's disk is damaged or the file is mistakenly deleted, it may result in the loss of data.
+  * Currently, WAL files are stored only on one disk of one BE. If the BE's disk is damaged or the file is mistakenly deleted, it may result in data loss.
 
   * When decommissioning a BE node, please use the [`DECOMMISSION`](../../../sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND.md) command to safely decommission the node. This prevents potential data loss if the WAL files are not processed before the node is taken offline.
 
   * For async_mode group commit writes, to protect disk space, it switches to sync_mode under the following conditions:
 
-    * Exceeding 80% of the disk space in a single directory of WAL due to large data import. 
+    * For an import with large amount of data: exceeding 80% of the disk space of a WAL directory. 
 
     * Chunked stream loads with an unknown data amount.
 
-    * Insufficient disk space, even with a relatively small import.
+    * Insufficient disk space, even with it is an import with small amount of data.
 
-  * During hard weight schema changes (adding or dropping columns, modifying varchar length, and renaming columns are considered lightweight schema changes, others are hard weight), to ensure WAL file is compatibility with the table's schema, the final stage of metadata modification in FE will reject group commit writes. Clients get `insert table ${table_name} is blocked on schema change` exception and can retry the operation
+  * During hard weight schema changes (adding or dropping columns, modifying varchar length, and renaming columns are lightweight schema changes, others are hard weight), to ensure WAL file is compatibility with the table's schema, the final stage of metadata modification in FE will reject group commit writes. Clients get `insert table ${table_name} is blocked on schema change` exception and can retry the import.
 
 ## Relevant system configuration
 
