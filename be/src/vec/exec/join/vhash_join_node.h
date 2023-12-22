@@ -341,6 +341,7 @@ private:
     std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
+    std::vector<int> _build_col_ids;
 };
 } // namespace vectorized
 } // namespace doris

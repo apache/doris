@@ -438,6 +438,7 @@ public:
     }
 };
 
+static constexpr int MAX_STACK_CIPHER_LEN = 1024 * 64;
 struct UnHexImpl {
     static constexpr auto name = "unhex";
     using ReturnType = DataTypeString;
@@ -509,9 +510,16 @@ struct UnHexImpl {
                 StringOP::push_empty_string(i, dst_data, dst_offsets);
                 continue;
             }
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
 
             int cipher_len = srclen / 2;
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
+
             int outlen = hex_decode(source, srclen, dst);
 
             if (outlen < 0) {
@@ -581,8 +589,15 @@ struct ToBase64Impl {
                 continue;
             }
 
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = (int)(4.0 * ceil((double)srclen / 3.0));
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
             int outlen = base64_encode((const unsigned char*)source, srclen, (unsigned char*)dst);
 
             if (outlen < 0) {
@@ -621,8 +636,15 @@ struct FromBase64Impl {
                 continue;
             }
 
+            char dst_array[MAX_STACK_CIPHER_LEN];
+            char* dst = dst_array;
+
             int cipher_len = srclen;
-            char dst[cipher_len];
+            std::unique_ptr<char[]> dst_uptr;
+            if (cipher_len > MAX_STACK_CIPHER_LEN) {
+                dst_uptr.reset(new char[cipher_len]);
+                dst = dst_uptr.get();
+            }
             int outlen = base64_decode(source, srclen, dst);
 
             if (outlen < 0) {
