@@ -54,7 +54,8 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
 
     String enabled = context.config.otherConfigs.get("enablePaimonTest")
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
-            def all = """select * from all_table;"""
+            def all = """select * from all_table order by c1;"""
+            def all_with_parquet = """select * from all_table_with_parquet order by c1;"""
             def c1 = """select * from all_table where c1=1;"""
             def c2 = """select * from all_table where c2=2;"""
             def c3 = """select * from all_table where c3=3;"""
@@ -173,6 +174,7 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
             sql """use `${catalog_name}`.`db1`"""
 
             qt_all all
+            qt_all_with_parquet all_with_parquet
             qt_c1 c1
             qt_c2 c2
             qt_c3 c3
