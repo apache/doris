@@ -18,9 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -30,17 +28,16 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**MaterializedViewProjectAggregateRule*/
-public class MaterializedViewProjectAggregateRule extends AbstractMaterializedViewAggregateRule implements
-        RewriteRuleFactory {
+public class MaterializedViewProjectAggregateRule extends AbstractMaterializedViewAggregateRule {
 
     public static final MaterializedViewProjectAggregateRule INSTANCE = new MaterializedViewProjectAggregateRule();
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalProject(logicalAggregate(any())).thenApplyMulti(ctx -> {
+                logicalProject(logicalAggregate(any())).thenApplyMultiNoThrow(ctx -> {
                     LogicalProject<LogicalAggregate<Plan>> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_AGGREGATE, RulePromise.EXPLORE));
+                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_AGGREGATE));
     }
 }

@@ -2226,6 +2226,7 @@ public class QueryPlanTest extends TestWithFeService {
     @Test
     public void testRewriteOrToIn() throws Exception {
         connectContext.setDatabase("test");
+        connectContext.getSessionVariable().setEnableRewriteElementAtToSlot(false);
         String sql = "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ * from test1 where query_time = 1 or query_time = 2 or query_time in (3, 4)";
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         Assert.assertTrue(explainString.contains("PREDICATES: `query_time` IN (1, 2, 3, 4)\n"));

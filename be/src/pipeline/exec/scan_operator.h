@@ -171,6 +171,8 @@ protected:
     RuntimeProfile::Counter* _wait_for_scanner_done_timer = nullptr;
     // time of prefilter input block from scanner
     RuntimeProfile::Counter* _wait_for_eos_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_finish_dependency_timer = nullptr;
+    RuntimeProfile::Counter* _wait_for_rf_timer = nullptr;
 };
 
 template <typename LocalStateType>
@@ -210,6 +212,9 @@ class ScanLocalState : public ScanLocalStateBase {
     int64_t get_push_down_count() override;
 
     Dependency* dependency() override { return _scan_dependency.get(); }
+
+    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
+    Dependency* finishdependency() override { return _finish_dependency.get(); }
 
 protected:
     template <typename LocalStateType>
@@ -405,6 +410,10 @@ protected:
     std::atomic<bool> _eos = false;
 
     std::mutex _block_lock;
+
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
+
+    std::shared_ptr<Dependency> _finish_dependency;
 };
 
 template <typename LocalStateType>
@@ -425,13 +434,14 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
-    bool need_to_local_shuffle() const override {
-        // 1. `_col_distribute_ids` is empty means storage distribution is not effective, so we prefer to do local shuffle.
-        // 2. `ignore_data_distribution()` returns true means we ignore the distribution.
-        return _col_distribute_ids.empty() || OperatorX<LocalStateType>::ignore_data_distribution();
+    DataDistribution get_local_exchange_type() const override {
+        if (_col_distribute_ids.empty() || OperatorX<LocalStateType>::ignore_data_distribution()) {
+            // 1. `_col_distribute_ids` is empty means storage distribution is not effective, so we prefer to do local shuffle.
+            // 2. `ignore_data_distribution()` returns true means we ignore the distribution.
+            return {ExchangeType::NOOP};
+        }
+        return {ExchangeType::BUCKET_HASH_SHUFFLE};
     }
-
-    bool is_bucket_shuffle_scan() const override { return !_col_distribute_ids.empty(); }
 
     int64_t get_push_down_count() const { return _push_down_count; }
     using OperatorX<LocalStateType>::id;

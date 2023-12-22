@@ -526,6 +526,8 @@ DECLARE_Int32(single_replica_load_download_num_workers);
 DECLARE_Int64(load_data_reserve_hours);
 // log error log will be removed after this time
 DECLARE_mInt64(load_error_log_reserve_hours);
+// error log size limit, default 200MB
+DECLARE_mInt64(load_error_log_limit_bytes);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
@@ -645,6 +647,8 @@ DECLARE_mInt32(memtable_soft_limit_active_percent);
 // Alignment
 DECLARE_Int32(memory_max_alignment);
 
+// memtable insert memory tracker will multiply input block size with this ratio
+DECLARE_mDouble(memtable_insert_memory_ratio);
 // max write buffer size before flush, default 200MB
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
@@ -658,6 +662,10 @@ DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
 DECLARE_Int32(load_process_soft_mem_limit_percent);
+
+// If load memory consumption is within load_process_safe_mem_permit_percent,
+// memtable memory limiter will do nothing.
+DECLARE_Int32(load_process_safe_mem_permit_percent);
 
 // result buffer cancelled time (unit: second)
 DECLARE_mInt32(result_buffer_cancelled_interval_time);
@@ -831,6 +839,8 @@ DECLARE_Int64(load_stream_max_buf_size);
 DECLARE_Int32(load_stream_messages_in_batch);
 // brpc streaming StreamWait seconds on EAGAIN
 DECLARE_Int32(load_stream_eagain_wait_seconds);
+// max tasks per flush token in load stream
+DECLARE_Int32(load_stream_flush_token_max_tasks);
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -841,12 +851,6 @@ DECLARE_mInt32(max_send_batch_parallelism_per_job);
 DECLARE_Int32(send_batch_thread_pool_thread_num);
 // number of send batch thread pool queue size
 DECLARE_Int32(send_batch_thread_pool_queue_size);
-// number of download cache thread pool size
-DECLARE_Int32(download_cache_thread_pool_thread_num);
-// number of download cache thread pool queue size
-DECLARE_Int32(download_cache_thread_pool_queue_size);
-// download cache buffer size
-DECLARE_Int64(download_cache_buffer_size);
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -1179,9 +1183,10 @@ DECLARE_Int32(grace_shutdown_wait_seconds);
 DECLARE_Int16(bitmap_serialize_version);
 
 // group commit insert config
-DECLARE_String(group_commit_replay_wal_dir);
+DECLARE_String(group_commit_wal_path);
 DECLARE_Int32(group_commit_replay_wal_retry_num);
 DECLARE_Int32(group_commit_replay_wal_retry_interval_seconds);
+DECLARE_mInt32(group_commit_relay_wal_threads);
 
 // This config can be set to limit thread number in group commit insert thread pool.
 DECLARE_mInt32(group_commit_insert_threads);

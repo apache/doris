@@ -132,6 +132,7 @@ public:
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
+    // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& user() const { return _user; }
@@ -660,24 +661,6 @@ private:
 
     // prohibit copies
     RuntimeState(const RuntimeState&);
-};
-
-// from runtime state
-struct RuntimeFilterParamsContext {
-    RuntimeFilterParamsContext() = default;
-    static RuntimeFilterParamsContext* create(RuntimeState* state);
-
-    bool runtime_filter_wait_infinitely;
-    int32_t runtime_filter_wait_time_ms;
-    bool enable_pipeline_exec;
-    int32_t execution_timeout;
-    RuntimeFilterMgr* runtime_filter_mgr;
-    ExecEnv* exec_env;
-    PUniqueId query_id;
-    PUniqueId fragment_instance_id;
-    int be_exec_version;
-    QueryContext* query_ctx;
-    QueryContext* get_query_ctx() const { return query_ctx; }
 };
 
 #define RETURN_IF_CANCELLED(state)                                                    \

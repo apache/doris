@@ -49,7 +49,6 @@
 #include "service/point_query_executor.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
@@ -131,9 +130,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     _init_column_meta(opts.meta, cid, column);
 
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
-    // and not support zone map for array type and jsonb type.
-    opts.need_zone_map = (column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS) &&
-                         column.type() != FieldType::OLAP_FIELD_TYPE_OBJECT;
+    // except for columns whose type don't support zone map.
+    opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
     auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
@@ -186,6 +184,9 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
     CHECK_FIELD_TYPE(MAP, "map")
     CHECK_FIELD_TYPE(VARIANT, "variant")
+    CHECK_FIELD_TYPE(OBJECT, "object")
+    CHECK_FIELD_TYPE(HLL, "hll")
+    CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
 
 #undef CHECK_FIELD_TYPE
 
@@ -345,30 +346,19 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     {
         std::shared_lock rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
-        DBUG_EXECUTE_IF("_append_block_with_partial_content.clear_specified_rowsets",
-                        { specified_rowsets.clear(); });
-        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
-            // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
-            // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
-            // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_mow_context->rowset_ids`
-            // to the latest value and re-request the correspoding rowsets.
-            LOG(INFO) << fmt::format(
+        if (_opts.rowset_ctx->partial_update_info->is_strict_mode &&
+            specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
+            // In other case, the missing rowsets will be calculated in later phases(commit phase/publish phase)
+            LOG(WARNING) << fmt::format(
                     "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
-                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
-                    "transaction_id: {}",
-                    specified_rowsets.size(), _mow_context->rowset_ids.size(), tablet->tablet_id(),
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in strict "
+                    "mode partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
+                    specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
                     _mow_context->max_version, _mow_context->txn_id);
-            Status st {Status::OK()};
-            _mow_context->update_rowset_ids_with_lock([&]() {
-                _mow_context->rowset_ids.clear();
-                st = tablet->all_rs_id(_mow_context->max_version, &_mow_context->rowset_ids);
-            });
-            if (!st.ok()) {
-                return st;
-            }
-            specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
-            DCHECK(specified_rowsets.size() == _mow_context->rowset_ids.size());
+            return Status::InternalError<false>(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction in strict mode partial update");
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());

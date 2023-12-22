@@ -29,8 +29,8 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/iterators.h"
-#include "olap/reader.h"
 #include "olap/tablet.h"
+#include "olap/tablet_reader.h"
 #include "olap/utils.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/columns/column.h"

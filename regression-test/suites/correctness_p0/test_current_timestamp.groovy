@@ -213,7 +213,7 @@ suite("test_current_timestamp") {
             DISTRIBUTED BY HASH(id)
             PROPERTIES("replication_num" = "1");
         """
-        exception "errCode = 2, detailMessage = Internal Error, maybe syntax error or this is a bug: column's default value current_timestamp precision must be between 0 and 6"
+        exception "between 0 and 6"
     }
 
     // user case

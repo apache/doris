@@ -128,10 +128,6 @@ public class MTMV extends OlapTable {
         return relation;
     }
 
-    public MTMVCache getCache() {
-        return cache;
-    }
-
     public void setCache(MTMVCache cache) {
         this.cache = cache;
     }
@@ -157,11 +153,13 @@ public class MTMV extends OlapTable {
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                try {
-                    this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
-                } catch (Throwable e) {
-                    this.cache = null;
-                    LOG.warn("generate cache failed", e);
+                if (!Env.isCheckpointThread()) {
+                    try {
+                        this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
+                    } catch (Throwable e) {
+                        this.cache = null;
+                        LOG.warn("generate cache failed", e);
+                    }
                 }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);
@@ -182,6 +180,15 @@ public class MTMV extends OlapTable {
             return Long.parseLong(mvProperties.get(PropertyAnalyzer.PROPERTIES_GRACE_PERIOD));
         } else {
             return 0L;
+        }
+    }
+
+    public int getRefreshPartitionNum() {
+        if (mvProperties.containsKey(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM)) {
+            int value = Integer.parseInt(mvProperties.get(PropertyAnalyzer.PROPERTIES_REFRESH_PARTITION_NUM));
+            return value < 1 ? MTMVTask.DEFAULT_REFRESH_PARTITION_NUM : value;
+        } else {
+            return MTMVTask.DEFAULT_REFRESH_PARTITION_NUM;
         }
     }
 
