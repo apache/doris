@@ -686,6 +686,13 @@ void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {
 
     PTabletWriteSlaveRequest request;
     RowsetMetaPB rowset_meta_pb = _cur_rowset->rowset_meta()->get_rowset_pb();
+    // TODO(dx): remove log after fix partition id eq 0 bug
+    if (!rowset_meta_pb.has_partition_id() || rowset_meta_pb.partition_id() == 0) {
+        rowset_meta_pb.set_partition_id(_req.partition_id);
+        LOG(WARNING) << "cant get partition id from local rs pb, get from _req, partition_id="
+                     << rowset_meta_pb.partition_id();
+    }
+
     request.set_allocated_rowset_meta(&rowset_meta_pb);
     request.set_host(BackendOptions::get_localhost());
     request.set_http_port(config::webserver_port);

@@ -1030,7 +1030,7 @@ DEFINE_mInt32(s3_write_buffer_whole_size, "524288000");
 DEFINE_mInt64(file_cache_max_file_reader_cache_size, "1000000");
 
 //disable shrink memory by default
-DEFINE_Bool(enable_shrink_memory, "false");
+DEFINE_mBool(enable_shrink_memory, "false");
 DEFINE_mInt32(schema_cache_capacity, "1024");
 DEFINE_mInt32(schema_cache_sweep_time_sec, "100");
 
@@ -1104,7 +1104,11 @@ DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 // Download binlog rate limit, unit is KB/s, 0 means no limit
 DEFINE_Int32(download_binlog_rate_limit_kbs, "0");
 
+DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
+
 DEFINE_Bool(enable_snapshot_action, "false");
+
+DEFINE_mInt32(s3_writer_buffer_allocation_timeout_second, "60");
 
 // clang-format off
 #ifdef BE_TEST

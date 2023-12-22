@@ -410,9 +410,25 @@ DorisCompoundDirectory::FSIndexOutput::~FSIndexOutput() {
 void DorisCompoundDirectory::FSIndexOutput::flushBuffer(const uint8_t* b, const int32_t size) {
     if (_writer != nullptr && b != nullptr && size > 0) {
         Slice data {b, (size_t)size};
+        DBUG_EXECUTE_IF(
+                "DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_"
+                "flushBuffer",
+                {
+                    if (_writer->path().filename() == "_0.tii" ||
+                        _writer->path().filename() == "_0.tis") {
+                        return;
+                    }
+                })
         Status st = _writer->append(data);
+        DBUG_EXECUTE_IF(
+                "DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer",
+                {
+                    st = Status::Error<doris::ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                            "flush buffer mock error");
+                })
         if (!st.ok()) {
             LOG(WARNING) << "File IO Write error: " << st.to_string();
+            _CLTHROWA(CL_ERR_IO, "writer append data when flushBuffer error");
         }
     } else {
         if (_writer == nullptr) {
