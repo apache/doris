@@ -52,7 +52,7 @@ public class GreaterThanEqual extends ComparisonPredicate implements PropagateNu
     @Override
     public GreaterThanEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new GreaterThanEqual(children);
+        return new GreaterThanEqual(children).withInferred(this.isInferred());
     }
 
     @Override

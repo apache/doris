@@ -51,7 +51,7 @@ public class LessThan extends ComparisonPredicate implements PropagateNullable {
     @Override
     public LessThan withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LessThan(children);
+        return new LessThan(children).withInferred(this.isInferred());
     }
 
     @Override

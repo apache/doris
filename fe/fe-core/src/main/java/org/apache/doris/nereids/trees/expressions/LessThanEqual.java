@@ -57,7 +57,7 @@ public class LessThanEqual extends ComparisonPredicate implements PropagateNulla
     @Override
     public LessThanEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LessThanEqual(children);
+        return new LessThanEqual(children).withInferred(this.isInferred());
     }
 
     @Override

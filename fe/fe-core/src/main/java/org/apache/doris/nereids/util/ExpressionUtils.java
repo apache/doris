@@ -48,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
 
@@ -638,5 +639,25 @@ public class ExpressionUtils {
                     return false;
                 }
         );
+    }
+
+    /**
+     * isInferred
+     */
+    public static boolean isInferred(Expression expression) {
+        return expression.accept(new DefaultExpressionVisitor<Boolean, Void>() {
+            @Override
+            public Boolean visit(Expression expr, Void context) {
+                boolean inferred = expr.isInferred();
+                if (expr.isInferred()) {
+                    return inferred;
+                }
+                inferred = true;
+                for (Expression child : expr.children()) {
+                    inferred = inferred && child.accept(this, context);
+                }
+                return inferred;
+            }
+        }, null);
     }
 }

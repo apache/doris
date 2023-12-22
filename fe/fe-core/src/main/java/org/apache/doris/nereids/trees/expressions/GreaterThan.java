@@ -57,7 +57,7 @@ public class GreaterThan extends ComparisonPredicate implements PropagateNullabl
     @Override
     public GreaterThan withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new GreaterThan(children);
+        return new GreaterThan(children).withInferred(this.isInferred());
     }
 
     @Override

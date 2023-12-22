@@ -51,7 +51,7 @@ public class NullSafeEqual extends EqualPredicate implements AlwaysNotNullable {
     @Override
     public NullSafeEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new NullSafeEqual(children);
+        return new NullSafeEqual(children).withInferred(this.isInferred());
     }
 
     @Override

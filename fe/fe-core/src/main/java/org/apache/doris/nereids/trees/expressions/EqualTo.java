@@ -47,7 +47,7 @@ public class EqualTo extends EqualPredicate implements PropagateNullable {
     @Override
     public EqualTo withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new EqualTo(children);
+        return new EqualTo(children).withInferred(this.isInferred());
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

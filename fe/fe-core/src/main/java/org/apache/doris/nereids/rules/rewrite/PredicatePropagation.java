@@ -88,6 +88,8 @@ public class PredicatePropagation {
     public Set<Expression> infer(Set<Expression> predicates) {
         Set<Expression> inferred = Sets.newHashSet();
         for (Expression predicate : predicates) {
+            // if we support more predicate infer, we should add .withInferred(this.isInferred())
+            // to mark the predicate is from infer when call withChildren method
             if (!(predicate instanceof ComparisonPredicate)) {
                 continue;
             }
@@ -130,7 +132,7 @@ public class PredicatePropagation {
                 .comparisonPredicate.withChildren(newLeft, newRight);
         Expression expr = SimplifyComparisonPredicate.INSTANCE
                 .rewrite(TypeCoercionUtils.processComparisonPredicate(newPredicate), null);
-        return DateFunctionRewrite.INSTANCE.rewrite(expr, null);
+        return DateFunctionRewrite.INSTANCE.rewrite(expr, null).withInferred(true);
     }
 
     private Expression inferOneSide(Expression predicateOneSide, Expression equalLeft, Expression equalRight) {
