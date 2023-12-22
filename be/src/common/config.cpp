@@ -592,6 +592,8 @@ DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
+// max parallel flush task per memtable writer
+DEFINE_mInt32(memtable_flush_running_count_limit, "5");
 
 DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
