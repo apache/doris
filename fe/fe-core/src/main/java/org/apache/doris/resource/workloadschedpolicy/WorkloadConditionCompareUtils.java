@@ -39,6 +39,24 @@ public class WorkloadConditionCompareUtils {
         }
     }
 
+    // used for select tvf
+    static String getOperatorStr(WorkloadConditionOperator op) {
+        switch (op) {
+            case EQUAL:
+                return "=";
+            case GREATER:
+                return ">";
+            case GREATER_EQUAL:
+                return ">=";
+            case LESS:
+                return "<";
+            case LESS_EQUAl:
+                return "<=";
+            default:
+                throw new RuntimeException("unexpected compare operator " + op);
+        }
+    }
+
     static boolean compareInteger(WorkloadConditionOperator operator, long firstArgs, long secondArgs) {
         switch (operator) {
             case EQUAL:
