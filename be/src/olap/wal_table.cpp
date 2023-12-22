@@ -427,21 +427,16 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
         if (!status.ok()) {
             return status;
         }
-        std::vector<std::string> column_element = result.columns;
+        std::vector<TColumnInfo> column_element = result.columns;
         int64_t column_index = 1;
         _column_id_name_map.clear();
         _column_id_index_map.clear();
         for (auto column : column_element) {
-            auto pos = column.find(":");
-            try {
-                auto column_name = column.substr(0, pos);
-                int64_t column_id = std::strtoll(column.substr(pos + 1).c_str(), NULL, 10);
-                _column_id_name_map.emplace(column_id, column_name);
-                _column_id_index_map.emplace(column_id, column_index);
-                column_index++;
-            } catch (const std::invalid_argument& e) {
-                return Status::InvalidArgument("Invalid format, {}", e.what());
-            }
+            auto column_name = column.columnName;
+            auto column_id = column.columnId;
+            _column_id_name_map.emplace(column_id, column_name);
+            _column_id_index_map.emplace(column_id, column_index);
+            column_index++;
         }
     }
     return status;

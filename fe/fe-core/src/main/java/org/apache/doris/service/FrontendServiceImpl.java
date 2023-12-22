@@ -115,6 +115,7 @@ import org.apache.doris.thrift.TCheckAuthRequest;
 import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
+import org.apache.doris.thrift.TColumnInfo;
 import org.apache.doris.thrift.TCommitTxnRequest;
 import org.apache.doris.thrift.TCommitTxnResult;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
@@ -3292,30 +3293,27 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         }
 
-        Database db;
-        try {
-            db = Env.getCurrentInternalCatalog()
-                    .getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
-        } catch (LoadException e) {
+        Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
             status.setStatusCode(TStatusCode.NOT_FOUND);
             status.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
             return result;
         }
-
-        try {
-            OlapTable table = (OlapTable) db.getTableOrException(
-                    tableId, s -> new LoadException("table does not exist. id: " + s));
-            List<String> columnsResult = Lists.newArrayList();
-            for (Column column : table.getBaseSchema(true)) {
-                columnsResult.add(column.getName() + ":" + column.getUniqueId());
-            }
-            result.setColumns(columnsResult);
-        } catch (LoadException e) {
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
             status.setStatusCode(TStatusCode.NOT_FOUND);
             status.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
             return result;
         }
+        List<TColumnInfo> columnsResult = Lists.newArrayList();
+        for (Column column : table.getBaseSchema(true)) {
+            final TColumnInfo info = new TColumnInfo();
+            info.setColumnName(column.getName());
+            info.setColumnId(column.getUniqueId());
+            columnsResult.add(info);
+        }
+        result.setColumns(columnsResult);
         return result;
     }
 
