@@ -692,7 +692,7 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
                         setter = "setFragmentInstanceNum")
-    public int parallelExecInstanceNum = 1;
+    public int parallelExecInstanceNum = 8;
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
                         setter = "setPipelineTaskNum")
