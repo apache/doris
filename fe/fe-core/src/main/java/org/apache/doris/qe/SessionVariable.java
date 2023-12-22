@@ -1024,7 +1024,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableDpHypTrace = false;
 
     @VariableMgr.VarAttr(name = BROADCAST_RIGHT_TABLE_SCALE_FACTOR)
-    private double broadcastRightTableScaleFactor = 0.0;
+    private double broadcastRightTableScaleFactor = 1.3;
 
     @VariableMgr.VarAttr(name = BROADCAST_ROW_COUNT_LIMIT, needForward = true)
     private double broadcastRowCountLimit = 30000000;
