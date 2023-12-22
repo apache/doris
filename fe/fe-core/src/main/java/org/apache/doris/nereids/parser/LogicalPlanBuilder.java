@@ -123,6 +123,7 @@ import org.apache.doris.nereids.DorisParser.ParenthesizedExpressionContext;
 import org.apache.doris.nereids.DorisParser.PartitionSpecContext;
 import org.apache.doris.nereids.DorisParser.PartitionValueDefContext;
 import org.apache.doris.nereids.DorisParser.PartitionsDefContext;
+import org.apache.doris.nereids.DorisParser.PauseMTMVContext;
 import org.apache.doris.nereids.DorisParser.PlanTypeContext;
 import org.apache.doris.nereids.DorisParser.PredicateContext;
 import org.apache.doris.nereids.DorisParser.PredicatedContext;
@@ -142,6 +143,7 @@ import org.apache.doris.nereids.DorisParser.RefreshScheduleContext;
 import org.apache.doris.nereids.DorisParser.RefreshTriggerContext;
 import org.apache.doris.nereids.DorisParser.RegularQuerySpecificationContext;
 import org.apache.doris.nereids.DorisParser.RelationContext;
+import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
 import org.apache.doris.nereids.DorisParser.RollupDefsContext;
 import org.apache.doris.nereids.DorisParser.RowConstructorContext;
@@ -339,7 +341,9 @@ import org.apache.doris.nereids.trees.plans.commands.ExportCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.LoadCommand;
+import org.apache.doris.nereids.trees.plans.commands.PauseMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.RefreshMTMVCommand;
+import org.apache.doris.nereids.trees.plans.commands.ResumeMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
@@ -360,7 +364,9 @@ import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.LessThanPartition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.PartitionDefinition.MaxValue;
+import org.apache.doris.nereids.trees.plans.commands.info.PauseMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RefreshMTMVInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.ResumeMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.RollupDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.SimpleColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.StepPartition;
@@ -681,6 +687,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public DropMTMVCommand visitDropMTMV(DropMTMVContext ctx) {
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         return new DropMTMVCommand(new DropMTMVInfo(new TableNameInfo(nameParts), ctx.EXISTS() != null));
+    }
+
+    @Override
+    public PauseMTMVCommand visitPauseMTMV(PauseMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        return new PauseMTMVCommand(new PauseMTMVInfo(new TableNameInfo(nameParts)));
+    }
+
+    @Override
+    public ResumeMTMVCommand visitResumeMTMV(ResumeMTMVContext ctx) {
+        List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
+        return new ResumeMTMVCommand(new ResumeMTMVInfo(new TableNameInfo(nameParts)));
     }
 
     @Override

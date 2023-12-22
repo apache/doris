@@ -276,8 +276,10 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void after() {
-        Env.getCurrentEnv()
-                .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation);
+        if (mtmv != null) {
+            Env.getCurrentEnv()
+                    .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation);
+        }
         mtmv = null;
         relation = null;
         executor = null;
