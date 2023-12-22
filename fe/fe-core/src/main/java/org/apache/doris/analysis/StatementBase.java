@@ -211,6 +211,16 @@ public abstract class StatementBase implements ParseNode {
                 "foldConstant() not implemented for this stmt: " + getClass().getSimpleName());
     }
 
+    /**
+     * rewrite element_at to slot in statement
+     * @throws AnalysisException
+     * @param rewriter
+     */
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+        throw new IllegalStateException(
+                "rewriteElementAtToSlot() not implemented for this stmt: " + getClass().getSimpleName());
+    }
+
     public void setOrigStmt(OriginStatement origStmt) {
         Preconditions.checkState(origStmt != null);
         this.origStmt = origStmt;
