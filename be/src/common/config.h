@@ -526,6 +526,8 @@ DECLARE_Int32(single_replica_load_download_num_workers);
 DECLARE_Int64(load_data_reserve_hours);
 // log error log will be removed after this time
 DECLARE_mInt64(load_error_log_reserve_hours);
+// error log size limit, default 200MB
+DECLARE_mInt64(load_error_log_limit_bytes);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
