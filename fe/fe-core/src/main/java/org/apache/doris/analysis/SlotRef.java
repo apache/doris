@@ -540,6 +540,9 @@ public class SlotRef extends Expr {
     }
 
     public String getColumnName() {
+        if (subColPath != null && !subColPath.isEmpty()) {
+            return col + "." + String.join(".", subColPath);
+        }
         return col;
     }
 
