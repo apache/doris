@@ -28,7 +28,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.job.base.Job;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
