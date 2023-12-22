@@ -271,9 +271,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         bool is_scheduled = false;
         if (!done() && to_be_schedule && _num_running_scanners == 0) {
             is_scheduled = true;
-            auto state = _scanner_scheduler->submit(shared_from_this());
-            if (!state.ok()) {
-                set_status_on_error(state, false);
+            auto submit_status = _scanner_scheduler->submit(shared_from_this());
+            if (!submit_status.ok()) {
+                set_status_on_error(submit_status, false);
             }
         }
 
@@ -374,7 +374,7 @@ void ScannerContext::dec_num_running_scanners(int32_t scanner_dec) {
     _num_running_scanners -= scanner_dec;
 }
 
-bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
+void ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
     std::unique_lock l(_transfer_lock, std::defer_lock);
     if (need_lock) {
         l.lock();
@@ -385,9 +385,7 @@ bool ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
         _blocks_queue_added_cv.notify_one();
         _should_stop = true;
         _set_scanner_done();
-        return true;
     }
-    return false;
 }
 
 void ScannerContext::stop_scanners(RuntimeState* state) {
@@ -464,10 +462,10 @@ void ScannerContext::reschedule_scanner_ctx() {
     if (done()) {
         return;
     }
-    auto state = _scanner_scheduler->submit(shared_from_this());
+    auto submit_status = _scanner_scheduler->submit(shared_from_this());
     //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
-    if (!state.ok()) {
-        set_status_on_error(state, false);
+    if (!submit_status.ok()) {
+        set_status_on_error(submit_status, false);
     }
 }
 
@@ -491,9 +489,9 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
     _scanners.push_front(scanner);
 
     if (should_be_scheduled()) {
-        auto state = _scanner_scheduler->submit(shared_from_this());
-        if (!state.ok()) {
-            set_status_on_error(state, false);
+        auto submit_status = _scanner_scheduler->submit(shared_from_this());
+        if (!submit_status.ok()) {
+            set_status_on_error(submit_status, false);
         }
     }
 }

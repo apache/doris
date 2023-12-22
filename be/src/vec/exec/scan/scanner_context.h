@@ -95,7 +95,7 @@ public:
     // to return the scanner to the list for next scheduling.
     void push_back_scanner_and_reschedule(std::shared_ptr<ScannerDelegate> scanner);
 
-    bool set_status_on_error(const Status& status, bool need_lock = true);
+    void set_status_on_error(const Status& status, bool need_lock = true);
 
     Status status() {
         if (_process_status.is<ErrorCode::END_OF_FILE>()) {
