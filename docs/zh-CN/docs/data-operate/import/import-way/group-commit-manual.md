@@ -254,7 +254,7 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
 url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
 ```
 
-2. 开启 `group_commit` session变量，有如下两种方式：
+2. 配置 `group_commit` session变量，有如下两种方式：
 
 * 通过 JDBC url 设置，增加`sessionVariables=group_commit=async_mode`
 
@@ -367,7 +367,7 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 
   + 表不支持 light schema change
 
-+ 对于 unique 模型，由于 group commit 不能保证提交顺序，用户可以配合 sequence 列使用
++ 对于 unique 模型，由于 group commit 不能保证提交顺序，用户可以配合 sequence 列使用来保证数据一致性
 
 * 对`max_filter_ratio`语义的支持
 
@@ -376,7 +376,6 @@ ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
   * 在 group commit 模式下，由于多个用户发起的导入会被一个内部导入执行，虽然可以计算出每个导入的`filter_ratio`，但是数据一旦进入内部导入，就只能 commit transaction
 
   * group commit 模式支持了一定程度的`max_filter_ratio`语义，当导入的总行数不高于`group_commit_memory_rows_for_max_filter_ratio`(配置在`be.conf`中，默认为`10000`行)，`max_filter_ratio` 工作
-
 
 * WAL 限制
 

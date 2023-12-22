@@ -26,27 +26,23 @@ under the License.
 
 # Group Commit
 
-Group commit load does not introduce a new import method, but an extension of `INSERT INTO tbl VALUS(...)`、`Stream Load`、`Http Stream`.
+Group commit load does not introduce a new import method, but an extension of `INSERT INTO tbl VALUS(...)`, `Stream Load` and `Http Stream`. It is a way to improve the write performance of Doris with high-concurrency and small-data writes. Your application can directly use JDBC to perform high-frequency data writes into Doris, at the same time, leveraging PreparedStatement can get even higher performance. In logging scenarios, you can also use Stream Load or Http Stream to perform high-frequency data writes into Doris. 
 
-In Doris, all methods of data loading are independent jobs which initiate a new transaction and generate a new data version. In the scenario of high-frequency writes, both transactions and compactions are under great pressure. Group commit load reduces the number of transactions and compactions by combining multiple small load tasks into one load job, and thus improve write performance.
+## Group Commit Mode
 
-The process is roughly as follows:
-1. User starts a group commit load, BE puts the data into the memory and WAL, and returns immediately. The data is not visible to users at this time;
-2. BE will periodically (default is 10 seconds) commit the data in the memory, and the data is visible to users after committed;
-3. If BE restarts, the data will be recovered through WAL.
+Group Commit provides 3 modes:
 
-## Fundamental
+* `off_mode`
 
-### Write process
-1. User starts a group commit load, FE generates a plan fragment;
-2. BE executes the plan. Unlike non group commit load, the processed data is not sent to each tablet, but put into a queue in the memory shared by multiple group commit load;
-3. BE starts an internal load, which consumes the data in the queue, writes to WAL, and notifies that the data related load has been finished;
-4. After that, the data is processed in the same way as non group commit load, send to each tablet, write memtable, and flushed to segment files;
-5. The internal load is finished after a fixed time interval (default is 10 seconds), and the data is visible to users when it is committed.
+Disable group commit, keep the original behavior for `INSERT INTO VALUES`, `Stream Load` and `Http Stream`.
 
-### WAL Introduction
+* `sync_mode`
 
-Each group commit load will generate a corresponding WAL file, which is used to recover failed load jobs. If there is a restart be or fail to run the group commit load during the writing process, be will replay WAL file through a stream load in the background to reimport the data, which can make sure that data is not lost. If the group commit load job is completed normally, the WAL will be directly deleted to reduce disk space usage.
+Doris groups multiple loads into one transaction commit based on the `group_commit_interval` property of the table. The load is returned after the transaction commit. This mode is suitable for high-concurrency writing scenarios and requires immediate data visibility after the load is finished.
+
+* `async_mode`
+
+Doris writes data to the Write Ahead Log (WAL) firstly, then the load is returned. Doris groups multiple loads into one transaction commit based on the `group_commit_interval` property of the table, and the data becomes visible after the commit. To prevent excessive disk space usage by the WAL, it automatically switches to `sync_mode` when loading a large amount of data. This is suitable for latency-sensitive and high-frequency writing.
 
 ## Basic operations
 
@@ -66,9 +62,10 @@ PROPERTIES (
 
 ### INSERT INTO VALUES
 
+* async_mode
 ```sql
-# Config session variable to enable the group commit, the default value is false
-mysql> set enable_insert_group_commit = true;
+# Config session variable to enable the async group commit, the default value is off_mode
+mysql> set group_commit = async_mode;
 
 # The retured label is start with 'group_commit', which is the label of the real load job
 mysql> insert into dt values(1, 'Bob', 90), (2, 'Alice', 99);
@@ -96,18 +93,49 @@ mysql> select * from dt;
 3 rows in set (0.02 sec)
 ```
 
+* sync_mode
+```sql
+# Config session variable to enable the sync group commit
+mysql> set group_commit = sync_mode;
+
+# The retured label is start with 'group_commit', which is the label of the real load job. 
+# The insert costs at least the group_commit_interval_ms of table property.
+mysql> insert into dt values(4, 'Bob', 90), (5, 'Alice', 99);
+Query OK, 2 rows affected (10.06 sec)
+{'label':'group_commit_d84ab96c09b60587_ec455a33cb0e9e87', 'status':'PREPARE', 'txnId':'3007', 'query_id':'fc6b94085d704a94-a69bfc9a202e66e2'}
+
+# The data is visible after the insert is returned
+mysql> select * from dt;
++------+-------+-------+
+| id   | name  | score |
++------+-------+-------+
+|    1 | Bob   |    90 |
+|    2 | Alice |    99 |
+|    3 | John  |  NULL |
+|    4 | Bob   |    90 |
+|    5 | Alice |    99 |
++------+-------+-------+
+5 rows in set (0.03 sec)
+```
+
+* off_mode
+```sql
+mysql> set group_commit = off_mode;
+```
+
 ### Stream Load
 
 If the content of `data.csv` is:
 ```sql
-4,Amy,60
-5,Ross,98
+6,Amy,60
+7,Ross,98
 ```
 
+* async_mode
 ```sql
-# Add 'group_commit:true' configuration in the http header
+# Add 'group_commit:async_mode' configuration in the http header
 
-curl --location-trusted -u {user}:{passwd} -T data.csv -H "group_commit:true"  -H "column_separator:,"  http://{fe_host}:{http_port}/api/db/dt/_stream_load
+curl --location-trusted -u {user}:{passwd} -T data.csv -H "group_commit:async_mode"  -H "column_separator:,"  http://{fe_host}:{http_port}/api/db/dt/_stream_load
 {
     "TxnId": 7009,
     "Label": "group_commit_c84d2099208436ab_96e33fda01eddba8",
@@ -130,14 +158,42 @@ curl --location-trusted -u {user}:{passwd} -T data.csv -H "group_commit:true"  -
 # The retured label is start with 'group_commit', which is the label of the real load job
 ```
 
+* sync_mode
+```sql
+# Add 'group_commit:sync_mode' configuration in the http header
+
+curl --location-trusted -u {user}:{passwd} -T data.csv -H "group_commit:sync_mode"  -H "column_separator:,"  http://{fe_host}:{http_port}/api/db/dt/_stream_load
+{
+    "TxnId": 3009,
+    "Label": "group_commit_d941bf17f6efcc80_ccf4afdde9881293",
+    "Comment": "",
+    "GroupCommit": true,
+    "Status": "Success",
+    "Message": "OK",
+    "NumberTotalRows": 2,
+    "NumberLoadedRows": 2,
+    "NumberFilteredRows": 0,
+    "NumberUnselectedRows": 0,
+    "LoadBytes": 19,
+    "LoadTimeMs": 10044,
+    "StreamLoadPutTimeMs": 4,
+    "ReadDataTimeMs": 0,
+    "WriteDataTimeMs": 10038
+}
+
+# The returned 'GroupCommit' is 'true', which means this is a group commit load
+# The retured label is start with 'group_commit', which is the label of the real load job
+```
+
 See [Stream Load](stream-load-manual.md) for more detailed syntax used by **Stream Load**.
 
 ### Http Stream
 
+* async_mode
 ```sql
-# Add 'group_commit:true' configuration in the http header
+# Add 'group_commit:async_mode' configuration in the http header
 
-curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:true" -H "sql:insert into db.dt select * from http_stream('column_separator'=',', 'format' = 'CSV')"  http://{fe_host}:{http_port}/api/_http_stream
+curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:async_mode" -H "sql:insert into db.dt select * from http_stream('column_separator'=',', 'format' = 'CSV')"  http://{fe_host}:{http_port}/api/_http_stream
 {
     "TxnId": 7011,
     "Label": "group_commit_3b45c5750d5f15e5_703428e462e1ebb0",
@@ -160,6 +216,33 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:true" -
 # The retured label is start with 'group_commit', which is the label of the real load job
 ```
 
+* sync_mode
+```sql
+# Add 'group_commit:sync_mode' configuration in the http header
+
+curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mode" -H "sql:insert into db.dt select * from http_stream('column_separator'=',', 'format' = 'CSV')"  http://{fe_host}:{http_port}/api/_http_stream
+{
+    "TxnId": 3011,
+    "Label": "group_commit_fe470e6752aadbe6_a8f3ac328b02ea91",
+    "Comment": "",
+    "GroupCommit": true,
+    "Status": "Success",
+    "Message": "OK",
+    "NumberTotalRows": 2,
+    "NumberLoadedRows": 2,
+    "NumberFilteredRows": 0,
+    "NumberUnselectedRows": 0,
+    "LoadBytes": 19,
+    "LoadTimeMs": 10066,
+    "StreamLoadPutTimeMs": 31,
+    "ReadDataTimeMs": 32,
+    "WriteDataTimeMs": 10034
+}
+
+# The returned 'GroupCommit' is 'true', which means this is a group commit load
+# The retured label is start with 'group_commit', which is the label of the real load job
+```
+
 See [Stream Load](stream-load-manual.md) for more detailed syntax used by **Http Stream**.
 
 ### Use `PreparedStatement`
@@ -172,19 +255,19 @@ To reduce the CPU cost of SQL parsing and query planning, we provide the `Prepar
 url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
 ```
 
-2. Enable `enable_insert_group_commit` session variable, there are two ways to do it:
+2. Set `group_commit` session variable, there are two ways to do it:
 
-* Add `sessionVariables=enable_insert_group_commit=true` in JDBC url
+* Add `sessionVariables=group_commit=async_mode` in JDBC url
 
 ```
-url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=enable_insert_group_commit=true
+url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=group_commit=async_mode
 ```
 
-*Use `SET enable_insert_group_commit = true;` command
+* Use `SET group_commit = async_mode;` command
 
 ```
 try (Statement statement = conn.createStatement()) {
-    statement.execute("SET enable_insert_group_commit = true;");
+    statement.execute("SET group_commit = async_mode;");
 }
 ```
 
@@ -204,9 +287,9 @@ private static final int INSERT_BATCH_SIZE = 10;
 private static void groupCommitInsert() throws Exception {
     Class.forName(JDBC_DRIVER);
     try (Connection conn = DriverManager.getConnection(String.format(URL_PATTERN, HOST, PORT, DB), USER, PASSWD)) {
-        // enable session variable 'enable_insert_group_commit'
+        // set session variable 'group_commit'
         try (Statement statement = conn.createStatement()) {
-            statement.execute("SET enable_insert_group_commit = true;");
+            statement.execute("SET group_commit = async_mode;");
         }
 
         String query = "insert into " + TBL + " values(?, ?, ?)";
@@ -227,9 +310,9 @@ private static void groupCommitInsert() throws Exception {
 private static void groupCommitInsertBatch() throws Exception {
     Class.forName(JDBC_DRIVER);
     // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
-    // enable session variables by sessionVariables=enable_insert_group_commit=true in JDBC url
+    // set session variables by sessionVariables=group_commit=async_mode in JDBC url
     try (Connection conn = DriverManager.getConnection(
-            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=enable_insert_group_commit=true", HOST, PORT, DB), USER, PASSWD)) {
+            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)) {
 
         String query = "insert into " + TBL + " values(?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(query)) {
@@ -252,30 +335,81 @@ private static void groupCommitInsertBatch() throws Exception {
 
 See [Synchronize Data Using Insert Method](../import-scenes/jdbc-load.md) for more details about **JDBC**.
 
+## Modify the group commit interval
+
+The default group commit interval is 10 seconds. Users can modify the configuration of the table:
+
+```sql
+# Modify the group commit interval to 2 seconds
+ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
+```
+
+## Limitations
+
+* When the group commit is enabled, some `INSERT INTO VALUES` sqls are not executed in the group commit way if they meet the following conditions:
+
+  * Transaction insert, such as `BEGIN`, `INSERT INTO VALUES`, `COMMIT`
+
+  * Specify the label, such as `INSERT INTO dt WITH LABEL {label} VALUES`
+
+  * Expressions within VALUES, such as `INSERT INTO dt VALUES (1 + 100)`
+
+  * Column update
+
+  * Tables that do not support light schema changes
+
+* When the group commit is enabled, some `Stream Load` and `Http Stream` are not executed in the group commit way if they meet the following conditions:
+
+  * Two phase commit
+
+  * Specify the label
+
+  * Column update
+
+  * Tables that do not support light schema changes
+
+* For unique table, because the group commit can not guarantee the commit order, users can use sequence column to ensure the data consistency.
+
+* The limit of `max_filter_ratio`
+
+  * For non group commit load, filter_ratio is calculated by the failed rows and total rows when load is finished, if the filter_ratio does not match, the transaction will not commit
+
+  * In the group commit mode, multiple user loads are executed through a single internal load. The internal load will commit all user loads.
+
+  * Currently, group commit supports a certain degree of max_filter_ratio semantics. When the total number of rows does not exceed group_commit_memory_rows_for_max_filter_ratio (configured in be.conf, defaulting to 10000 rows), max_filter_ratio will work.
+
+* The limit of WAL
+
+  * For async_mode group commit, data is written to the Write Ahead Log (WAL). If the internal load succeeds, the WAL is immediately deleted. If the internal load fails, data is recovery by importing the WAL.
+
+  * Currently, WAL files are stored only on one Backend (BE). If the BE's disk is damaged or the file is mistakenly deleted, it may result in the loss of data.
+
+  * When decommissioning a BE node, please use the [`DECOMMISSION`](../../../sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND.md) command to safely decommission the node. This prevents potential data loss if the WAL files are not processed before the node is taken offline.
+
+  * For async_mode group commit writes, to protect disk space, it switches to sync_mode under the following conditions:
+
+    * Exceeding 80% of the disk space in a single directory of WAL due to large data import. 
+
+    * Chunked stream loads with an unknown data amount.
+
+    * Insufficient disk space, even with a relatively small import.
+
+  * During hard weight schema changes (adding or dropping columns, modifying varchar length, and renaming columns are considered lightweight schema changes, others are hard weight), to ensure WAL file is compatibility with the table's schema, the final stage of metadata modification in FE will reject group commit writes. Clients get `insert table ${table_name} is blocked on schema change` exception and can retry the operation
+
 ## Relevant system configuration
-
-### Session variable
-
-+ enable_insert_group_commit
-
-  If this configuration is true, FE will judge whether the `INSERT INTO VALUES` can be group commit, the conditions are as follows:
-  + Not a transaction insert, as `Begin`; `INSERT INTO VALUES`; `COMMIT`
-  + Not specifying partition, as `INSERT INTO dt PARTITION()`
-  + Not specifying label, as `INSERT INTO dt WITH LABEL {label} VALUES`
-  + VALUES does not contain any expression, as `INSERT INTO dt VALUES (1 + 100)`
-
-  The default value is false, use `SET enable_insert_group_commit = true;` command to enable it.
 
 ### BE configuration
 
-+ group_commit_interval_ms
+#### `group_commit_wal_path`
 
-  The time interval of the internal group commit load job will stop and start a new internal job, the default value is 10000 milliseconds.
-
-+ group_commit_replay_wal_dir
-
-  The directory for storing WAL files. By default, a directory named `wal` is created under each directory of the `storage_root_path`. Users don't need to configure this if there is no special requirement. Configuration examples:
-
+* The `WAL` directory of group commit.
+* Default: A directory named `wal` is created under each directory of the `storage_root_path`. Configuration examples:
   ```
-  group_commit_replay_wal_dir=/data1/storage/wal,/data2/storage/wal,/data3/storage/wal
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
   ```
+
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* Description: The `max_filter_ratio` limit can only work if the total rows of `group commit` is less than this value.
+* Default: 10000
+

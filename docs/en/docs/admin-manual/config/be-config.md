@@ -1511,16 +1511,15 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true
 
-#### `group_commit_interval_ms`
+#### `group_commit_wal_path`
 
-* Description: The interval in milliseconds of the internal group commit load job will stop and start a new internal job. See [Group Commit](../../data-operate/import/import-way/group-commit-manual.md) for more details
-* Default: 10000
-
-#### `group_commit_replay_wal_dir`
-
-* Description: The `WAL` directory of group commit. See [Group Commit](../../data-operate/import/import-way/group-commit-manual.md) for more details
+* The `WAL` directory of group commit.
 * Default: A directory named `wal` is created under each directory of the `storage_root_path`. Configuration examples:
+  ```
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  ```
 
-  ```
-  group_commit_replay_wal_dir=/data1/storage/wal,/data2/storage/wal,/data3/storage/wal
-  ```
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* Description: The `max_filter_ratio` limit can only work if the total rows of `group commit` is less than this value. See [Group Commit](../../data-operate/import/import-way/group-commit-manual.md) for more details
+* Default: 10000
