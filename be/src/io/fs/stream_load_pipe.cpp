@@ -242,7 +242,6 @@ Status StreamLoadPipe::finish() {
 void StreamLoadPipe::cancel(const std::string& reason) {
     {
         std::lock_guard<std::mutex> l(_lock);
-        LOG(INFO) << Status::InternalError("you cancelled");
         _cancelled = true;
         _cancelled_reason = reason;
     }

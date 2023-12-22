@@ -64,10 +64,6 @@ bool ScanOperator::can_read() {
     }
 }
 
-bool ScanOperator::is_pending_finish() const {
-    return false;
-}
-
 Status ScanOperator::try_close(RuntimeState* state) {
     return _node->try_close(state);
 }
