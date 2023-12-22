@@ -19,6 +19,7 @@
 
 #include <aws/core/Aws.h>
 #include <aws/core/client/ClientConfiguration.h>
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 #include <stdint.h>
