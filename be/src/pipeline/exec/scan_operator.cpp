@@ -64,10 +64,6 @@ bool ScanOperator::can_read() {
     }
 }
 
-Status ScanOperator::try_close(RuntimeState* state) {
-    return _node->try_close(state);
-}
-
 bool ScanOperator::runtime_filters_are_ready_or_timeout() {
     return _node->runtime_filters_are_ready_or_timeout();
 }
