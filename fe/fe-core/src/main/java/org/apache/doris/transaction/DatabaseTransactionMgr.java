@@ -1177,7 +1177,8 @@ public class DatabaseTransactionMgr {
         if (needLog) {
             transactionState.setLastPublishLogTime(now);
             for (String log : logs) {
-                LOG.info("{}. publish times {}", log, transactionState.getPublishCount());
+                LOG.info("{}. publish times {}, whole txn publish result {}",
+                        log, transactionState.getPublishCount(), publishResult.name());
             }
         }
 
