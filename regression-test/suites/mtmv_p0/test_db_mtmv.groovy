@@ -18,8 +18,9 @@
 suite("test_db_mtmv") {
     def tableName = "t_test_db_mtmv_user"
     def mvName = "multi_mv_test_db_mtmv"
-    def dbName = "regression_test_mtmv_dropdb"
+    def dbName = "regression_test_mtmv_db"
     sql """drop database if exists `${dbName}`"""
+    sql """create database `${dbName}`"""
     sql """use `${dbName}`"""
 
     sql """
