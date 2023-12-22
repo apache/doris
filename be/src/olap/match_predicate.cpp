@@ -95,6 +95,12 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
     case MatchType::MATCH_PHRASE:
         ret = InvertedIndexQueryType::MATCH_PHRASE_QUERY;
         break;
+    case MatchType::MATCH_PHRASE_PREFIX:
+        ret = InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY;
+        break;
+    case MatchType::MATCH_REGEXP:
+        ret = InvertedIndexQueryType::MATCH_REGEXP_QUERY;
+        break;
     case MatchType::MATCH_ELEMENT_EQ:
         ret = InvertedIndexQueryType::EQUAL_QUERY;
         break;
@@ -117,7 +123,7 @@ InvertedIndexQueryType MatchPredicate::_to_inverted_index_query_type(MatchType m
 }
 
 bool MatchPredicate::_skip_evaluate(InvertedIndexIterator* iterator) const {
-    if (_match_type == MatchType::MATCH_PHRASE &&
+    if ((_match_type == MatchType::MATCH_PHRASE || _match_type == MatchType::MATCH_PHRASE_PREFIX) &&
         iterator->get_inverted_index_reader_type() == InvertedIndexReaderType::FULLTEXT &&
         get_parser_phrase_support_string_from_properties(iterator->get_index_properties()) ==
                 INVERTED_INDEX_PARSER_PHRASE_SUPPORT_NO) {

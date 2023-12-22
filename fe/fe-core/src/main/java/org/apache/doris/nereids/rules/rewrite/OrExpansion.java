@@ -15,15 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.rules.exploration;
+package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
+import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -72,7 +73,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
 
     @Override
     public Rule build() {
-        return logicalJoin().when(JoinUtils::shouldNestedLoopJoin)
+        return logicalJoin(any(), any()).when(JoinUtils::shouldNestedLoopJoin)
                 .when(join -> supportJoinType.contains(join.getJoinType())
                         && ConnectContext.get().getSessionVariable().getEnablePipelineEngine())
                 .thenApply(ctx -> {
@@ -82,7 +83,7 @@ public class OrExpansion extends OneExplorationRuleFactory {
 
                     //1. Try to split or conditions
                     Pair<List<Expression>, List<Expression>> hashOtherConditions = splitOrCondition(join);
-                    if (hashOtherConditions == null) {
+                    if (hashOtherConditions == null || hashOtherConditions.first.size() <= 1) {
                         return join;
                     }
 
@@ -221,7 +222,11 @@ public class OrExpansion extends OneExplorationRuleFactory {
             LogicalCTEProducer<? extends Plan> rightProducer) {
         List<Expression> disjunctions = hashOtherConditions.first;
         List<Expression> otherConditions = hashOtherConditions.second;
-        List<Expression> notExprs = disjunctions.stream().map(Not::new).collect(Collectors.toList());
+        // For null values, equalTo and not equalTo both return false
+        // To avoid it, we always return true when there is null
+        List<Expression> notExprs = disjunctions.stream()
+                .map(e -> ExpressionUtils.or(new Not(e), new IsNull(e)))
+                .collect(ImmutableList.toImmutableList());
         List<Plan> joins = Lists.newArrayList();
 
         for (int hashCondIdx = 0; hashCondIdx < disjunctions.size(); hashCondIdx++) {

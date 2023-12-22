@@ -207,6 +207,8 @@ public abstract class DataType implements AbstractDataType {
             case "date":
                 return Config.enable_date_conversion && tryConvert ? DateV2Type.INSTANCE
                         : DateType.INSTANCE;
+            case "datev1":
+                return DateType.INSTANCE;
             case "datev2":
                 return DateV2Type.INSTANCE;
             case "time":
@@ -219,6 +221,15 @@ public abstract class DataType implements AbstractDataType {
                                 : DateTimeType.INSTANCE;
                     case 2:
                         return DateTimeV2Type.of(Integer.parseInt(types.get(1)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
+            case "datetimev1":
+                switch (types.size()) {
+                    case 1:
+                        return DateTimeType.INSTANCE;
+                    case 2:
+                        throw new AnalysisException("Nereids do not support datetimev1 type with precision");
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }

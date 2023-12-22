@@ -312,7 +312,7 @@ booleanExpression
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -440,7 +440,7 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                          #typeConstructor
+    | type=(DATE | DATEV1 | DATEV2 | TIMESTAMP) STRING_LITERAL                                 #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
     | STRING_LITERAL                                                                           #stringLiteral

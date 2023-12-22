@@ -78,6 +78,7 @@ import org.apache.doris.nereids.rules.rewrite.MergeOneRowRelationIntoUnion;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
 import org.apache.doris.nereids.rules.rewrite.MergeSetOperations;
 import org.apache.doris.nereids.rules.rewrite.NormalizeSort;
+import org.apache.doris.nereids.rules.rewrite.OrExpansion;
 import org.apache.doris.nereids.rules.rewrite.PruneEmptyPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
@@ -377,6 +378,8 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topic("rewrite cte sub-tree",
                         custom(RuleType.REWRITE_CTE_CHILDREN, () -> new RewriteCteChildren(jobs))
                 ),
+                topic("or expansion",
+                        topDown(new OrExpansion())),
                 topic("whole plan check",
                         custom(RuleType.ADJUST_NULLABLE, AdjustNullable::new)
                 )

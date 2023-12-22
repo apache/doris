@@ -21,6 +21,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -36,6 +37,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 
@@ -259,6 +262,26 @@ public class NereidsParserTest extends ParserTestBase {
                 .mapToLong(e -> e.<Set<DecimalLiteral>>collect(DecimalLiteral.class::isInstance).size())
                 .sum();
         Assertions.assertEquals(doubleCount, Config.enable_decimal_conversion ? 0 : 1);
+    }
+
+    @Test
+    public void testDatev1() {
+        String dv1 = "SELECT CAST('2023-12-18' AS DATEV1) FROM t";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(dv1).child(0);
+        Assertions.assertEquals(DateType.INSTANCE, logicalPlan.getExpressions().get(0).getDataType());
+    }
+
+    @Test
+    public void testDatetimev1() {
+        String dtv1 = "SELECT CAST('2023-12-18' AS DATETIMEV1) FROM t";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(dtv1).child(0);
+        Assertions.assertEquals(DateTimeType.INSTANCE, logicalPlan.getExpressions().get(0).getDataType());
+
+        String wrongDtv1 = "SELECT CAST('2023-12-18' AS DATETIMEV1(2))";
+        Assertions.assertThrows(AnalysisException.class, () -> nereidsParser.parseSingle(wrongDtv1).child(0));
+
     }
 
     @Test
