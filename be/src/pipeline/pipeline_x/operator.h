@@ -348,6 +348,10 @@ public:
 
     Dependency* dependency() override { return _dependency; }
 
+    auto dependency_sptr() {
+        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
+    }
+
 protected:
     DependencyType* _dependency = nullptr;
     typename DependencyType::SharedState* _shared_state = nullptr;
@@ -607,6 +611,10 @@ public:
     virtual std::string name_suffix() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
     Dependency* dependency() override { return _dependency; }
+
+    auto dependency_sptr() {
+        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
+    }
 
 protected:
     DependencyType* _dependency = nullptr;
