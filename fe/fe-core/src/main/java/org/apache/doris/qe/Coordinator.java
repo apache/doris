@@ -2048,8 +2048,8 @@ public class Coordinator implements CoordInterface {
                             instanceParam.perNodeSharedScans.put(planNodeId, sharedScan);
                             params.instanceExecParams.add(instanceParam);
                         }
-                        params.ignoreDataDistribution = sharedScan;
-                        params.parallelTasksNum = sharedScan ? 1 : params.instanceExecParams.size();
+                        params.ignoreDataDistribution = sharedScan && enablePipelineXEngine;
+                        params.parallelTasksNum = params.ignoreDataDistribution ? 1 : params.instanceExecParams.size();
                     }
                 }
             }
@@ -2926,8 +2926,8 @@ public class Coordinator implements CoordInterface {
                 }
             }
         }
-        params.parallelTasksNum = ignoreStorageDataDistribution ? 1 : params.instanceExecParams.size();
-        params.ignoreDataDistribution = ignoreStorageDataDistribution;
+        params.ignoreDataDistribution = ignoreStorageDataDistribution && enablePipelineXEngine;
+        params.parallelTasksNum = params.ignoreDataDistribution ? 1 : params.instanceExecParams.size();
     }
 
     private final Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdTobucketSeqToScanRangeMap = Maps.newHashMap();
