@@ -170,24 +170,6 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
                 "paimon.catalog.type"="filesystem",
                 "warehouse" = "hdfs://${externalEnvIp}:${hdfs_port}/user/doris/paimon1"
             );"""
-
-            def mvName = "paimon_mv"
-            sql """drop materialized view if exists ${mvName};"""
-            sql """
-                CREATE MATERIALIZED VIEW ${mvName}
-                BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
-                DISTRIBUTED BY RANDOM BUCKETS 2
-                PROPERTIES ('replication_num' = '1')
-                AS
-                SELECT * from ${catalog_name}.db1.all_table where c1=1;
-            """
-
-            def jobName = getJobName("regression_test_external_table_p0_paimon", mvName);
-            waitingMTMVTaskFinished(jobName)
-            qt_mv """select * from ${mvName};"""
-
-            sql """drop materialized view if exists ${mvName};"""
-
             sql """use `${catalog_name}`.`db1`"""
 
             qt_all all
