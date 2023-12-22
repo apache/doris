@@ -189,10 +189,8 @@ TEST(BlockSerializeTest, Map) {
     map.set_type(FieldType::OLAP_FIELD_TYPE_MAP);
     schema.append_column(map);
     // map string string
-    DataTypePtr s =
-            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-    DataTypePtr d =
-            std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+    DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
     DataTypePtr m = std::make_shared<DataTypeMap>(s, d);
     Array k1, k2, v1, v2;
     k1.push_back("null");
@@ -226,8 +224,8 @@ TEST(BlockSerializeTest, Map) {
     // serialize
     std::cout << "serialize to jsonb" << std::endl;
     JsonbSerializeUtil::block_to_jsonb(schema, block, static_cast<ColumnString&>(*col.get()),
-                                           block.columns(),
-                                           create_data_type_serdes(block.get_data_types()));
+                                       block.columns(),
+                                       create_data_type_serdes(block.get_data_types()));
     // deserialize
     TupleDescriptor read_desc(PTupleDescriptor(), true);
     // slot
@@ -274,14 +272,10 @@ TEST(BlockSerializeTest, Struct) {
     schema.append_column(struct_col);
     vectorized::Block block;
     {
-        DataTypePtr s =
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
-        DataTypePtr d =
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
-        DataTypePtr m =
-                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
-        DataTypePtr st =
-                std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
+        DataTypePtr s = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeString>());
+        DataTypePtr d = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt128>());
+        DataTypePtr m = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeUInt8>());
+        DataTypePtr st = std::make_shared<DataTypeStruct>(std::vector<DataTypePtr> {s, d, m});
         Tuple t1, t2;
         t1.push_back(String("amory cute"));
         t1.push_back(__int128_t(37));
