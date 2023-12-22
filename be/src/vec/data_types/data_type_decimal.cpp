@@ -50,7 +50,7 @@ std::string DataTypeDecimal<T>::do_get_name() const {
 template <typename T>
 bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
     if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs)) {
-        return scale == ptype->get_scale();
+        return precision == ptype->get_precision() && scale == ptype->get_scale();
     }
     return false;
 }
@@ -255,6 +255,24 @@ Int128 min_decimal_value<Decimal128>(UInt32 precision) {
            DataTypeDecimal<Decimal128>::get_scale_multiplier(
                    (UInt64)max_decimal_precision<Decimal128>() - precision);
 }
+
+template <>
+Decimal32 DataTypeDecimal<Decimal32>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i32(digit_count);
+}
+template <>
+Decimal64 DataTypeDecimal<Decimal64>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i64(digit_count);
+}
+template <>
+Decimal128 DataTypeDecimal<Decimal128>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i128(digit_count);
+}
+template <>
+Decimal128I DataTypeDecimal<Decimal128I>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i128(digit_count);
+}
+
 /// Explicit template instantiations.
 template class DataTypeDecimal<Decimal32>;
 template class DataTypeDecimal<Decimal64>;

@@ -15,20 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions.functions;
+suite("test_invalid_session") {
+    try {
+        sql "set parallel_pipeline_task_num = -1;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("parallel_pipeline_task_num value should greater than or equal 0, you set value is: -1"))
+    }
 
-import org.apache.doris.qe.ConnectContext;
-
-/**
- * if session variable check_overflow_for_decimal set to true, the expression's return always nullable
- */
-public interface CheckOverflowNullable extends PropagateNullable {
-    @Override
-    default boolean nullable() {
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
-            return true;
-        } else {
-            return PropagateNullable.super.nullable();
-        }
+    try {
+        sql "set parallel_fragment_exec_instance_num = 0;"
+    } catch (Exception ex) {
+        assert("${ex}".contains("parallel_fragment_exec_instance_num value should greater than or equal 1, you set value is: 0"))
     }
 }

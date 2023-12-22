@@ -361,8 +361,6 @@ public class AnalysisManager implements Writable {
         }
         recordAnalysisJob(jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
-        // TODO: maybe we should update table stats only when all task succeeded.
-        updateTableStats(jobInfo);
         if (!jobInfo.scheduleType.equals(ScheduleType.PERIOD)) {
             analysisTaskInfos.values().forEach(taskExecutor::submitTask);
         }
@@ -719,8 +717,9 @@ public class AnalysisManager implements Writable {
             tableStats.reset();
         } else {
             dropStatsStmt.getColumnNames().forEach(tableStats::removeColumn);
+            StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
             for (String col : cols) {
-                Env.getCurrentEnv().getStatisticsCache().invalidate(tblId, -1L, col);
+                statisticsCache.syncInvalidate(tblId, -1L, col);
             }
             tableStats.updatedTime = 0;
         }
@@ -734,9 +733,10 @@ public class AnalysisManager implements Writable {
             return;
         }
         Set<String> cols = table.getBaseSchema().stream().map(Column::getName).collect(Collectors.toSet());
+        StatisticsCache statisticsCache = Env.getCurrentEnv().getStatisticsCache();
         for (String col : cols) {
             tableStats.removeColumn(col);
-            Env.getCurrentEnv().getStatisticsCache().invalidate(table.getId(), -1L, col);
+            statisticsCache.syncInvalidate(table.getId(), -1L, col);
         }
         tableStats.updatedTime = 0;
         logCreateTableStats(tableStats);

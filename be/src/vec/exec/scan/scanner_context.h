@@ -102,6 +102,11 @@ public:
     void set_should_stop() {
         std::lock_guard l(_transfer_lock);
         _should_stop = true;
+        for (const VScannerWPtr& scanner : _scanners_ref) {
+            if (VScannerSPtr sc = scanner.lock()) {
+                sc->try_stop();
+            }
+        }
         _blocks_queue_added_cv.notify_one();
     }
 
@@ -244,6 +249,8 @@ protected:
     // Not need to protect by lock, because only one scheduler thread will access to it.
     doris::Mutex _scanners_lock;
     std::list<VScannerSPtr> _scanners;
+    // weak pointer for _scanners, used in stop function
+    std::vector<VScannerWPtr> _scanners_ref;
     std::vector<int64_t> _finished_scanner_runtime;
     std::vector<int64_t> _finished_scanner_rows_read;
     std::vector<int64_t> _finished_scanner_wait_worker_time;

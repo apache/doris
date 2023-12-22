@@ -219,7 +219,7 @@ suite("add_drop_partition") {
     """
 
     try_sql """
-    create storage policy tmp_policy
+    create storage policy IF NOT EXISTS add_policy
     PROPERTIES( "storage_resource" = "add_resource", "cooldown_ttl" = "300");
     """
 
@@ -264,7 +264,7 @@ suite("add_drop_partition") {
     }
 
     sql """
-    sql * from ${tableName}
+    select * from ${tableName}
     """
 
     sql """
@@ -272,17 +272,14 @@ suite("add_drop_partition") {
     """
 
     sql """
-    drop storage policy add_policy;
+    drop storage policy IF EXISTS add_policy;
     """
 
     sql """
-    drop storage policy add_policy1;
+    drop storage policy IF EXISTS add_policy1;
     """
 
     sql """
-    drop resource add_resource;
+    drop resource IF EXISTS add_resource;
     """
-
-
-
 }

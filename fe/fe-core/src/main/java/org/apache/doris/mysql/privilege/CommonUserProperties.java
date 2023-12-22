@@ -41,6 +41,8 @@ public class CommonUserProperties implements Writable {
     // The maximum total number of query instances that the user is allowed to send from this FE
     @SerializedName("maxQueryInstances")
     private long maxQueryInstances = -1;
+    @SerializedName("parallelFragmentExecInstanceNum")
+    private int parallelFragmentExecInstanceNum = -1;
     @SerializedName("sqlBlockRules")
     private String sqlBlockRules = "";
     @SerializedName("cpuResourceLimit")
@@ -71,6 +73,10 @@ public class CommonUserProperties implements Writable {
         return maxQueryInstances;
     }
 
+    int getParallelFragmentExecInstanceNum() {
+        return parallelFragmentExecInstanceNum;
+    }
+
     String getSqlBlockRules() {
         return sqlBlockRules;
     }
@@ -85,6 +91,10 @@ public class CommonUserProperties implements Writable {
 
     void setMaxQueryInstances(long maxQueryInstances) {
         this.maxQueryInstances = maxQueryInstances;
+    }
+
+    void setParallelFragmentExecInstanceNum(int parallelFragmentExecInstanceNum) {
+        this.parallelFragmentExecInstanceNum = parallelFragmentExecInstanceNum;
     }
 
     void setSqlBlockRules(String sqlBlockRules) {
@@ -110,10 +120,6 @@ public class CommonUserProperties implements Writable {
     }
 
     public Set<Tag> getResourceTags() {
-        // If resource tags in user properties is empty, use default backend tag.
-        if (resourceTags.isEmpty()) {
-            return Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
-        }
         return resourceTags;
     }
 

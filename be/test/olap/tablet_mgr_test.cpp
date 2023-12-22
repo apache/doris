@@ -107,6 +107,7 @@ TEST_F(TabletMgrTest, CreateTablet) {
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
     create_tablet_req.__set_version(2);
+    create_tablet_req.__set_partition_id(1000);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
     RuntimeProfile profile("CreateTablet");
@@ -167,6 +168,7 @@ TEST_F(TabletMgrTest, CreateTabletWithSequence) {
     TCreateTabletReq create_tablet_req;
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
+    create_tablet_req.__set_partition_id(1000);
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);
@@ -210,6 +212,7 @@ TEST_F(TabletMgrTest, DropTablet) {
     TCreateTabletReq create_tablet_req;
     create_tablet_req.__set_tablet_schema(tablet_schema);
     create_tablet_req.__set_tablet_id(111);
+    create_tablet_req.__set_partition_id(1000);
     create_tablet_req.__set_version(2);
     std::vector<DataDir*> data_dirs;
     data_dirs.push_back(_data_dir);

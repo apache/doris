@@ -559,8 +559,14 @@ set(COMMON_THIRDPARTY
     xml2
     lzma
     simdjson
-    deflate
 )
+
+if (ARCH_AMD64)
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        deflate
+    )
+endif()
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
     add_library(hadoop_hdfs STATIC IMPORTED)
@@ -733,7 +739,7 @@ set(BUILD_SHARED_LIBS OFF)
 
 option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
 if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE")
 endif ()
 
 if (${MAKE_TEST} STREQUAL "ON")

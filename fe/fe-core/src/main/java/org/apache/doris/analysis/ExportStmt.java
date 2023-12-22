@@ -122,8 +122,16 @@ public class ExportStmt extends StatementBase {
         this.lineDelimiter = DEFAULT_LINE_DELIMITER;
         this.timeout = DEFAULT_TIMEOUT;
         this.columns = DEFAULT_COLUMNS;
-        this.sessionVariables = VariableMgr.cloneSessionVariable(Optional.ofNullable(
-                ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
+
+        // The ExportStmt may be created in replay thread, there is no ConnectionContext
+        // in replay thread, so we need to clone session variable from default session variable.
+        if (ConnectContext.get() != null) {
+            this.sessionVariables = VariableMgr.cloneSessionVariable(Optional.ofNullable(
+                    ConnectContext.get().getSessionVariable()).orElse(VariableMgr.getDefaultSessionVariable()));
+        } else {
+            this.sessionVariables = VariableMgr.cloneSessionVariable(VariableMgr.getDefaultSessionVariable());
+        }
+
     }
 
     public String getColumns() {
@@ -255,7 +263,7 @@ public class ExportStmt extends StatementBase {
             if (partitionStringNames == null) {
                 return;
             }
-            if (!table.isPartitioned()) {
+            if (!table.isPartitionedTable()) {
                 throw new AnalysisException("Table[" + tblName.getTbl() + "] is not partitioned.");
             }
             Table.TableType tblType = table.getType();

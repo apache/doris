@@ -28,7 +28,6 @@ class ScannerContext;
 namespace taskgroup {
 
 using WorkFunction = std::function<void()>;
-static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 
 // Like PriorityThreadPool::Task
 struct ScanTask {
