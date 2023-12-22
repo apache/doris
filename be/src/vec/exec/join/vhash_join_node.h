@@ -425,6 +425,7 @@ private:
 
     std::vector<IRuntimeFilter*> _runtime_filters;
     size_t _build_bf_cardinality = 0;
+    std::vector<int> _build_col_ids;
 };
 } // namespace vectorized
 } // namespace doris
