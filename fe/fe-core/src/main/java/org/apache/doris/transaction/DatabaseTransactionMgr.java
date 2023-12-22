@@ -1837,10 +1837,12 @@ public class DatabaseTransactionMgr {
                                     transactionState.getTransactionId(), partitionCommitInfo.getVersion(),
                                     tableId, partitionId, tablet.getId(), tabletSuccReplicas.size(),
                                     Joiner.on(", ").join(tabletSuccReplicas.stream()
-                                            .map(replica -> replica.toStringSimple(true))),
+                                            .map(replica -> replica.toStringSimple(true))
+                                            .collect(Collectors.toList())),
                                     tabletFailedReplicas.size(),
                                     Joiner.on(", ").join(tabletFailedReplicas.stream()
-                                            .map(replica -> replica.toStringSimple(true))));
+                                            .map(replica -> replica.toStringSimple(true))
+                                            .collect(Collectors.toList())));
                         }
                     }
                 }
