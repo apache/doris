@@ -126,7 +126,6 @@ public:
 
     void incr_num_ctx_scheduling(int64_t num) { _scanner_ctx_sched_counter->update(num); }
     void incr_ctx_scheduling_time(int64_t num) { _scanner_ctx_sched_time->update(num); }
-    void incr_num_scanner_scheduling(int64_t num) { _scanner_sched_counter->update(num); }
 
     std::string parent_name();
 

@@ -500,6 +500,8 @@ void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDel
 void ScannerContext::get_next_batch_of_scanners(
         std::list<std::weak_ptr<ScannerDelegate>>* current_run) {
     std::lock_guard l(_transfer_lock);
+    // Update the sched counter for profile
+    Defer defer {[&]() { _scanner_sched_counter->update(current_run->size()); }};
     // 1. Calculate how many scanners should be scheduled at this run.
     // If there are enough space in blocks queue,
     // the scanner number depends on the _free_blocks numbers

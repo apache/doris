@@ -180,10 +180,6 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
     watch.reset();
     watch.start();
     ctx->incr_num_ctx_scheduling(1);
-    size_t size = 0;
-    // Not move this code, it has to be here.!!!! because it need to modify schedule ctx and running
-    // scanners, two variables.
-    Defer defer {[&]() { ctx->incr_num_scanner_scheduling(size); }};
 
     if (ctx->done()) {
         return;
@@ -191,8 +187,7 @@ void ScannerScheduler::_schedule_scanners(std::shared_ptr<ScannerContext> ctx) {
 
     std::list<std::weak_ptr<ScannerDelegate>> this_run;
     ctx->get_next_batch_of_scanners(&this_run);
-    size = this_run.size();
-    if (!size) {
+    if (this_run.empty()) {
         // There will be 2 cases when this_run is empty:
         // 1. The blocks queue reaches limit.
         //      The consumer will continue scheduling the ctx.
