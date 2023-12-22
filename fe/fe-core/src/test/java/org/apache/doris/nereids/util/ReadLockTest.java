@@ -108,20 +108,26 @@ public class ReadLockTest extends SSBTestBase {
     }
 
     @Test
-    public void testInserInto() {
+    public void testInsertInto() {
         String sql = "INSERT INTO supplier(s_suppkey) SELECT lo_orderkey FROM lineorder";
         StatementContext statementContext = MemoTestUtils.createStatementContext(connectContext, sql);
-        InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) parser.parseSingle(sql);
-        NereidsPlanner planner = new NereidsPlanner(statementContext);
-        planner.plan(
-                (LogicalPlan) insertIntoTableCommand.getExplainPlan(connectContext),
-                PhysicalProperties.ANY
-        );
-        CascadesContext cascadesContext = planner.getCascadesContext();
-        List<TableIf> f = cascadesContext.getTables();
-        Assertions.assertEquals(2, f.size());
-        Set<String> tableNames = f.stream().map(TableIf::getName).collect(Collectors.toSet());
-        Assertions.assertTrue(tableNames.contains("supplier"));
-        Assertions.assertTrue(tableNames.contains("lineorder"));
+        boolean originalDML = connectContext.getSessionVariable().enableNereidsDML;
+        connectContext.getSessionVariable().enableNereidsDML = true;
+        try {
+            InsertIntoTableCommand insertIntoTableCommand = (InsertIntoTableCommand) parser.parseSingle(sql);
+            NereidsPlanner planner = new NereidsPlanner(statementContext);
+            planner.plan(
+                    (LogicalPlan) insertIntoTableCommand.getExplainPlan(connectContext),
+                    PhysicalProperties.ANY
+            );
+            CascadesContext cascadesContext = planner.getCascadesContext();
+            List<TableIf> f = cascadesContext.getTables();
+            Assertions.assertEquals(2, f.size());
+            Set<String> tableNames = f.stream().map(TableIf::getName).collect(Collectors.toSet());
+            Assertions.assertTrue(tableNames.contains("supplier"));
+            Assertions.assertTrue(tableNames.contains("lineorder"));
+        } finally {
+            connectContext.getSessionVariable().enableNereidsDML = originalDML;
+        }
     }
 }
