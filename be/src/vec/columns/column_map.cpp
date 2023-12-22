@@ -220,7 +220,7 @@ StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char con
 
 const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
     size_t array_size = unaligned_load<size_t>(pos);
-    pos += 2 * sizeof(array_size);
+    pos += sizeof(array_size);
 
     for (size_t i = 0; i < array_size; ++i) {
         pos = get_keys().deserialize_and_insert_from_arena(pos);
