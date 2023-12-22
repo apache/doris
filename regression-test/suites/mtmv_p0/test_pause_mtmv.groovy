@@ -44,14 +44,16 @@ suite("test_pause_mtmv") {
         AS 
         SELECT * FROM ${tableName};
     """
-    order_qt_status_init "select Status  from jobs('type'='mv') where Name='${mvName}'"
+    def jobName = getJobName("regression_test_mtmv_p0", mvName);
+    order_qt_status_init "select Status  from jobs('type'='mv') where Name='${jobName}'"
      sql """
         PAUSE MATERIALIZED VIEW ${mvName}
     """
-    order_qt_status_pause "select Status  from jobs('type'='mv') where Name='${mvName}'"
+    order_qt_status_pause "select Status  from jobs('type'='mv') where Name='${jobName}'"
      sql """
         RESUME MATERIALIZED VIEW ${mvName}
     """
+    order_qt_status_resume "select Status  from jobs('type'='mv') where Name='${jobName}'"
     sql """
         DROP MATERIALIZED VIEW ${mvName}
     """
