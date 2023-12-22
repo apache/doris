@@ -980,12 +980,6 @@ BaseCompaction:546859:
 * Description: Interval in milliseconds between memtable flush mgr refresh iterations
 * Default value: 100
 
-#### `download_cache_buffer_size`
-
-* Type: int64
-* Description: The size of the buffer used to receive data when downloading the cache.
-* Default value: 10485760
-
 #### `zone_map_row_num_threshold`
 
 * Type: int32
