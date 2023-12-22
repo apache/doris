@@ -819,23 +819,23 @@ suite("load") {
     '''
 
 sql '''
-alter table customer add constraint customer_pk_${database} primary key (c_customer_sk);
+alter table customer add constraint customer_pk primary key (c_customer_sk);
 '''
 
 sql '''
-alter table customer add constraint customer_uk_${database} unique (c_customer_id);
+alter table customer add constraint customer_uk unique (c_customer_id);
 '''
    
 sql '''
-alter table store_sales add constraint ss_fk_${database} foreign key(ss_customer_sk) references customer(c_customer_sk);
+alter table store_sales add constraint ss_fk foreign key(ss_customer_sk) references customer(c_customer_sk);
 '''
 
 sql '''
-alter table web_sales add constraint ws_fk_${database} foreign key(ws_bill_customer_sk) references customer(c_customer_sk);
+alter table web_sales add constraint ws_fk foreign key(ws_bill_customer_sk) references customer(c_customer_sk);
 '''
 
 sql '''
-alter table catalog_sales add constraint cs_fk_${database} foreign key(cs_bill_customer_sk) references customer(c_customer_sk);
+alter table catalog_sales add constraint cs_fk foreign key(cs_bill_customer_sk) references customer(c_customer_sk);
 '''
 
 sql """
