@@ -38,6 +38,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_compound_directory.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
@@ -338,7 +339,8 @@ Status BetaRowset::copy_files_to(const std::string& dir, const RowsetId& new_row
     return Status::OK();
 }
 
-Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_rowset_id) {
+Status BetaRowset::upload_to(const io::RemoteFileSystemSPtr& dest_fs,
+                             const RowsetId& new_rowset_id) {
     DCHECK(is_local());
     if (num_segments() < 1) {
         return Status::OK();
@@ -347,6 +349,8 @@ Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_
     local_paths.reserve(num_segments());
     std::vector<io::Path> dest_paths;
     dest_paths.reserve(num_segments());
+    std::vector<io::Path> idx_remote_paths;
+    idx_remote_paths.reserve(num_segments());
     for (int i = 0; i < num_segments(); ++i) {
         // Note: Here we use relative path for remote.
         auto remote_seg_path = remote_segment_path(_rowset_meta->tablet_id(), new_rowset_id, i);
@@ -367,11 +371,52 @@ Status BetaRowset::upload_to(io::RemoteFileSystem* dest_fs, const RowsetId& new_
                                 index_meta->get_index_suffix());
                 dest_paths.push_back(remote_inverted_index_file);
                 local_paths.push_back(local_inverted_index_file);
+                idx_remote_paths.push_back(remote_inverted_index_file);
             }
         }
     }
     auto st = dest_fs->batch_upload(local_paths, dest_paths);
     if (st.ok()) {
+        // Pre-write the metadata of the inverted index into the file cache
+        if (config::enable_inverted_index_cache_on_cooldown) {
+            if (dest_fs->type() == io::FileSystemType::S3 && config::enable_file_cache) {
+                auto start = std::chrono::steady_clock::now();
+                for (auto& path : idx_remote_paths) {
+                    std::shared_ptr<io::FileReader> file_reader = nullptr;
+                    if (!dest_fs->open_file(path, &file_reader).ok()) {
+                        continue;
+                    }
+
+                    const auto& url = file_reader->path().native();
+                    size_t pos = url.rfind('/');
+                    if (pos != std::string::npos) {
+                        auto idx_path = url.substr(0, pos);
+                        auto idx_name = url.substr(pos + 1);
+
+                        try {
+                            auto* directory = new DorisCompoundReader(
+                                    DorisCompoundDirectory::getDirectory(dest_fs, idx_path.c_str()),
+                                    idx_name.c_str(), config::inverted_index_read_buffer_size);
+
+                            OptionalIndexSearcherPtr result;
+                            FulltextIndexSearcherBuilder builder;
+                            auto res = builder.build(directory, result);
+                            if (!res.ok()) {
+                                LOG(WARNING) << "opening index reader err: " << res;
+                            }
+                        } catch (CLuceneError& err) {
+                            LOG(WARNING) << "opening index reader clucene err: " << err.what();
+                        } catch (...) {
+                            LOG(WARNING) << "opening index reader other err";
+                        }
+                    }
+                }
+                auto duration =
+                        std::chrono::duration<float>(std::chrono::steady_clock::now() - start);
+                LOG(INFO) << "cooldown upload open invert index duration: " << duration.count();
+            }
+        }
+
         DorisMetrics::instance()->upload_rowset_count->increment(1);
         DorisMetrics::instance()->upload_total_byte->increment(data_disk_size());
     } else {
