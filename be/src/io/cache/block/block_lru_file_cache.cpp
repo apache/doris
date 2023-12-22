@@ -964,7 +964,14 @@ std::string LRUFileCache::read_file_cache_version() const {
     FileReaderSPtr version_reader;
     int64_t file_size = -1;
     static_cast<void>(fs->file_size(version_path, &file_size));
+#ifdef __clang__
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wvla"
+#endif
     char version[file_size];
+#ifdef __clang__
+#pragma clang diagnostic pop
+#endif
 
     static_cast<void>(fs->open_file(version_path, &version_reader));
     size_t bytes_read = 0;
