@@ -62,6 +62,15 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     private List<WorkloadCondition> workloadConditionList;
     private List<WorkloadAction> workloadActionList;
 
+    // for ut
+    public WorkloadSchedPolicy() {
+    }
+
+    // for ut
+    public void setWorkloadConditionList(List<WorkloadCondition> workloadConditionList) {
+        this.workloadConditionList = workloadConditionList;
+    }
+
     public WorkloadSchedPolicy(long id, String name, List<WorkloadCondition> workloadConditionList,
             List<WorkloadAction> workloadActionList, Map<String, String> properties) throws UserException {
         this.id = id;
@@ -77,7 +86,7 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     // return false,
     //    1 metric not match
     //    2 condition value not match query info's value
-    boolean isMatch(WorkloadQueryInfo queryInfo) {
+    public boolean isMatch(WorkloadQueryInfo queryInfo) {
         for (WorkloadCondition condition : workloadConditionList) {
             WorkloadMetricType metricType = condition.getMetricType();
             String value = queryInfo.metricMap.get(metricType);
