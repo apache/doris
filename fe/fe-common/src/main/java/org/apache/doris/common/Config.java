@@ -2366,4 +2366,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"用于SQL方言转换的服务地址。",
             "The service address for SQL dialect conversion."})
     public static String sql_convertor_service = "";
+
+    @ConfField(mutable = true)
+    public static boolean enable_profile_when_analyze = false;
+    @ConfField(mutable = true)
+    public static boolean enable_collect_internal_query_profile = false;
 }
