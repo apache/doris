@@ -56,6 +56,11 @@ suite("test_paimon_catalog", "p0,external,doris,external_docker,external_docker_
         if (enabled != null && enabled.equalsIgnoreCase("true")) {
             def all = """select * from all_table order by c1;"""
             def all_with_parquet = """select * from all_table_with_parquet order by c1;"""
+            def predict_like_1 = """select * from all_table where c13 like '%3%' order by c1"""
+            def predict_like_2 = """select * from all_table where c13 like '13%' order by c1"""
+            def predict_like_3 = """select * from all_table where c13 like '13' order by c1"""
+            def predict_like_4 = """select * from all_table where c13 like '130str' order by c1"""
+            def predict_like_5 = """select * from all_table where c13 like '130str%' order by c1"""
             def c1 = """select * from all_table where c1=1;"""
             def c2 = """select * from all_table where c2=2;"""
             def c3 = """select * from all_table where c3=3;"""
