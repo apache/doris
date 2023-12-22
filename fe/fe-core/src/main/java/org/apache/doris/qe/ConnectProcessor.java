@@ -36,7 +36,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.common.util.SQLDialectUtils;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.common.util.Util;
@@ -50,8 +49,11 @@ import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.minidump.MinidumpUtils;
+import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
+import org.apache.doris.plugin.DialectConverterPlugin;
+import org.apache.doris.plugin.DialectConverterPluginMgr;
 import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.thrift.TMasterOpRequest;
@@ -61,6 +63,7 @@ import org.apache.doris.thrift.TUniqueId;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.commons.codec.digest.DigestUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -70,6 +73,7 @@ import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import javax.annotation.Nullable;
 
 /**
  * Process one connection, the life cycle is the same as connection
@@ -174,8 +178,7 @@ public abstract class ConnectProcessor {
             MetricRepo.COUNTER_REQUEST_ALL.increase(1L);
         }
 
-        String convertedStmt = SQLDialectUtils.convertStmtWithDialect(originStmt, ctx, mysqlCommand);
-
+        String convertedStmt = convertOriginStmt(originStmt);
         String sqlHash = DigestUtils.md5Hex(convertedStmt);
         ctx.setSqlHash(sqlHash);
         ctx.getAuditEventBuilder().reset();
@@ -282,6 +285,28 @@ public abstract class ConnectProcessor {
 
         }
 
+    }
+
+    private String convertOriginStmt(String originStmt) {
+        String convertedStmt = originStmt;
+        @Nullable Dialect sqlDialect = Dialect.getByName(ctx.getSessionVariable().getSqlDialect());
+        if (sqlDialect != null) {
+            DialectConverterPluginMgr pluginMgr = Env.getCurrentEnv().getSqlDialectPluginMgr();
+            List<DialectConverterPlugin> plugins = pluginMgr.getDialectConverterPlugins(sqlDialect);
+            for (DialectConverterPlugin plugin : plugins) {
+                try {
+                    String convertedSql = plugin.convertSql(originStmt, ctx.getSessionVariable());
+                    if (StringUtils.isNotEmpty(convertedSql)) {
+                        convertedStmt = convertedSql;
+                        break;
+                    }
+                } catch (Throwable throwable) {
+                    LOG.warn("Convert sql with dialect {} failed, sql: {}, use origin sql.",
+                                sqlDialect, originStmt, throwable);
+                }
+            }
+        }
+        return convertedStmt;
     }
 
     // Use a handler for exception to avoid big try catch block which is a little hard to understand

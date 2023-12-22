@@ -219,6 +219,7 @@ import org.apache.doris.persist.meta.MetaHeader;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.persist.meta.MetaWriter;
 import org.apache.doris.planner.TabletLoadIndexRecorderMgr;
+import org.apache.doris.plugin.DialectConverterPluginMgr;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.policy.PolicyMgr;
@@ -476,6 +477,8 @@ public class Env {
 
     private PluginMgr pluginMgr;
 
+    private DialectConverterPluginMgr dialectConverterPluginMgr;
+
     private AuditEventProcessor auditEventProcessor;
 
     private RefreshManager refreshManager;
@@ -730,6 +733,7 @@ public class Env {
 
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
+        this.dialectConverterPluginMgr = new DialectConverterPluginMgr(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
@@ -797,6 +801,10 @@ public class Env {
 
     public PluginMgr getPluginMgr() {
         return pluginMgr;
+    }
+
+    public DialectConverterPluginMgr getSqlDialectPluginMgr() {
+        return dialectConverterPluginMgr;
     }
 
     public Auth getAuth() {
@@ -968,6 +976,7 @@ public class Env {
 
         // init plugin manager
         pluginMgr.init();
+        dialectConverterPluginMgr.init();
         auditEventProcessor.start();
 
         // 2. get cluster id and role (Observer or Follower)

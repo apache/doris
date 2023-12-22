@@ -15,13 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
-
-import org.apache.doris.common.Config;
-import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.utframe.SimpleHttpServer;
-import org.apache.doris.utframe.TestWithFeService;
+package org.apache.doris.plugin.dialect.presto;
 
 import org.junit.After;
 import org.junit.Assert;
@@ -29,15 +23,18 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.io.IOException;
+import java.net.DatagramSocket;
+import java.net.ServerSocket;
+import java.net.SocketException;
 
 public class SQLDialectUtilsTest {
 
-    int port;
-    SimpleHttpServer server;
+    private int port;
+    private SimpleHttpServer server;
 
     @Before
     public void setUp() throws Exception {
-        port = TestWithFeService.findValidPort();
+        port = findValidPort();
         server = new SimpleHttpServer(port);
         server.start("/api/v1/convert");
     }
@@ -50,37 +47,44 @@ public class SQLDialectUtilsTest {
     }
 
     @Test
-    public void testSqlConvert() throws IOException {
+    public void testSqlConvert() {
         String originSql = "select * from t1 where \"k1\" = 1";
         String expectedSql = "select * from t1 where `k1` = 1";
-        ConnectContext ctx = TestWithFeService.createDefaultCtx();
-        // 1. not COM_QUERY
-        String res = SQLDialectUtils.convertStmtWithDialect(originSql, ctx, MysqlCommand.COM_STMT_RESET);
+
+        String targetURL = "http://127.0.0.1:" + port + "/api/v1/convert";
+        String res = SQLDialectUtils.convertSql(targetURL, originSql);
         Assert.assertEquals(originSql, res);
-        // 2. config sql_convertor_service not set
-        res = SQLDialectUtils.convertStmtWithDialect(originSql, ctx, MysqlCommand.COM_QUERY);
-        Assert.assertEquals(originSql, res);
-        // 3. session var sql_dialect not set
-        Config.sql_convertor_service = "http://127.0.0.1:" + port + "/api/v1/convert";
-        res = SQLDialectUtils.convertStmtWithDialect(originSql, ctx, MysqlCommand.COM_QUERY);
-        Assert.assertEquals(originSql, res);
-        // 4. not support dialect
-        ctx.getSessionVariable().setSqlDialect("sqlserver");
-        res = SQLDialectUtils.convertStmtWithDialect(originSql, ctx, MysqlCommand.COM_QUERY);
-        Assert.assertEquals(originSql, res);
-        // 5. test presto
-        ctx.getSessionVariable().setSqlDialect("presto");
+        // test presto
         server.setResponse("{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
-        res = SQLDialectUtils.convertStmtWithDialect(originSql, ctx, MysqlCommand.COM_QUERY);
+        res = SQLDialectUtils.convertSql(targetURL, originSql);
         Assert.assertEquals(expectedSql, res);
-        // 6. test response version error
+        // test response version error
         server.setResponse("{\"version\": \"v2\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
-        res = SQLDialectUtils.convertStmtWithDialect(originSql, ctx, MysqlCommand.COM_QUERY);
+        res = SQLDialectUtils.convertSql(targetURL, originSql);
         Assert.assertEquals(originSql, res);
         // 7. test response code error
         server.setResponse(
                 "{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 400, \"message\": \"\"}");
-        res = SQLDialectUtils.convertStmtWithDialect(originSql, ctx, MysqlCommand.COM_QUERY);
+        res = SQLDialectUtils.convertSql(targetURL, originSql);
         Assert.assertEquals(originSql, res);
+    }
+
+    private static int findValidPort() {
+        int port;
+        while (true) {
+            try (ServerSocket socket = new ServerSocket(0)) {
+                socket.setReuseAddress(true);
+                port = socket.getLocalPort();
+                try (DatagramSocket datagramSocket = new DatagramSocket(port)) {
+                    datagramSocket.setReuseAddress(true);
+                    break;
+                } catch (SocketException e) {
+                    System.out.println("The port " + port + " is invalid and try another port.");
+                }
+            } catch (IOException e) {
+                throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
+            }
+        }
+        return port;
     }
 }

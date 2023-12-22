@@ -15,21 +15,39 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.parser.spark;
+package org.apache.doris.plugin.dialect.spark;
+
 
 import org.apache.doris.nereids.parser.NereidsParser;
-import org.apache.doris.nereids.parser.ParserTestBase;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import org.apache.commons.lang3.StringUtils;
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
+
 
 /**
  * Spark SQL to Doris function mapping test.
  */
-public class FnTransformTest extends ParserTestBase {
+public class FnTransformTest {
 
+    @BeforeAll
+    public static void init() {
+        ConnectContext ctx = new ConnectContext();
+        SessionVariable sessionVariable = new SessionVariable();
+        ctx.setSessionVariable(sessionVariable);
+        new MockUp<ConnectContext>() {
+            @Mock
+            public ConnectContext get() {
+                return ctx;
+            }
+        };
+    }
     @Test
     public void testCommonFnTransformers() {
         // test json functions
@@ -40,7 +58,6 @@ public class FnTransformTest extends ParserTestBase {
         testFunction("SELECT json_extract(c1, '$.c1') as b FROM t",
                     "SELECT get_json_object(c1, '$.c1') as b FROM t",
                     "json_extract('c1, '$.c1')");
-
         // test string functions
         testFunction("SELECT str_to_date('2023-12-16', 'yyyy-MM-dd') as b FROM t",
                     "SELECT to_date('2023-12-16', 'yyyy-MM-dd') as b FROM t",

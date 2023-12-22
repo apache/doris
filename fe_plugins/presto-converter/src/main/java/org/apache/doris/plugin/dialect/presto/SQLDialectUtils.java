@@ -15,12 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
-
-import org.apache.doris.common.Config;
-import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.nereids.parser.ParseDialect;
-import org.apache.doris.qe.ConnectContext;
+package org.apache.doris.plugin.dialect.presto;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
@@ -60,28 +55,7 @@ import java.nio.charset.StandardCharsets;
 public class SQLDialectUtils {
     private static final Logger LOG = LogManager.getLogger(SQLDialectUtils.class);
 
-    public static String convertStmtWithDialect(String originStmt, ConnectContext ctx, MysqlCommand mysqlCommand) {
-        if (mysqlCommand != MysqlCommand.COM_QUERY) {
-            return originStmt;
-        }
-        if (Config.sql_convertor_service.isEmpty()) {
-            return originStmt;
-        }
-        ParseDialect.Dialect dialect = ctx.getSessionVariable().getSqlParseDialect();
-        if (dialect == null) {
-            return originStmt;
-        }
-        switch (dialect) {
-            case PRESTO:
-                return convertStmtWithPresto(originStmt);
-            default:
-                LOG.debug("only support presto dialect now.");
-                return originStmt;
-        }
-    }
-
-    private static String convertStmtWithPresto(String originStmt) {
-        String targetURL = Config.sql_convertor_service;
+    public static String convertSql(String targetURL, String originStmt) {
         ConvertRequest convertRequest = new ConvertRequest(originStmt, "presto");
 
         HttpURLConnection connection = null;

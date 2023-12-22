@@ -440,7 +440,6 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-
     void testParseExprDepthWidth() {
         String sql = "SELECT 1+2 = 3 from t";
         NereidsParser nereidsParser = new NereidsParser();

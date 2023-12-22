@@ -2397,6 +2397,8 @@ public class Config extends ConfigBase {
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
 
+
+    @Deprecated
     @ConfField(description = {"用于SQL方言转换的服务地址。",
             "The service address for SQL dialect conversion."})
     public static String sql_convertor_service = "";

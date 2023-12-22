@@ -18,20 +18,19 @@
 package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.StatementBase;
-import org.apache.doris.common.Config;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
-import org.apache.doris.nereids.parser.spark.SparkSql3LogicalPlanBuilder;
-import org.apache.doris.nereids.parser.trino.TrinoParser;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.plugin.DialectConverterPlugin;
+import org.apache.doris.plugin.DialectConverterPluginMgr;
 import org.apache.doris.qe.SessionVariable;
 
-import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.antlr.v4.runtime.CharStreams;
 import org.antlr.v4.runtime.CommonTokenStream;
@@ -67,11 +66,13 @@ public class NereidsParser {
      * ParseSQL with dialect.
      */
     public List<StatementBase> parseSQL(String sql, SessionVariable sessionVariable) {
-        @Nullable ParseDialect.Dialect sqlDialect = ParseDialect.Dialect.getByName(sessionVariable.getSqlDialect());
-        return parseSQLWithDialect(sql, sqlDialect, sessionVariable);
+        return parseSQLWithDialect(sql, sessionVariable);
     }
 
-    private List<StatementBase> parseSQL(String originStr, @Nullable LogicalPlanBuilder logicalPlanBuilder) {
+    /**
+     * ParseSQL with logicalPlanBuilder.
+     */
+    public List<StatementBase> parseSQL(String originStr, @Nullable LogicalPlanBuilder logicalPlanBuilder) {
         List<Pair<LogicalPlan, StatementContext>> logicalPlans = parseMultiple(originStr, logicalPlanBuilder);
         List<StatementBase> statementBases = Lists.newArrayList();
         for (Pair<LogicalPlan, StatementContext> parsedPlanToContext : logicalPlans) {
@@ -81,26 +82,27 @@ public class NereidsParser {
     }
 
     private List<StatementBase> parseSQLWithDialect(String sql,
-                                                    @Nullable ParseDialect.Dialect sqlDialect,
                                                     SessionVariable sessionVariable) {
-        if (!Strings.isNullOrEmpty(Config.sql_convertor_service)) {
-            // if sql convertor service is enabled, no need to parse sql again by specific dialect.
+        @Nullable Dialect sqlDialect = Dialect.getByName(sessionVariable.getSqlDialect());
+        if (sqlDialect == null) {
             return parseSQL(sql);
         }
-        switch (sqlDialect) {
-            case TRINO:
-                final List<StatementBase> logicalPlans = TrinoParser.parse(sql, sessionVariable);
-                if (CollectionUtils.isEmpty(logicalPlans)) {
-                    return parseSQL(sql);
+
+        DialectConverterPluginMgr pluginMgr = Env.getCurrentEnv().getSqlDialectPluginMgr();
+        List<DialectConverterPlugin> plugins = pluginMgr.getDialectConverterPlugins(sqlDialect);
+        for (DialectConverterPlugin plugin : plugins) {
+            try {
+                List<StatementBase> statementBases = plugin.parseSqlWithDialect(sql, sessionVariable);
+                if (CollectionUtils.isNotEmpty(statementBases)) {
+                    return statementBases;
                 }
-                return logicalPlans;
-
-            case SPARK_SQL:
-                return parseSQL(sql, new SparkSql3LogicalPlanBuilder());
-
-            default:
-                return parseSQL(sql);
+            } catch (Throwable throwable) {
+                LOG.warn("Parse sql with dialect {} failed, sql: {}.", sqlDialect, sql, throwable);
+            }
         }
+
+        // fallback if any exception occurs before
+        return parseSQL(sql);
     }
 
     /**

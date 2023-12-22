@@ -22,13 +22,13 @@ package org.apache.doris.nereids.parser;
  */
 public class ParserContext {
 
-    private final ParseDialect parseDialect;
+    private final Dialect parseDialect;
 
-    public ParserContext(ParseDialect parseDialect) {
+    public ParserContext(Dialect parseDialect) {
         this.parseDialect = parseDialect;
     }
 
-    public ParseDialect getParserDialect() {
+    public Dialect getParserDialect() {
         return parseDialect;
     }
 }
