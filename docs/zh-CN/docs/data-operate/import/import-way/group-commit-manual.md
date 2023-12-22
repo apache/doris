@@ -42,7 +42,7 @@ Doris 根据负载和表的 `group_commit_interval`属性将多个导入在一�
 
 * 异步模式（`async_mode`）
 
-Doris 首先将数据写入 WAL（Write Ahead Log），然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。单次导入大于 TODO 时，会自动切换为`sync_mode`。这适用于写入延迟敏感以及高频写入的场景。
+Doris 首先将数据写入 WAL (`Write Ahead Log`)，然后导入立即返回。Doris 会根据负载和表的`group_commit_interval`属性异步提交数据，提交之后数据可见。为了防止 WAL 占用较大的磁盘空间，单次导入数据量较大时，会自动切换为`sync_mode`。这适用于写入延迟敏感以及高频写入的场景。
 
 ## Group Commit 使用方式
 
@@ -246,7 +246,7 @@ curl --location-trusted -u {user}:{passwd} -T data.csv  -H "group_commit:sync_mo
 
 ### 使用`PreparedStatement`
 
-当用户使用JDBC `insert into values`方式写入时，为了减少 SQL 解析和生成规划的开销， 我们在 FE 端支持了 MySQL 协议的`PreparedStatement`特性。当使用`PreparedStatement`时，SQL 和其导入规划将被缓存到 Session 级别的内存缓存中，后续的导入直接使用缓存对象，降低了 FE 的 CPU 压力。下面是在 JDBC 中使用 PreparedStatement 的例子：
+当用户使用 JDBC `insert into values`方式写入时，为了减少 SQL 解析和生成规划的开销， 我们在 FE 端支持了 MySQL 协议的`PreparedStatement`特性。当使用`PreparedStatement`时，SQL 和其导入规划将被缓存到 Session 级别的内存缓存中，后续的导入直接使用缓存对象，降低了 FE 的 CPU 压力。下面是在 JDBC 中使用 PreparedStatement 的例子：
 
 1. 设置 JDBC url 并在 Server 端开启 prepared statement
 
@@ -256,13 +256,13 @@ url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true
 
 2. 开启 `group_commit` session变量，有如下两种方式：
 
-* 通过JDBC url设置，增加`sessionVariables=group_commit=async_mode`
+* 通过 JDBC url 设置，增加`sessionVariables=group_commit=async_mode`
 
 ```
 url = jdbc:mysql://127.0.0.1:9030/db?useServerPrepStmts=true&sessionVariables=group_commit=async_mode
 ```
 
-* 通过执行SQL设置
+* 通过执行 SQL 设置
 
 ```
 try (Statement statement = conn.createStatement()) {
@@ -311,7 +311,7 @@ private static void groupCommitInsertBatch() throws Exception {
     // add rewriteBatchedStatements=true and cachePrepStmts=true in JDBC url
     // set session variables by sessionVariables=group_commit=async_mode in JDBC url
     try (Connection conn = DriverManager.getConnection(
-            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=enable_insert_group_commit=true", HOST, PORT, DB), USER, PASSWD)) {
+            String.format(URL_PATTERN + "&rewriteBatchedStatements=true&cachePrepStmts=true&sessionVariables=group_commit=async_mode", HOST, PORT, DB), USER, PASSWD)) {
 
         String query = "insert into " + TBL + " values(?, ?, ?)";
         try (PreparedStatement stmt = conn.prepareStatement(query)) {
@@ -336,74 +336,79 @@ private static void groupCommitInsertBatch() throws Exception {
 
 ## 修改group commit默认提交间隔
 
-group commit的默认提交间隔为10秒，用户可以通过修改表的配置，调整group commit的提交间隔：
+group commit 的默认提交间隔为 10 秒，用户可以通过修改表的配置，调整 group commit 的提交间隔：
 
 ```sql
-# 修改提交间隔为2秒
+# 修改提交间隔为 2 秒
 ALTER TABLE dt SET ("group_commit_interval_ms"="2000");
 ```
 
 ## 使用限制
 
-* 当开启了 group commit 模式，系统会判断用户发起的`INSERT INTO VALUES`语句是否符合group commit的条件，如果符合，该语句的执行会进入到group commit写入中。符合以下条件会自动退化为非 group commit 方式：
+* 当开启了 group commit 模式，系统会判断用户发起的`INSERT INTO VALUES`语句是否符合 group commit 的条件，如果符合，该语句的执行会进入到 group commit 写入中。符合以下条件会自动退化为非 group commit 方式：
 
   + 事务写入，即`Begin`; `INSERT INTO VALUES`; `COMMIT`方式
 
-  + 指定label，即`INSERT INTO dt WITH LABEL {label} VALUES`
+  + 指定 label，即`INSERT INTO dt WITH LABEL {label} VALUES`
 
-  + VALUES中包含表达式，即`INSERT INTO dt VALUES (1 + 100)`
+  + VALUES 中包含表达式，即`INSERT INTO dt VALUES (1 + 100)`
 
   + 列更新写入
 
+  + 表不支持 light schema change
 
-* 当开启了group commit模式，系统会判断用户发起的`Stream Load`和`Http Stream`是否符合group commit的条件，如果符合，该导入的执行会进入到group commit写入中。符合以下条件的会自动退化为非 group commit 方式：
+* 当开启了 group commit 模式，系统会判断用户发起的`Stream Load`和`Http Stream`是否符合 group commit 的条件，如果符合，该导入的执行会进入到 group commit 写入中。符合以下条件的会自动退化为非 group commit 方式：
 
   + 两阶段提交
 
-  + 指定label
+  + 指定 label
 
   + 列更新写入
 
+  + 表不支持 light schema change
+
++ 对于 unique 模型，由于 group commit 不能保证提交顺序，用户可以配合 sequence 列使用
 
 * 对`max_filter_ratio`语义的支持
 
-  * 在默认的导入中，`filter_ratio`是导入完成后，通过失败的行数和总行数计算，决定是否提交本次写入。
+  * 在默认的导入中，`filter_ratio`是导入完成后，通过失败的行数和总行数计算，决定是否提交本次写入
 
-  * 在group commit模式下，由于多个用户发起的导入会被一个内部导入执行，虽然可以计算出每个导入的`filter_ratio`，但是数据一旦进入内部导入，就只能commit transaction
+  * 在 group commit 模式下，由于多个用户发起的导入会被一个内部导入执行，虽然可以计算出每个导入的`filter_ratio`，但是数据一旦进入内部导入，就只能 commit transaction
 
-  * 但group commit模式支持了一定程度的`max_filter_ratio`语义，当导入的总行数不高于`group_commit_memory_rows_for_max_filter_ratio`(配置在be.conf中，默认为10000行)，`max_filter_ratio` 工作。
+  * group commit 模式支持了一定程度的`max_filter_ratio`语义，当导入的总行数不高于`group_commit_memory_rows_for_max_filter_ratio`(配置在`be.conf`中，默认为`10000`行)，`max_filter_ratio` 工作
 
 
-* WAL限制
+* WAL 限制
 
-  * 对于`async_mode`的group commit写入，会把数据写入WAL。如果内部写入成功，则WAL被立刻删除；如果内部导入失败，通过导入WAL的方法来恢复数据
+  * 对于`async_mode`的 group commit 写入，会把数据写入 WAL。如果内部导入成功，则 WAL 被立刻删除；如果内部导入失败，通过导入 WAL 的方法来恢复数据
 
-  * 目前WAL文件只存储在一个BE上，如果这个BE磁盘损坏或文件误删等，可能导入丢失部分数据。
+  * 目前 WAL 文件只存储在一个 BE 上，如果这个 BE 磁盘损坏或文件误删等，可能导入丢失部分数据
 
-  * 当下线BE节点时，请使用[`DECOMMISSION`](../../../sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND.md)命令，安全下线节点，防止该节点下线前WAL文件还没有全部处理完成，导致部分数据丢失
+  * 当下线 BE 节点时，请使用[`DECOMMISSION`](../../../sql-manual/sql-reference/Cluster-Management-Statements/ALTER-SYSTEM-DECOMMISSION-BACKEND.md)命令，安全下线节点，防止该节点下线前 WAL 文件还没有全部处理完成，导致部分数据丢失
 
-  * 对于`async_mode`的group commit写入，如果导入数据过大(超过WAL单目录的80%)，或不知道数据量的chunked stream load，为了防止生成的WAL占用太多的磁盘空间，会退化成`sync_mode`
+  * 对于`async_mode`的 group commit 写入，为了保护磁盘空间，当遇到以下情况时，会切换成`sync_mode`
 
-  * 为了防止多个小的导入攒到一个内部导入中，导致WAL占用过多的磁盘空间的问题，当总WAL文件大小超过配置阈值(参考相关系统配置中的`group_commit_wal_max_disk_limit`)时，会阻塞group commit写入，直到磁盘空间释放或超时报错
+    * 导入数据量过大，即超过 WAL 单目录的80%空间
 
-  * 当发生重量级 schema change（目前加减列、修改 varchar 长度和重命名列是轻量级 schema change，其它的是重量级 schema change） 时，为了保证WAL能够适配表的 schema，在schema change最后的fe修改元数据阶段，会拒绝group commit写入，客户端收到`insert table ${table_name} is blocked on schema change`异常，客户端重试即可
+    * 不知道数据量的 chunked stream load
+
+    * 导入数据量不大，但磁盘可用空间不足
+
+  * 当发生重量级 schema change（目前加减列、修改 varchar 长度和重命名列是轻量级 schema change，其它的是重量级 schema change） 时，为了保证 WAL 能够适配表的 schema，在 schema change 最后的 fe 修改元数据阶段，会拒绝 group commit 写入，客户端收到`insert table ${table_name} is blocked on schema change`异常，客户端重试即可
 
 ## 相关系统配置
 
 ### BE 配置
 
-+ group_commit_memory_rows_for_max_filter_ratio
+#### `group_commit_wal_path`
 
-  当导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作。
-
-+ group_commit_replay_wal_dir
-
-  存放WAL文件的目录，默认在用户配置的`storage_root_path`的各个目录下创建一个名为`wal`的目录，如无特殊要求，不需要修改。配置示例：
-
+* 描述:  group commit 存放 WAL 文件的目录
+* 默认值: 默认在用户配置的`storage_root_path`的各个目录下创建一个名为`wal`的目录。配置示例：
   ```
-  group_commit_replay_wal_dir=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
   ```
 
-+ group_commit_wal_max_disk_limit
+#### `group_commit_memory_rows_for_max_filter_ratio`
 
-  WAL文件的最大磁盘占用，当总WAL文件大小超过该值时，会阻塞group commit写入，直到磁盘空间释放或超时报错。默认为10%。
+* 描述:  当 group commit 导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作
+* 默认值: 10000
