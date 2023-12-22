@@ -46,10 +46,7 @@ namespace doris {
 TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
                            LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
         : _id(id), _next_segid(0), _load_id(load_id), _txn_id(txn_id) {
-    for (int i = 0; i < 10; i++) {
-        _flush_tokens.emplace_back(load_stream_mgr->new_token());
-    }
-
+    load_stream_mgr->create_tokens(_flush_tokens);
     _failed_st = std::make_shared<Status>();
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
