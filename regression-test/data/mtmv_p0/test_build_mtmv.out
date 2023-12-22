@@ -57,3 +57,6 @@ clz	200
 lisi	300
 zhangsang	200
 
+-- !select_union --
+11	111
+
