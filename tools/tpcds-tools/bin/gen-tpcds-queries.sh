@@ -120,9 +120,9 @@ if [[ -f query_0.sql ]]; then
             echo "${q/from catalog_sales))/from catalog_sales) t)};" >>"${of}"
         elif [[ ${i} -eq 5 ]]; then
             q="${q// 14 days/ interval 14 day}" &&
-                q="${q//\'store\' || s_store_id as id/concat(\'store\', s_store_id) id}" &&
-                q="${q//\'catalog_page\' || cp_catalog_page_id as id/concat(\'catalog_page\', cp_catalog_page_id) id}" &&
-                q="${q//\'web_site\' || web_site_id as id/concat(\'web_site\', web_site_id) id}" &&
+                q="${q//\'store\' || s_store_id as id/concat('store', s_store_id) id}" &&
+                q="${q//\'catalog_page\' || cp_catalog_page_id as id/concat('catalog_page', cp_catalog_page_id) id}" &&
+                q="${q//\'web_site\' || web_site_id as id/concat('web_site', web_site_id) id}" &&
                 echo "${q};" >>"${of}"
         elif [[ ${i} -eq 12 ]] || [[ ${i} -eq 21 ]] || [[ ${i} -eq 22 ]] || [[ ${i} -eq 44 ]] || [[ ${i} -eq 81 ]] || [[ ${i} -eq 102 ]]; then
             q="${q//30 days/interval 30 day}" && echo "${q};" >>"${of}"
@@ -148,15 +148,15 @@ if [[ -f query_0.sql ]]; then
             smc1=$(echo "${v//\'/}" | awk -F"|" '{print $1}')
             smc2=$(echo "${v//\'/}" | awk -F"|" '{print $5}')
             origin="'${smc1% }' || ',' || '${smc2# }'"
-            q="${q//${origin}/concat(concat(\'${smc1}\', \',\'), \'${smc2}\')}" && echo "${q};" >>"${of}"
+            q="${q//${origin}/concat(concat('${smc1}', ','), '${smc2}')}" && echo "${q};" >>"${of}"
         elif [[ ${i} -eq 84 ]]; then
             q="${q//30 days/interval 30 day}" &&
-                q="${q//\'store\' || store_id/concat(\'store\', store_id)}" &&
-                q="${q//\'catalog_page\' || catalog_page_id/concat(\'catalog_page\', catalog_page_id)}" &&
-                q="${q//\'web_site\' || web_site_id/concat(\'web_site\', web_site_id)}" &&
+                q="${q//\'store\' || store_id/concat('store', store_id)}" &&
+                q="${q//\'catalog_page\' || catalog_page_id/concat('catalog_page', catalog_page_id)}" &&
+                q="${q//\'web_site\' || web_site_id/concat('web_site', web_site_id)}" &&
                 echo "${q};" >>"${of}"
         elif [[ ${i} -eq 88 ]]; then
-            q="${q//coalesce(c_last_name,\'\') || \', \' || coalesce(c_first_name,\'\')/concat(concat(coalesce(c_last_name,\'\'), \',\'), coalesce(c_first_name,\'\'))}" &&
+            q="${q//coalesce(c_last_name,\'\') || \', \' || coalesce(c_first_name,\'\')/concat(concat(coalesce(c_last_name,''), ','), coalesce(c_first_name,''))}" &&
                 echo "${q};" >>"${of}"
         else
             echo "${q};" >>"${of}"
