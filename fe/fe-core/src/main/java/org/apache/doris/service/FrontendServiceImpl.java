@@ -3309,7 +3309,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             for (Column column : table.getBaseSchema(true)) {
                 columnsResult.add(column.getName() + ":" + column.getUniqueId());
             }
-            // result.setStatus(TStatusCode.OK);
             result.setColumns(columnsResult);
         } catch (LoadException e) {
             status.setStatusCode(TStatusCode.NOT_FOUND);
