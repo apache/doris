@@ -1120,6 +1120,7 @@ DEFINE_String(group_commit_wal_path, "./wal");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
 DEFINE_Int32(group_commit_relay_wal_threads, "10");
+DEFINE_Bool(group_commit_disable_when_relay_fail_too_much, "true");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");

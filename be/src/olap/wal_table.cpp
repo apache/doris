@@ -74,12 +74,12 @@ Status WalTable::replay_wals() {
                 return Status::OK();
             }
             if (retry_num >= config::group_commit_replay_wal_retry_num) {
+                if (config::group_commit_disable_when_relay_fail_too_much && !_stop.load()) {
+                    this->_stop.store(true);
+                }
                 LOG(WARNING) << "All replay wal failed, db=" << _db_id << ", table=" << _table_id
                              << ", wal=" << wal
                              << ", retry_num=" << config::group_commit_replay_wal_retry_num;
-                std::string rename_path = _get_tmp_path(wal);
-                LOG(INFO) << "rename wal from " << wal << " to " << rename_path;
-                std::rename(wal.c_str(), rename_path.c_str());
                 need_erase_wals.push_back(wal);
                 continue;
             }
@@ -445,6 +445,10 @@ Status WalTable::_read_wal_header(const std::string& wal_path, std::string& colu
     RETURN_IF_ERROR(wal_reader->read_header(version, columns));
     RETURN_IF_ERROR(wal_reader->finalize());
     return Status::OK();
+}
+
+bool WalTable::is_running() {
+    return !_stop.load();
 }
 
 } // namespace doris

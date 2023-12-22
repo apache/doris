@@ -36,6 +36,7 @@ public:
     Status replay_wals();
     size_t size();
     void stop();
+    bool is_running();
 
 public:
     // <retry_num, start_time_ms, is_doing_replay>

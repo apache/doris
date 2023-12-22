@@ -409,4 +409,16 @@ Status WalManager::get_wal_column_index(int64_t wal_id, std::vector<size_t>& col
     return Status::OK();
 }
 
+bool WalManager::is_table_available(int64_t table_id) {
+    std::shared_lock rdlock(_lock);
+    auto it = _table_map.find(table_id);
+    if (it != _table_map.end()) {
+        return it->second->is_running();
+    } else {
+        // if not found table_id in map, which means this table is a normal state table,
+        // not doing relay wal now.
+        return true;
+    }
+}
+
 } // namespace doris

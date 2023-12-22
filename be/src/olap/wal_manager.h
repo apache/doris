@@ -69,6 +69,7 @@ public:
     void add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
     void erase_wal_column_index(int64_t wal_id);
     Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
+    bool is_table_available(int64_t table_id);
 
 private:
     ExecEnv* _exec_env = nullptr;
