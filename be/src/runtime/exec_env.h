@@ -349,6 +349,7 @@ private:
     std::shared_ptr<WalManager> _wal_manager;
 
     std::mutex _frontends_lock;
+    // ip:brpc_port -> frontend_indo
     std::map<TNetworkAddress, FrontendInfo> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
 
