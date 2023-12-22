@@ -273,6 +273,22 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
     return Status::OK();
 }
 
+template <typename T>
+void DataTypeDecimalSerDe<T>::write_one_cell_to_json(const IColumn& column,
+                                                     rapidjson::Value& result,
+                                                     rapidjson::Document::AllocatorType& allocator,
+                                                     int row_num) const {
+    auto& data = assert_cast<const ColumnDecimal<T>&>(column).get_data();
+    if constexpr (IsDecimalV2<T>) {
+        DecimalV2Value decimal_val(data[row_num]);
+        auto decimal_str = decimal_val.to_string(scale);
+        result.SetString(decimal_str.c_str(), decimal_str.size());
+    } else {
+        auto length = data[row_num].to_string(buf, scale, scale_multiplier);
+        result.SetString(buf, length);
+    }
+}
+
 template class DataTypeDecimalSerDe<Decimal32>;
 template class DataTypeDecimalSerDe<Decimal64>;
 template class DataTypeDecimalSerDe<Decimal128V2>;

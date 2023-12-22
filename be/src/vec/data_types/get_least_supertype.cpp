@@ -188,6 +188,9 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
             } else if (min_bit_width_of_integer <= 64) {
                 *type = std::make_shared<DataTypeInt64>();
                 return;
+            } else if (min_bit_width_of_integer <= 128) {
+                *type = std::make_shared<DataTypeInt128>();
+                return;
             } else {
                 VLOG_DEBUG << " because some of them are signed integers and some are unsigned "
                               "integers, but there is no signed integer type, that can exactly "
@@ -214,6 +217,9 @@ void get_numeric_type(const TypeIndexSet& types, DataTypePtr* type) {
                 return;
             } else if (min_bit_width_of_integer <= 64) {
                 *type = std::make_shared<DataTypeUInt64>();
+                return;
+            } else if (min_bit_width_of_integer <= 128) {
+                *type = std::make_shared<DataTypeUInt128>();
                 return;
             } else {
                 LOG(WARNING) << "Logical error: "
@@ -457,14 +463,14 @@ void get_least_supertype(const DataTypes& types, DataTypePtr* type) {
                         DataTypeDecimal<Decimal256>::max_precision(), max_scale);
                 return;
             }
-            if (have_decimal128 || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
-                *type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
-                        DataTypeDecimal<Decimal128V2>::max_precision(), max_scale);
-                return;
-            }
             if (have_decimal128i || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
                 *type = std::make_shared<DataTypeDecimal<Decimal128V3>>(
                         DataTypeDecimal<Decimal128V3>::max_precision(), max_scale);
+                return;
+            }
+            if (have_decimal128 || min_precision > DataTypeDecimal<Decimal64>::max_precision()) {
+                *type = std::make_shared<DataTypeDecimal<Decimal128V2>>(
+                        DataTypeDecimal<Decimal128V2>::max_precision(), max_scale);
                 return;
             }
             if (have_decimal64 || min_precision > DataTypeDecimal<Decimal32>::max_precision()) {
@@ -518,6 +524,15 @@ void get_least_supertype(const TypeIndexSet& types, DataTypePtr* type) {
         }
         if (which.is_json()) {
             *type = std::make_shared<DataTypeJsonb>();
+            return;
+        }
+        if (which.is_int128()) {
+            *type = std::make_shared<DataTypeInt128>();
+            return;
+        }
+        if (which.is_decimal128v3()) {
+            *type = std::make_shared<DataTypeDecimal<Decimal128V3>>(
+                    DataTypeDecimal<Decimal128V3>::max_precision(), 10);
             return;
         }
         return throw_or_return<on_error>(

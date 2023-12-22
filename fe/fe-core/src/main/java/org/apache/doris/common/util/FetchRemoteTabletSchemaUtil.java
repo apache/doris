@@ -177,6 +177,9 @@ public class FetchRemoteTabletSchemaUtil {
             boolean isKey = column.getIsKey();
             boolean isNullable = column.getIsNullable();
             String defaultValue = column.getDefaultValue().toString("UTF-8");
+            int precision = column.getPrecision();
+            int scale = column.getFrac();
+            int length = column.getLength();
             if (defaultValue.equals("")) {
                 defaultValue = null;
             }
@@ -211,6 +214,9 @@ public class FetchRemoteTabletSchemaUtil {
                     type = new StructType(childTypes);
                 }
             } while (false);
+            if (type.isDecimalV3()) {
+                return new Column(columnName, type.getPrimitiveType(), length, precision, scale, isNullable);
+            }
             return new Column(columnName, type, isKey, aggType, isNullable,
                                                     defaultValue, "remote schema");
         } catch (Exception e) {

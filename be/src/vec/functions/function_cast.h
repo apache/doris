@@ -643,6 +643,8 @@ struct ConvertImplNumberToJsonb {
                 writer.writeInt128(data[i]);
             } else if constexpr (std::is_same_v<ColumnFloat64, ColumnType>) {
                 writer.writeDouble(data[i]);
+            } else if constexpr (std::is_same_v<ColumnDecimal<Decimal128V3>, ColumnType>) {
+                writer.writeDecimal(data[i]);
             } else {
                 LOG(FATAL) << "unsupported type ";
             }
@@ -799,12 +801,17 @@ struct ConvertImplFromJsonb {
         if (const ColumnString* column_string = check_and_get_column<ColumnString>(&col_from)) {
             auto null_map_col = ColumnUInt8::create(input_rows_count, 0);
             auto& null_map = null_map_col->get_data();
-            auto col_to = ColumnType::create();
+            MutableColumnPtr col_to;
+            if constexpr (type_index == TypeIndex::Decimal128V3) {
+                col_to = ColumnDecimal128V3::create(38, 10);
+            } else {
+                col_to = ColumnType::create();
+            }
+            typename ColumnType::Container& res = assert_cast<ColumnType&>(*col_to).get_data();
 
             //IColumn & col_to = *res;
             // size_t size = col_from.size();
             col_to->reserve(input_rows_count);
-            auto& res = col_to->get_data();
             res.resize(input_rows_count);
 
             for (size_t i = 0; i < input_rows_count; ++i) {
@@ -875,6 +882,13 @@ struct ConvertImplFromJsonb {
                 } else if constexpr (type_index == TypeIndex::Int128) {
                     if (value->isInt8() || value->isInt16() || value->isInt32() ||
                         value->isInt64() || value->isInt128()) {
+                        res[i] = (int128_t)((const JsonbIntVal*)value)->val();
+                    } else {
+                        null_map[i] = 1;
+                        res[i] = 0;
+                    }
+                } else if constexpr (type_index == TypeIndex::Decimal128V3) {
+                    if (value->isDecimal()) {
                         res[i] = (int128_t)((const JsonbIntVal*)value)->val();
                     } else {
                         null_map[i] = 1;
@@ -1965,6 +1979,9 @@ private:
             return &ConvertImplFromJsonb<TypeIndex::Int128, ColumnInt128>::execute;
         case TypeIndex::Float64:
             return &ConvertImplFromJsonb<TypeIndex::Float64, ColumnFloat64>::execute;
+        case TypeIndex::Decimal128V3:
+            return &ConvertImplFromJsonb<TypeIndex::Decimal128V3,
+                                         ColumnDecimal<Decimal128V3>>::execute;
         case TypeIndex::String:
             if (!jsonb_string_as_string) {
                 // Conversion from String through parsing.
@@ -1996,6 +2013,8 @@ private:
             return &ConvertImplNumberToJsonb<ColumnInt128>::execute;
         case TypeIndex::Float64:
             return &ConvertImplNumberToJsonb<ColumnFloat64>::execute;
+        case TypeIndex::Decimal128V3:
+            return &ConvertImplNumberToJsonb<ColumnDecimal<Decimal128V3>>::execute;
         case TypeIndex::String:
             if (string_as_jsonb_string) {
                 // We convert column string to jsonb type just add a string jsonb field to dst column instead of parse

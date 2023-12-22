@@ -27,6 +27,7 @@
 #include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "runtime/descriptors.h"
+#include "runtime/types.h"
 #include "vec/exec/scan/vscan_node.h"
 
 namespace doris {
@@ -356,7 +357,7 @@ protected:
     void get_cast_types_for_variants();
     void _filter_and_collect_cast_type_for_variant(
             const vectorized::VExpr* expr,
-            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+            phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types);
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
@@ -371,7 +372,7 @@ protected:
     std::vector<FunctionFilter> _push_down_functions;
 
     // colname -> cast dst type
-    std::map<std::string, PrimitiveType> _cast_types_for_variants;
+    std::map<std::string, TypeDescriptor> _cast_types_for_variants;
 
     // slot id -> SlotDescriptor
     phmap::flat_hash_map<int, SlotDescriptor*> _slot_id_to_slot_desc;

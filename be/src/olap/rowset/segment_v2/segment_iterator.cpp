@@ -1687,7 +1687,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(ColumnPredicate* predicate) {
     if (field_type == FieldType::OLAP_FIELD_TYPE_VARIANT) {
         // Use variant cast dst type
         field_type = TabletColumn::get_field_type_by_type(
-                _opts.target_cast_type_for_variants[_schema->column(cid)->name()]);
+                _opts.target_cast_type_for_variants[_schema->column(cid)->name()].type);
     }
     switch (predicate->type()) {
     case PredicateType::EQ:

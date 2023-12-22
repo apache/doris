@@ -217,6 +217,11 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
         column.set_default_value("[]");
         return;
     }
+    if (data_type->get_type_id() == TypeIndex::Decimal128V3) {
+        column.set_precision(data_type->get_precision());
+        column.set_frac(data_type->get_scale());
+        return;
+    }
     // size is not fixed when type is string or json
     if (WhichDataType(*data_type).is_string() || WhichDataType(*data_type).is_json()) {
         return;

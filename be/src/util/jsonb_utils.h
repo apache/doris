@@ -26,6 +26,7 @@
 #include "jsonb_document.h"
 #include "jsonb_stream.h"
 #include "jsonb_writer.h"
+#include "vec/core/types.h"
 
 namespace doris {
 
@@ -104,6 +105,14 @@ private:
         }
         case JsonbType::T_Float: {
             os_.write(((JsonbFloatVal*)val)->val());
+            break;
+        }
+        case JsonbType::T_Decimal: {
+            char buf[vectorized::max_decimal_string_length<int128_t>()];
+            size_t len = vectorized::decimal_to_string(
+                    ((JsonbInt128Val*)val)->val(), buf, 10,
+                    vectorized::decimal_scale_multiplier<int128_t>(10));
+            os_.write(buf, len);
             break;
         }
         case JsonbType::T_Int128: {

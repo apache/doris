@@ -101,6 +101,11 @@ public:
     std::string default_value() const { return _default_value; }
     size_t length() const { return _length; }
     void set_length(size_t length) { _length = length; }
+    void set_precision(int32_t precision) {
+        _precision = precision;
+        _is_decimal = true;
+    }
+    void set_frac(int32_t frac) { _frac = frac; }
     void set_default_value(const std::string& default_value) {
         _default_value = default_value;
         _has_default_value = true;

@@ -267,7 +267,12 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
     }
     TabletColumn column_with_cast_type = orig;
     auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
-    column_with_cast_type.set_type(TabletColumn::get_field_type_by_type(cast_type));
+    FieldType filed_type = TabletColumn::get_field_type_by_type(cast_type.type);
+    column_with_cast_type.set_type(filed_type);
+    if (filed_type == FieldType::OLAP_FIELD_TYPE_DECIMAL128I) {
+        column_with_cast_type.set_precision(cast_type.precision);
+        column_with_cast_type.set_frac(cast_type.scale);
+    }
     return column_with_cast_type;
 }
 

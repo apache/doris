@@ -37,6 +37,7 @@
 #include <vector>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -165,15 +166,23 @@ public:
     // TODO doris not support unsigned integers for now
     // treat as signed integers
     size_t operator()(const UInt64& x) {
-        field_types.insert(FieldType::UInt64);
         if (x <= std::numeric_limits<Int8>::max()) {
+            field_types.insert(FieldType::Int64);
             type_indexes.insert(TypeIndex::Int8);
         } else if (x <= std::numeric_limits<Int16>::max()) {
+            field_types.insert(FieldType::Int64);
             type_indexes.insert(TypeIndex::Int16);
         } else if (x <= std::numeric_limits<Int32>::max()) {
+            field_types.insert(FieldType::Int64);
             type_indexes.insert(TypeIndex::Int32);
-        } else {
+        } else if (x <= std::numeric_limits<Int64>::max()) {
+            field_types.insert(FieldType::Int64);
             type_indexes.insert(TypeIndex::Int64);
+        } else {
+            // treat as Int128 to prevent from overflow
+            have_int128s = true;
+            field_types.insert(FieldType::Int128);
+            type_indexes.insert(TypeIndex::Int128);
         }
         return 0;
     }
@@ -197,8 +206,25 @@ public:
         type_indexes.insert(TypeIndex::JSONB);
         return 0;
     }
+
+    size_t operator()(const DecimalField<Decimal128V3>& x) {
+        field_types.insert(FieldType::Decimal128V3);
+        type_indexes.insert(TypeIndex::Decimal128V3);
+        return 0;
+    }
     size_t operator()(const Null&) {
         have_nulls = true;
+        return 0;
+    }
+    size_t operator()(const Float64& x) {
+        if (config::variant_enable_decimal_type) {
+            have_decimals = true;
+            field_types.insert(FieldType::Decimal128V3);
+            type_indexes.insert(TypeIndex::Decimal128V3);
+            return 0;
+        }
+        field_types.insert(FieldType::Float64);
+        type_indexes.insert(TypeIndex::Float64);
         return 0;
     }
     template <typename T>
@@ -212,11 +238,15 @@ public:
         get_least_supertype<LeastSupertypeOnError::Jsonb>(type_indexes, type);
     }
     bool contain_nulls() const { return have_nulls; }
-    bool need_convert_field() const { return field_types.size() > 1; }
+    bool need_convert_field() const {
+        return field_types.size() > 1 || have_decimals || have_int128s;
+    }
 
 private:
     phmap::flat_hash_set<TypeIndex> type_indexes;
     phmap::flat_hash_set<FieldType> field_types;
+    bool have_decimals = false;
+    bool have_int128s = false;
     bool have_nulls = false;
 };
 

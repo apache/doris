@@ -108,7 +108,7 @@ protected:
     void get_cast_types_for_variants() override;
     void _filter_and_collect_cast_type_for_variant(
             const VExpr* expr,
-            phmap::flat_hash_map<std::string, std::vector<PrimitiveType>>& colname_to_cast_types);
+            phmap::flat_hash_map<std::string, std::vector<TypeDescriptor>>& colname_to_cast_types);
 
 private:
     Status _build_key_ranges_and_filters();

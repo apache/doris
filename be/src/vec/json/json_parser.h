@@ -47,9 +47,8 @@ Field getValueAsField(const Element& element) {
     if (element.isInt64()) {
         return element.getInt64();
     }
-    // doris only support signed integers at present
     if (element.isUInt64()) {
-        return element.getInt64();
+        return element.getUInt64();
     }
     if (element.isDouble()) {
         return element.getDouble();
