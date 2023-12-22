@@ -822,7 +822,7 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
 
                 auto creator = [this](const auto& ctor, const auto& key) {
                     using KeyType = std::decay_t<decltype(key)>;
-		    try {
+                    try {
                         if constexpr (HashTableTraits<HashTableType>::is_string_hash_table &&
                                       !std::is_same_v<StringRef, KeyType>) {
                             StringRef string_ref = to_string_ref(key);
@@ -837,8 +837,8 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                             ctor(key, mapped);
                         }
                     } catch (...) {
-		        // Exception-safety - if it can not allocate memory or create status,
-		        // the destructors will not be called.
+                        // Exception-safety - if it can not allocate memory or create status,
+                        // the destructors will not be called.
                         ctor(key, nullptr);
                         throw;
                     }
