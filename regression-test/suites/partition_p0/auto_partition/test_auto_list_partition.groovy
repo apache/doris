@@ -255,7 +255,7 @@ suite("test_auto_list_partition") {
         CREATE TABLE test_list_many_column2 (
             id int not null,
             k largeint not null,
-            str varchar not null,
+            str varchar not null
         )
         AUTO PARTITION BY LIST (`id`, `k`, `str`)
         (
@@ -276,7 +276,7 @@ suite("test_auto_list_partition") {
         CREATE TABLE test_list_many_column3 (
             id int not null,
             k largeint not null,
-            str varchar not null,
+            str varchar not null
         )
         AUTO PARTITION BY LIST (`id`, `k`, `str`)
         (
