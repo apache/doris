@@ -39,4 +39,7 @@ public class BrokerConfig extends ConfigBase {
 
     @ConfField
     public static int broker_ipc_port = 8000;
+
+    @ConfField(value = "broker_thrift_server_type")
+    public static String brokerThriftServerType = "THREADED_SELECTOR";
 }

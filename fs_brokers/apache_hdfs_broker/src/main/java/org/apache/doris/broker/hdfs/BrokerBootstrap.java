@@ -50,7 +50,9 @@ public class BrokerBootstrap {
 
             TProcessor tprocessor = new TPaloBrokerService.Processor<TPaloBrokerService.Iface>(
                     new HDFSBrokerServiceImpl());
-            ThriftServer server = new ThriftServer(BrokerConfig.broker_ipc_port, tprocessor);
+            ThriftServer server = new ThriftServer(BrokerConfig.broker_ipc_port,
+                    tprocessor,
+                    ThriftServer.ThriftServerType.valueOf(BrokerConfig.brokerThriftServerType));
             server.start();
             logger.info("starting apache hdfs broker....succeed");
             while (true) {

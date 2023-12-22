@@ -35,15 +35,16 @@ import java.io.IOException;
  */
 public class ThriftServer {
     private static final Logger           LOG  = Logger.getLogger(ThriftServer.class);
-    private              ThriftServerType type = ThriftServerType.THREADED_SELECTOR;
+    private final ThriftServerType type;
     private int        port;
     private TProcessor processor;
     private TServer    server;
     private Thread     serverThread;
     
-    public ThriftServer(int port, TProcessor processor) {
+    public ThriftServer(int port, TProcessor processor, ThriftServerType type) {
         this.port = port;
         this.processor = processor;
+        this.type = type;
     }
 
     private void createSimpleServer() throws TTransportException {
