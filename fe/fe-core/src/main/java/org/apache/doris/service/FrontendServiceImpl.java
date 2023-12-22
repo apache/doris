@@ -58,6 +58,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
@@ -3280,40 +3281,42 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     @Override
     public TGetColumnInfoResult getColumnInfo(TGetColumnInfoRequest request) {
         TGetColumnInfoResult result = new TGetColumnInfoResult();
-        TStatus errorStatus = new TStatus(TStatusCode.RUNTIME_ERROR);
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
         long dbId = request.getDbId();
         long tableId = request.getTableId();
         if (!Env.getCurrentEnv().isMaster()) {
-            errorStatus.setStatusCode(TStatusCode.NOT_MASTER);
-            errorStatus.addToErrorMsgs(NOT_MASTER_ERR_MSG);
+            status.setStatusCode(TStatusCode.NOT_MASTER);
+            status.addToErrorMsgs(NOT_MASTER_ERR_MSG);
             LOG.error("failed to getColumnInfo: {}", NOT_MASTER_ERR_MSG);
             return result;
         }
 
-        Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(dbId);
-        if (db == null) {
-            errorStatus.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
-            result.setStatus(errorStatus);
+        Database db;
+        try {
+            db = Env.getCurrentInternalCatalog()
+                    .getDbOrException(dbId, s -> new LoadException("db does not exist. id: " + s));
+        } catch (LoadException e) {
+            status.setStatusCode(TStatusCode.NOT_FOUND);
+            status.setErrorMsgs(Lists.newArrayList(String.format("dbId=%d is not exists", dbId)));
             return result;
         }
 
-        Table table;
         try {
-            table = db.getTable(tableId).get();
-        } catch (NoSuchElementException e) {
-            errorStatus.setErrorMsgs(
+            OlapTable table = (OlapTable) db.getTableOrException(
+                    tableId, s -> new LoadException("table does not exist. id: " + s));
+            List<String> columnsResult = Lists.newArrayList();
+            for (Column column : table.getBaseSchema(true)) {
+                columnsResult.add(column.getName() + ":" + column.getUniqueId());
+            }
+            // result.setStatus(TStatusCode.OK);
+            result.setColumns(columnsResult);
+        } catch (LoadException e) {
+            status.setStatusCode(TStatusCode.NOT_FOUND);
+            status.setErrorMsgs(
                     (Lists.newArrayList(String.format("dbId=%d tableId=%d is not exists", dbId, tableId))));
-            result.setStatus(errorStatus);
             return result;
         }
-        StringBuilder sb = new StringBuilder();
-        for (Column column : table.getBaseSchema(true)) {
-            sb.append(column.getName() + ":" + column.getUniqueId() + ",");
-        }
-        String columnInfo = sb.toString();
-        columnInfo = columnInfo.substring(0, columnInfo.length() - 1);
-        result.setStatus(new TStatus(TStatusCode.OK));
-        result.setColumnInfo(columnInfo);
         return result;
     }
 

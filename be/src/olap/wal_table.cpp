@@ -204,7 +204,17 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
     if (!st.ok()) {
         LOG(WARNING) << "abort txn " << wal_id << " fail";
     }
-    RETURN_IF_ERROR(_get_column_info(_db_id, _table_id));
+    auto get_st = _get_column_info(_db_id, _table_id);
+    if (!get_st.ok()) {
+        if (get_st.is<ErrorCode::NOT_FOUND>()) {
+            {
+                std::lock_guard<std::mutex> lock(_replay_wal_lock);
+                _replay_wal_map.erase(wal);
+            }
+            RETURN_IF_ERROR(_delete_wal(wal_id));
+        }
+        return get_st;
+    }
 #endif
     RETURN_IF_ERROR(_send_request(wal_id, wal, label));
     return Status::OK();
@@ -354,8 +364,7 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
         }
     } else {
         LOG(INFO) << "success to replay wal =" << wal;
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
+        RETURN_IF_ERROR(_delete_wal(wal_id));
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
         if (_replay_wal_map.erase(wal)) {
             LOG(INFO) << "erase " << wal << " from _replay_wal_map";
@@ -414,9 +423,11 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
                 [&request, &result](FrontendServiceConnection& client) {
                     client->getColumnInfo(result, request);
                 }));
-        std::string columns_str = result.column_info;
-        std::vector<std::string> column_element;
-        doris::vectorized::WalReader::string_split(columns_str, ",", column_element);
+        status = Status::create(result.status);
+        if (!status.ok()) {
+            return status;
+        }
+        std::vector<std::string> column_element = result.columns;
         int64_t column_index = 1;
         _column_id_name_map.clear();
         _column_id_index_map.clear();
@@ -432,8 +443,6 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
                 return Status::InvalidArgument("Invalid format, {}", e.what());
             }
         }
-
-        status = Status::create(result.status);
     }
     return status;
 }
@@ -444,6 +453,12 @@ Status WalTable::_read_wal_header(const std::string& wal_path, std::string& colu
     uint32_t version = 0;
     RETURN_IF_ERROR(wal_reader->read_header(version, columns));
     RETURN_IF_ERROR(wal_reader->finalize());
+    return Status::OK();
+}
+
+Status WalTable::_delete_wal(int64_t wal_id) {
+    RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
+    RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
     return Status::OK();
 }
 

@@ -1309,7 +1309,7 @@ struct TGetColumnInfoRequest {
 
 struct TGetColumnInfoResult {
     1: optional Status.TStatus status
-    2: optional string column_info
+    2: optional list<string> columns
 }
 
 service FrontendService {
