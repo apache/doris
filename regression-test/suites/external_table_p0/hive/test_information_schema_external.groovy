@@ -219,7 +219,6 @@ suite("test_information_schema_external", "p0,external,hive,external_docker,exte
             sql """ drop database if  exists ${db_name}; """
 
 
-
             sql """drop catalog if exists ${catalog_name}"""
         } finally {
         }
