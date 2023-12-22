@@ -272,6 +272,7 @@ public class MaterializedViewUtils {
         private boolean pctPossible = true;
         private TableIf relatedTable;
         private Column relatedTableColumn;
+        private boolean joinNullGenerateSide;
 
         public IncrementCheckerContext(SlotReference mvPartitionColumn) {
             this.mvPartitionColumn = mvPartitionColumn;
@@ -303,6 +304,14 @@ public class MaterializedViewUtils {
 
         public void setRelatedTableColumn(Column relatedTableColumn) {
             this.relatedTableColumn = relatedTableColumn;
+        }
+
+        public boolean isJoinNullGenerateSide() {
+            return joinNullGenerateSide;
+        }
+
+        public void setJoinNullGenerateSide(boolean joinNullGenerateSide) {
+            this.joinNullGenerateSide = joinNullGenerateSide;
         }
     }
 
