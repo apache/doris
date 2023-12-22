@@ -112,6 +112,22 @@ Status WalTable::replay_wals() {
             }
             LOG(WARNING) << "failed replay wal, drop this round, db=" << _db_id
                          << ", table=" << _table_id << ", wal=" << wal << ", st=" << st.to_string();
+            if (st.is<ErrorCode::RUNTIME_ERROR>()) {
+                auto msg = st.msg();
+                if (msg.find("tableId") != msg.npos && msg.find("not exists") != msg.npos) {
+                    std::shared_ptr<std::pair<int64_t, std::string>> pair = nullptr;
+                    RETURN_IF_ERROR(_get_wal_info(wal, pair));
+                    auto wal_id = pair->first;
+                    RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
+                    RETURN_IF_ERROR(
+                            _exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
+                    if (_replay_wal_map.erase(wal)) {
+                        LOG(INFO) << "erase " << wal << " from _replay_wal_map";
+                    } else {
+                        LOG(WARNING) << "fail to erase " << wal << " from _replay_wal_map";
+                    }
+                }
+            }
             break;
         }
         VLOG_NOTICE << "replay wal, db=" << _db_id << ", table=" << _table_id << ", label=" << wal
