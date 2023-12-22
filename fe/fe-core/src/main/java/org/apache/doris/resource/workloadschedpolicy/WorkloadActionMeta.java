@@ -17,9 +17,11 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.UserException;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 
 public class WorkloadActionMeta {
 
@@ -43,5 +45,19 @@ public class WorkloadActionMeta {
             return WorkloadActionType.SET_SESSION_VARIABLE;
         }
         throw new UserException("invalid action type " + strType);
+    }
+
+    public String toString() {
+        if (StringUtils.isEmpty(actionArgs)) {
+            return action.toString();
+        } else {
+            String retActionArgs = actionArgs;
+            if (WorkloadActionType.MOVE_QUERY_TO_GROUP.equals(action)) {
+                retActionArgs = Env.getCurrentEnv().getWorkloadGroupMgr()
+                        .getWorkloadGroupNameById(Long.valueOf(actionArgs));
+            }
+            retActionArgs = retActionArgs == null ? "-1" : retActionArgs;
+            return action + " \"" + retActionArgs + "\"";
+        }
     }
 }

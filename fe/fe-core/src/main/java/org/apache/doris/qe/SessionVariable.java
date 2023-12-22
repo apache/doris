@@ -125,6 +125,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String PREFER_JOIN_METHOD = "prefer_join_method";
 
     public static final String ENABLE_FOLD_CONSTANT_BY_BE = "enable_fold_constant_by_be";
+
+    public static final String ENABLE_REWRITE_ELEMENT_AT_TO_SLOT = "enable_rewrite_element_at_to_slot";
     public static final String ENABLE_ODBC_TRANSCATION = "enable_odbc_transcation";
     public static final String ENABLE_SQL_CACHE = "enable_sql_cache";
     public static final String ENABLE_PARTITION_CACHE = "enable_partition_cache";
@@ -690,7 +692,7 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
                         setter = "setFragmentInstanceNum")
-    public int parallelExecInstanceNum = 1;
+    public int parallelExecInstanceNum = 8;
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
                         setter = "setPipelineTaskNum")
@@ -829,6 +831,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
     private boolean enableFoldConstantByBe = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_REWRITE_ELEMENT_AT_TO_SLOT, fuzzy = true)
+    private boolean enableRewriteElementAtToSlot = true;
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE, needForward = true)
     private String runtimeFilterMode = "GLOBAL";
 
@@ -1961,6 +1965,14 @@ public class SessionVariable implements Serializable, Writable {
         return enableFoldConstantByBe;
     }
 
+    public boolean isEnableRewriteElementAtToSlot() {
+        return enableRewriteElementAtToSlot;
+    }
+
+    public void setEnableRewriteElementAtToSlot(boolean rewriteElementAtToSlot) {
+        enableRewriteElementAtToSlot = rewriteElementAtToSlot;
+    }
+
     public boolean isEnableNereidsDML() {
         return enableNereidsDML;
     }
@@ -2708,7 +2720,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
-        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
+        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);

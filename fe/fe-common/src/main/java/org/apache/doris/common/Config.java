@@ -523,7 +523,7 @@ public class Config extends ConfigBase {
             "Default pre-commit timeout for stream load job, in seconds."})
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
-    @ConfField(description = {"Stream Load 是否默认打开 memtable 前移",
+    @ConfField(mutable = true, masterOnly = true, description = {"Stream Load 是否默认打开 memtable 前移",
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
@@ -2366,4 +2366,9 @@ public class Config extends ConfigBase {
     @ConfField(description = {"用于SQL方言转换的服务地址。",
             "The service address for SQL dialect conversion."})
     public static String sql_convertor_service = "";
+
+    @ConfField(mutable = true)
+    public static boolean enable_profile_when_analyze = false;
+    @ConfField(mutable = true)
+    public static boolean enable_collect_internal_query_profile = false;
 }

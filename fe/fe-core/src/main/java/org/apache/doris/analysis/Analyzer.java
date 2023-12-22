@@ -49,6 +49,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.ElementAtToSlotRefRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
 import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
@@ -454,6 +455,7 @@ public class Analyzer {
             rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
+            rules.add(ElementAtToSlotRefRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);

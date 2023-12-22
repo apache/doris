@@ -217,8 +217,6 @@ DEFINE_Int32(be_service_threads, "64");
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.
 DEFINE_Int32(num_threads_per_core, "3");
-// if true, compresses tuple data in Serialize
-DEFINE_mBool(compress_rowbatches, "true");
 DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
@@ -470,6 +468,8 @@ DEFINE_Int32(single_replica_load_download_num_workers, "64");
 DEFINE_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
+// error log size limit, default 200MB
+DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
@@ -587,6 +587,8 @@ DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
+// max parallel flush task per memtable writer
+DEFINE_mInt32(memtable_flush_running_count_limit, "5");
 
 DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
@@ -772,7 +774,7 @@ DEFINE_Int32(load_stream_messages_in_batch, "128");
 // brpc streaming StreamWait seconds on EAGAIN
 DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
 // max tasks per flush token in load stream
-DEFINE_Int32(load_stream_flush_token_max_tasks, "2");
+DEFINE_Int32(load_stream_flush_token_max_tasks, "5");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -785,12 +787,6 @@ DEFINE_Validator(max_send_batch_parallelism_per_job,
 DEFINE_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
 DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
-// number of download cache thread pool size
-DEFINE_Int32(download_cache_thread_pool_thread_num, "48");
-// number of download cache thread pool queue size
-DEFINE_Int32(download_cache_thread_pool_queue_size, "102400");
-// download cache buffer size
-DEFINE_Int64(download_cache_buffer_size, "10485760");
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,

@@ -93,12 +93,12 @@ public:
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_merge_by_exchange) {
             // The current sort node is used for the ORDER BY
             return {ExchangeType::PASSTHROUGH};
         }
-        return DataSinkOperatorX<SortSinkLocalState>::get_local_exchange_type();
+        return DataSinkOperatorX<SortSinkLocalState>::required_data_distribution();
     }
 
 private:

@@ -54,15 +54,12 @@ public:
     Status create_wal_reader(const std::string& wal_path, std::shared_ptr<WalReader>& wal_reader);
     Status create_wal_writer(int64_t wal_id, std::shared_ptr<WalWriter>& wal_writer);
     Status scan();
-    size_t get_wal_table_size(const std::string& table_id);
-    Status add_recover_wal(const std::string& db_id, const std::string& table_id,
-                           std::vector<std::string> wals);
+    size_t get_wal_table_size(int64_t table_id);
+    Status add_recover_wal(int64_t db_id, int64_t table_id, std::vector<std::string> wals);
     Status add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id, const std::string& label);
     Status get_wal_path(int64_t wal_id, std::string& wal_path);
     Status get_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
                                      PGetWalQueueSizeResponse* response);
-    Status get_all_wal_status_queue_size(const PGetWalQueueSizeRequest* request,
-                                         PGetWalQueueSizeResponse* response);
     void add_wal_status_queue(int64_t table_id, int64_t wal_id, WAL_STATUS wal_status);
     Status erase_wal_status_queue(int64_t table_id, int64_t wal_id);
     void print_wal_status_queue();
@@ -78,7 +75,7 @@ private:
     std::shared_mutex _lock;
     scoped_refptr<Thread> _replay_thread;
     CountDownLatch _stop_background_threads_latch;
-    std::map<std::string, std::shared_ptr<WalTable>> _table_map;
+    std::map<int64_t, std::shared_ptr<WalTable>> _table_map;
     std::vector<std::string> _wal_dirs;
     std::shared_mutex _wal_lock;
     std::shared_mutex _wal_status_lock;

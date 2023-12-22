@@ -62,6 +62,10 @@ public class ForeignKeyConstraint extends Constraint {
         return foreignToReference.get(column);
     }
 
+    public ImmutableMap<String, String> getForeignToReference() {
+        return foreignToReference;
+    }
+
     public Map<Column, Column> getForeignToPrimary(TableIf curTable) {
         ImmutableMap.Builder<Column, Column> columnBuilder = new ImmutableMap.Builder<>();
         TableIf refTable = referencedTable.toTableIf();

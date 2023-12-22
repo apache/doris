@@ -266,8 +266,6 @@ DECLARE_Int32(be_service_threads);
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.
 DECLARE_Int32(num_threads_per_core);
-// if true, compresses tuple data in Serialize
-DECLARE_mBool(compress_rowbatches);
 DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
@@ -521,6 +519,8 @@ DECLARE_Int32(single_replica_load_download_num_workers);
 DECLARE_Int64(load_data_reserve_hours);
 // log error log will be removed after this time
 DECLARE_mInt64(load_error_log_reserve_hours);
+// error log size limit, default 200MB
+DECLARE_mInt64(load_error_log_limit_bytes);
 
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number
@@ -646,6 +646,8 @@ DECLARE_mDouble(memtable_insert_memory_ratio);
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
+// max parallel flush task per memtable writer
+DECLARE_mInt32(memtable_flush_running_count_limit);
 
 DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 
@@ -844,12 +846,6 @@ DECLARE_mInt32(max_send_batch_parallelism_per_job);
 DECLARE_Int32(send_batch_thread_pool_thread_num);
 // number of send batch thread pool queue size
 DECLARE_Int32(send_batch_thread_pool_queue_size);
-// number of download cache thread pool size
-DECLARE_Int32(download_cache_thread_pool_thread_num);
-// number of download cache thread pool queue size
-DECLARE_Int32(download_cache_thread_pool_queue_size);
-// download cache buffer size
-DECLARE_Int64(download_cache_buffer_size);
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -1009,8 +1005,6 @@ DECLARE_Bool(enable_fuzzy_mode);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_Bool(enable_workload_group_for_scan);
-DECLARE_mInt64(workload_group_scan_task_wait_timeout_ms);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.

@@ -57,7 +57,7 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         return {ExchangeType::PASSTHROUGH};
     }
 
