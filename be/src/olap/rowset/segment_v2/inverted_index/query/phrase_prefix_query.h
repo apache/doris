@@ -19,29 +19,36 @@
 
 #include <CLucene.h>
 #include <CLucene/index/IndexReader.h>
-#include <CLucene/index/IndexVersion.h>
-#include <CLucene/index/Term.h>
-#include <CLucene/search/query/TermIterator.h>
 
+#include <memory>
+
+#include "CLucene/search/MultiPhraseQuery.h"
 #include "roaring/roaring.hh"
 
 CL_NS_USE(index)
+CL_NS_USE(search)
 
 namespace doris {
 
-class DisjunctionQuery {
+namespace segment_v2 {
+
+class PhrasePrefixQuery {
 public:
-    DisjunctionQuery(IndexReader* reader);
-    ~DisjunctionQuery();
+    PhrasePrefixQuery(const std::shared_ptr<lucene::search::IndexSearcher>& searcher);
+    ~PhrasePrefixQuery() = default;
+
+    void set_max_expansions(int32_t max_expansions) { _max_expansions = max_expansions; }
 
     void add(const std::wstring& field_name, const std::vector<std::string>& terms);
     void search(roaring::Roaring& roaring);
 
 private:
-    IndexReader* _reader = nullptr;
-    std::vector<Term*> _terms;
-    std::vector<TermDocs*> _term_docs;
-    std::vector<TermIterator> _term_iterators;
+    std::shared_ptr<lucene::search::IndexSearcher> _searcher;
+    MultiPhraseQuery _query;
+
+    int32_t _max_expansions = 50;
 };
+
+} // namespace segment_v2
 
 } // namespace doris
