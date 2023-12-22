@@ -43,6 +43,7 @@ private:
     void memtable_memory_limiter_tracker_refresh_thread();
     void calculate_metrics_thread();
     void block_spill_gc_thread();
+    void je_purge_dirty_pages_thread() const;
 
     CountDownLatch _stop_background_threads_latch;
     std::vector<scoped_refptr<Thread>> _threads;

@@ -1056,7 +1056,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
             return res;
         } else {
             //TODO:mock until AndBlockColumnPredicate evaluate is ok.
-            if (res.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+            if (res.code() == ErrorCode::INVERTED_INDEX_NOT_IMPLEMENTED) {
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -1832,6 +1832,9 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 
     for (auto cid : _first_read_column_ids) {
         auto& column = _current_return_columns[cid];
+        if (_need_read_key_data(cid, column, nrows_read)) {
+            continue;
+        }
         if (_prune_column(cid, column, true, nrows_read)) {
             continue;
         }
@@ -2069,6 +2072,11 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
         auto col_ptr_nullable = reinterpret_cast<vectorized::ColumnNullable*>(output_col.get());
         col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
         output_col = col_ptr_nullable->get_nested_column_ptr();
+    } else if (!output_col->is_nullable() && input_col_ptr->is_nullable()) {
+        LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
+                     << " input_column: " << input_col_ptr->dump_structure()
+                     << " select_size: " << select_size;
+        return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
 
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
@@ -2568,6 +2576,44 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             _column_predicate_info.reset(new ColumnPredicateInfo());
         }
     }
+}
+
+bool SegmentIterator::_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
+                                          size_t nrows_read) {
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+        return false;
+    }
+
+    if (_opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+        return false;
+    }
+
+    if (!_opts.tablet_schema->column(cid).is_key()) {
+        return false;
+    }
+
+    std::set<uint32_t> cids;
+    for (auto* pred : _col_predicates) {
+        cids.insert(pred->column_id());
+    }
+    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+        cids.insert(pred->column_id());
+    }
+
+    // If the key is present in expr, data needs to be read.
+    if (cids.contains(cid)) {
+        return false;
+    }
+
+    if (column->is_nullable()) {
+        auto* nullable_col_ptr = reinterpret_cast<vectorized::ColumnNullable*>(column.get());
+        nullable_col_ptr->get_null_map_column().insert_many_defaults(nrows_read);
+        nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(nrows_read);
+    } else {
+        column->insert_many_defaults(nrows_read);
+    }
+
+    return true;
 }
 
 } // namespace segment_v2

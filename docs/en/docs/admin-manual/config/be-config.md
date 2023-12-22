@@ -728,6 +728,11 @@ BaseCompaction:546859:
 * Description: The load error log will be deleted after this time
 * Default value: 48 (h)
 
+#### `load_error_log_limit_bytes`
+
+* Description: The loading error logs larger than this value will be truncated
+* Default value: 209715200 (byte)
+
 #### `load_process_max_memory_limit_percent`
 
 * Description: The percentage of the upper memory limit occupied by all imported threads on a single node, the default is 50%
@@ -974,12 +979,6 @@ BaseCompaction:546859:
 
 * Description: Interval in milliseconds between memtable flush mgr refresh iterations
 * Default value: 100
-
-#### `download_cache_buffer_size`
-
-* Type: int64
-* Description: The size of the buffer used to receive data when downloading the cache.
-* Default value: 10485760
 
 #### `zone_map_row_num_threshold`
 

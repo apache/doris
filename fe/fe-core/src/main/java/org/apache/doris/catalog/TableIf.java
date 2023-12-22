@@ -165,6 +165,42 @@ public interface TableIf {
         throw new RuntimeException(String.format("Not implemented constraint for table %s", this));
     }
 
+    default Set<ForeignKeyConstraint> getForeignKeyConstraints() {
+        readLock();
+        try {
+            return getConstraintsMap().values().stream()
+                    .filter(ForeignKeyConstraint.class::isInstance)
+                    .map(ForeignKeyConstraint.class::cast)
+                    .collect(ImmutableSet.toImmutableSet());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    default Set<PrimaryKeyConstraint> getPrimaryKeyConstraints() {
+        readLock();
+        try {
+            return getConstraintsMap().values().stream()
+                    .filter(PrimaryKeyConstraint.class::isInstance)
+                    .map(PrimaryKeyConstraint.class::cast)
+                    .collect(ImmutableSet.toImmutableSet());
+        } finally {
+            readUnlock();
+        }
+    }
+
+    default Set<UniqueConstraint> getUniqueConstraints() {
+        readLock();
+        try {
+            return getConstraintsMap().values().stream()
+                    .filter(UniqueConstraint.class::isInstance)
+                    .map(UniqueConstraint.class::cast)
+                    .collect(ImmutableSet.toImmutableSet());
+        } finally {
+            readUnlock();
+        }
+    }
+
     // Note this function is not thread safe
     default void checkConstraintNotExistence(String name, Constraint primaryKeyConstraint,
             Map<String, Constraint> constraintMap) {
@@ -378,6 +414,12 @@ public interface TableIf {
 
     default List<String> getFullQualifiers() {
         return ImmutableList.of(getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getName());
+    }
+
+    default String getNameWithFullQualifiers() {
+        return String.format("%s.%s.%s", getDatabase().getCatalog().getName(),
                 ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
                 getName());
     }

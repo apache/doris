@@ -108,7 +108,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
     }
 
-    protected boolean containAllRequiredColumns(MaterializedIndex index, LogicalOlapScan scan,
+    protected static boolean containAllRequiredColumns(MaterializedIndex index, LogicalOlapScan scan,
             Set<Slot> requiredScanOutput, Set<? extends Expression> requiredExpr, Set<Expression> predicateExpr) {
         OlapTable table = scan.getTable();
         MaterializedIndexMeta meta = table.getIndexMetaByIndexId(index.getId());
@@ -177,7 +177,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
      * 1. find matching key prefix most.
      * 2. sort by row count, column count and index id.
      */
-    protected long selectBestIndex(
+    protected static long selectBestIndex(
             List<MaterializedIndex> candidates,
             LogicalOlapScan scan,
             Set<Expression> predicates) {
@@ -212,7 +212,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return CollectionUtils.isEmpty(sortedIndexIds) ? scan.getTable().getBaseIndexId() : sortedIndexIds.get(0);
     }
 
-    protected List<MaterializedIndex> matchPrefixMost(
+    protected static List<MaterializedIndex> matchPrefixMost(
             LogicalOlapScan scan,
             List<MaterializedIndex> candidate,
             Set<Expression> predicates,
@@ -238,7 +238,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
      * Filter the input conjuncts those can use prefix and split into 2 groups: is equal-to or non-equal-to predicate
      * when comparing the key column.
      */
-    private Map<Boolean, Set<String>> filterCanUsePrefixIndexAndSplitByEquality(
+    private static Map<Boolean, Set<String>> filterCanUsePrefixIndexAndSplitByEquality(
             Set<Expression> conjuncts, Map<ExprId, String> exprIdToColName) {
         return conjuncts.stream()
                 .map(expr -> PredicateChecker.canUsePrefixIndex(expr, exprIdToColName))
@@ -332,7 +332,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
     ///////////////////////////////////////////////////////////////////////////
     // Matching key prefix
     ///////////////////////////////////////////////////////////////////////////
-    private List<MaterializedIndex> matchKeyPrefixMost(
+    private static List<MaterializedIndex> matchKeyPrefixMost(
             OlapTable table,
             List<MaterializedIndex> indexes,
             Set<String> equalColumns,
@@ -350,7 +350,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return collect.descendingMap().firstEntry().getValue();
     }
 
-    private int indexKeyPrefixMatchCount(
+    private static int indexKeyPrefixMatchCount(
             OlapTable table,
             MaterializedIndex index,
             Set<String> equalColNames,
@@ -370,7 +370,7 @@ public abstract class AbstractSelectMaterializedIndexRule {
         return matchCount;
     }
 
-    protected boolean preAggEnabledByHint(LogicalOlapScan olapScan) {
+    protected static boolean preAggEnabledByHint(LogicalOlapScan olapScan) {
         return olapScan.getHints().stream().anyMatch("PREAGGOPEN"::equalsIgnoreCase);
     }
 

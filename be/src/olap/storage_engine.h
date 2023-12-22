@@ -139,7 +139,7 @@ public:
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
     void notify_listeners();
-    void notify_listener(std::string_view name);
+    bool notify_listener(std::string_view name);
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }

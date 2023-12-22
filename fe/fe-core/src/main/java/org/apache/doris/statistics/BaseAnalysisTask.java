@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -313,12 +314,15 @@ public abstract class BaseAnalysisTask {
 
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
+        String queryId = "";
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
             job.appendBuf(this, Collections.singletonList(colStatsData));
         } finally {
-            LOG.debug("End cost time in secs: " + (System.currentTimeMillis() - startTime) / 1000);
+            LOG.debug("End cost time in millisec: " + (System.currentTimeMillis() - startTime)
+                    + " Analyze SQL: " + sql + " QueryId: " + queryId);
         }
     }
 
