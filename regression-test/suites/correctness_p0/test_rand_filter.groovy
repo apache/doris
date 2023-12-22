@@ -32,5 +32,11 @@ suite("test_rand_filter") {
         sql("""select * from test_rand_filter_t where rand() < 0.5 union all select * from test_rand_filter_t where rand() > 0.3;""")
         notContains("AND")
     }
+    explain {
+        sql("""select * from test_rand_filter_t 
+                union all (select * from test_rand_filter_t where rand() < 0.3) 
+                union all (select * from test_rand_filter_t where a > 5 and rand() < 0.4);""")
+        notContains("rand() < 0.3 AND rand() < 0.4")
+    }
     sql """ DROP TABLE IF EXISTS test_rand_filter_t """
 }
