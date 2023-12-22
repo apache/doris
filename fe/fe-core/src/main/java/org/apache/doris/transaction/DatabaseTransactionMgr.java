@@ -586,9 +586,11 @@ public class DatabaseTransactionMgr {
                                     tabletVersionFailedReplicas);
 
                             String errMsg = String.format("Failed to commit txn %s, cause tablet %s succ replica num %s"
-                                    + " < load required replica num %s. table %s, partition %s, this tablet detail: %s",
+                                    + " < load required replica num %s. table %s, partition: [ id=%s, commit version %s"
+                                    + ", visible version %s ], this tablet detail: %s",
                                     transactionId, tablet.getId(), successReplicaNum, loadRequiredReplicaNum, tableId,
-                                    partition.getId(), writeDetail);
+                                    partition.getId(), partition.getCommittedVersion(), partition.getVisibleVersion(),
+                                    writeDetail);
                             LOG.info(errMsg);
 
                             throw new TabletQuorumFailedException(transactionId, errMsg);
@@ -743,7 +745,7 @@ public class DatabaseTransactionMgr {
         }
 
         // update nextVersion because of the failure of persistent transaction resulting in error version
-        updateCatalogAfterCommitted(transactionState, db);
+        updateCatalogAfterCommitted(transactionState, db, false);
         LOG.info("transaction:[{}] successfully committed", transactionState);
     }
 
@@ -1125,9 +1127,9 @@ public class DatabaseTransactionMgr {
                                     tabletWriteFailedReplicas, tabletVersionFailedReplicas);
                             logs.add(String.format("publish version quorum succ for transaction %s on tablet %s"
                                     + " with version %s, and has failed replicas, load require replica num %s. "
-                                    + "table %s, partition %s, tablet detail: %s",
-                                    transactionState, tablet.getId(), newVersion,
-                                    loadRequiredReplicaNum, tableId, partitionId, writeDetail));
+                                    + "table %s, partition: [ id=%s, commit version=%s ], tablet detail: %s",
+                                    transactionState, tablet.getId(), newVersion, loadRequiredReplicaNum, tableId,
+                                    partitionId, partition.getCommittedVersion(), writeDetail));
                         }
                         continue;
                     }
@@ -1790,8 +1792,10 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private void updateCatalogAfterCommitted(TransactionState transactionState, Database db) {
+    private void updateCatalogAfterCommitted(TransactionState transactionState, Database db, boolean isReplay) {
         Set<Long> errorReplicaIds = transactionState.getErrorReplicas();
+        List<Replica> tabletSuccReplicas = Lists.newArrayList();
+        List<Replica> tabletFailedReplicas = Lists.newArrayList();
         for (TableCommitInfo tableCommitInfo : transactionState.getIdToTableCommitInfos().values()) {
             long tableId = tableCommitInfo.getTableId();
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
@@ -1814,12 +1818,29 @@ public class DatabaseTransactionMgr {
                 for (MaterializedIndex index : allIndices) {
                     List<Tablet> tablets = index.getTablets();
                     for (Tablet tablet : tablets) {
+                        tabletFailedReplicas.clear();
+                        tabletSuccReplicas.clear();
                         for (Replica replica : tablet.getReplicas()) {
                             if (errorReplicaIds.contains(replica.getId())) {
                                 // TODO(cmy): do we need to update last failed version here?
                                 // because in updateCatalogAfterVisible, it will be updated again.
                                 replica.updateLastFailedVersion(partitionCommitInfo.getVersion());
+                                tabletFailedReplicas.add(replica);
+                            } else {
+                                tabletSuccReplicas.add(replica);
                             }
+                        }
+                        if (!isReplay && !tabletFailedReplicas.isEmpty()) {
+                            LOG.info("some replicas load data failed for committed txn {} on version {}, table {}, "
+                                    + "partition {}, tablet {}, {} replicas load data succ: {}, {} replicas load "
+                                    + "data fail: {}",
+                                    transactionState.getTransactionId(), partitionCommitInfo.getVersion(),
+                                    tableId, partitionId, tablet.getId(), tabletSuccReplicas.size(),
+                                    Joiner.on(", ").join(tabletSuccReplicas.stream()
+                                            .map(replica -> replica.toStringSimple(true))),
+                                    tabletFailedReplicas.size(),
+                                    Joiner.on(", ").join(tabletFailedReplicas.stream()
+                                            .map(replica -> replica.toStringSimple(true))));
                         }
                     }
                 }
@@ -2033,7 +2054,7 @@ public class DatabaseTransactionMgr {
             // set transaction status will call txn state change listener
             transactionState.replaySetTransactionStatus();
             if (transactionState.getTransactionStatus() == TransactionStatus.COMMITTED) {
-                updateCatalogAfterCommitted(transactionState, db);
+                updateCatalogAfterCommitted(transactionState, db, true);
             } else if (transactionState.getTransactionStatus() == TransactionStatus.VISIBLE) {
                 updateCatalogAfterVisible(transactionState, db);
             }
