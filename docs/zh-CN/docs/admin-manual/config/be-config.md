@@ -1005,12 +1005,6 @@ BaseCompaction:546859:
 * 描述：memtable主动下刷时刷新内存统计的周期（毫秒）
 * 默认值：100
 
-#### `download_cache_buffer_size`
-
-* 类型: int64
-* 描述: 下载缓存时用于接收数据的buffer的大小。
-* 默认值: 10485760
-
 #### `zone_map_row_num_threshold`
 
 * 类型： int32

@@ -851,12 +851,6 @@ DECLARE_mInt32(max_send_batch_parallelism_per_job);
 DECLARE_Int32(send_batch_thread_pool_thread_num);
 // number of send batch thread pool queue size
 DECLARE_Int32(send_batch_thread_pool_queue_size);
-// number of download cache thread pool size
-DECLARE_Int32(download_cache_thread_pool_thread_num);
-// number of download cache thread pool queue size
-DECLARE_Int32(download_cache_thread_pool_queue_size);
-// download cache buffer size
-DECLARE_Int64(download_cache_buffer_size);
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
