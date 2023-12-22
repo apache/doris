@@ -201,12 +201,7 @@ private:
                 result_column->insert_default();
                 return;
             }
-
-            if (!ts_value2.from_unixtime(timestamp, to_tz)) {
-                result_null_map[index_now] = true;
-                result_column->insert_default();
-                return;
-            }
+            ts_value2.from_unixtime(timestamp, to_tz);
         } else {
             int64_t timestamp;
             if (!ts_value.unix_timestamp(&timestamp, from_tz)) {
@@ -215,11 +210,7 @@ private:
                 return;
             }
 
-            if (!ts_value2.from_unixtime(timestamp, to_tz)) {
-                result_null_map[index_now] = true;
-                result_column->insert_default();
-                return;
-            }
+            ts_value2.from_unixtime(timestamp, to_tz);
         }
 
         result_column->insert(binary_cast<ReturnDateValueType, ReturnNativeType>(ts_value2));
