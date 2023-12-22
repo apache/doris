@@ -28,6 +28,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.job.base.Job;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
@@ -217,6 +218,17 @@ public class MTMVTask extends AbstractTask {
         } catch (UserException e) {
             LOG.warn("before task failed:", e);
             throw new JobException(e);
+        }
+    }
+
+    @Override
+    public void runTask() throws JobException {
+        MTMVJob job = (MTMVJob) getJobOrJobException();
+        try {
+            job.writeLock();
+            super.runTask();
+        } finally {
+            job.writeUnlock();
         }
     }
 
