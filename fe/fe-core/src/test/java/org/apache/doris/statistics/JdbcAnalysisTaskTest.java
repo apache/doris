@@ -102,7 +102,7 @@ public class JdbcAnalysisTaskTest {
 
     @Test
     public void testGetColumnStats(@Mocked CatalogIf catalogIf, @Mocked DatabaseIf databaseIf, @Mocked JdbcExternalTable tableIf)
-            throws Exception{
+            throws Exception {
         new Expectations() {
             {
                 tableIf.getId();
@@ -127,7 +127,7 @@ public class JdbcAnalysisTaskTest {
             }
         };
 
-        new MockUp<JdbcAnalysisTask> () {
+        new MockUp<JdbcAnalysisTask>() {
             @Mock
             public void runQuery(String sql) {
                 Assertions.assertEquals(" SELECT CONCAT(30001, '-', -1, '-', 'col1') AS id, "
