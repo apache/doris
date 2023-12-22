@@ -1369,7 +1369,7 @@ Default：false
 
 IsMutable：true
 
-MasterOnly：false
+MasterOnly：true
 
 Enable memtable on sink node for stream load by default.
 When HTTP header `memtable_on_sink_node` is not set.
