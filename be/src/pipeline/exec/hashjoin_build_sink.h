@@ -116,6 +116,7 @@ protected:
     bool _build_side_ignore_null = false;
     std::unordered_set<const vectorized::Block*> _inserted_blocks;
     std::shared_ptr<SharedHashTableDependency> _shared_hash_table_dependency;
+    std::vector<int> _build_col_ids;
 
     RuntimeProfile::Counter* _build_table_timer = nullptr;
     RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
