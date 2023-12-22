@@ -632,7 +632,7 @@ BaseCompaction:546859:
 
 * Type: bool
 * Description: Enable to use segment compaction during loading to avoid -238 error
-* Default value: true
+* Default value: false
 
 #### `segcompaction_batch_size`
 
