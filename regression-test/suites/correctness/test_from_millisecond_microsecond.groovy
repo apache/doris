@@ -199,4 +199,9 @@ suite("test_from_millisecond_microsecond") {
         from millimicro
         order by id;
     """ 
+
+    sql " set time_zone='Asia/Shanghai' "
+    qt_sql " select from_second(-1) "
+    qt_sql " select from_microsecond(253402271999999999) "
+    qt_sql " select from_microsecond(253402272000000000) "
 }
