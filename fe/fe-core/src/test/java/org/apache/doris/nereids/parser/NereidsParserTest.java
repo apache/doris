@@ -286,7 +286,7 @@ public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testDecimalv2() {
-        String decv2 = "SELECT CAST('1.234' AS decimalv2(10,5))";
+        String decv2 = "SELECT CAST('1.234' AS decimalv2(10,5)) FROM t";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(decv2).child(0);
         Assertions.assertTrue(logicalPlan.getExpressions().get(0).getDataType().isDecimalV2Type());
