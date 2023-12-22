@@ -116,7 +116,23 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._set_writer_close_status_error")
         }
-        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"    
+        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
+        try {
+            create_httplogs_dup_table.call("test_index_compound_directory1")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
+            load_httplogs_data.call("test_index_compound_directory1", 'test_index_compound_directory1', 'true', 'json', 'documents-1000.json')
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
+        }
+        qt_sql "select COUNT() from test_index_compound_directory1 where request match 'images'"
+        try {
+            create_httplogs_dup_table.call("test_index_compound_directory2")
+            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+            load_httplogs_data.call("test_index_compound_directory2", 'test_index_compound_directory2', 'true', 'json', 'documents-1000.json')
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+        }
+        qt_sql "select COUNT() from test_index_compound_directory2 where request match 'images'"
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

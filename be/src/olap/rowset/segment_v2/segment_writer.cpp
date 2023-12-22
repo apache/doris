@@ -51,7 +51,6 @@
 #include "service/point_query_executor.h"
 #include "util/coding.h"
 #include "util/crc32c.h"
-#include "util/debug_points.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
 #include "vec/columns/column_nullable.h"
@@ -402,30 +401,19 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
-        DBUG_EXECUTE_IF("_append_block_with_partial_content.clear_specified_rowsets",
-                        { specified_rowsets.clear(); });
-        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
-            // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
-            // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
-            // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_mow_context->rowset_ids`
-            // to the latest value and re-request the correspoding rowsets.
-            LOG(INFO) << fmt::format(
+        if (_opts.rowset_ctx->partial_update_info->is_strict_mode &&
+            specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
+            // In other case, the missing rowsets will be calculated in later phases(commit phase/publish phase)
+            LOG(WARNING) << fmt::format(
                     "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
-                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
-                    "transaction_id: {}",
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in strict "
+                    "mode partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
                     specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
                     _mow_context->max_version, _mow_context->txn_id);
-            Status st {Status::OK()};
-            _mow_context->update_rowset_ids_with_lock([&]() {
-                _mow_context->rowset_ids.clear();
-                st = _tablet->all_rs_id(_mow_context->max_version, &_mow_context->rowset_ids);
-            });
-            if (!st.ok()) {
-                return st;
-            }
-            specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
-            DCHECK(specified_rowsets.size() == _mow_context->rowset_ids.size());
+            return Status::InternalError<false>(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction in strict mode partial update");
         }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
@@ -456,13 +444,6 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
         // mark key with delete sign as deleted.
         bool have_delete_sign =
                 (delete_sign_column_data != nullptr && delete_sign_column_data[block_pos] != 0);
-        if (have_delete_sign && !_tablet_schema->has_sequence_col() && !have_input_seq_column) {
-            // we can directly use delete bitmap to mark the rows with delete sign as deleted
-            // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-            _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                              DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                             segment_pos);
-        }
 
         RowLocation loc;
         // save rowset shared ptr so this rowset wouldn't delete
@@ -709,29 +690,6 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         (_opts.write_type == DataWriteType::TYPE_DIRECT ||
          _opts.write_type == DataWriteType::TYPE_SCHEMA_CHANGE)) {
         _serialize_block_to_row_column(*const_cast<vectorized::Block*>(block));
-    }
-
-    if (_opts.write_type == DataWriteType::TYPE_DIRECT && _opts.enable_unique_key_merge_on_write &&
-        !_tablet_schema->has_sequence_col() && _tablet_schema->delete_sign_idx() != -1) {
-        const vectorized::ColumnWithTypeAndName& delete_sign_column =
-                block->get_by_position(_tablet_schema->delete_sign_idx());
-        auto& delete_sign_col =
-                reinterpret_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
-        if (delete_sign_col.size() >= row_pos + num_rows) {
-            const vectorized::Int8* delete_sign_column_data = delete_sign_col.get_data().data();
-            uint32_t segment_start_pos =
-                    _column_writers[_tablet_schema->delete_sign_idx()]->get_next_rowid();
-            for (size_t block_pos = row_pos, seg_pos = segment_start_pos;
-                 seg_pos < segment_start_pos + num_rows; block_pos++, seg_pos++) {
-                // we can directly use delete bitmap to mark the rows with delete sign as deleted
-                // if sequence column doesn't exist to eliminate reading delete sign columns in later reads
-                if (delete_sign_column_data[block_pos]) {
-                    _mow_context->delete_bitmap->add({_opts.rowset_ctx->rowset_id, _segment_id,
-                                                      DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                                                     seg_pos);
-                }
-            }
-        }
     }
 
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);

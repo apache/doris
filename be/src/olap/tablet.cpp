@@ -245,7 +245,8 @@ TabletSharedPtr Tablet::create_tablet_from_meta(TabletMetaSharedPtr tablet_meta,
     if (tablet_meta->partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << tablet_meta->partition_id() << ", tablet "
                      << tablet_meta->tablet_id();
-        return nullptr;
+        // TODO(dx): after fix partition id eq 0 bug, fix it
+        // return nullptr;
     }
     return std::make_shared<Tablet>(tablet_meta, data_dir);
 }
@@ -3074,14 +3075,6 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
                 continue;
             }
             if (is_partial_update && rowset_writer != nullptr) {
-                if (delete_bitmap->contains(
-                            {rowset_id, seg->id(), DeleteBitmap::TEMP_VERSION_FOR_DELETE_SIGN},
-                            row_id)) {
-                    LOG(INFO)
-                            << "DEBUG: skip a delete sign column while calc_segment_delete_bitmap "
-                            << "processing confict for partial update";
-                    continue;
-                }
                 // In publish version, record rows to be deleted for concurrent update
                 // For example, if version 5 and 6 update a row, but version 6 only see
                 // version 4 when write, and when publish version, version 5's value will
