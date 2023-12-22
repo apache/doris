@@ -1160,6 +1160,8 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
 
+DECLARE_mInt32(buffered_reader_read_timeout_ms);
+
 // whether to enable /api/snapshot api
 DECLARE_Bool(enable_snapshot_action);
 
