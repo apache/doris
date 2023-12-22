@@ -362,7 +362,7 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
         RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(
-                    txn_id, load_block_queue->block_queue_pre_allocated.load()));
+                txn_id, load_block_queue->block_queue_pre_allocated.load()));
         RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
     } else {
         std::string wal_path;
