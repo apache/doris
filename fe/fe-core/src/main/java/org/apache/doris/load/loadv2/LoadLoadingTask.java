@@ -72,6 +72,8 @@ public class LoadLoadingTask extends LoadTask {
     private final boolean singleTabletLoadPerSink;
     private final boolean useNewLoadScanNode;
 
+    private final boolean enableMemTableOnSinkNode;
+
     private LoadingTaskPlanner planner;
 
     private Profile jobProfile;
@@ -83,7 +85,7 @@ public class LoadLoadingTask extends LoadTask {
             long txnId, LoadTaskCallback callback, String timezone,
             long timeoutS, int loadParallelism, int sendBatchParallelism,
             boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-            boolean useNewLoadScanNode, Priority priority) {
+            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode) {
         super(callback, TaskType.LOADING, priority);
         this.db = db;
         this.table = table;
@@ -104,6 +106,7 @@ public class LoadLoadingTask extends LoadTask {
         this.jobProfile = jobProfile;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.useNewLoadScanNode = useNewLoadScanNode;
+        this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,
@@ -152,6 +155,7 @@ public class LoadLoadingTask extends LoadTask {
          */
         curCoordinator.setLoadMemLimit(execMemLimit);
         curCoordinator.setTimeout((int) (getLeftTimeMs() / 1000));
+        curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
 
         try {
             QeProcessorImpl.INSTANCE.registerQuery(loadId, curCoordinator);
