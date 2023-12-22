@@ -1419,17 +1419,6 @@ Status ScanOperatorX<LocalStateType>::open(RuntimeState* state) {
     return Status::OK();
 }
 
-template <typename LocalStateType>
-Status ScanOperatorX<LocalStateType>::try_close(RuntimeState* state) {
-    auto& local_state = get_local_state(state);
-    if (local_state._scanner_ctx) {
-        // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
-        // TODO: there is a lock in `set_should_stop` may cause some slight impact
-        local_state._scanner_ctx->stop_scanners(state);
-    }
-    return Status::OK();
-}
-
 template <typename Derived>
 Status ScanLocalState<Derived>::close(RuntimeState* state) {
     if (_closed) {

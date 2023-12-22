@@ -352,15 +352,6 @@ void VScanNode::release_resource(RuntimeState* state) {
     ExecNode::release_resource(state);
 }
 
-Status VScanNode::try_close(RuntimeState* state) {
-    if (_scanner_ctx) {
-        // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
-        // TODO: there is a lock in `set_should_stop` may cause some slight impact
-        _scanner_ctx->stop_scanners(state);
-    }
-    return Status::OK();
-}
-
 Status VScanNode::_normalize_conjuncts() {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();

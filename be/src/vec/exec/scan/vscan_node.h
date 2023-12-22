@@ -166,8 +166,6 @@ public:
     Status alloc_resource(RuntimeState* state) override;
     void release_resource(RuntimeState* state) override;
 
-    Status try_close(RuntimeState* state) override;
-
     bool should_run_serial() const {
         return _should_run_serial || _state->enable_scan_node_run_serial();
     }

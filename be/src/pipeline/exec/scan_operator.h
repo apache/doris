@@ -54,8 +54,6 @@ public:
     bool runtime_filters_are_ready_or_timeout() override;
 
     std::string debug_string() const override;
-
-    Status try_close(RuntimeState* state) override;
 };
 
 class ScanDependency final : public Dependency {
