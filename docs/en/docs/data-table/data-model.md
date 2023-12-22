@@ -498,7 +498,7 @@ That is to say, the Merge on Read implementation of the Unique Model is equivale
 
 ### Merge on Write
 
-The Merge on Write implementation of the Unique Model is completely different from that of the Aggregate Model. It can deliver better performance in aggregation queries with primary key limitations.
+The Merge on Write implementation of the Unique Model can deliver better performance in aggregation queries with primary key limitations.
 
 In Doris 1.2.0, as a new feature, Merge on Write is disabled by default(before version 2.1), and users can enable it by adding the following property:
 
