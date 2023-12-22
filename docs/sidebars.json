@@ -347,6 +347,7 @@
                                 "sql-manual/sql-functions/date-time-functions/from-days",
                                 "sql-manual/sql-functions/date-time-functions/last-day",
                                 "sql-manual/sql-functions/date-time-functions/to-monday",
+                                "sql-manual/sql-functions/date-time-functions/from-second",
                                 "sql-manual/sql-functions/date-time-functions/from-unixtime",
                                 "sql-manual/sql-functions/date-time-functions/unix-timestamp",
                                 "sql-manual/sql-functions/date-time-functions/utc-timestamp",
