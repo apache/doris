@@ -20,9 +20,8 @@
 
 #pragma once
 
-#include <stdint.h>
-
 #include <atomic>
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>

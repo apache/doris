@@ -555,7 +555,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
     public boolean enableProfile = false;
     @VariableMgr.VarAttr(name = ENABLE_BE_SIDE_PROFILE, needForward = true)
-    public boolean enableBeSideProfile = true;
+    public boolean enableBeSideProfile = false;
     @VariableMgr.VarAttr(name = AUTO_PROFILE_THRESHOLD_MS, needForward = true)
     public int autoProfileThresholdMs = 1000;
 
@@ -2762,6 +2762,9 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipMissingVersion(skipMissingVersion);
 
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
+        tResult.setEnableBeSideProfile(enableBeSideProfile);
+        tResult.setAutoProfileThresholdMs(autoProfileThresholdMs);
 
         return tResult;
     }

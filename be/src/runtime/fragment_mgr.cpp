@@ -279,7 +279,11 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
             }
         }
 
-        if (req.profile != nullptr) {
+        if (req.runtime_state->query_options().enable_profile &&
+            (req.runtime_state->query_options().enable_be_side_profile
+             // TODO(zs) Need to determine if the query time exceeds auto_profile_threshold_ms is then automatically stored in Rocksdb
+             // || req.runtime_state->nano_seconds() / 1000000 > req.runtime_state->query_options().auto_profile_threshold_ms
+             )) {
             auto profile_recorder = StorageEngine::instance()->get_profile_recorder();
             if (profile_recorder != nullptr) {
                 auto st = profile_recorder->put_profile(print_id(req.query_id), params.profile);

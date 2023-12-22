@@ -42,7 +42,7 @@ namespace doris {
 const std::string Profile_POSTFIX = "/profile";
 
 ProfileRecorder::ProfileRecorder(const std::string& root_path)
-        : _root_path(root_path), _db(nullptr), _last_compaction_time(UnixMillis()) {}
+        : _root_path(root_path), _last_compaction_time(UnixMillis()) {}
 
 ProfileRecorder::~ProfileRecorder() {
     if (_db) {

@@ -263,6 +263,9 @@ struct TQueryOptions {
   93: optional i32 inverted_index_max_expansions = 50;
 
   94: optional i32 inverted_index_skip_threshold = 50;
+  // used to store profile in rocksdb
+  95: optional bool enable_be_side_profile = false;
+  96: optional i32 auto_profile_threshold_ms = 1000;
 }
 
 
