@@ -271,7 +271,7 @@ Status WalManager::scan_wals(const std::string& wal_path) {
                     }
                 }
             }
-            st = add_recover_wal(db_id.file_name, table_id.file_name, res);
+            st = add_recover_wal(std::stoll(db_id.file_name), std::stoll(table_id.file_name), res);
             count += res.size();
             if (!st.ok()) {
                 LOG(WARNING) << "Failed add replay wal, db=" << db_id.file_name
@@ -294,7 +294,7 @@ Status WalManager::replay() {
             _exec_env->master_info()->network_address.port == 0) {
             continue;
         }
-        std::vector<std::string> replay_tables;
+        std::vector<int64_t> replay_tables;
         {
             std::lock_guard<std::shared_mutex> wrlock(_lock);
             auto it = _table_map.begin();
@@ -320,13 +320,12 @@ Status WalManager::replay() {
     return Status::OK();
 }
 
-Status WalManager::add_recover_wal(const std::string& db_id, const std::string& table_id,
-                                   std::vector<std::string> wals) {
+Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, std::vector<std::string> wals) {
     std::lock_guard<std::shared_mutex> wrlock(_lock);
     std::shared_ptr<WalTable> table_ptr;
     auto it = _table_map.find(table_id);
     if (it == _table_map.end()) {
-        table_ptr = std::make_shared<WalTable>(_exec_env, std::stoll(db_id), std::stoll(table_id));
+        table_ptr = std::make_shared<WalTable>(_exec_env, db_id, table_id);
         _table_map.emplace(table_id, table_ptr);
     } else {
         table_ptr = it->second;
@@ -335,7 +334,7 @@ Status WalManager::add_recover_wal(const std::string& db_id, const std::string& 
     return Status::OK();
 }
 
-size_t WalManager::get_wal_table_size(const std::string& table_id) {
+size_t WalManager::get_wal_table_size(int64_t table_id) {
     std::shared_lock rdlock(_lock);
     auto it = _table_map.find(table_id);
     if (it != _table_map.end()) {
