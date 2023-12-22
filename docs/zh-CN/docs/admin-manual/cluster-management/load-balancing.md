@@ -363,7 +363,7 @@ MySQL [(none)]> select hostgroup_id,hostname,port,status,weight from mysql_serve
 mysql> create user doris@'%' identified by 'P@ssword1!';
 Query OK, 0 rows affected, 1 warning (0.04 sec)
  
-mysql> grant ADMIN_PRIV on *.* to doris@'%';
+mysql> grant ADMIN_PRIV on *.*.* to doris@'%';
 Query OK, 0 rows affected, 1 warning (0.03 sec)
  
  
