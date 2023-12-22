@@ -347,6 +347,7 @@
                                 "sql-manual/sql-functions/date-time-functions/from-days",
                                 "sql-manual/sql-functions/date-time-functions/last-day",
                                 "sql-manual/sql-functions/date-time-functions/to-monday",
+                                "sql-manual/sql-functions/date-time-functions/from-second",
                                 "sql-manual/sql-functions/date-time-functions/from-unixtime",
                                 "sql-manual/sql-functions/date-time-functions/unix-timestamp",
                                 "sql-manual/sql-functions/date-time-functions/utc-timestamp",
@@ -867,7 +868,8 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
                                 "sql-manual/sql-reference/Database-Administration-Statements/KILL",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK",
+                                "sql-manual/sql-reference/Database-Administration-Statements/UNSET-VARIABLE"
                             ]
                         },
                         {
@@ -1068,6 +1070,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS-BELONG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",
@@ -1262,6 +1265,7 @@
                                 "admin-manual/http-actions/fe/show-meta-info-action",
                                 "admin-manual/http-actions/fe/show-proc-action",
                                 "admin-manual/http-actions/fe/show-runtime-info-action",
+                                "admin-manual/http-actions/fe/show-table-data-action",
                                 "admin-manual/http-actions/fe/statement-execution-action",
                                 "admin-manual/http-actions/fe/table-query-plan-action",
                                 "admin-manual/http-actions/fe/table-row-count-action",
@@ -1323,6 +1327,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",

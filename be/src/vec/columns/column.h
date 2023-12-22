@@ -697,6 +697,8 @@ public:
     // only used in ColumnNullable replace_column_data
     virtual void replace_column_data_default(size_t self_row = 0) = 0;
 
+    virtual void replace_column_null_data(const uint8_t* __restrict null_map) {}
+
     virtual bool is_date_type() const { return is_date; }
     virtual bool is_datetime_type() const { return is_date_time; }
 

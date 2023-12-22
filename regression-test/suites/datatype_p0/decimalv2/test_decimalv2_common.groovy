@@ -20,6 +20,7 @@ suite("test_decimalv2_common", "nonConcurrent") {
     sql """
         admin set frontend config("enable_decimal_conversion" = "false");
     """
+    sql "set check_overflow_for_decimal=false;"
 
     def table_normal = "test_decimalv2_common_normal_tbl"
     def table_dup = "test_decimalv2_common_dup_tbl" // duplicate key

@@ -163,12 +163,17 @@ public:
                 SourceState& source_state) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return ExchangeType::NOOP;
+            return {ExchangeType::NOOP};
         }
-        return _is_broadcast_join ? ExchangeType::PASSTHROUGH : ExchangeType::SHUFFLE;
+        return _is_broadcast_join
+                       ? DataDistribution(ExchangeType::PASSTHROUGH)
+                       : (_join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+                                          _join_distribution == TJoinDistributionType::COLOCATE
+                                  ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE,
+                                                     _partition_exprs)
+                                  : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
     }
 
 private:
@@ -176,6 +181,8 @@ private:
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
+
+    const TJoinDistributionType::type _join_distribution;
 
     const bool _is_broadcast_join;
     // other expr

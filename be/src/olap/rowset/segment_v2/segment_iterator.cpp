@@ -867,6 +867,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 // downgrade without index query
                 _not_apply_index_pred.insert(pred->column_id());
+                _need_read_data_indices[pred->column_id()] = true;
                 continue;
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -886,7 +887,10 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
             _check_column_pred_all_push_down(column_name, true,
                                              pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
-            _need_read_data_indices[pred->column_id()] = false;
+            // if column's need_read_data already set true, we can not set it to false now.
+            if (_need_read_data_indices.find(pred->column_id()) == _need_read_data_indices.end()) {
+                _need_read_data_indices[pred->column_id()] = false;
+            }
         }
     }
 
@@ -973,6 +977,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         if (!res.ok()) {
             if (_downgrade_without_index(res, need_remaining_after_evaluate)) {
                 remaining_predicates.emplace_back(pred);
+                _need_read_data_indices[pred->column_id()] = true;
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -1003,7 +1008,10 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         if (_check_column_pred_all_push_down(column_name, false,
                                              pred->type() == PredicateType::MATCH) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
-            _need_read_data_indices[pred->column_id()] = false;
+            // if column's need_read_data already set true, we can not set it to false now.
+            if (_need_read_data_indices.find(pred->column_id()) == _need_read_data_indices.end()) {
+                _need_read_data_indices[pred->column_id()] = false;
+            }
         }
     }
     return Status::OK();
@@ -1035,7 +1043,9 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         if (res.ok()) {
             if (_check_column_pred_all_push_down(column_name) &&
                 !all_predicates_are_marked_by_runtime_filter(predicate_set)) {
-                _need_read_data_indices[column_id] = false;
+                if (_need_read_data_indices.find(column_id) == _need_read_data_indices.end()) {
+                    _need_read_data_indices[column_id] = false;
+                }
             }
             no_need_to_pass_column_predicate_set.insert(predicate_set.begin(), predicate_set.end());
             _row_bitmap &= output_result;
@@ -1046,7 +1056,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
             return res;
         } else {
             //TODO:mock until AndBlockColumnPredicate evaluate is ok.
-            if (res.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+            if (res.code() == ErrorCode::INVERTED_INDEX_NOT_IMPLEMENTED) {
                 return Status::OK();
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -1090,6 +1100,36 @@ bool SegmentIterator::_need_read_data(ColumnId cid) {
     return true;
 }
 
+bool SegmentIterator::_is_target_expr_match_predicate(const vectorized::VExprSPtr& expr,
+                                                      const MatchPredicate* match_pred,
+                                                      const Schema* schema) {
+    if (!expr || expr->node_type() != TExprNodeType::MATCH_PRED) {
+        return false;
+    }
+
+    const auto& children = expr->children();
+    if (children.size() != 2 || !children[0]->is_slot_ref() || !children[1]->is_constant()) {
+        return false;
+    }
+
+    auto slot_ref = dynamic_cast<vectorized::VSlotRef*>(children[0].get());
+    if (!slot_ref) {
+        LOG(WARNING) << children[0]->debug_string() << " should be SlotRef";
+        return false;
+    }
+    std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
+    // children 1 is VLiteral, we do not need expr context.
+    auto res = children[1]->get_const_col(nullptr /* context */, &const_col_wrapper);
+    if (!res.ok() || !const_col_wrapper) {
+        return false;
+    }
+
+    const auto const_column =
+            check_and_get_column<vectorized::ColumnConst>(const_col_wrapper->column_ptr);
+    return const_column && match_pred->column_id() == schema->column_id(slot_ref->column_id()) &&
+           StringRef(match_pred->get_value()) == const_column->get_data_at(0);
+}
+
 Status SegmentIterator::_apply_inverted_index() {
     SCOPED_RAW_TIMER(&_opts.stats->inverted_index_filter_timer);
     if (_opts.runtime_state && !_opts.runtime_state->query_options().enable_inverted_index_query) {
@@ -1099,7 +1139,8 @@ Status SegmentIterator::_apply_inverted_index() {
     std::vector<ColumnPredicate*> remaining_predicates;
     std::set<const ColumnPredicate*> no_need_to_pass_column_predicate_set;
 
-    for (const auto& entry : _opts.col_id_to_predicates) {
+    // TODO:Comment out this code before introducing range query functionality
+    /*for (const auto& entry : _opts.col_id_to_predicates) {
         ColumnId column_id = entry.first;
         auto pred = entry.second;
         bool continue_apply = true;
@@ -1108,7 +1149,7 @@ Status SegmentIterator::_apply_inverted_index() {
         if (!continue_apply) {
             break;
         }
-    }
+    }*/
 
     for (auto pred : _col_predicates) {
         if (no_need_to_pass_column_predicate_set.count(pred) > 0) {
@@ -1124,59 +1165,23 @@ Status SegmentIterator::_apply_inverted_index() {
     }
 
     // delete from _common_expr_ctxs_push_down if a MATCH predicate will be removed from _col_predicates
-    // since it's not necessary to eval it any more to avoid index miss, which is added in _normalize_predicate
+    // since it's not necessary to eval it anymore to avoid index miss, which is added in _normalize_predicate
     for (auto pred : _col_predicates) {
-        if (pred->type() == PredicateType::MATCH &&
-            std::find(remaining_predicates.begin(), remaining_predicates.end(), pred) ==
-                    remaining_predicates.end()) {
-            // TODO: change dynamic_cast to static_cast in the future
-            MatchPredicate* match_pred = dynamic_cast<MatchPredicate*>(pred);
-            if (match_pred == nullptr) {
-                LOG(WARNING) << pred->debug_string() << " should be MatchPredicate";
-                continue;
-            }
-            for (auto it = _common_expr_ctxs_push_down.begin();
-                 it != _common_expr_ctxs_push_down.end(); it++) {
-                auto expr = (*it)->root().get();
-                // check expr type and child is the same as match predicate
-                if (expr->node_type() == TExprNodeType::MATCH_PRED &&
-                    expr->children().size() == 2 && expr->get_child(0)->is_slot_ref() &&
-                    expr->get_child(1)->is_constant()) {
-                    // TODO: change dynamic_cast to static_cast in the future
-                    auto slot_ref = dynamic_cast<vectorized::VSlotRef*>(expr->get_child(0).get());
-                    if (slot_ref == nullptr) {
-                        LOG(WARNING) << expr->get_child(0)->debug_string() << " should be SlotRef";
-                        continue;
-                    }
-                    std::shared_ptr<ColumnPtrWrapper> const_col_wrapper;
-                    auto res = expr->get_child(1)->get_const_col((*it).get(), &const_col_wrapper);
-                    if (res.ok() && const_col_wrapper) {
-                        const auto const_column = check_and_get_column<vectorized::ColumnConst>(
-                                const_col_wrapper->column_ptr);
-                        if (const_column) {
-                            // check column id and predicate value is the same
-                            if ((match_pred->column_id() ==
-                                 _schema->column_id(slot_ref->column_id())) &&
-                                (StringRef(match_pred->get_value()) ==
-                                 const_column->get_data_at(0))) {
-                                // delete the expr from _remaining_conjunct_roots and _common_expr_ctxs_push_down
-                                for (auto it1 = _remaining_conjunct_roots.begin();
-                                     it1 != _remaining_conjunct_roots.end(); it1++) {
-                                    if (it1->get() == expr) {
-                                        VLOG_DEBUG << "delete expr from _remaining_conjunct_roots "
-                                                   << expr->debug_string();
-                                        _remaining_conjunct_roots.erase(it1);
-                                        break;
-                                    }
-                                }
-                                VLOG_DEBUG << "delete expr from _common_expr_ctxs_push_down "
-                                           << expr->debug_string();
-                                _common_expr_ctxs_push_down.erase(it);
-                                break;
-                            }
-                        }
-                    }
-                }
+        auto* match_pred = dynamic_cast<MatchPredicate*>(pred);
+        if (!match_pred ||
+            !_is_match_predicate_and_not_remaining(match_pred, remaining_predicates)) {
+            continue;
+        }
+
+        for (auto it = _common_expr_ctxs_push_down.begin();
+             it != _common_expr_ctxs_push_down.end();) {
+            if (_is_target_expr_match_predicate((*it)->root(), match_pred, _schema.get())) {
+                _delete_expr_from_conjunct_roots((*it)->root(), _remaining_conjunct_roots);
+                it = _common_expr_ctxs_push_down.erase(it);
+                VLOG_DEBUG << "delete expr from _remaining_conjunct_roots "
+                           << (*it)->root()->debug_string();
+            } else {
+                ++it;
             }
         }
     }
@@ -1827,6 +1832,9 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 
     for (auto cid : _first_read_column_ids) {
         auto& column = _current_return_columns[cid];
+        if (_need_read_key_data(cid, column, nrows_read)) {
+            continue;
+        }
         if (_prune_column(cid, column, true, nrows_read)) {
             continue;
         }
@@ -2064,6 +2072,11 @@ Status SegmentIterator::copy_column_data_by_selector(vectorized::IColumn* input_
         auto col_ptr_nullable = reinterpret_cast<vectorized::ColumnNullable*>(output_col.get());
         col_ptr_nullable->get_null_map_column().insert_many_defaults(select_size);
         output_col = col_ptr_nullable->get_nested_column_ptr();
+    } else if (!output_col->is_nullable() && input_col_ptr->is_nullable()) {
+        LOG(WARNING) << "nullable mismatch for output_column: " << output_col->dump_structure()
+                     << " input_column: " << input_col_ptr->dump_structure()
+                     << " select_size: " << select_size;
+        return Status::RuntimeError("copy_column_data_by_selector nullable mismatch");
     }
 
     return input_col_ptr->filter_by_selector(sel_rowid_idx, select_size, output_col);
@@ -2563,6 +2576,44 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             _column_predicate_info.reset(new ColumnPredicateInfo());
         }
     }
+}
+
+bool SegmentIterator::_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
+                                          size_t nrows_read) {
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+        return false;
+    }
+
+    if (_opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+        return false;
+    }
+
+    if (!_opts.tablet_schema->column(cid).is_key()) {
+        return false;
+    }
+
+    std::set<uint32_t> cids;
+    for (auto* pred : _col_predicates) {
+        cids.insert(pred->column_id());
+    }
+    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+        cids.insert(pred->column_id());
+    }
+
+    // If the key is present in expr, data needs to be read.
+    if (cids.contains(cid)) {
+        return false;
+    }
+
+    if (column->is_nullable()) {
+        auto* nullable_col_ptr = reinterpret_cast<vectorized::ColumnNullable*>(column.get());
+        nullable_col_ptr->get_null_map_column().insert_many_defaults(nrows_read);
+        nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(nrows_read);
+    } else {
+        column->insert_many_defaults(nrows_read);
+    }
+
+    return true;
 }
 
 } // namespace segment_v2

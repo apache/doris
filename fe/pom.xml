@@ -305,11 +305,7 @@ under the License.
         <iceberg.version>1.1.0</iceberg.version>
         <maxcompute.version>0.45.2-public</maxcompute.version>
         <avro.version>1.11.2</avro.version>
-        <!-- Temporarily upgrade Arrow to dev version 15.0.0-SNAPSHOT,
-        because the latest release version Arrow 14.0.1 jdbc:arrow-flight-sql has BUG,
-        see: https://github.com/apache/arrow/issues/38785
-        TODO upgrade to 15.0.0 release version -->
-        <arrow.version>15.0.0-SNAPSHOT</arrow.version>
+        <arrow.version>14.0.1</arrow.version>
         <!-- hudi -->
         <hudi.version>0.13.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
@@ -378,10 +374,6 @@ under the License.
                 <repository>
                     <id>cloudera</id>
                     <url>https://repository.cloudera.com/repository/libs-release-local/</url>
-                </repository>
-                <repository>
-                    <id>arrow-apache-nightlies</id>
-                    <url>https://nightlies.apache.org/arrow/java</url>
                 </repository>
             </repositories>
             <pluginRepositories>
@@ -1473,11 +1465,6 @@ under the License.
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-netty</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-core</artifactId>
                 <version>${grpc.version}</version>
             </dependency>
             <dependency>

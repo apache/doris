@@ -184,4 +184,87 @@ suite("join_order") {
     sql """drop table if exists test_table_t1;"""
     sql """drop table if exists test_table_t2;"""
     sql """drop table if exists test_table_t3;"""
+
+    sql """
+        drop table if exists table_3_undef_undef;
+    """
+
+    sql """
+        drop table if exists table_21_undef_undef;
+    """
+
+    sql """
+        drop table if exists table_22_undef_undef;
+    """
+
+    sql """
+        create table table_3_undef_undef (
+            `pk` int,
+            `col_int_undef_signed` int  ,
+            `col_varchar_10__undef_signed` varchar(10)  ,
+            `col_varchar_1024__undef_signed` varchar(1024)  
+        )engine=olap
+        distributed by hash(pk) buckets 10
+        properties(
+            'replication_num' = '1'
+        );
+    """
+
+    sql """
+        insert into table_3_undef_undef values (0,1,"right","me"),(1,8,'q',"have"),(2,7,'o','e');
+    """
+
+    sql """
+    create table table_21_undef_undef (
+        `pk` int,
+        `col_int_undef_signed` int  ,
+        `col_varchar_10__undef_signed` varchar(10)  ,
+        `col_varchar_1024__undef_signed` varchar(1024)  
+    )engine=olap
+    distributed by hash(pk) buckets 10
+    properties(
+        'replication_num' = '1'
+    );
+    """
+
+    sql """
+        insert into table_21_undef_undef values (0,7,'y','b'),(1,null,'j','w'),(2,4,"this","she"),(3,null,'w','r'),(4,1,'i','j'),(5,null,'j','h'),(6,null,'k','h'),(7,null,'o',"when"),(8,null,"out",'n'),(9,8,"out",'h'),(10,null,'c','j'),(11,null,'y','z'),(12,null,'m',"so"),(13,null,"so",'m'),(14,2,"not","and"),(15,0,"about","really"),(16,null,'p',"that's"),(17,4,'z','y'),(18,6,'t','f'),(19,7,'k','w'),(20,9,'a',"for");
+    """
+
+    sql """
+    create table table_22_undef_undef (
+        `pk` int,
+        `col_int_undef_signed` int  ,
+        `col_varchar_10__undef_signed` varchar(10)  ,
+        `col_varchar_1024__undef_signed` varchar(1024)  
+    )
+    engine=olap
+    distributed by hash(pk) buckets 10
+    properties(
+        'replication_num' = '1'
+    );
+    """
+
+    sql """
+        insert into table_22_undef_undef values (0,null,"can","why"),(1,null,"had","yeah"),(2,null,"ok",'y'),(3,null,"this",'w'),(4,null,'f',"not"),(5,7,'v',"really"),(6,5,"for",'y'),(7,null,'o',"of"),(8,0,'x','q'),(9,null,"about",'h'),(10,8,"you","this"),(11,null,'i','y'),(12,null,"this","who"),(13,4,"see",'h'),(14,8,"because","him"),(15,1,"good",'r'),(16,6,"know","know"),(17,3,"what",'e'),(18,null,'h',"then"),(19,null,'l','z'),(20,4,'l',"i"),(21,null,'f','q');
+    """
+
+    order_qt_test_order_with_both_comma_and_join """
+        SELECT t1.`pk`
+        FROM table_21_undef_undef AS t1,
+            table_3_undef_undef AS alias1
+            FULL OUTER JOIN table_22_undef_undef AS alias2 ON alias1.`pk` = alias2.`pk`
+    """
+
+    sql """
+        drop table if exists table_3_undef_undef;
+    """
+
+    sql """
+        drop table if exists table_21_undef_undef;
+    """
+
+    sql """
+        drop table if exists table_22_undef_undef;
+    """
 }

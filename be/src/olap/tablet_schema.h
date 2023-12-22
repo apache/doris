@@ -233,7 +233,7 @@ public:
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
-    void init_from_pb(const TabletSchemaPB& schema);
+    void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex index);
@@ -244,6 +244,9 @@ public:
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
+    // Don't use.
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
+    // In some places, temporarily use num_columns() as TabletSchema size.
     int64_t mem_size() const { return _mem_size; }
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
@@ -331,6 +334,12 @@ public:
 
     bool is_dropped_column(const TabletColumn& col) const;
 
+    // copy extracted columns from src_schema
+    void copy_extracted_columns(const TabletSchema& src_schema);
+
+    // only reserve extracted columns
+    void reserve_extracted_columns();
+
     string get_all_field_names() const {
         string str = "[";
         for (auto p : _field_name_to_index) {
@@ -364,6 +373,8 @@ public:
     }
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
+
+    std::shared_ptr<TabletSchema> copy_without_extracted_columns();
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

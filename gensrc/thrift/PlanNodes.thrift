@@ -120,6 +120,7 @@ enum TFileFormatType {
     FORMAT_CSV_LZ4BLOCK,
     FORMAT_CSV_SNAPPYBLOCK,
     FORMAT_WAL,
+    FORMAT_ARROW
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -450,7 +451,9 @@ enum TDataGenFunctionName {
 // Every table valued function should have a scan range definition to save its
 // running parameters
 struct TTVFNumbersScanRange {
-	1: optional i64 totalNumbers
+  1: optional i64 totalNumbers
+  2: optional bool useConst
+  3: optional i64 constValue
 }
 
 struct TDataGenScanRange {
@@ -475,12 +478,25 @@ struct TFrontendsMetadataParams {
 
 struct TMaterializedViewsMetadataParams {
   1: optional string database
+  2: optional Types.TUserIdentity current_user_ident
+}
+
+struct TJobsMetadataParams {
+  1: optional string type
+  2: optional Types.TUserIdentity current_user_ident
+}
+
+struct TTasksMetadataParams {
+  1: optional string type
+  2: optional Types.TUserIdentity current_user_ident
 }
 
 struct TQueriesMetadataParams {
   1: optional string cluster_name
   2: optional bool   relay_to_other_fe
   3: optional TMaterializedViewsMetadataParams materialized_views_params
+  4: optional TJobsMetadataParams jobs_params
+  5: optional TTasksMetadataParams tasks_params
 }
 
 struct TMetaScanRange {
@@ -490,6 +506,8 @@ struct TMetaScanRange {
   4: optional TFrontendsMetadataParams frontends_params
   5: optional TQueriesMetadataParams queries_params
   6: optional TMaterializedViewsMetadataParams materialized_views_params
+  7: optional TJobsMetadataParams jobs_params
+  8: optional TTasksMetadataParams tasks_params
 }
 
 // Specification of an individual data range which is held in its entirety
@@ -713,6 +731,14 @@ enum TJoinOp {
   NULL_AWARE_LEFT_ANTI_JOIN
 }
 
+enum TJoinDistributionType {
+  NONE,
+  BROADCAST,
+  PARTITIONED,
+  BUCKET_SHUFFLE,
+  COLOCATE,
+}
+
 struct THashJoinNode {
   1: required TJoinOp join_op
 
@@ -744,6 +770,7 @@ struct THashJoinNode {
   10: optional bool is_broadcast_join
 
   11: optional bool is_mark
+  12: optional TJoinDistributionType dist_type
 }
 
 struct TNestedLoopJoinNode {
@@ -830,6 +857,7 @@ struct TAggregationNode {
   6: optional bool use_streaming_preaggregation
   7: optional list<TSortInfo> agg_sort_infos
   8: optional bool is_first_phase
+  9: optional bool is_colocate
   // 9: optional bool use_fixed_length_serialization_opt
 }
 
@@ -862,6 +890,7 @@ struct TSortNode {
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
   7: optional bool use_topn_opt
+  8: optional bool merge_by_exchange
 }
 
 enum TopNAlgorithm {
@@ -971,6 +1000,8 @@ struct TAnalyticNode {
   // should be evaluated over a row that is composed of the child tuple and the buffered
   // tuple
   9: optional Exprs.TExpr order_by_eq
+
+  10: optional bool is_colocate
 }
 
 struct TMergeNode {
@@ -1005,6 +1036,7 @@ struct TIntersectNode {
     3: required list<list<Exprs.TExpr>> const_expr_lists
     // Index of the first child that needs to be materialized.
     4: required i64 first_materialized_child_idx
+    5: optional bool is_colocate
 }
 
 struct TExceptNode {
@@ -1017,6 +1049,7 @@ struct TExceptNode {
     3: required list<list<Exprs.TExpr>> const_expr_lists
     // Index of the first child that needs to be materialized.
     4: required i64 first_materialized_child_idx
+    5: optional bool is_colocate
 }
 
 

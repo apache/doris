@@ -624,9 +624,10 @@ bool valid_datetime(const std::string& value_str, const uint32_t scale) {
                     LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str() << "]";
                     return false;
                 }
-
-                long ms = strtol(what[9].str().c_str(), nullptr, 10);
-                if (ms % ((long)std::pow(10, 6 - scale)) != 0) {
+                auto s9 = what[9].str();
+                s9.resize(6, '0');
+                if (const long ms = strtol(s9.c_str(), nullptr, 10);
+                    ms % static_cast<long>(std::pow(10, 6 - scale)) != 0) {
                     LOG(WARNING) << "invalid microsecond. [microsecond=" << what[9].str()
                                  << ", scale = " << scale << "]";
                     return false;

@@ -162,6 +162,7 @@ struct TQueryIngestBinlogResult {
 
 enum TTopicInfoType {
     WORKLOAD_GROUP
+    MOVE_QUERY_TO_GROUP
 }
 
 struct TWorkloadGroupInfo {
@@ -175,8 +176,14 @@ struct TWorkloadGroupInfo {
   8: optional bool enable_cpu_hard_limit
 }
 
+struct TWorkloadMoveQueryToGroupAction {
+    1: optional Types.TUniqueId query_id
+    2: optional i64 workload_group_id;
+}
+
 struct TopicInfo {
     1: optional TWorkloadGroupInfo workload_group_info
+    2: optional TWorkloadMoveQueryToGroupAction move_action
 }
 
 struct TPublishTopicRequest {

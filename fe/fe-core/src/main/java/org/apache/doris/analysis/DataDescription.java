@@ -357,6 +357,9 @@ public class DataDescription implements InsertStmt.DataDesc {
                     case FORMAT_WAL:
                         this.fileFormat = "wal";
                         break;
+                    case FORMAT_ARROW:
+                        this.fileFormat = "arrow";
+                        break;
                     default:
                         this.fileFormat = "unknown";
                         break;
@@ -1048,7 +1051,7 @@ public class DataDescription implements InsertStmt.DataDesc {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            this.dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            this.dbName = dbName;
             return this.dbName;
         } else {
             this.dbName = labelDbName;
@@ -1124,6 +1127,7 @@ public class DataDescription implements InsertStmt.DataDesc {
                     && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ORC)
                     && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_JSON)
                     && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_WAL)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ARROW)
                     && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_HIVE_TEXT)) {
                 throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
             }

@@ -93,7 +93,6 @@ create table doris_audit_db__.doris_audit_log_tbl__
     `time` datetime not null comment "Query start time",
     client_ip varchar(32) comment "Client IP",
     user varchar(64) comment "User name",
-    catalog varchar(128) comment "Catalog of this query",
     db varchar(96) comment "Database of this query",
     state varchar(8) comment "Query result state. EOF, ERR, OK",
     error_code int comment "Error code of failing query.",
@@ -107,7 +106,7 @@ create table doris_audit_db__.doris_audit_log_tbl__
     frontend_ip varchar(32) comment "Frontend ip of executing this statement",
     cpu_time_ms bigint comment "Total scan cpu time in millisecond of this query",
     sql_hash varchar(48) comment "Hash value for this query",
-    sql_digest varchar(48) comment "Sql digest for this query",
+    sql_digest varchar(48) comment "Sql digest of this query, will be empty if not a slow query",
     peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
     stmt string comment "The original statement, trimed if longer than 2G"
 ) engine=OLAP
@@ -130,7 +129,6 @@ create table doris_audit_db__.doris_slow_log_tbl__
     `time` datetime not null comment "Query start time",
     client_ip varchar(32) comment "Client IP",
     user varchar(64) comment "User name",
-    catalog varchar(128) comment "Catalog of this query",
     db varchar(96) comment "Database of this query",
     state varchar(8) comment "Query result state. EOF, ERR, OK",
     error_code int comment "Error code of failing query.",
@@ -144,7 +142,7 @@ create table doris_audit_db__.doris_slow_log_tbl__
     frontend_ip varchar(32) comment "Frontend ip of executing this statement",
     cpu_time_ms bigint comment "Total scan cpu time in millisecond of this query",
     sql_hash varchar(48) comment "Hash value for this query",
-    sql_digest varchar(48) comment "Sql digest for this query",
+    sql_digest varchar(48) comment "Sql digest of a slow query",
     peak_memory_bytes bigint comment "Peak memory bytes used on all backends of this query",
     stmt string comment "The original statement, trimed if longer than 2G "
 ) engine=OLAP

@@ -32,5 +32,11 @@ public class BrokerConfig extends ConfigBase {
     public static int client_expire_seconds = 3600;
 
     @ConfField
+    public static boolean enable_input_stream_expire_check = false;
+
+    @ConfField
+    public static int input_stream_expire_seconds = 300;
+
+    @ConfField
     public static int broker_ipc_port = 8000;
 }

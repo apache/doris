@@ -67,7 +67,7 @@ public class AdminShowReplicaTest extends TestWithFeService {
         Assert.assertEquals(5, resultSet.getResultRows().get(0).size());
 
         // update tablets' data size and row count
-        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
         OlapTable olapTable = db.getOlapTableOrAnalysisException("tbl1");
         for (Partition partition : olapTable.getPartitions()) {
             for (MaterializedIndex index : partition.getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE)) {

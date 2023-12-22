@@ -208,9 +208,8 @@ PFilterType get_type(RuntimeFilterType type) {
 }
 
 Status create_literal(const TypeDescriptor& type, const void* data, vectorized::VExprSPtr& expr) {
-    TExprNode node = create_texpr_node_from(data, type.type, type.precision, type.scale);
-
     try {
+        TExprNode node = create_texpr_node_from(data, type.type, type.precision, type.scale);
         expr = vectorized::VLiteral::create_shared(node);
     } catch (const Exception& e) {
         return e.to_status();
@@ -280,43 +279,25 @@ Status create_vbin_predicate(const TypeDescriptor& type, TExprOpcode::type opcod
 // This class is a wrapper of runtime predicate function
 class RuntimePredicateWrapper {
 public:
-    RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool,
+    RuntimePredicateWrapper(RuntimeFilterParamsContext* state, ObjectPool* pool,
                             const RuntimeFilterParams* params)
             : _state(state),
-              _be_exec_version(_state->be_exec_version()),
+              _be_exec_version(_state->be_exec_version),
               _pool(pool),
               _column_return_type(params->column_return_type),
               _filter_type(params->filter_type),
               _filter_id(params->filter_id) {}
     // for a 'tmp' runtime predicate wrapper
     // only could called assign method or as a param for merge
-    RuntimePredicateWrapper(RuntimeState* state, ObjectPool* pool, PrimitiveType column_type,
-                            RuntimeFilterType type, uint32_t filter_id)
+    RuntimePredicateWrapper(RuntimeFilterParamsContext* state, ObjectPool* pool,
+                            PrimitiveType column_type, RuntimeFilterType type, uint32_t filter_id)
             : _state(state),
-              _be_exec_version(_state->be_exec_version()),
+              _be_exec_version(_state->be_exec_version),
               _pool(pool),
               _column_return_type(column_type),
               _filter_type(type),
               _filter_id(filter_id) {}
 
-    RuntimePredicateWrapper(QueryContext* query_ctx, ObjectPool* pool,
-                            const RuntimeFilterParams* params)
-            : _query_ctx(query_ctx),
-              _be_exec_version(_query_ctx->be_exec_version()),
-              _pool(pool),
-              _column_return_type(params->column_return_type),
-              _filter_type(params->filter_type),
-              _filter_id(params->filter_id) {}
-    // for a 'tmp' runtime predicate wrapper
-    // only could called assign method or as a param for merge
-    RuntimePredicateWrapper(QueryContext* query_ctx, ObjectPool* pool, PrimitiveType column_type,
-                            RuntimeFilterType type, uint32_t filter_id)
-            : _query_ctx(query_ctx),
-              _be_exec_version(_query_ctx->be_exec_version()),
-              _pool(pool),
-              _column_return_type(column_type),
-              _filter_type(type),
-              _filter_id(filter_id) {}
     // init runtime filter wrapper
     // alloc memory to init runtime filter function
     Status init(const RuntimeFilterParams* params) {
@@ -946,8 +927,7 @@ public:
     }
 
 private:
-    RuntimeState* _state;
-    QueryContext* _query_ctx;
+    RuntimeFilterParamsContext* _state;
     int _be_exec_version;
     ObjectPool* _pool;
 
@@ -963,21 +943,14 @@ private:
     uint32_t _filter_id;
 };
 
-Status IRuntimeFilter::create(RuntimeState* state, ObjectPool* pool, const TRuntimeFilterDesc* desc,
-                              const TQueryOptions* query_options, const RuntimeFilterRole role,
-                              int node_id, IRuntimeFilter** res, bool build_bf_exactly) {
-    *res = pool->add(new IRuntimeFilter(state, pool, desc));
-    (*res)->set_role(role);
-    return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
-}
-
-Status IRuntimeFilter::create(QueryContext* query_ctx, ObjectPool* pool,
+Status IRuntimeFilter::create(RuntimeFilterParamsContext* state, ObjectPool* pool,
                               const TRuntimeFilterDesc* desc, const TQueryOptions* query_options,
                               const RuntimeFilterRole role, int node_id, IRuntimeFilter** res,
-                              bool build_bf_exactly) {
-    *res = pool->add(new IRuntimeFilter(query_ctx, pool, desc));
+                              bool build_bf_exactly, bool is_global, int parallel_tasks) {
+    *res = pool->add(new IRuntimeFilter(state, pool, desc, is_global, parallel_tasks));
     (*res)->set_role(role);
-    return (*res)->init_with_desc(desc, query_options, node_id, build_bf_exactly);
+    return (*res)->init_with_desc(desc, query_options, node_id,
+                                  is_global ? false : build_bf_exactly);
 }
 
 void IRuntimeFilter::copy_to_shared_context(vectorized::SharedRuntimeFilterContext& context) {
@@ -1000,11 +973,37 @@ void IRuntimeFilter::insert_batch(const vectorized::ColumnPtr column, size_t sta
     _wrapper->insert_batch(column, start);
 }
 
+Status IRuntimeFilter::merge_local_filter(RuntimePredicateWrapper* wrapper, int* merged_num) {
+    SCOPED_TIMER(_merge_local_rf_timer);
+    std::unique_lock lock(_local_merge_mutex);
+    if (_merged_rf_num == 0) {
+        _wrapper = wrapper;
+    } else {
+        RETURN_IF_ERROR(merge_from(wrapper));
+    }
+    *merged_num = ++_merged_rf_num;
+    return Status::OK();
+}
+
 Status IRuntimeFilter::publish() {
     DCHECK(is_producer());
-    if (_has_local_target) {
+    if (_is_global) {
         std::vector<IRuntimeFilter*> filters;
-        RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_consume_filters(_filter_id, filters));
+        RETURN_IF_ERROR(_state->get_query_ctx()->runtime_filter_mgr()->get_consume_filters(
+                _filter_id, filters));
+        // push down
+        for (auto filter : filters) {
+            int merged_num = 0;
+            RETURN_IF_ERROR(filter->merge_local_filter(_wrapper, &merged_num));
+            if (merged_num == _parallel_build_tasks) {
+                filter->update_runtime_filter_type_to_profile();
+                filter->signal();
+            }
+        }
+        return Status::OK();
+    } else if (_has_local_target) {
+        std::vector<IRuntimeFilter*> filters;
+        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_consume_filters(_filter_id, filters));
         // push down
         for (auto filter : filters) {
             filter->_wrapper = _wrapper;
@@ -1015,7 +1014,7 @@ Status IRuntimeFilter::publish() {
     } else {
         TNetworkAddress addr;
         DCHECK(_state != nullptr);
-        RETURN_IF_ERROR(_state->runtime_filter_mgr()->get_merge_addr(&addr));
+        RETURN_IF_ERROR(_state->runtime_filter_mgr->get_merge_addr(&addr));
         return push_to_remote(_state, &addr, _opt_remote_rf);
     }
 }
@@ -1036,10 +1035,8 @@ Status IRuntimeFilter::get_push_expr_ctxs(std::list<vectorized::VExprContextSPtr
 
 bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
-    auto execution_timeout = _state == nullptr ? _query_ctx->execution_timeout() * 1000
-                                               : _state->execution_timeout() * 1000;
-    auto runtime_filter_wait_time_ms = _state == nullptr ? _query_ctx->runtime_filter_wait_time_ms()
-                                                         : _state->runtime_filter_wait_time_ms();
+    auto execution_timeout = _state->execution_timeout * 1000;
+    auto runtime_filter_wait_time_ms = _state->runtime_filter_wait_time_ms;
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
                                     ? execution_timeout
@@ -1215,11 +1212,8 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
         _probe_expr = iter->second;
     }
 
-    if (_state) {
-        _wrapper = _pool->add(new RuntimePredicateWrapper(_state, _pool, &params));
-    } else {
-        _wrapper = _pool->add(new RuntimePredicateWrapper(_query_ctx, _pool, &params));
-    }
+    _wrapper = _pool->add(new RuntimePredicateWrapper(_state, _pool, &params));
+
     return _wrapper->init(&params);
 }
 
@@ -1235,19 +1229,19 @@ Status IRuntimeFilter::serialize(PPublishFilterRequestV2* request, void** data, 
     return serialize_impl(request, data, len);
 }
 
-Status IRuntimeFilter::create_wrapper(RuntimeState* state, const MergeRuntimeFilterParams* param,
-                                      ObjectPool* pool,
+Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
+                                      const MergeRuntimeFilterParams* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     return _create_wrapper(state, param, pool, wrapper);
 }
 
-Status IRuntimeFilter::create_wrapper(RuntimeState* state, const UpdateRuntimeFilterParams* param,
-                                      ObjectPool* pool,
+Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
+                                      const UpdateRuntimeFilterParams* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     return _create_wrapper(state, param, pool, wrapper);
 }
 
-Status IRuntimeFilter::create_wrapper(QueryContext* query_ctx,
+Status IRuntimeFilter::create_wrapper(RuntimeFilterParamsContext* state,
                                       const UpdateRuntimeFilterParamsV2* param, ObjectPool* pool,
                                       std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
@@ -1255,7 +1249,7 @@ Status IRuntimeFilter::create_wrapper(QueryContext* query_ctx,
     if (param->request->has_in_filter()) {
         column_type = to_primitive_type(param->request->in_filter().column_type());
     }
-    wrapper->reset(new RuntimePredicateWrapper(query_ctx, pool, column_type, get_type(filter_type),
+    wrapper->reset(new RuntimePredicateWrapper(state, pool, column_type, get_type(filter_type),
                                                param->request->filter_id()));
 
     switch (filter_type) {
@@ -1291,7 +1285,8 @@ Status IRuntimeFilter::init_bloom_filter(const size_t build_bf_cardinality) {
 }
 
 template <class T>
-Status IRuntimeFilter::_create_wrapper(RuntimeState* state, const T* param, ObjectPool* pool,
+Status IRuntimeFilter::_create_wrapper(RuntimeFilterParamsContext* state, const T* param,
+                                       ObjectPool* pool,
                                        std::unique_ptr<RuntimePredicateWrapper>* wrapper) {
     int filter_type = param->request->filter_type();
     PrimitiveType column_type = PrimitiveType::INVALID_TYPE;
@@ -1329,6 +1324,9 @@ void IRuntimeFilter::init_profile(RuntimeProfile* parent_profile) {
     _profile_init = true;
     parent_profile->add_child(_profile.get(), true, nullptr);
     _profile->add_info_string("Info", _format_status());
+    if (_is_global) {
+        _merge_local_rf_timer = ADD_TIMER(_profile.get(), "MergeLocalRuntimeFilterTime");
+    }
     if (_runtime_filter_type == RuntimeFilterType::IN_OR_BLOOM_FILTER) {
         update_runtime_filter_type_to_profile();
     }
@@ -1682,7 +1680,7 @@ Status IRuntimeFilter::update_filter(const UpdateRuntimeFilterParamsV2* param,
     }
 
     std::unique_ptr<RuntimePredicateWrapper> tmp_wrapper;
-    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_query_ctx, param, _pool, &tmp_wrapper));
+    RETURN_IF_ERROR(IRuntimeFilter::create_wrapper(_state, param, _pool, &tmp_wrapper));
     auto origin_type = _wrapper->get_real_type();
     RETURN_IF_ERROR(_wrapper->merge(tmp_wrapper.get()));
     if (origin_type != _wrapper->get_real_type()) {

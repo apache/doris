@@ -18,11 +18,13 @@
 #include "runtime/exec_env.h"
 
 #include <gen_cpp/HeartbeatService_types.h>
+#include <glog/logging.h>
 
 #include <mutex>
 #include <utility>
 
 #include "common/config.h"
+#include "common/logging.h"
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -42,9 +44,9 @@ ExecEnv::~ExecEnv() {
     destroy();
 }
 
+// TODO(plat1ko): template <class Engine>
 Result<BaseTabletSPtr> ExecEnv::get_tablet(int64_t tablet_id) {
     BaseTabletSPtr tablet;
-    // TODO(plat1ko): config::cloud_mode
     std::string err;
     tablet = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id, true, &err);
     if (tablet == nullptr) {
@@ -119,34 +121,25 @@ std::map<TNetworkAddress, FrontendInfo> ExecEnv::get_running_frontends() {
     const auto now = GetCurrentTimeMicros() / 1000;
 
     for (const auto& pair : _frontends) {
-        if (pair.second.info.process_uuid != 0) {
-            if (now - pair.second.last_reveiving_time_ms < expired_duration) {
+        auto& brpc_addr = pair.first;
+        auto& fe_info = pair.second;
+
+        if (fe_info.info.process_uuid == 0) {
+            // FE is in an unknown state, regart it as alive. conservative
+            res[brpc_addr] = fe_info;
+        } else {
+            if (now - fe_info.last_reveiving_time_ms < expired_duration) {
                 // If fe info has just been update in last expired_duration, regard it as running.
-                res[pair.first] = pair.second;
+                res[brpc_addr] = fe_info;
             } else {
                 // Fe info has not been udpate for more than expired_duration, regard it as an abnormal.
                 // Abnormal means this fe can not connect to master, and it is not dropped from cluster.
                 // or fe do not have master yet.
-                LOG(INFO) << "Frontend " << PrintFrontendInfo(pair.second.info)
-                          << " has not update its hb "
-                          << "for more than " << config::fe_expire_duration_seconds
-                          << " secs, regard it as abnormal.";
+                LOG_EVERY_N(WARNING, 50) << fmt::format(
+                        "Frontend {}:{} has not update its hb for more than {} secs, regard it as "
+                        "abnormal",
+                        brpc_addr.hostname, brpc_addr.port, config::fe_expire_duration_seconds);
             }
-
-            continue;
-        }
-
-        if (pair.second.last_reveiving_time_ms - pair.second.first_receiving_time_ms >
-            expired_duration) {
-            // A zero process-uuid that sustains more than 60 seconds(default).
-            // We will regard this fe as a abnormal frontend.
-            LOG(INFO) << "Frontend " << PrintFrontendInfo(pair.second.info)
-                      << " has not update its hb "
-                      << "for more than " << config::fe_expire_duration_seconds
-                      << " secs, regard it as abnormal.";
-            continue;
-        } else {
-            res[pair.first] = pair.second;
         }
     }
 

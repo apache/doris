@@ -679,7 +679,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_time_threshold_seconds());
 }
 
-uint32_t TabletMeta::mem_size() const {
+int64_t TabletMeta::mem_size() const {
     auto size = sizeof(TabletMeta);
     size += _schema->mem_size();
     return size;

@@ -20,6 +20,7 @@ package org.apache.doris.job.extensions.insert;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.job.base.AbstractJob;
@@ -34,6 +35,8 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
@@ -45,11 +48,33 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 @Data
 @Slf4j
-public class InsertJob extends AbstractJob<InsertTask> {
+public class InsertJob extends AbstractJob<InsertTask, Map> {
+
+    public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
+            new Column("Id", ScalarType.createStringType()),
+            new Column("Name", ScalarType.createStringType()),
+            new Column("Definer", ScalarType.createStringType()),
+            new Column("ExecuteType", ScalarType.createStringType()),
+            new Column("RecurringStrategy", ScalarType.createStringType()),
+            new Column("Status", ScalarType.createStringType()),
+            new Column("ExecuteSql", ScalarType.createStringType()),
+            new Column("CreateTime", ScalarType.createStringType()),
+            new Column("Comment", ScalarType.createStringType()));
+
+    public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
+
+    static {
+        ImmutableMap.Builder<String, Integer> builder = new ImmutableMap.Builder();
+        for (int i = 0; i < SCHEMA.size(); i++) {
+            builder.put(SCHEMA.get(i).getName().toLowerCase(), i);
+        }
+        COLUMN_TO_INDEX = builder.build();
+    }
 
     @SerializedName(value = "lp")
     String labelPrefix;
@@ -61,14 +86,11 @@ public class InsertJob extends AbstractJob<InsertTask> {
     ConnectContext ctx;
 
     @SerializedName("tis")
-    ConcurrentLinkedQueue<Long> taskIdList;
-
-    // max save task num, do we need to config it?
-    private static final int MAX_SAVE_TASK_NUM = 50;
-
+    ConcurrentLinkedQueue<Long> historyTaskIdList;
 
     @Override
-    public List<InsertTask> createTasks(TaskType taskType) {
+    public List<InsertTask> createTasks(TaskType taskType, Map taskContext) {
+        //nothing need to do in insert job
         InsertTask task = new InsertTask(null, getCurrentDbName(), getExecuteSql(), getCreateUser());
         task.setJobId(getJobId());
         task.setTaskType(taskType);
@@ -76,21 +98,23 @@ public class InsertJob extends AbstractJob<InsertTask> {
         ArrayList<InsertTask> tasks = new ArrayList<>();
         tasks.add(task);
         super.initTasks(tasks);
-        addNewTask(task.getTaskId());
+        recordTask(task.getTaskId());
         return tasks;
     }
 
-    public void addNewTask(long id) {
-
-        if (CollectionUtils.isEmpty(taskIdList)) {
-            taskIdList = new ConcurrentLinkedQueue<>();
-            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
-            taskIdList.add(id);
+    public void recordTask(long id) {
+        if (Config.max_persistence_task_count < 1) {
             return;
         }
-        taskIdList.add(id);
-        if (taskIdList.size() >= MAX_SAVE_TASK_NUM) {
-            taskIdList.poll();
+        if (CollectionUtils.isEmpty(historyTaskIdList)) {
+            historyTaskIdList = new ConcurrentLinkedQueue<>();
+            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
+            historyTaskIdList.add(id);
+            return;
+        }
+        historyTaskIdList.add(id);
+        if (historyTaskIdList.size() >= Config.max_persistence_task_count) {
+            historyTaskIdList.poll();
         }
         Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
@@ -100,15 +124,15 @@ public class InsertJob extends AbstractJob<InsertTask> {
         super.cancelTaskById(taskId);
     }
 
+    @Override
+    public boolean isReadyForScheduling(Map taskContext) {
+        return CollectionUtils.isEmpty(getRunningTasks());
+    }
+
 
     @Override
     public void cancelAllTasks() throws JobException {
         super.cancelAllTasks();
-    }
-
-    @Override
-    public boolean isReadyForScheduling() {
-        return true;
     }
 
 
@@ -124,11 +148,11 @@ public class InsertJob extends AbstractJob<InsertTask> {
 
     @Override
     public List<InsertTask> queryTasks() {
-        if (CollectionUtils.isEmpty(taskIdList)) {
+        if (CollectionUtils.isEmpty(historyTaskIdList)) {
             return new ArrayList<>();
         }
         //TODO it's will be refactor, we will storage task info in job inner and query from it
-        List<Long> taskIdList = new ArrayList<>(this.taskIdList);
+        List<Long> taskIdList = new ArrayList<>(this.historyTaskIdList);
         Collections.reverse(taskIdList);
         List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIdList);
         if (CollectionUtils.isEmpty(loadJobs)) {
@@ -139,8 +163,9 @@ public class InsertJob extends AbstractJob<InsertTask> {
             InsertTask task;
             try {
                 task = new InsertTask(loadJob.getLabel(), loadJob.getDb().getFullName(), null, getCreateUser());
+                task.setCreateTimeMs(loadJob.getCreateTimestamp());
             } catch (MetaNotFoundException e) {
-                log.warn("load job not found,job id is {}", loadJob.getId());
+                log.warn("load job not found, job id is {}", loadJob.getId());
                 return;
             }
             task.setJobId(getJobId());
@@ -172,7 +197,7 @@ public class InsertJob extends AbstractJob<InsertTask> {
     }
 
     @Override
-    public void onTaskSuccess(InsertTask task) {
+    public void onTaskSuccess(InsertTask task) throws JobException {
         super.onTaskSuccess(task);
     }
 

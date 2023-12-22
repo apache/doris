@@ -198,8 +198,13 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 .build();
     }
 
+    public LogicalApply<Plan, Plan> withSubqueryExprAndChildren(SubqueryExpr subqueryExpr, List<Plan> children) {
+        return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
+                markJoinSlotReference, needAddSubOutputToProjects, inProject, children.get(0), children.get(1));
+    }
+
     @Override
-    public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
+    public LogicalApply<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
                 markJoinSlotReference, needAddSubOutputToProjects, inProject,

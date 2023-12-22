@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -103,10 +104,26 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
         return join;
     }
 
+    private boolean isVisibleColumn(Slot slot) {
+        if (slot instanceof SlotReference) {
+            SlotReference slotReference = (SlotReference) slot;
+            if (slotReference.getColumn().isPresent()) {
+                return slotReference.getColumn().get().isVisible();
+            }
+        }
+        return true;
+    }
+
     @Override
     public PhysicalFilter visitPhysicalFilter(PhysicalFilter<? extends Plan> filter, CascadesContext context) {
         filter.child().accept(this, context);
-        context.getRuntimeFilterContext().addEffectiveSrcNode(filter);
+        boolean visibleFilter = filter.getExpressions().stream()
+                .flatMap(expression -> expression.getInputSlots().stream())
+                .anyMatch(slot -> isVisibleColumn(slot));
+        if (visibleFilter) {
+            // skip filters like: __DORIS_DELETE_SIGN__ = 0
+            context.getRuntimeFilterContext().addEffectiveSrcNode(filter);
+        }
         return filter;
     }
 

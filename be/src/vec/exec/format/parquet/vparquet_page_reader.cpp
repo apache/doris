@@ -61,6 +61,9 @@ Status PageReader::next_page_header() {
     const size_t MAX_PAGE_HEADER_SIZE = config::parquet_header_max_size_mb << 20;
     uint32_t real_header_size = 0;
     while (true) {
+        if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+            return Status::EndOfFile("stop");
+        }
         header_size = std::min(header_size, max_size);
         RETURN_IF_ERROR(_reader->read_bytes(&page_header_buf, _offset, header_size, _io_ctx));
         real_header_size = header_size;
@@ -97,6 +100,9 @@ Status PageReader::skip_page() {
 Status PageReader::get_page_data(Slice& slice) {
     if (UNLIKELY(_state != HEADER_PARSED)) {
         return Status::IOError("Should generate page header first to load current page data");
+    }
+    if (UNLIKELY(_io_ctx && _io_ctx->should_stop)) {
+        return Status::EndOfFile("stop");
     }
     slice.size = _cur_page_header.compressed_page_size;
     RETURN_IF_ERROR(_reader->read_bytes(slice, _offset, _io_ctx));

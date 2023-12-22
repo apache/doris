@@ -88,7 +88,9 @@ suite("test_index_change_5") {
 
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_user_id ON ${tableName} """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
     // create bitmap index
     sql """ CREATE INDEX idx_sex ON ${tableName}(`sex`) USING BITMAP """
     wait_for_latest_op_on_table_finish(tableName, timeout)

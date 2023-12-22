@@ -40,7 +40,7 @@ public class OutFileTest extends TestWithFeService implements PlanPatternMatchSu
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
 
         createTables(
                 "CREATE TABLE IF NOT EXISTS T1 (\n"

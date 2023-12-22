@@ -18,9 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.mv;
 
 import org.apache.doris.nereids.rules.Rule;
-import org.apache.doris.nereids.rules.RulePromise;
 import org.apache.doris.nereids.rules.RuleType;
-import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -30,18 +28,18 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * This is responsible for join rewriting according to different pattern
+ * This is responsible for join  pattern such as project on join
  * */
-public class MaterializedViewProjectJoinRule extends AbstractMaterializedViewJoinRule implements RewriteRuleFactory {
+public class MaterializedViewProjectJoinRule extends AbstractMaterializedViewJoinRule {
 
     public static final MaterializedViewProjectJoinRule INSTANCE = new MaterializedViewProjectJoinRule();
 
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                logicalProject(logicalJoin(any(), any())).thenApplyMulti(ctx -> {
+                logicalProject(logicalJoin(any(), any())).thenApplyMultiNoThrow(ctx -> {
                     LogicalProject<LogicalJoin<Plan, Plan>> root = ctx.root;
                     return rewrite(root, ctx.cascadesContext);
-                }).toRule(RuleType.MATERIALIZED_VIEW_ONLY_JOIN, RulePromise.EXPLORE));
+                }).toRule(RuleType.MATERIALIZED_VIEW_PROJECT_JOIN));
     }
 }

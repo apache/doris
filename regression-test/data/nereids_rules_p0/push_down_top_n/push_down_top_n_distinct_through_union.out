@@ -2,156 +2,106 @@
 -- !push_down_topn_through_union --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_with_conditions --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------filter((t1.score > 10))
---------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------filter((t2.name = 'Test'))
---------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------filter((t3.id < 5))
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------filter((t1.score > 10))
+--------------PhysicalOlapScan[table2]
+------------filter((t2.name = 'Test'))
+--------------PhysicalOlapScan[table2]
+------------filter((t3.id < 5))
+--------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_with_order_by --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_nested_union --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_after_join --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------PhysicalOlapScan[table2]
+--------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_different_projections --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_with_subquery --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------filter((t.score > 20))
-----------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------filter((table2.score > 20))
+--------------PhysicalOlapScan[table2]
+------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_with_limit --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalLimit[GLOBAL]
---------------------PhysicalDistribute
-----------------------PhysicalLimit[LOCAL]
-------------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalLimit[GLOBAL]
---------------------PhysicalDistribute
-----------------------PhysicalLimit[LOCAL]
-------------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalLimit[GLOBAL]
+--------------PhysicalLimit[LOCAL]
+----------------PhysicalOlapScan[table2]
+------------PhysicalLimit[GLOBAL]
+--------------PhysicalLimit[LOCAL]
+----------------PhysicalOlapScan[table2]
 
 -- !push_down_topn_union_complex_conditions --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------filter((t1.name = 'Test') and (t1.score > 10))
---------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------filter((t2.id < 5) and (t2.score < 20))
---------------------PhysicalOlapScan[t]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------filter((t1.name = 'Test') and (t1.score > 10))
+--------------PhysicalOlapScan[table2]
+------------filter((t2.id < 5) and (t2.score < 20))
+--------------PhysicalOlapScan[table2]
 

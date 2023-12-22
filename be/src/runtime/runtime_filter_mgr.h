@@ -50,6 +50,8 @@ class RuntimeState;
 enum class RuntimeFilterRole;
 class RuntimePredicateWrapper;
 class QueryContext;
+struct RuntimeFilterParamsContext;
+class ExecEnv;
 
 /// producer:
 /// Filter filter;
@@ -65,9 +67,7 @@ class QueryContext;
 // RuntimeFilterMgr will be destroyed when RuntimeState is destroyed
 class RuntimeFilterMgr {
 public:
-    RuntimeFilterMgr(const UniqueId& query_id, RuntimeState* state);
-
-    RuntimeFilterMgr(const UniqueId& query_id, QueryContext* query_ctx);
+    RuntimeFilterMgr(const UniqueId& query_id, RuntimeFilterParamsContext* state);
 
     ~RuntimeFilterMgr() = default;
 
@@ -82,9 +82,11 @@ public:
 
     // register filter
     Status register_consumer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    int node_id, bool build_bf_exactly = false);
+                                    int node_id, bool build_bf_exactly = false,
+                                    bool is_global = false);
     Status register_producer_filter(const TRuntimeFilterDesc& desc, const TQueryOptions& options,
-                                    bool build_bf_exactly = false);
+                                    bool build_bf_exactly = false, bool is_global = false,
+                                    int parallel_tasks = 0);
 
     // update filter by remote
     Status update_filter(const PPublishFilterRequest* request,
@@ -106,8 +108,7 @@ private:
     std::map<int32_t, std::vector<ConsumerFilterHolder>> _consumer_map;
     std::map<int32_t, IRuntimeFilter*> _producer_map;
 
-    RuntimeState* _state = nullptr;
-    QueryContext* _query_ctx = nullptr;
+    RuntimeFilterParamsContext* _state = nullptr;
     std::unique_ptr<MemTracker> _tracker;
     ObjectPool _pool;
 
@@ -123,7 +124,7 @@ private:
 // the class is destroyed with the last fragment_exec.
 class RuntimeFilterMergeControllerEntity {
 public:
-    RuntimeFilterMergeControllerEntity(RuntimeState* state)
+    RuntimeFilterMergeControllerEntity(RuntimeFilterParamsContext* state)
             : _query_id(0, 0), _fragment_instance_id(0, 0), _state(state) {}
     ~RuntimeFilterMergeControllerEntity() = default;
 
@@ -172,7 +173,7 @@ private:
     using CntlValwithLock =
             std::pair<std::shared_ptr<RuntimeFilterCntlVal>, std::unique_ptr<std::mutex>>;
     std::map<int, CntlValwithLock> _filter_map;
-    RuntimeState* _state = nullptr;
+    RuntimeFilterParamsContext* _state = nullptr;
     bool _opt_remote_rf = true;
 };
 
@@ -188,11 +189,11 @@ public:
     // add_entity will return a exists entity
     Status add_entity(const TExecPlanFragmentParams& params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeState* state);
+                      RuntimeFilterParamsContext* state);
     Status add_entity(const TPipelineFragmentParams& params,
                       const TPipelineInstanceParams& local_params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
-                      RuntimeState* state);
+                      RuntimeFilterParamsContext* state);
     // thread safe
     // increase a reference count
     // if a query-id is not exist
@@ -225,4 +226,38 @@ using runtime_filter_merge_entity_closer = std::function<void(RuntimeFilterMerge
 void runtime_filter_merge_entity_close(RuntimeFilterMergeController* controller,
                                        RuntimeFilterMergeControllerEntity* entity);
 
+//There are two types of runtime filters:
+// one is global, originating from QueryContext,
+// and the other is local, originating from RuntimeState.
+// In practice, we have already distinguished between them through UpdateRuntimeFilterParamsV2/V1.
+// RuntimeState/QueryContext is only used to store runtime_filter_wait_time_ms and enable_pipeline_exec...
+
+/// TODO: Consider adding checks for global/local.
+struct RuntimeFilterParamsContext {
+    RuntimeFilterParamsContext() = default;
+    static RuntimeFilterParamsContext* create(RuntimeState* state);
+    static RuntimeFilterParamsContext* create(QueryContext* query_ctx);
+
+    bool runtime_filter_wait_infinitely;
+    int32_t runtime_filter_wait_time_ms;
+    bool enable_pipeline_exec;
+    int32_t execution_timeout;
+    RuntimeFilterMgr* runtime_filter_mgr;
+    ExecEnv* exec_env;
+    PUniqueId query_id;
+    PUniqueId _fragment_instance_id;
+    int be_exec_version;
+    QueryContext* query_ctx;
+    QueryContext* get_query_ctx() const { return query_ctx; }
+    ObjectPool* _obj_pool;
+    bool _is_global = false;
+    PUniqueId fragment_instance_id() const {
+        DCHECK(!_is_global);
+        return _fragment_instance_id;
+    }
+    ObjectPool* obj_pool() const {
+        DCHECK(_is_global);
+        return _obj_pool;
+    }
+};
 } // namespace doris

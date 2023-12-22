@@ -1,5 +1,6 @@
 {
     "rowset_id": 10001,
+    "partition_id": 10001,
     "tablet_id": 20487,
     "tablet_schema_hash": 1520686811,
     "rowset_type": "BETA_ROWSET",

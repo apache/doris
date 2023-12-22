@@ -20,9 +20,10 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.cascades.CostAndEnforcerJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.JoinEdge;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
@@ -49,8 +50,8 @@ import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.qe.ConnectContext;
 
-import cfjd.com.google.common.collect.ImmutableList;
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
@@ -103,7 +104,7 @@ public class PlanReceiver implements AbstractReceiver {
      * @return the left and the right can be connected by the edge
      */
     @Override
-    public boolean emitCsgCmp(long left, long right, List<Edge> edges) {
+    public boolean emitCsgCmp(long left, long right, List<JoinEdge> edges) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
         processMissedEdges(left, right, edges);
@@ -122,7 +123,7 @@ public class PlanReceiver implements AbstractReceiver {
         List<Expression> hashConjuncts = new ArrayList<>();
         List<Expression> otherConjuncts = new ArrayList<>();
 
-        JoinType joinType = Edge.extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
+        JoinType joinType = JoinEdge.extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
         if (joinType == null) {
             return true;
         }
@@ -149,7 +150,7 @@ public class PlanReceiver implements AbstractReceiver {
 
     // be aware that the requiredOutputSlots is a superset of the actual output of current node
     // check proposeProject method to get how to create a project node for the outputs of current node.
-    private Set<Slot> calculateRequiredSlots(long left, long right, List<Edge> edges) {
+    private Set<Slot> calculateRequiredSlots(long left, long right, List<JoinEdge> edges) {
         // required output slots = final outputs + slot of unused edges + complex project exprs(if there is any)
         // 1. add finalOutputs to requiredOutputSlots
         Set<Slot> requiredOutputSlots = new HashSet<>(this.finalOutputs);
@@ -162,7 +163,7 @@ public class PlanReceiver implements AbstractReceiver {
 
         // 2. add unused edges' input slots to requiredOutputSlots
         usdEdges.put(LongBitmap.newBitmapUnion(left, right), usedEdgesBitmap);
-        for (Edge edge : hyperGraph.getEdges()) {
+        for (Edge edge : hyperGraph.getJoinEdges()) {
             if (!usedEdgesBitmap.get(edge.getIndex())) {
                 requiredOutputSlots.addAll(edge.getInputSlots());
             }
@@ -180,7 +181,7 @@ public class PlanReceiver implements AbstractReceiver {
     }
 
     // add any missed edge into edges to connect left and right
-    private void processMissedEdges(long left, long right, List<Edge> edges) {
+    private void processMissedEdges(long left, long right, List<JoinEdge> edges) {
         // find all used edges
         BitSet usedEdgesBitmap = new BitSet();
         usedEdgesBitmap.or(usdEdges.get(left));
@@ -191,9 +192,8 @@ public class PlanReceiver implements AbstractReceiver {
         long allReferenceNodes = LongBitmap.or(left, right);
 
         // find the edge which is not in usedEdgesBitmap and its referenced nodes is subset of allReferenceNodes
-        for (Edge edge : hyperGraph.getEdges()) {
-            long referenceNodes =
-                    LongBitmap.newBitmapUnion(edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
+        for (JoinEdge edge : hyperGraph.getJoinEdges()) {
+            long referenceNodes = LongBitmap.newBitmapUnion(edge.getLeftRequiredNodes(), edge.getRightRequiredNodes());
             if (LongBitmap.isSubset(referenceNodes, allReferenceNodes)
                     && !usedEdgesBitmap.get(edge.getIndex())) {
                 // add the missed edge to edges
@@ -220,8 +220,8 @@ public class PlanReceiver implements AbstractReceiver {
         List<Plan> plans = Lists.newArrayList();
         if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
             plans.add(new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts,
-                            Optional.empty(), joinProperties,
-                            left, right));
+                    Optional.empty(), joinProperties,
+                    left, right));
             if (joinType.isSwapJoinType()) {
                 plans.add(new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, Optional.empty(),
                         joinProperties,
@@ -239,17 +239,6 @@ public class PlanReceiver implements AbstractReceiver {
             }
         }
         return plans;
-    }
-
-    private boolean extractIsMarkJoin(List<Edge> edges) {
-        boolean isMarkJoin = false;
-        JoinType joinType = null;
-        for (Edge edge : edges) {
-            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
-            isMarkJoin = edge.getJoin().isMarkJoin() || isMarkJoin;
-            joinType = edge.getJoinType();
-        }
-        return isMarkJoin;
     }
 
     @Override
@@ -330,7 +319,7 @@ public class PlanReceiver implements AbstractReceiver {
         }
     }
 
-    private List<Plan> proposeProject(List<Plan> allChild, List<Edge> edges, long left, long right) {
+    private List<Plan> proposeProject(List<Plan> allChild, List<JoinEdge> edges, long left, long right) {
         long fullKey = LongBitmap.newBitmapUnion(left, right);
         List<Slot> outputs = allChild.get(0).getOutput();
         Set<Slot> outputSet = allChild.get(0).getOutputSet();

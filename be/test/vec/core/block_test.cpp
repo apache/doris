@@ -114,7 +114,6 @@ void fill_block_with_array_string(vectorized::Block& block) {
 }
 
 void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_type) {
-    config::compress_rowbatches = true;
     // int
     {
         auto vec = vectorized::ColumnVector<Int32>::create();
@@ -296,7 +295,6 @@ void serialize_and_deserialize_test(segment_v2::CompressionTypePB compression_ty
 }
 
 TEST(BlockTest, SerializeAndDeserializeBlock) {
-    config::compress_rowbatches = true;
     serialize_and_deserialize_test(segment_v2::CompressionTypePB::SNAPPY);
     serialize_and_deserialize_test(segment_v2::CompressionTypePB::LZ4);
 }

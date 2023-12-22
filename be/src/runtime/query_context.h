@@ -172,6 +172,11 @@ public:
                _query_options.enable_pipeline_engine;
     }
 
+    bool enable_pipeline_x_exec() const {
+        return _query_options.__isset.enable_pipeline_x_engine &&
+               _query_options.enable_pipeline_x_engine;
+    }
+
     int be_exec_version() const {
         if (!_query_options.__isset.be_exec_version) {
             return 0;
@@ -179,7 +184,9 @@ public:
         return _query_options.be_exec_version;
     }
 
-    [[nodiscard]] int64_t get_fe_process_uuid() const { return _query_options.fe_process_uuid; }
+    [[nodiscard]] int64_t get_fe_process_uuid() const {
+        return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
+    }
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 

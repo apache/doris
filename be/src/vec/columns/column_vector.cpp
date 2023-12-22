@@ -524,7 +524,8 @@ ColumnPtr ColumnVector<T>::replicate(const IColumn::Offsets& offsets) const {
     res_data.reserve(offsets.back());
 
     // vectorized this code to speed up
-    IColumn::Offset counts[size];
+    auto counts_uptr = std::unique_ptr<IColumn::Offset[]>(new IColumn::Offset[size]);
+    IColumn::Offset* counts = counts_uptr.get();
     for (ssize_t i = 0; i < size; ++i) {
         counts[i] = offsets[i] - offsets[i - 1];
     }
@@ -555,6 +556,18 @@ void ColumnVector<T>::replicate(const uint32_t* __restrict indexs, size_t target
 template <typename T>
 ColumnPtr ColumnVector<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
+}
+
+template <typename T>
+void ColumnVector<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
+    auto s = size();
+    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
+    if (0 == null_count) {
+        return;
+    }
+    for (size_t i = 0; i < s; ++i) {
+        data[i] = null_map[i] ? T() : data[i];
+    }
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

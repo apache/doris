@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_dump_image") {
+suite("test_dump_image", "nonConcurrent") {
     httpTest {
         endpoint context.config.feHttpAddress
         uri "/dump"

@@ -48,23 +48,23 @@ public class JobExecutionConfigurationTest {
         configuration.setExecuteType(JobExecuteType.RECURRING);
 
         TimerDefinition timerDefinition = new TimerDefinition();
-        timerDefinition.setStartTimeMs(1000L); // Start time set to 1 second in the future
+        timerDefinition.setStartTimeMs(100000L); // Start time set to 1 second in the future
         timerDefinition.setInterval(10L); // Interval set to 10 milliseconds
-        timerDefinition.setIntervalUnit(IntervalUnit.SECOND);
+        timerDefinition.setIntervalUnit(IntervalUnit.MINUTE);
         configuration.setTimerDefinition(timerDefinition);
 
         List<Long> delayTimes = configuration.getTriggerDelayTimes(
-                0L, 0L, 11000L);
+                0L, 0L, 1100000L);
 
         Assertions.assertEquals(2, delayTimes.size());
-        Assertions.assertArrayEquals(new Long[]{1L, 11L}, delayTimes.toArray());
+        Assertions.assertArrayEquals(new Long[]{100L, 700L}, delayTimes.toArray());
         delayTimes = configuration.getTriggerDelayTimes(
-                   2000L, 0L, 11000L);
+                   200000L, 0L, 1100000L);
         Assertions.assertEquals(1, delayTimes.size());
-        Assertions.assertArrayEquals(new Long[]{ 9L}, delayTimes.toArray());
+        Assertions.assertArrayEquals(new Long[]{ 500L}, delayTimes.toArray());
         delayTimes = configuration.getTriggerDelayTimes(
-                1001L, 0L, 10000L);
-        Assertions.assertEquals(0, delayTimes.size());
+                1001000L, 0L, 1000000L);
+        Assertions.assertEquals(1, delayTimes.size());
     }
 
 }
