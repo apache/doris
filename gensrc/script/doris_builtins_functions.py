@@ -76,6 +76,7 @@ visible_functions = {
         [['map'], 'MAP<K, V>', ['K', 'V', '...'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
         [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
         [['size', 'map_size'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
+        [['count'], 'BIGINT', ['MAP<K, V>'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
         [['map_contains_key'], 'BOOLEAN', ['MAP<K, V>', 'K'], 'CUSTOM', ['K', 'V']],
         [['map_contains_value'], 'BOOLEAN', ['MAP<K, V>', 'V'], 'CUSTOM', ['K', 'V']],
         #[['map_contains_key_like'], 'BOOLEAN', ['MAP<K, V>', 'K'], '', ['K', 'V']],
@@ -88,7 +89,8 @@ visible_functions = {
         [['struct'], 'STRUCT<TYPES>', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['named_struct'], 'ANY_STRUCT_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'INT'], 'ALWAYS_NULLABLE', ['TYPES...']],
-        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']]
+        [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']],
+        [['count'], 'BIGINT', ['ANY_STRUCT_TYPE'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
     ],
 
     # array functions
@@ -113,6 +115,7 @@ visible_functions = {
         [['array'], 'ARRAY', ['STRING', '...'], 'ALWAYS_NOT_NULLABLE'],
 
         [['element_at', '%element_extract%'], 'T', ['ARRAY<T>', 'BIGINT'], 'ALWAYS_NULLABLE', ['T']],
+        [['count'], 'BIGINT', ['ARRAY<T>'], 'ALWAYS_NOT_NULLABLE', ['T']],
 
         [['l1_distance'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
         [['l1_distance'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
@@ -165,24 +168,7 @@ visible_functions = {
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_VARCHAR', 'ARRAY_VARCHAR'], 'ALWAYS_NULLABLE'],
         [['arrays_overlap'], 'BOOLEAN', ['ARRAY_STRING', 'ARRAY_STRING'], 'ALWAYS_NULLABLE'],
 
-        [['array_contains'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'BOOLEAN'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_TINYINT', 'TINYINT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_SMALLINT', 'SMALLINT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_INT', 'INT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_BIGINT', 'BIGINT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_LARGEINT', 'LARGEINT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATETIME', 'DATETIME'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATE', 'DATE'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATETIMEV2', 'DATETIMEV2'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DATEV2', 'DATEV2'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_FLOAT', 'FLOAT'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DOUBLE', 'DOUBLE'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMALV2', 'DECIMALV2'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL32', 'DECIMAL32'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL64', 'DECIMAL64'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL128', 'DECIMAL128'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], 'CUSTOM'],
-        [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], 'CUSTOM'],
+        [['array_contains'], 'BOOLEAN', ['ARRAY<T>', 'T'], 'CUSTOM', ['T']],
 
         [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_TINYINT'], ''],
         [['array_cum_sum'], 'ARRAY_BIGINT',     ['ARRAY_SMALLINT'], ''],
@@ -272,7 +258,7 @@ visible_functions = {
         [['array_position'], 'BIGINT', ['ARRAY_VARCHAR', 'VARCHAR'], 'CUSTOM'],
         [['array_position'], 'BIGINT', ['ARRAY_STRING', 'STRING'], 'CUSTOM'],
 
-        [['cardinality', 'size', 'array_size'], 'BIGINT', ['ARRAY'], ''],
+        [['cardinality', 'size', 'array_size'], 'BIGINT', ['ARRAY<T>'], '', ['T']],
         [['array_distinct'], 'ARRAY_BOOLEAN',   ['ARRAY_BOOLEAN'], ''],
         [['array_distinct'], 'ARRAY_TINYINT',   ['ARRAY_TINYINT'], ''],
         [['array_distinct'], 'ARRAY_SMALLINT',  ['ARRAY_SMALLINT'], ''],
@@ -772,6 +758,7 @@ visible_functions = {
         [['array_pushfront'], 'ARRAY_VARCHAR',    ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['array_pushfront'], 'ARRAY_STRING',     ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['array_pushback'], 'ARRAY<T>',    ['ARRAY<T>', 'T'], 'ALWAYS_NULLABLE', ['T']],
         [['array_pushback'], 'ARRAY_BOOLEAN',    ['ARRAY_BOOLEAN', 'BOOLEAN'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_TINYINT',    ['ARRAY_TINYINT', 'TINYINT'], 'ALWAYS_NULLABLE'],
         [['array_pushback'], 'ARRAY_SMALLINT',   ['ARRAY_SMALLINT', 'SMALLINT'], 'ALWAYS_NULLABLE'],
@@ -833,7 +820,7 @@ visible_functions = {
         [['array_range'], 'ARRAY_INT', ['INT', 'INT'], 'ALWAYS_NULLABLE'],
         [['array_range'], 'ARRAY_INT', ['INT', 'INT', 'INT'], 'ALWAYS_NULLABLE'],
 
-        [['array_zip'], 'ARRAY', ['ARRAY', '...'], ''],
+        [['array_zip'], 'ARRAY', ['ARRAY<T>', '...'], '', ['T']],
 
 
         # reverse function for string builtin
@@ -1469,6 +1456,9 @@ visible_functions = {
         [['nullif'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['nullif'], 'STRING', ['STRING', 'STRING'], 'ALWAYS_NULLABLE'],
 
+        [['is_null_pred'], "BOOLEAN", ['T', '...'], 'ALWAYS_NULLABLE', ['T']],
+        [['is_not_null_pred'], "BOOLEAN", ['T', '...'], 'ALWAYS_NULLABLE', ['T']],
+
         [['ifnull', 'nvl'], 'BOOLEAN', ['BOOLEAN', 'BOOLEAN'], 'CUSTOM'],
         [['ifnull', 'nvl'], 'TINYINT', ['TINYINT', 'TINYINT'], 'CUSTOM'],
         [['ifnull', 'nvl'], 'SMALLINT', ['SMALLINT', 'SMALLINT'], 'CUSTOM'],
@@ -1559,6 +1549,7 @@ visible_functions = {
         [['null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['not_null_or_empty'], 'BOOLEAN', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
         [['space'], 'VARCHAR', ['INT'], ''],
+        [['repeat'], 'VARCHAR', ['VARCHAR', 'INT'], 'ALWAYS_NULLABLE'],
         [['lpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['rpad'], 'VARCHAR', ['VARCHAR', 'INT', 'VARCHAR'], 'ALWAYS_NULLABLE'],
         [['append_trailing_char_if_absent'], 'VARCHAR', ['VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
