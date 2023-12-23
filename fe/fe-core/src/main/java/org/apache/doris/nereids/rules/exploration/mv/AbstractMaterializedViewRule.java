@@ -194,7 +194,7 @@ public abstract class AbstractMaterializedViewRule implements ExplorationRuleFac
                 CascadesContext rewrittenPlanContext =
                         CascadesContext.initContext(cascadesContext.getStatementContext(), rewrittenPlan,
                                 cascadesContext.getCurrentJobContext().getRequiredProperties());
-                Rewriter.getWholeTreeRewriter(cascadesContext).execute();
+                Rewriter.getWholeTreeRewriter(rewrittenPlanContext).execute();
                 rewrittenPlan = rewrittenPlanContext.getRewritePlan();
                 logger.debug(currentClassName + "rewrite by materialized view success");
                 rewriteResults.add(rewrittenPlan);
