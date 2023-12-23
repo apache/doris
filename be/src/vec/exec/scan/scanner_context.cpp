@@ -390,6 +390,7 @@ void ScannerContext::inc_num_running_scanners(int32_t inc) {
 void ScannerContext::dec_num_running_scanners(int32_t scanner_dec) {
     std::lock_guard l(_transfer_lock);
     _num_running_scanners -= scanner_dec;
+    g_num_running_scanners.set_value(_num_running_scanners);
 }
 
 void ScannerContext::set_status_on_error(const Status& status, bool need_lock) {
@@ -489,20 +490,18 @@ void ScannerContext::reschedule_scanner_ctx() {
 
 void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDelegate> scanner) {
     std::lock_guard l(_transfer_lock);
-
-    // In pipeline engine, doris will close scanners when `no_schedule`.
-    // We have to decrease _num_running_scanners before schedule, otherwise
-    // schedule does not woring due to _num_running_scanners.
-    _num_running_scanners--;
-    g_num_running_scanners.set_value(_num_running_scanners);
-    set_ready_to_finish();
-
-    if (!done() && should_be_scheduled()) {
-        auto state = _scanner_scheduler->submit(shared_from_this());
-        if (state.ok()) {
-            _num_scheduling_ctx++;
-        } else {
-            set_status_on_error(state, false);
+    // Use a transfer lock to avoid the scanner be scheduled concurrently. For example, that after
+    // calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
+    // to schedule that scanner right away, and in that schedule run, the scanner may be marked as closed
+    // before we call the following if() block.
+    if (scanner->_scanner->need_to_close()) {
+        --_num_unfinished_scanners;
+        if (_num_unfinished_scanners == 0) {
+            _dispose_coloate_blocks_not_in_queue();
+            _is_finished = true;
+            _set_scanner_done();
+            _blocks_queue_added_cv.notify_one();
+            return;
         }
     }
 
