@@ -393,7 +393,7 @@ suite("inner_join") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv6_0"""
 
 
-    // filter inside + inner + right
+    // filter inside + left + right
     def mv7_0 = "select l_shipdate, o_orderdate, l_partkey, l_suppkey " +
             "from lineitem " +
             "inner join (select * from orders where o_orderdate = '2023-12-08') t2 " +
