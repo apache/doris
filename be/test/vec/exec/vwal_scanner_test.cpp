@@ -215,7 +215,8 @@ void VWalScannerTest::init() {
 
     _env = ExecEnv::GetInstance();
     _env->_wal_manager = WalManager::create_shared(_env, wal_dir);
-    auto st = _env->_wal_manager->add_wal_path(db_id, tb_id, txn_id, label);
+    std::string base_path;
+    auto st = _env->_wal_manager->add_wal_path(db_id, tb_id, txn_id, label, base_path);
 }
 
 TEST_F(VWalScannerTest, normal) {

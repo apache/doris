@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "common/config.h"
 #include "event2/buffer.h"
 #include "event2/event.h"
@@ -52,11 +54,13 @@ void http_request_done_cb(struct evhttp_request* req, void* arg) {
 
 TEST_F(StreamLoadTest, TestHeader) {
     // 1G
-    auto wal_mgr =
-            WalManager::create_shared(ExecEnv::GetInstance(), config::group_commit_replay_wal_dir);
-    wal_mgr->_wal_dir_to_max_limit_map.insert(std::make_pair("test_path_1", 1000));
-    wal_mgr->_wal_dir_to_max_limit_map.insert(std::make_pair("test_path_2", 10000));
-    wal_mgr->_wal_dir_to_max_limit_map.insert(std::make_pair("test_path_3", 100000));
+    auto wal_mgr = WalManager::create_shared(ExecEnv::GetInstance(), config::group_commit_wal_path);
+    wal_mgr->_wal_disk_info_map.insert(
+            std::make_pair("test_path_1", std::make_shared<WalManager::WalDiskInfo>(1000, 0, 0)));
+    wal_mgr->_wal_disk_info_map.insert(
+            std::make_pair("test_path_2", std::make_shared<WalManager::WalDiskInfo>(10000, 0, 0)));
+    wal_mgr->_wal_disk_info_map.insert(
+            std::make_pair("test_path_3", std::make_shared<WalManager::WalDiskInfo>(100000, 0, 0)));
     ExecEnv::GetInstance()->set_wal_mgr(wal_mgr);
     // 1. empty info
     {

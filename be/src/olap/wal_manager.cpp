@@ -402,9 +402,11 @@ Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, std::vector<
         table_ptr = it->second;
     }
     table_ptr->add_wals(wals);
+#ifndef BE_TEST
     for (auto wal : wals) {
         RETURN_IF_ERROR(update_wal_disk_info_map(_get_base_wal_path(wal)));
     }
+#endif
     return Status::OK();
 }
 

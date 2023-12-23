@@ -125,7 +125,7 @@ TEST_F(WalManagerTest, recovery_normal) {
 }
 
 TEST_F(WalManagerTest, TestDynamicWalSpaceLimt) {
-    auto wal_mgr = WalManager::create_shared(_env, config::group_commit_replay_wal_dir);
+    auto wal_mgr = WalManager::create_shared(_env, config::group_commit_wal_path);
     static_cast<void>(wal_mgr->init());
     _env->set_wal_mgr(wal_mgr);
 
@@ -135,81 +135,81 @@ TEST_F(WalManagerTest, TestDynamicWalSpaceLimt) {
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "0%";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 0);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "5%";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     wal_limit_bytes = available_bytes * 0.05;
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "50%";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     wal_limit_bytes = available_bytes * 0.5;
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "200%";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     wal_limit_bytes = available_bytes * 2;
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, wal_limit_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "-10%";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::InternalError(""));
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::InternalError(""));
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, available_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "0";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 0);
 
     // 1M
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "1048576";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 1048576);
 
     // 1G
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "1073741824";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 1073741824);
 
     // 100G
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "107374182400";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 107374182400);
 
     // 1M
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "1M";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 1048576);
 
     // 1G
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "1G";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 1073741824);
 
     // 100G
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "100G";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::OK());
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::OK());
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, 107374182400);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "-1024";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::InternalError(""));
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::InternalError(""));
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, available_bytes);
 
     _env->wal_mgr()->wal_limit_test_bytes = available_bytes;
     config::group_commit_wal_max_disk_limit = "-1M";
-    EXPECT_EQ(_env->wal_mgr()->init_wal_limit(), Status::InternalError(""));
+    EXPECT_EQ(_env->wal_mgr()->_init_wal_disk_info(), Status::InternalError(""));
     EXPECT_EQ(_env->wal_mgr()->wal_limit_test_bytes, available_bytes);
 }
 } // namespace doris
