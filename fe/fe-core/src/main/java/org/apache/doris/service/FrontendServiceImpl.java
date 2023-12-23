@@ -428,7 +428,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
 
                 catalogNames.add(catalog.getName());
-                dbNames.add(getMysqlCompatibleDbName(catalog.getName(), dbName));
+                dbNames.add(getMysqlTableSchema(catalog.getName(), dbName));
                 catalogIds.add(catalog.getId());
                 dbIds.add(db.getId());
             }
@@ -441,11 +441,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private String getMysqlCompatibleDbName(String ctl, String db) {
+    private String getMysqlTableSchema(String ctl, String db) {
         if (ctl.equals(InfoSchemaDb.DATABASE_NAME)) {
             return db;
         }
         return ctl + "." + db;
+    }
+
+    private String getDbNameFromMysqlTableSchema(String ctl, String db) {
+        if (ctl.equals(InfoSchemaDb.DATABASE_NAME)) {
+            return db;
+        }
+        String[] parts = db.split("\\.");
+        if (parts.length == 2) {
+            return parts[1];
+        }
+        return db;
     }
 
     @LogException
@@ -474,10 +485,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
-
+        String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog: " + catalog))
-                .getDbNullable(params.db);
+                .getDbNullable(dbName);
 
         if (db != null) {
             Set<String> tableNames;
@@ -486,7 +497,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 for (String tableName : tableNames) {
                     LOG.debug("get table: {}, wait to check", tableName);
                     if (!Env.getCurrentEnv().getAccessManager()
-                            .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
+                            .checkTblPriv(currentUser, dbName, tableName, PrivPredicate.SHOW)) {
                         continue;
                     }
                     if (matcher != null && !matcher.match(tableName)) {
@@ -529,10 +540,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (params.isSetCatalog()) {
             catalogName = params.catalog;
         }
-
+        String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
         if (catalog != null) {
-            DatabaseIf db = catalog.getDbNullable(params.db);
+            DatabaseIf db = catalog.getDbNullable(dbName);
             if (db != null) {
                 try {
                     List<TableIf> tables;
@@ -548,7 +559,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         }
                     }
                     for (TableIf table : tables) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, dbName,
                                 table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
@@ -622,11 +633,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
             if (catalog != null) {
-                DatabaseIf db = catalog.getDbNullable(params.db);
+                String dbName = getDbNameFromMysqlTableSchema(catalogName, params.db);
+                DatabaseIf db = catalog.getDbNullable(dbName);
                 if (db != null) {
                     List<TableIf> tables = db.getTables();
                     for (TableIf table : tables) {
-                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, dbName,
                                 table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
@@ -736,8 +748,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
+        String dbName = getDbNameFromMysqlTableSchema(params.catalog, params.db);
         if (!Env.getCurrentEnv().getAccessManager()
-                .checkTblPriv(currentUser, params.db, params.getTableName(), PrivPredicate.SHOW)) {
+                .checkTblPriv(currentUser, params.catalog, dbName, params.getTableName(), PrivPredicate.SHOW)) {
             return result;
         }
 
@@ -745,7 +758,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 : params.catalog;
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
-                .getDbNullable(params.db);
+                .getDbNullable(dbName);
         if (db != null) {
             TableIf table = db.getTableNullableIfException(params.getTableName());
             if (table != null) {
@@ -804,9 +817,10 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
+        String dbName = getDbNameFromMysqlTableSchema(params.catalog, params.db);
         for (String tableName : tables) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
+                    .checkTblPriv(currentUser, params.catalog, dbName, tableName, PrivPredicate.SHOW)) {
                 return result;
             }
         }
@@ -815,7 +829,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 : params.catalog;
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
-                .getDbNullable(params.db);
+                .getDbNullable(dbName);
         if (db != null) {
             for (String tableName : tables) {
                 TableIf table = db.getTableNullableIfException(tableName);
@@ -847,7 +861,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    public TColumnDesc getColumnDesc(Column column) {
+    private TColumnDesc getColumnDesc(Column column) {
         final TColumnDesc desc = new TColumnDesc(column.getName(), column.getDataType().toThrift());
         final Integer precision = column.getOriginType().getPrecision();
         if (precision != null) {
