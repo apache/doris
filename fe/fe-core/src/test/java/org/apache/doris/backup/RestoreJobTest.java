@@ -39,8 +39,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.persist.EditLog;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.collect.Lists;
