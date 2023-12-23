@@ -207,7 +207,9 @@ Status EnginePublishVersionTask::execute() {
                                     partition_id, tablet_info.tablet_id, version.first);
                         }
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
-                                "check_version_exist failed");
+                                "version not continuous for mow, tablet_id={}, "
+                                "tablet_max_version={}, txn_version={}",
+                                tablet_info.tablet_id, max_version, version.first);
                         int64_t missed_version = max_version + 1;
                         int64_t missed_txn_id =
                                 StorageEngine::instance()->txn_manager()->get_txn_by_tablet_version(
