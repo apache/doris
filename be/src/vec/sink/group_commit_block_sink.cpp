@@ -23,6 +23,7 @@
 #include <mutex>
 #include <shared_mutex>
 
+#include "common/exception.h"
 #include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
@@ -68,6 +69,8 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
 
 Status GroupCommitBlockSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
+    RETURN_IF_ERROR(
+            ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(_load_id.to_thrift(), 0));
     _state = state;
 
     // profile must add to state's object pool
