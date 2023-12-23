@@ -34,12 +34,12 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.thrift.TUserIdentity;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -69,7 +69,7 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
 
     public static final ImmutableList<String> WORKLOAD_SCHED_POLICY_NODE_TITLE_NAMES
             = new ImmutableList.Builder<String>()
-            .add("Id").add("Name").add("ItemName").add("ItemValue")
+            .add("Id").add("Name").add("Condition").add("Action").add("Priority").add("Enabled").add("Version")
             .build();
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
@@ -349,7 +349,8 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                     throw new UserException("policy's priority can only between 0 ~ 100");
                 }
             } catch (NumberFormatException e) {
-                throw new UserException("policy's priority must be a number, input value=" + priorityStr);
+                throw new UserException(
+                        "invalid priority property value, it must be a number, input value=" + priorityStr);
             }
         }
     }
@@ -448,6 +449,11 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
         return policyProcNode.fetchResult(currentUserIdentity).getRows();
     }
 
+    public List<List<String>> getWorkloadSchedPolicyTvfInfo(TUserIdentity tcurrentUserIdentity) {
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(tcurrentUserIdentity);
+        return policyProcNode.fetchResult(currentUserIdentity).getRows();
+    }
+
     public class PolicyProcNode {
         public ProcResult fetchResult(UserIdentity currentUserIdentity) {
             BaseProcResult result = new BaseProcResult();
@@ -460,54 +466,31 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
                         continue;
                     }
 
-                    String pId = String.valueOf(policy.getId());
+                    List<String> row = new ArrayList<>();
                     String pName = policy.getName();
+                    row.add(String.valueOf(policy.getId()));
+                    row.add(pName);
 
                     List<WorkloadConditionMeta> conditionList = policy.getConditionMetaList();
+                    StringBuilder cmStr = new StringBuilder();
                     for (WorkloadConditionMeta cm : conditionList) {
-                        List<String> condRow = new ArrayList<>();
-                        condRow.add(pId);
-                        condRow.add(pName);
-                        condRow.add("condition");
-                        condRow.add(cm.toString());
-                        result.addRow(condRow);
+                        cmStr.append(cm.toString()).append(";");
                     }
+                    String retStr = cmStr.toString().toLowerCase();
+                    row.add(retStr.substring(0, retStr.length() - 1));
 
                     List<WorkloadActionMeta> actionList = policy.getActionMetaList();
-                    for (WorkloadActionMeta workloadActionMeta : actionList) {
-                        List<String> actionRow = new ArrayList<>();
-                        actionRow.add(pId);
-                        actionRow.add(pName);
-                        actionRow.add("action");
-                        if (StringUtils.isEmpty(workloadActionMeta.actionArgs)) {
-                            actionRow.add(workloadActionMeta.action.toString());
-                        } else {
-                            actionRow.add(workloadActionMeta.action + " " + workloadActionMeta.actionArgs);
-                        }
-                        result.addRow(actionRow);
+                    StringBuilder actionStr = new StringBuilder();
+                    for (WorkloadActionMeta am : actionList) {
+                        actionStr.append(am.toString()).append(";");
                     }
+                    String retStr2 = actionStr.toString().toLowerCase();
+                    row.add(retStr2.substring(0, retStr2.length() - 1));
 
-                    List<String> prioRow = new ArrayList<>();
-                    prioRow.add(pId);
-                    prioRow.add(pName);
-                    prioRow.add("priority");
-                    prioRow.add(String.valueOf(policy.getPriority()));
-                    result.addRow(prioRow);
-
-                    List<String> enabledRow = new ArrayList<>();
-                    enabledRow.add(pId);
-                    enabledRow.add(pName);
-                    enabledRow.add("enabled");
-                    enabledRow.add(String.valueOf(policy.isEnabled()));
-                    result.addRow(enabledRow);
-
-
-                    List<String> versionRow = new ArrayList<>();
-                    versionRow.add(pId);
-                    versionRow.add(pName);
-                    versionRow.add("version");
-                    versionRow.add(String.valueOf(policy.getVersion()));
-                    result.addRow(versionRow);
+                    row.add(String.valueOf(policy.getPriority()));
+                    row.add(String.valueOf(policy.isEnabled()));
+                    row.add(String.valueOf(policy.getVersion()));
+                    result.addRow(row);
                 }
             } finally {
                 readUnlock();

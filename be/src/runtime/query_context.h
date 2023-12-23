@@ -184,7 +184,9 @@ public:
         return _query_options.be_exec_version;
     }
 
-    [[nodiscard]] int64_t get_fe_process_uuid() const { return _query_options.fe_process_uuid; }
+    [[nodiscard]] int64_t get_fe_process_uuid() const {
+        return _query_options.__isset.fe_process_uuid ? _query_options.fe_process_uuid : 0;
+    }
 
     RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
 

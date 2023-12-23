@@ -117,18 +117,22 @@ public:
         return _sub_plan_query_statistics_recvr;
     }
 
-    DataDistribution get_local_exchange_type() const override {
-        if (!_is_hash_partition || OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
+    DataDistribution required_data_distribution() const override {
+        if (OperatorX<ExchangeLocalState>::ignore_data_distribution()) {
             return {ExchangeType::NOOP};
         }
-        return {ExchangeType::HASH_SHUFFLE};
+        return _partition_type == TPartitionType::HASH_PARTITIONED
+                       ? DataDistribution(ExchangeType::HASH_SHUFFLE)
+               : _partition_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED
+                       ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE)
+                       : DataDistribution(ExchangeType::NOOP);
     }
 
 private:
     friend class ExchangeLocalState;
     const int _num_senders;
     const bool _is_merging;
-    const bool _is_hash_partition;
+    const TPartitionType::type _partition_type;
     RowDescriptor _input_row_desc;
     std::shared_ptr<QueryStatisticsRecvr> _sub_plan_query_statistics_recvr;
 

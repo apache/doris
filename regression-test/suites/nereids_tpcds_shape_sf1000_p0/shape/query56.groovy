@@ -24,13 +24,78 @@ suite("query56") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
     sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set dump_nereids_memo=true'
+    def ds = """with ss as (
+ select i_item_id,sum(ss_ext_sales_price) total_sales
+ from
+ 	store_sales,
+ 	date_dim,
+         customer_address,
+         item
+ where i_item_id in (select
+     i_item_id
+from item
+where i_color in ('powder','orchid','pink'))
+ and     ss_item_sk              = i_item_sk
+ and     ss_sold_date_sk         = d_date_sk
+ and     d_year                  = 2000
+ and     d_moy                   = 3
+ and     ss_addr_sk              = ca_address_sk
+ and     ca_gmt_offset           = -6 
+ group by i_item_id),
+ cs as (
+ select i_item_id,sum(cs_ext_sales_price) total_sales
+ from
+ 	catalog_sales,
+ 	date_dim,
+         customer_address,
+         item
+ where
+         i_item_id               in (select
+  i_item_id
+from item
+where i_color in ('powder','orchid','pink'))
+ and     cs_item_sk              = i_item_sk
+ and     cs_sold_date_sk         = d_date_sk
+ and     d_year                  = 2000
+ and     d_moy                   = 3
+ and     cs_bill_addr_sk         = ca_address_sk
+ and     ca_gmt_offset           = -6 
+ group by i_item_id),
+ ws as (
+ select i_item_id,sum(ws_ext_sales_price) total_sales
+ from
+ 	web_sales,
+ 	date_dim,
+         customer_address,
+         item
+ where
+         i_item_id               in (select
+  i_item_id
+from item
+where i_color in ('powder','orchid','pink'))
+ and     ws_item_sk              = i_item_sk
+ and     ws_sold_date_sk         = d_date_sk
+ and     d_year                  = 2000
+ and     d_moy                   = 3
+ and     ws_bill_addr_sk         = ca_address_sk
+ and     ca_gmt_offset           = -6
+ group by i_item_id)
+  select  i_item_id ,sum(total_sales) total_sales
+ from  (select * from ss 
+        union all
+        select * from cs 
+        union all
+        select * from ws) tmp1
+ group by i_item_id
+ order by total_sales,
+          i_item_id
+ limit 100"""
     qt_ds_shape_56 '''
     explain shape plan
     with ss as (
@@ -98,7 +163,6 @@ where i_color in ('powder','orchid','pink'))
  group by i_item_id
  order by total_sales,
           i_item_id
- limit 100;
-
+ limit 100
     '''
 }

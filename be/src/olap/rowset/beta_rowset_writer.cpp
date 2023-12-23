@@ -182,18 +182,6 @@ Status BetaRowsetWriter::_generate_delete_bitmap(int32_t segment_id) {
     {
         std::shared_lock meta_rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_context.mow_context->rowset_ids);
-        if (specified_rowsets.size() != _context.mow_context->rowset_ids.size()) {
-            LOG(WARNING) << fmt::format(
-                    "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
-                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
-                    "transaction_id: {}",
-                    specified_rowsets.size(), _context.mow_context->rowset_ids.size(),
-                    _context.tablet->tablet_id(), _context.mow_context->max_version,
-                    _context.mow_context->txn_id);
-            return Status::InternalError<false>(
-                    "[Memtable Flush] some rowsets have been deleted due to compaction");
-        }
     }
     OlapStopWatch watch;
     RETURN_IF_ERROR(tablet->calc_delete_bitmap(rowset, segments, specified_rowsets,

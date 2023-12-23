@@ -72,51 +72,6 @@ public:
     ~ExchangeSinkQueueDependency() override = default;
 };
 
-class BroadcastDependency final : public Dependency {
-public:
-    ENABLE_FACTORY_CREATOR(BroadcastDependency);
-    BroadcastDependency(int id, int node_id, QueryContext* query_ctx)
-            : Dependency(id, node_id, "BroadcastDependency", true, query_ctx),
-              _available_block(0) {}
-    ~BroadcastDependency() override = default;
-
-    std::string debug_string(int indentation_level = 0) override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer,
-                       "{}{}: id={}, block task = {}, ready={}, _available_block = {}",
-                       std::string(indentation_level * 2, ' '), _name, _node_id,
-                       _blocked_task.size(), _ready, _available_block.load());
-        return fmt::to_string(debug_string_buffer);
-    }
-
-    void set_available_block(int available_block) { _available_block = available_block; }
-
-    void return_available_block() {
-        if (_available_block.fetch_add(1) == 0) {
-            std::lock_guard<std::mutex> lock(_lock);
-            if (_available_block == 0) {
-                return;
-            }
-            Dependency::set_ready();
-        }
-    }
-
-    void take_available_block() {
-        if (_available_block.fetch_sub(1) == 1) {
-            std::lock_guard<std::mutex> lock(_lock);
-            if (_available_block == 0) {
-                Dependency::block();
-            }
-        }
-    }
-
-    int available_blocks() const { return _available_block; }
-
-private:
-    std::atomic<int> _available_block;
-    std::mutex _lock;
-};
-
 /**
  * We use this to control the execution for local exchange.
  *              +---------------+                                    +---------------+                               +---------------+
@@ -165,7 +120,7 @@ public:
     Dependency* finishdependency() override { return _finish_dependency.get(); }
     Status serialize_block(vectorized::Block* src, PBlock* dest, int num_receivers = 1);
     void register_channels(pipeline::ExchangeSinkBuffer<ExchangeSinkLocalState>* buffer);
-    Status get_next_available_buffer(vectorized::BroadcastPBlockHolder** holder);
+    Status get_next_available_buffer(std::shared_ptr<vectorized::BroadcastPBlockHolder>* holder);
 
     RuntimeProfile::Counter* brpc_wait_timer() { return _brpc_wait_timer; }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
@@ -190,7 +145,7 @@ public:
     [[nodiscard]] int sender_id() const { return _sender_id; }
 
     std::string name_suffix() override;
-    segment_v2::CompressionTypePB& compression_type();
+    segment_v2::CompressionTypePB compression_type() const;
     std::string debug_string(int indentation_level) const override;
 
     std::vector<vectorized::PipChannel<ExchangeSinkLocalState>*> channels;
@@ -231,12 +186,12 @@ private:
 
     // Sender instance id, unique within a fragment.
     int _sender_id;
-    std::vector<vectorized::BroadcastPBlockHolder> _broadcast_pb_blocks;
+    std::shared_ptr<vectorized::BroadcastPBlockHolderQueue> _broadcast_pb_blocks;
 
     vectorized::BlockSerializer<ExchangeSinkLocalState> _serializer;
 
     std::shared_ptr<ExchangeSinkQueueDependency> _queue_dependency;
-    std::shared_ptr<BroadcastDependency> _broadcast_dependency;
+    std::shared_ptr<Dependency> _broadcast_dependency;
     std::vector<std::shared_ptr<LocalExchangeChannelDependency>> _local_channels_dependency;
     std::unique_ptr<vectorized::PartitionerBase> _partitioner;
     int _partition_count;
