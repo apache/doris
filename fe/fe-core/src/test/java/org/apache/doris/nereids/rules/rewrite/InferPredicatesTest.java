@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -87,12 +88,12 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter ->  !filter.getPredicate().isInferred()
-                                    && filter.getPredicate().toSql().contains("id > 1")),
+                            ).when(filter ->  !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id > 1")),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().isInferred()
-                                    && filter.getPredicate().toSql().contains("sid > 1"))
+                            ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("sid > 1"))
                         )
                     )
                 );
@@ -127,7 +128,8 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("id IN (1, 2, 3)")),
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id IN (1, 2, 3)")),
                             logicalOlapScan()
                         )
                     )
@@ -166,10 +168,12 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                             logicalJoin(
                                 logicalFilter(
                                     logicalOlapScan()
-                                ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                                ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                        & filter.getPredicate().toSql().contains("id > 1")),
                                 logicalFilter(
                                     logicalOlapScan()
-                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                                ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                        & filter.getPredicate().toSql().contains("sid > 1"))
                             ),
                             logicalFilter(
                                 logicalOlapScan()
@@ -192,10 +196,12 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                             logicalJoin(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                                    ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                            & filter.getPredicate().toSql().contains("id > 1")),
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                                    ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                            & filter.getPredicate().toSql().contains("sid > 1"))
                             ),
                             logicalFilter(
                                     logicalOlapScan()
@@ -217,10 +223,12 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id > 1")),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                            ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("sid > 1"))
                         )
                     )
                 );
@@ -258,10 +266,12 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                 logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                            ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id > 1")),
                             logicalFilter(
                                 logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("sid > 1"))
                         )
                     )
                 );
@@ -280,11 +290,13 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                             logicalProject(
                                 logicalFilter(
                                     logicalOlapScan()
-                                ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
+                                ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                        & filter.getPredicate().toSql().contains("id > 1"))
                             ),
                             logicalFilter(
                                 logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                            ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("sid > 1"))
                         )
                     )
                 );
@@ -323,13 +335,15 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                 logicalOlapScan()
-                            ).when(filer -> filer.getPredicate().toSql().contains("id > 1")),
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id > 1")),
                             logicalProject(
                                 logicalAggregate(
                                     logicalProject(
                                         logicalFilter(
                                             logicalOlapScan()
-                                        ).when(filer -> filer.getPredicate().toSql().contains("sid > 1"))
+                                        ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                                & filter.getPredicate().toSql().contains("sid > 1"))
                                    )
                                 )
                             )
@@ -351,11 +365,13 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                             logicalProject(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicate().toSql().contains("id = 1"))
+                                    ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                            & filter.getPredicate().toSql().contains("id = 1"))
                             ),
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("sid = 1"))
+                            ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("sid = 1"))
                         )
                     )
                 );
@@ -373,11 +389,13 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id > 1")),
                             logicalProject(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                                    ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                            & filter.getPredicate().toSql().contains("sid > 1"))
                             )
                         )
                     )
@@ -396,11 +414,13 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id > 1")),
                             logicalProject(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                                    ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                            & filter.getPredicate().toSql().contains("sid > 1"))
                             )
                         )
                     )
@@ -461,11 +481,13 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
+                                    & filter.getPredicate().toSql().contains("id > 1")),
                             logicalProject(
                                     logicalFilter(
                                             logicalOlapScan()
-                                    ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                                    ).when(filter -> ExpressionUtils.isInferred(filter.getPredicate())
+                                            & filter.getPredicate().toSql().contains("sid > 1"))
                             )
                         )
                     )

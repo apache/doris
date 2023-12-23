@@ -646,10 +646,11 @@ public class ExpressionUtils {
      */
     public static boolean isInferred(Expression expression) {
         return expression.accept(new DefaultExpressionVisitor<Boolean, Void>() {
+
             @Override
             public Boolean visit(Expression expr, Void context) {
                 boolean inferred = expr.isInferred();
-                if (expr.isInferred()) {
+                if (expr.isInferred() || expr.children().isEmpty()) {
                     return inferred;
                 }
                 inferred = true;
