@@ -45,7 +45,6 @@ public class ExternalInfoSchemaDatabase extends ExternalDatabase {
 
     @Override
     protected ExternalTable getExternalTable(String tableName, long tblId, ExternalCatalog catalog) {
-        return null;
+        return new ExternalInfoSchemaTable(tblId, tableName, catalog);
     }
-
 }

@@ -382,21 +382,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         Env env = Env.getCurrentEnv();
         List<CatalogIf> catalogIfs = Lists.newArrayList();
-        // If infodb_support_ext_catalog is true, we will list all catalogs or the specified catalog.
-        // Otherwise, we will only list internal catalog, or if the specified catalog is internal catalog.
-        if (Config.infodb_support_ext_catalog) {
-            if (Strings.isNullOrEmpty(params.catalog)) {
-                catalogIfs = env.getCatalogMgr().listCatalogs();
-            } else {
-                catalogIfs.add(env.getCatalogMgr()
-                        .getCatalogOrException(params.catalog,
-                                catalog -> new TException("Unknown catalog " + catalog)));
-            }
+        // list all catalogs or the specified catalog.
+        if (Strings.isNullOrEmpty(params.catalog)) {
+            catalogIfs = env.getCatalogMgr().listCatalogs();
         } else {
-            if (Strings.isNullOrEmpty(params.catalog)
-                    || params.catalog.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-                catalogIfs.add(env.getInternalCatalog());
-            }
+            catalogIfs.add(env.getCatalogMgr()
+                    .getCatalogOrException(params.catalog,
+                            catalog -> new TException("Unknown catalog " + catalog)));
         }
 
         for (CatalogIf catalog : catalogIfs) {
@@ -448,18 +440,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private static ColumnDef initColumnfromThrift(TColumnDesc tColumnDesc, String comment) {
-        TypeDef typeDef = TypeDef.createTypeDef(tColumnDesc);
-        boolean isAllowNull = tColumnDesc.isIsAllowNull();
-        ColumnDef.DefaultValue defaultVal = ColumnDef.DefaultValue.NOT_SET;
-        // Dynamic table's Array default value should be '[]'
-        if (typeDef.getType().isArrayType()) {
-            defaultVal = ColumnDef.DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE;
-        }
-        return new ColumnDef(tColumnDesc.getColumnName(), typeDef, false, null, isAllowNull, false,
-                defaultVal, comment, true);
-    }
-
     @LogException
     @Override
     public TGetTablesResult getTableNames(TGetTablesParams params) throws TException {
@@ -486,14 +466,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
-        if (!Config.infodb_support_ext_catalog
-                && !catalogName.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            throw new TException("Not support getting external catalog info when "
-                    + "infodb_support_ext_catalog is false");
-        }
 
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
-                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
+                .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog: " + catalog))
                 .getDbNullable(params.db);
 
         if (db != null) {
@@ -545,11 +520,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;
         if (params.isSetCatalog()) {
             catalogName = params.catalog;
-        }
-        if (!Config.infodb_support_ext_catalog
-                && !catalogName.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            throw new TException("Not support getting external catalog info when "
-                    + "infodb_support_ext_catalog is false");
         }
 
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);
@@ -765,11 +735,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
-        if (!Config.infodb_support_ext_catalog
-                && !catalogName.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            throw new TException("Not support getting external catalog info when "
-                    + "infodb_support_ext_catalog is false");
-        }
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(params.db);
@@ -840,11 +805,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         String catalogName = Strings.isNullOrEmpty(params.catalog) ? InternalCatalog.INTERNAL_CATALOG_NAME
                 : params.catalog;
-        if (!Config.infodb_support_ext_catalog
-                && !catalogName.equalsIgnoreCase(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            throw new TException("Not support getting external catalog info when "
-                    + "infodb_support_ext_catalog is false");
-        }
         DatabaseIf<TableIf> db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrException(catalogName, catalog -> new TException("Unknown catalog " + catalog))
                 .getDbNullable(params.db);

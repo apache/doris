@@ -17,8 +17,31 @@
 
 package org.apache.doris.datasource.infoschema;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.external.ExternalTable;
+import org.apache.doris.catalog.external.HMSExternalTable.DLAType;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.HMSExternalCatalog;
+
+import com.google.common.collect.Lists;
+import org.apache.hadoop.hive.metastore.api.FieldSchema;
+
+import java.util.List;
+import java.util.Locale;
 
 public class ExternalInfoSchemaTable extends ExternalTable {
-    
+
+    public ExternalInfoSchemaTable(long id, String name, ExternalCatalog catalog) {
+        super(id, name, catalog, InfoSchemaDb.DATABASE_NAME, TableType.SCHEMA);
+    }
+
+    @Override
+    public List<Column> initSchema() {
+        makeSureInitialized();
+        List<Column> columns = SchemaTable.TABLE_MAP.get(name).getColumns();
+        return columns;
+    }
 }

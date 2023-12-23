@@ -351,7 +351,7 @@ public interface TableIf {
                 case OLAP:
                     return "Doris";
                 case SCHEMA:
-                    return "MEMORY";
+                    return "SYSTEM VIEW";
                 case INLINE_VIEW:
                     return "InlineView";
                 case VIEW:
