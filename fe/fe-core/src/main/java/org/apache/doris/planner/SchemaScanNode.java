@@ -23,7 +23,6 @@ import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.planner.external.FederationBackendPolicy;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.FrontendOptions;
@@ -81,9 +80,6 @@ public class SchemaScanNode extends ScanNode {
 
     @Override
     public void finalizeForNereids() throws UserException {
-        schemaCatalog = desc.getTable().getDatabase().getCatalog().getName();
-        schemaDb = desc.getTable().getDatabase().getFullName();
-        schemaTable = desc.getTable().getName();
         frontendIP = FrontendOptions.getLocalHostAddress();
         frontendPort = Config.rpc_port;
     }
@@ -101,11 +97,7 @@ public class SchemaScanNode extends ScanNode {
                 msg.schema_scan_node.setDb("SESSION");
             }
         }
-        if (schemaCatalog != null) {
-            msg.schema_scan_node.setCatalog(schemaCatalog);
-        } else if (!Config.infodb_support_ext_catalog) {
-            msg.schema_scan_node.setCatalog(InternalCatalog.INTERNAL_CATALOG_NAME);
-        }
+        msg.schema_scan_node.setCatalog(desc.getTable().getDatabase().getCatalog().getName());
         msg.schema_scan_node.show_hidden_cloumns = Util.showHiddenColumns();
 
         if (schemaTable != null) {

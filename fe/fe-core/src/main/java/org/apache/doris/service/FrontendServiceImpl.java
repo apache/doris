@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
@@ -417,17 +418,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
             for (DatabaseIf db : dbs) {
-                String fullName = db.getFullName();
-                if (!env.getAccessManager().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
+                String dbName = db.getFullName();
+                if (!env.getAccessManager().checkDbPriv(currentUser, dbName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
-                if (matcher != null && !matcher.match(ClusterNamespace.getNameFromFullName(fullName))) {
+                if (matcher != null && !matcher.match(dbName)) {
                     continue;
                 }
 
                 catalogNames.add(catalog.getName());
-                dbNames.add(fullName);
+                dbNames.add(getMysqlCompatibleDbName(catalog.getName(), dbName));
                 catalogIds.add(catalog.getId());
                 dbIds.add(db.getId());
             }
@@ -438,6 +439,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         result.setCatalogIds(catalogIds);
         result.setDbIds(dbIds);
         return result;
+    }
+
+    private String getMysqlCompatibleDbName(String ctl, String db) {
+        if (ctl.equals(InfoSchemaDb.DATABASE_NAME)) {
+            return db;
+        }
+        return ctl + "." + db;
     }
 
     @LogException

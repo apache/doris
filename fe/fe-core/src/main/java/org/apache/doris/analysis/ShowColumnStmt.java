@@ -74,6 +74,10 @@ public class ShowColumnStmt extends ShowStmt {
         this.where = where;
     }
 
+    public String getCtl() {
+        return tableName.getCtl();
+    }
+
     public String getDb() {
         return tableName.getDb();
     }
