@@ -2063,7 +2063,7 @@ public class Config extends ConfigBase {
     public static boolean skip_localhost_auth_check  = true;
 
     @ConfField(mutable = true)
-    public static boolean enable_round_robin_create_tablet = false;
+    public static boolean enable_round_robin_create_tablet = true;
 
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
