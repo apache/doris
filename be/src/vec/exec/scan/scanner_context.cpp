@@ -45,6 +45,9 @@ namespace doris::vectorized {
 
 using namespace std::chrono_literals;
 
+static bvar::Status<int64_t> g_bytes_in_scanner_queue("doris_bytes_in_scanner_queue", 0);
+static bvar::Status<int64_t> g_num_running_scanners("doris_num_running_scanners", 0);
+
 ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* output_tuple_desc,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, int64_t max_bytes_in_blocks_queue,
@@ -169,6 +172,9 @@ Status ScannerContext::init() {
     _free_blocks_capacity = _max_thread_num * _block_per_scanner;
     auto block = get_free_block();
     _estimated_block_bytes = std::max(block->allocated_bytes(), (size_t)16);
+    int min_blocks = (_estimated_block_bytes + config::min_bytes_in_scanner_queue - 1) /
+                      config::min_bytes_in_scanner_queue;
+    _free_blocks_capacity = std::max(_free_blocks_capacity, min_blocks);
     return_free_block(std::move(block));
 
 #ifndef BE_TEST
@@ -232,19 +238,28 @@ void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block)
 }
 
 void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) {
-    std::lock_guard l(_transfer_lock);
-    auto old_bytes_in_queue = _cur_bytes_in_queue;
+
+    int64_t old_bytes_in_queue = 0;
+
     for (auto& b : blocks) {
         auto st = validate_block_schema(b.get());
         if (!st.ok()) {
-            set_status_on_error(st, false);
+            set_status_on_error(st, true);
         }
-        _cur_bytes_in_queue += b->allocated_bytes();
-        _blocks_queue.push_back(std::move(b));
+    }
+
+    {
+        std::lock_guard l(_transfer_lock);
+        old_bytes_in_queue = _cur_bytes_in_queue;
+        for (auto& b : blocks) {
+            _cur_bytes_in_queue += b->allocated_bytes();
+            _blocks_queue.push_back(std::move(b));
+        }
     }
     blocks.clear();
     _blocks_queue_added_cv.notify_one();
     _queued_blocks_memory_usage->add(_cur_bytes_in_queue - old_bytes_in_queue);
+    g_bytes_in_scanner_queue.set_value(_cur_bytes_in_queue);
 }
 
 bool ScannerContext::empty_in_queue(int id) {
@@ -327,6 +342,8 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         }
     }
 
+    g_bytes_in_scanner_queue.set_value(_cur_bytes_in_queue);
+
     if (!merge_blocks.empty()) {
         vectorized::MutableBlock m(block->get());
         for (auto& merge_block : merge_blocks) {
@@ -367,6 +384,7 @@ Status ScannerContext::validate_block_schema(Block* block) {
 void ScannerContext::inc_num_running_scanners(int32_t inc) {
     std::lock_guard l(_transfer_lock);
     _num_running_scanners += inc;
+    g_num_running_scanners.set_value(_num_running_scanners);
 }
 
 void ScannerContext::dec_num_running_scanners(int32_t scanner_dec) {
@@ -471,18 +489,20 @@ void ScannerContext::reschedule_scanner_ctx() {
 
 void ScannerContext::push_back_scanner_and_reschedule(std::shared_ptr<ScannerDelegate> scanner) {
     std::lock_guard l(_transfer_lock);
-    // Use a transfer lock to avoid the scanner be scheduled concurrently. For example, that after
-    // calling "_scanners.push_front(scanner)", there may be other ctx in scheduler
-    // to schedule that scanner right away, and in that schedule run, the scanner may be marked as closed
-    // before we call the following if() block.
-    if (scanner->_scanner->need_to_close()) {
-        --_num_unfinished_scanners;
-        if (_num_unfinished_scanners == 0) {
-            _dispose_coloate_blocks_not_in_queue();
-            _is_finished = true;
-            _set_scanner_done();
-            _blocks_queue_added_cv.notify_one();
-            return;
+
+    // In pipeline engine, doris will close scanners when `no_schedule`.
+    // We have to decrease _num_running_scanners before schedule, otherwise
+    // schedule does not woring due to _num_running_scanners.
+    _num_running_scanners--;
+    g_num_running_scanners.set_value(_num_running_scanners);
+    set_ready_to_finish();
+
+    if (!done() && should_be_scheduled()) {
+        auto state = _scanner_scheduler->submit(shared_from_this());
+        if (state.ok()) {
+            _num_scheduling_ctx++;
+        } else {
+            set_status_on_error(state, false);
         }
     }
 

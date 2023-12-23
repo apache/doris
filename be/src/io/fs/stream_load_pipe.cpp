@@ -33,6 +33,8 @@ namespace doris {
 namespace io {
 struct IOContext;
 
+static bvar::Status<int64_t> g_bytes_in_stream_load_pipe("doris_bytes_in_stream_load_pipe", 0);
+
 StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
                                int64_t total_length, bool use_proto)
         : _buffered_bytes(0),
@@ -82,6 +84,7 @@ Status StreamLoadPipe::read_at_impl(size_t /*offset*/, Slice result, size_t* byt
             _buffered_bytes -= buf->limit;
             _put_cond.notify_one();
         }
+        g_bytes_in_stream_load_pipe.set_value(_buffered_bytes + _proto_buffered_bytes);
     }
     DCHECK(*bytes_read == bytes_req)
             << "*bytes_read=" << *bytes_read << ", bytes_req=" << bytes_req;
@@ -191,6 +194,7 @@ Status StreamLoadPipe::_read_next_buffer(std::unique_ptr<uint8_t[]>* data, size_
         row_ptr.release();
     }
     _put_cond.notify_one();
+    g_bytes_in_stream_load_pipe.set_value(_buffered_bytes + _proto_buffered_bytes);
     return Status::OK();
 }
 
@@ -220,6 +224,8 @@ Status StreamLoadPipe::_append(const ByteBufferPtr& buf, size_t proto_byte_size)
         }
     }
     _get_cond.notify_one();
+    g_bytes_in_stream_load_pipe.set_value(_buffered_bytes + _proto_buffered_bytes);
+
     return Status::OK();
 }
 
