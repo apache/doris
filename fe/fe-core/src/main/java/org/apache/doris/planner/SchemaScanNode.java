@@ -51,8 +51,6 @@ public class SchemaScanNode extends ScanNode {
     private String schemaDb;
     private String schemaTable;
     private String schemaWild;
-    private String user;
-    private String userIp;
     private String frontendIP;
     private int frontendPort;
     private String schemaCatalog;
@@ -74,19 +72,19 @@ public class SchemaScanNode extends ScanNode {
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
         // Convert predicates to MySQL columns and filters.
+        schemaCatalog = analyzer.getSchemaCatalog();
         schemaDb = analyzer.getSchemaDb();
         schemaTable = analyzer.getSchemaTable();
         schemaWild = analyzer.getSchemaWild();
-        user = analyzer.getQualifiedUser();
-        userIp = analyzer.getContext().getRemoteIP();
         frontendIP = FrontendOptions.getLocalHostAddress();
         frontendPort = Config.rpc_port;
-        schemaCatalog = analyzer.getSchemaCatalog();
     }
 
     @Override
     public void finalizeForNereids() throws UserException {
-        // Convert predicates to MySQL columns and filters.
+        schemaCatalog = desc.getTable().getDatabase().getCatalog().getName();
+        schemaDb = desc.getTable().getDatabase().getFullName();
+        schemaTable = desc.getTable().getName();
         frontendIP = FrontendOptions.getLocalHostAddress();
         frontendPort = Config.rpc_port;
     }

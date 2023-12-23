@@ -17,20 +17,17 @@
 
 package org.apache.doris.datasource.infoschema;
 
+import org.apache.doris.analysis.SchemaTableType;
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.SchemaTable;
 import org.apache.doris.catalog.external.ExternalTable;
-import org.apache.doris.catalog.external.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.HMSExternalCatalog;
-
-import com.google.common.collect.Lists;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
+import org.apache.doris.thrift.TSchemaTable;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import java.util.List;
-import java.util.Locale;
 
 public class ExternalInfoSchemaTable extends ExternalTable {
 
@@ -41,7 +38,16 @@ public class ExternalInfoSchemaTable extends ExternalTable {
     @Override
     public List<Column> initSchema() {
         makeSureInitialized();
-        List<Column> columns = SchemaTable.TABLE_MAP.get(name).getColumns();
+        List<Column> columns = SchemaTable.TABLE_MAP.get(name).getFullSchema();
         return columns;
+    }
+
+    @Override
+    public TTableDescriptor toThrift() {
+        TSchemaTable tSchemaTable = new TSchemaTable(SchemaTableType.getThriftType(this.name));
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.SCHEMA_TABLE,
+                getFullSchema().size(), 0, this.name, "");
+        tTableDescriptor.setSchemaTable(tSchemaTable);
+        return tTableDescriptor;
     }
 }

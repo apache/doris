@@ -38,8 +38,6 @@ public class ShowTableStmt extends ShowStmt {
     private static final String NAME_COL_PREFIX = "Tables_in_";
     private static final String TYPE_COL = "Table_type";
     private static final String STORAGE_FORMAT_COL = "StorageFormat";
-    private static final TableName TABLE_NAME = new TableName(InternalCatalog.INTERNAL_CATALOG_NAME,
-            InfoSchemaDb.DATABASE_NAME, "tables");
     private String db;
     private String catalog;
     private boolean isVerbose;
@@ -107,22 +105,24 @@ public class ShowTableStmt extends ShowStmt {
             return selectStmt;
         }
         analyze(analyzer);
+        TableName tablesTableName = new TableName(catalog, InfoSchemaDb.DATABASE_NAME, "tables");
+
         // Columns
         SelectList selectList = new SelectList();
         ExprSubstitutionMap aliasMap = new ExprSubstitutionMap(false);
-        SelectListItem item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_NAME"),
+        SelectListItem item = new SelectListItem(new SlotRef(tablesTableName, "TABLE_NAME"),
                 NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db));
         selectList.addItem(item);
         aliasMap.put(new SlotRef(null, NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db)),
                 item.getExpr().clone(null));
         if (isVerbose) {
-            item = new SelectListItem(new SlotRef(TABLE_NAME, "TABLE_TYPE"), TYPE_COL);
+            item = new SelectListItem(new SlotRef(tablesTableName, "TABLE_TYPE"), TYPE_COL);
             selectList.addItem(item);
             aliasMap.put(new SlotRef(null, TYPE_COL), item.getExpr().clone(null));
         }
         where = where.substitute(aliasMap);
         selectStmt = new SelectStmt(selectList,
-                new FromClause(Lists.newArrayList(new TableRef(TABLE_NAME, null))),
+                new FromClause(Lists.newArrayList(new TableRef(tablesTableName, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
 
         analyzer.setSchemaInfo(ClusterNamespace.getNameFromFullName(db), null, null, catalog);
