@@ -28,6 +28,18 @@ struct TCounter {
   4: optional i64 level
 }
 
+// AggCounter data
+struct TAggCounter {
+  1: required string name
+  2: required Metrics.TUnit type
+  3: optional i64 max_value 
+  4: optional i64 min_value 
+  5: optional i64 sum_value 
+  6: optional i64 level
+  7: optional i32 number
+}
+
+
 // A single runtime profile
 struct TRuntimeProfileNode {
   1: required string name
@@ -54,6 +66,8 @@ struct TRuntimeProfileNode {
   9: required i64 timestamp
 
   10: optional bool is_sink
+
+  11: required list<TAggCounter> agg_counters
 }
 
 // A flattened tree of runtime profiles, obtained by an

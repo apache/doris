@@ -20,6 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.profile.SummaryProfile;
+import org.apache.doris.thrift.TAggCounter;
 import org.apache.doris.thrift.TCounter;
 import org.apache.doris.thrift.TRuntimeProfileNode;
 import org.apache.doris.thrift.TRuntimeProfileTree;
@@ -237,7 +238,7 @@ public class RuntimeProfile {
         }
         Preconditions.checkState(timestamp == -1 || node.timestamp != -1);
         // update this level's counters
-        if (node.counters != null) {
+        if (node.counters != null || node.agg_counters != null) {
             for (TCounter tcounter : node.counters) {
                 Counter counter = counterMap.get(tcounter.name);
                 if (counter == null) {
@@ -253,6 +254,22 @@ public class RuntimeProfile {
                 }
             }
 
+            if (node.isSetAggCounters()) {
+                for (TAggCounter tcounter : node.agg_counters) {
+                    Counter counter = counterMap.get(tcounter.name);
+                    if (counter == null) {
+                        counterMap.put(tcounter.name, new AggCounter(tcounter));
+                    } else {
+                        counter.setLevel(tcounter.level);
+                        if (counter.getType() != tcounter.type) {
+                            LOG.error("Cannot update counters with the same name but different types"
+                                    + " type=" + tcounter.type);
+                        } else {
+                            ((AggCounter) counter).setValue(tcounter);
+                        }
+                    }
+                }
+            }
             if (node.child_counters_map != null) {
                 // update childCounters
                 for (Map.Entry<String, Set<String>> entry : node.child_counters_map.entrySet()) {

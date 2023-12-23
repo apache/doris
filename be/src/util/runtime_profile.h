@@ -21,6 +21,7 @@
 #pragma once
 
 #include <gen_cpp/Metrics_types.h>
+#include <gen_cpp/RuntimeProfile_types.h>
 #include <glog/logging.h>
 #include <stdint.h>
 
@@ -93,6 +94,7 @@ class ObjectPool;
 // Thread-safe.
 class RuntimeProfile {
 public:
+    constexpr static auto ROOT_COUNTER = "";
     class Counter {
     public:
         Counter(TUnit::type type, int64_t value = 0, int64_t level = 3)
@@ -119,6 +121,7 @@ public:
         TUnit::type type() const { return _type; }
 
         virtual int64_t level() { return _level; }
+        virtual bool is_agg() { return false; }
 
     private:
         friend class RuntimeProfile;
@@ -126,6 +129,32 @@ public:
         std::atomic<int64_t> _value;
         TUnit::type _type;
         int64_t _level;
+    };
+
+    // only use to merge counter
+    struct AggCounter : public Counter {
+        int64_t _sum_value = 0;
+        int64_t _min_value = 0;
+        int64_t _max_value = 0;
+        int32_t _number = 0;
+
+        AggCounter(TUnit::type type) : Counter(type) { _level = 1; }
+        bool is_agg() override { return true; }
+        void addCounter(Counter* counter) {
+            if (!counter) {
+                return;
+            }
+            if (_number == 0) {
+                _sum_value = counter->value();
+                _min_value = counter->value();
+                _max_value = counter->value();
+            } else {
+                _max_value = std::max(_max_value, counter->value());
+                _min_value = std::min(_min_value, counter->value());
+                _sum_value += counter->value();
+            }
+            _number++;
+        }
     };
 
     /// A counter that keeps track of the highest value seen (reporting that
@@ -298,6 +327,12 @@ public:
         return add_counter(name, type, "", level);
     }
 
+    AggCounter* add_agg_counter(const std::string& name, TUnit::type type,
+                                const std::string& parent_counter_name);
+
+    void add_agg_counter(const std::string& name, AggCounter* newCounter,
+                         const std::string& parentCounterName);
+
     // Add a derived counter with 'name'/'type'. The counter is owned by the
     // RuntimeProfile object.
     // If parent_counter_name is a non-empty string, the counter is added as a child of
@@ -344,6 +379,14 @@ public:
     void to_thrift(TRuntimeProfileTree* tree);
     void to_thrift(std::vector<TRuntimeProfileNode>* nodes);
 
+    RuntimeProfile* merge_child_profile();
+
+    static void merge_profile(std::vector<RuntimeProfile*>& profiles, RuntimeProfile* simpleProfile,
+                              ObjectPool* obj_pool);
+
+    static void merge_counters(std::string parentCounterName,
+                               std::vector<RuntimeProfile*>& profiles,
+                               RuntimeProfile* simpleProfile, ObjectPool* obj_pool);
     // Divides all counters by n
     void divide(int n);
 

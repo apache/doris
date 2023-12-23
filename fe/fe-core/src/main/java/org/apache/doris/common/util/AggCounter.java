@@ -34,8 +34,28 @@ public class AggCounter extends Counter {
         number = 0;
     }
 
+    public AggCounter(org.apache.doris.thrift.TAggCounter tcounter) {
+        super(tcounter.getType(), 0);
+        max = new Counter(tcounter.getType(), tcounter.max_value);
+        sum = new Counter(tcounter.getType(), tcounter.sum_value);
+        min = new Counter(tcounter.getType(), tcounter.min_value);
+        number = tcounter.number;
+    }
+
+    public void setValue(org.apache.doris.thrift.TAggCounter tcounter) {
+        setType(tcounter.getType());
+        setLevel(tcounter.getLevel());
+        max.setValue(tcounter.max_value);
+        sum.setValue(tcounter.sum_value);
+        min.setValue(tcounter.min_value);
+    }
+
     public void addCounter(Counter counter) {
         if (counter == null) {
+            return;
+        }
+        if (counter instanceof AggCounter) {
+            addAggCounter((AggCounter) counter);
             return;
         }
         if (number == 0) {
@@ -48,6 +68,13 @@ public class AggCounter extends Counter {
             min.minValue(counter);
         }
         number++;
+    }
+
+    private void addAggCounter(AggCounter counter) {
+        this.number += counter.number;
+        this.max.maxValue(counter.max);
+        this.min.minValue(counter.min);
+        this.sum.addValue(counter.sum);
     }
 
     public void addCounters(LinkedList<Counter> rhsCounter) {
