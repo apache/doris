@@ -584,7 +584,9 @@ MutableColumns Block::mutate_columns() {
 }
 
 void Block::set_columns(MutableColumns&& columns) {
-    /// TODO: assert if |columns| doesn't match |data|!
+    DCHECK_GE(columns.size(), data.size())
+            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
+                           columns.size(), data.size());
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = std::move(columns[i]);
@@ -592,7 +594,9 @@ void Block::set_columns(MutableColumns&& columns) {
 }
 
 void Block::set_columns(const Columns& columns) {
-    /// TODO: assert if |columns| doesn't match |data|!
+    DCHECK_GE(columns.size(), data.size())
+            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
+                           columns.size(), data.size());
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = columns[i];
