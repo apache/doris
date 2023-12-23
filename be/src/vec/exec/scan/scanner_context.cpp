@@ -172,8 +172,8 @@ Status ScannerContext::init() {
     _free_blocks_capacity = _max_thread_num * _block_per_scanner;
     auto block = get_free_block();
     _estimated_block_bytes = std::max(block->allocated_bytes(), (size_t)16);
-    int min_blocks = (_estimated_block_bytes + config::min_bytes_in_scanner_queue - 1) /
-                      config::min_bytes_in_scanner_queue;
+    int min_blocks = (config::min_bytes_in_scanner_queue + _estimated_block_bytes - 1) /
+                      _estimated_block_bytes;
     _free_blocks_capacity = std::max(_free_blocks_capacity, min_blocks);
     return_free_block(std::move(block));
 

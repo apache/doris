@@ -133,6 +133,10 @@ public:
 
     // todo(wb) rethinking how to calculate ```_max_bytes_in_queue``` when executing shared scan
     inline bool should_be_scheduled() const {
+        VLOG_NOTICE << "curl_bytes_in_queue " << _cur_bytes_in_queue << " max_bytes_in_queue "
+                    << _max_bytes_in_queue << " _serving_blocks_num " << _serving_blocks_num
+                    << " _free_blocks_capacity " << _free_blocks_capacity
+                    << " estimated_block_bytes " << _estimated_block_bytes;
         return !done() && (_cur_bytes_in_queue < _max_bytes_in_queue / 2) &&
                (_serving_blocks_num < allowed_blocks_num());
     }
