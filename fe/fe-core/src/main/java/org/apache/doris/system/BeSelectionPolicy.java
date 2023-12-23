@@ -53,6 +53,7 @@ public class BeSelectionPolicy {
 
     public boolean enableRoundRobin = false;
     // if enable round robin, choose next be from nextRoundRobinIndex
+    // call SystemInfoService::selectBackendIdsByPolicy will update nextRoundRobinIndex
     public int nextRoundRobinIndex = -1;
 
     public List<String> preferredLocations = new ArrayList<>();
