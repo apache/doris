@@ -30,6 +30,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
+import org.apache.doris.nereids.rules.rewrite.mv.AbstractSelectMaterializedIndexRule.SlotContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -266,6 +267,20 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
 
                             LogicalOlapScan mvPlan = createLogicalOlapScan(scan, result);
                             SlotContext slotContext = generateBaseScanExprToMvExpr(mvPlan);
+                            if (result.indexId == scan.getTable().getBaseIndexId()) {
+                                LogicalOlapScan mvPlanWithoutAgg = SelectMaterializedIndexWithoutAggregate.select(scan,
+                                        project::getInputSlots, filter::getConjuncts,
+                                        Stream.concat(filter.getExpressions().stream(),
+                                                project.getExpressions().stream())
+                                                .collect(ImmutableSet.toImmutableSet()));
+                                SlotContext slotContextWithoutAgg = generateBaseScanExprToMvExpr(mvPlanWithoutAgg);
+
+                                return agg.withChildren(new LogicalProject(
+                                        generateProjectsAlias(project.getOutput(), slotContextWithoutAgg),
+                                        new ReplaceExpressions(slotContextWithoutAgg).replace(
+                                                project.withChildren(filter.withChildren(mvPlanWithoutAgg)),
+                                                mvPlanWithoutAgg)));
+                            }
 
                             if (result.exprRewriteMap.isEmpty()) {
                                 return new LogicalProject<>(

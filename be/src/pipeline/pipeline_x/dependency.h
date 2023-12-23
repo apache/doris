@@ -67,6 +67,8 @@ struct BasicSharedState {
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
+    ENABLE_FACTORY_CREATOR(Dependency);
+
 public:
     Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
@@ -603,22 +605,13 @@ struct DataDistribution {
     DataDistribution(const DataDistribution& other)
             : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
     bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
-    bool operator==(const DataDistribution& other) const {
-        if (distribution_type == other.distribution_type &&
-            (distribution_type == ExchangeType::HASH_SHUFFLE ||
-             distribution_type == ExchangeType::BUCKET_HASH_SHUFFLE) &&
-            (partition_exprs.empty() || other.partition_exprs.empty())) {
-            return true;
-        }
-        return distribution_type == other.distribution_type &&
-               partition_exprs == other.partition_exprs;
+    DataDistribution& operator=(const DataDistribution& other) {
+        distribution_type = other.distribution_type;
+        partition_exprs = other.partition_exprs;
+        return *this;
     }
-    DataDistribution operator=(const DataDistribution& other) const {
-        return DataDistribution(other.distribution_type, other.partition_exprs);
-    }
-    bool operator!=(const DataDistribution& other) const { return !operator==(other); }
     ExchangeType distribution_type;
-    const std::vector<TExpr> partition_exprs;
+    std::vector<TExpr> partition_exprs;
 };
 
 class Exchanger;

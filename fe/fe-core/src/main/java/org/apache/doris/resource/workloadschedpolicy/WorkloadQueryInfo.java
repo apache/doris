@@ -26,5 +26,5 @@ public class WorkloadQueryInfo {
     String queryId = null;
     TUniqueId tUniqueId = null;
     ConnectContext context = null;
-    Map<WorkloadMetricType, String> metricMap;
+    public Map<WorkloadMetricType, String> metricMap;
 }

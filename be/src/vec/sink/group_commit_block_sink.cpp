@@ -36,7 +36,11 @@ GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor
     _name = "GroupCommitBlockSink";
 }
 
-GroupCommitBlockSink::~GroupCommitBlockSink() = default;
+GroupCommitBlockSink::~GroupCommitBlockSink() {
+    if (_load_block_queue) {
+        _load_block_queue->remove_load_id(_load_id);
+    }
+}
 
 Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);

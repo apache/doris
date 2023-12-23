@@ -21,7 +21,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "scan_task_queue.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -31,9 +30,7 @@ class ExecEnv;
 namespace vectorized {
 class VScanner;
 } // namespace vectorized
-namespace taskgroup {
-class ScanTaskTaskGroupQueue;
-}
+
 template <typename T>
 class BlockingQueue;
 } // namespace doris
@@ -72,9 +69,6 @@ public:
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
-    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() {
-        return _task_group_local_scan_queue.get();
-    }
 
     int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
 
@@ -87,8 +81,6 @@ private:
     void _scanner_scan(ScannerScheduler* scheduler, std::shared_ptr<ScannerContext> ctx,
                        VScannerSPtr scanner);
 
-    void _task_group_scanner_scan(ScannerScheduler* scheduler,
-                                  taskgroup::ScanTaskTaskGroupQueue* scan_queue);
     void _register_metrics();
 
     static void _deregister_metrics();
@@ -114,9 +106,6 @@ private:
     std::unique_ptr<PriorityThreadPool> _local_scan_thread_pool;
     std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
-
-    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
-    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool;
 
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};

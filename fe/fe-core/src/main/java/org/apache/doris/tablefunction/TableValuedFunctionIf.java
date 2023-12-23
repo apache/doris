@@ -76,6 +76,8 @@ public abstract class TableValuedFunctionIf {
                 return new GroupCommitTableValuedFunction(params);
             case QueriesTableValuedFunction.NAME:
                 return new QueriesTableValuedFunction(params);
+            case WorkloadSchedPolicyTableValuedFunction.NAME:
+                return new WorkloadSchedPolicyTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

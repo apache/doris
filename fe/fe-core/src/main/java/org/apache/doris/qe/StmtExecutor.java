@@ -396,6 +396,20 @@ public class StmtExecutor {
         return masterOpExecutor.getProxyStatus();
     }
 
+    public int getProxyStatusCode() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.ordinal();
+        }
+        return masterOpExecutor.getProxyStatusCode();
+    }
+
+    public String getProxyErrMsg() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.name();
+        }
+        return masterOpExecutor.getProxyErrMsg();
+    }
+
     public boolean isSyncLoadKindStmt() {
         if (parsedStmt == null) {
             return false;
@@ -1133,7 +1147,9 @@ public class StmtExecutor {
             if (context.getSessionVariable().isEnableFoldConstantByBe()) {
                 // fold constant expr
                 parsedStmt.foldConstant(rewriter, tQueryOptions);
-
+            }
+            if (context.getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                parsedStmt.rewriteElementAtToSlot(rewriter, tQueryOptions);
             }
             // Apply expr and subquery rewrites.
             ExplainOptions explainOptions = parsedStmt.getExplainOptions();
@@ -2762,6 +2778,9 @@ public class StmtExecutor {
             }
             AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
+            if (Config.enable_collect_internal_query_profile) {
+                updateProfile(true);
+            }
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
         }
     }

@@ -1069,6 +1069,13 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     @Override
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        queryStmt.rewriteElementAtToSlot(rewriter, tQueryOptions);
+    }
+
+
+    @Override
     public List<Expr> getResultExprs() {
         return resultExprs;
     }
@@ -1157,7 +1164,8 @@ public class NativeInsertStmt extends InsertStmt {
 
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
-        if (execPlanFragmentParamsBytes != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+        if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+            LOG.debug("reuse group commit plan, table={}", olapTable);
             return groupCommitPlanner;
         }
         if (!targetColumns.isEmpty()) {
