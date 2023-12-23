@@ -16,6 +16,7 @@
 // under the License.
 
 #pragma once
+#include <bvar/bvar.h>
 #include <bvar/latency_recorder.h>
 
 #include "defer_op.h"

@@ -34,6 +34,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "util/bvar_helper.h"
 #include "util/pretty_printer.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
