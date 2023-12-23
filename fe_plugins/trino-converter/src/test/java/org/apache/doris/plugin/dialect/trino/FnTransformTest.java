@@ -67,7 +67,7 @@ public class FnTransformTest {
         ParserContext parserContext = new ParserContext(Dialect.TRINO);
         String dialectSql = "SELECT date_diff('second', TIMESTAMP '2020-12-25 22:00:00', TIMESTAMP '2020-12-25 21:00:00')";
         LogicalPlan logicalPlan = TrinoParser.parseSingle(dialectSql, parserContext);
-        Assertions.assertTrue(logicalPlan.child(0).toString().toLowerCase()
+        Assertions.assertTrue(logicalPlan.toString().toLowerCase()
                     .contains("seconds_diff(2020-12-25 22:00:00, 2020-12-25 21:00:00)"));
     }
 }

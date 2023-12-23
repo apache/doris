@@ -36,23 +36,23 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-core</artifactId>
             <version>${doris.version}</version>
-            <scope>compile</scope>
             <exclusions>
                 <exclusion>
-                    <artifactId>aircompressor</artifactId>
-                    <groupId>io.airlift</groupId>
+                    <groupId>org.apache.orc</groupId>
+                    <artifactId>orc-core</artifactId>
                 </exclusion>
                 <exclusion>
-                    <artifactId>jol-core</artifactId>
                     <groupId>org.openjdk.jol</groupId>
+                    <artifactId>jol-core</artifactId>
                 </exclusion>
             </exclusions>
+            <scope>provided</scope>
         </dependency>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-common</artifactId>
             <version>${doris.version}</version>
-            <scope>compile</scope>
+            <scope>provided</scope>
         </dependency>
         <!-- trino-parser The version of antlr-runtime in trino parser is need to be consistent with doris,
         when upgrade trino-parser antlr-runtime version, should take care of trino-parser doris.-->
@@ -61,6 +61,16 @@ under the License.
             <artifactId>trino-parser</artifactId>
             <version>${trino.parser.version}</version>
             <scope>compile</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.google.guava</groupId>
+                    <artifactId>guava</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.antlr</groupId>
+                    <artifactId>antlr4-runtime</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
         <dependency>
@@ -90,25 +100,25 @@ under the License.
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
-            <scope>test</scope>
+            <scope>provided</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.junit.vintage/junit-vintage-engine -->
         <dependency>
             <groupId>org.junit.vintage</groupId>
             <artifactId>junit-vintage-engine</artifactId>
-            <scope>test</scope>
+            <scope>provided</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-params -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-params</artifactId>
-            <scope>test</scope>
+            <scope>provided</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
         <dependency>
             <groupId>org.jmockit</groupId>
             <artifactId>jmockit</artifactId>
-            <scope>test</scope>
+            <scope>provided</scope>
         </dependency>
     </dependencies>
     <build>
@@ -126,9 +136,9 @@ under the License.
                             <goal>copy-dependencies</goal>
                         </goals>
                         <configuration>
-                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <outputDirectory>${project.build.directory}</outputDirectory>
                             <overWriteIfNewer>true</overWriteIfNewer>
-                            <includeScope>compile</includeScope>
+                            <excludeScope>provided</excludeScope>
                         </configuration>
                     </execution>
                 </executions>
