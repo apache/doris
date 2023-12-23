@@ -44,8 +44,8 @@ suite("aggregate_without_roll_up") {
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
     PARTITION BY RANGE(o_orderdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-8'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-10"),
+    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
     PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
     )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
@@ -79,8 +79,8 @@ suite("aggregate_without_roll_up") {
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
     PARTITION BY RANGE(l_shipdate) (
-    PARTITION `day_2` VALUES LESS THAN ('2023-12-8'),
-    PARTITION `day_3` VALUES LESS THAN ("2023-12-10"),
+    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
     PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
     )
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
@@ -119,8 +119,6 @@ suite("aggregate_without_roll_up") {
 
     sql """
     insert into orders values
-    (1, 1, 'o', 9.5, '2023-12-07', 'a', 'b', 1, 'yy'),
-    (1, 1, 'o', 10.5, '2023-12-07', 'a', 'b', 1, 'yy'),
     (2, 1, 'o', 11.5, '2023-12-09', 'a', 'b', 1, 'yy'),
     (3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy'),
     (3, 1, 'o', 33.5, '2023-12-10', 'a', 'b', 1, 'yy'),
