@@ -99,6 +99,8 @@ statement
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
+    | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #pauseMTMV
+    | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #resumeMTMV
     | ALTER TABLE table=relation
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
         constraint                                                        #addConstraint
