@@ -79,6 +79,8 @@ public class SystemInfoService {
 
     private volatile ImmutableMap<Long, DiskInfo> pathHashToDiskInfoRef = ImmutableMap.of();
 
+    private int lastSelectedBackendIndex = 0;
+
     public static class HostInfo implements Comparable<HostInfo> {
         public String host;
         public int port;
@@ -425,12 +427,32 @@ public class SystemInfoService {
             int nextIndex) {
         Preconditions.checkArgument(number >= -1);
         List<Backend> candidates = getCandidates(policy);
-        if (number != -1 && candidates.size() < number) {
-            LOG.info("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
+        int candidatesSize = candidates.size();
+        if (number != -1 && candidatesSize < number) {
+            LOG.info("Not match policy: {}. candidates num: {}, expected: {}", policy, candidatesSize, number);
             return Lists.newArrayList();
         }
 
-        int realIndex = nextIndex % candidates.size();
+        int realIndex = nextIndex % candidatesSize;
+        return selectBackendIdsRoundRobin(realIndex, candidates, number);
+    }
+
+    public synchronized List<Long> selectBackendIdsRoundRobinByPolicy(BeSelectionPolicy policy, int number) {
+        Preconditions.checkArgument(number >= -1);
+        List<Backend> candidates = getCandidates(policy);
+        int candidatesSize = candidates.size();
+        if (number != -1 && candidatesSize < number) {
+            LOG.info("Not match policy: {}. candidates num: {}, expected: {}", policy, candidatesSize, number);
+            return Lists.newArrayList();
+        }
+
+        int realIndex = lastSelectedBackendIndex % candidatesSize;
+        List<Long> selectBackendIds = selectBackendIdsRoundRobin(realIndex, candidates, number);
+        lastSelectedBackendIndex = (lastSelectedBackendIndex + number) % candidatesSize;
+        return selectBackendIds;
+    }
+
+    public List<Long> selectBackendIdsRoundRobin(int realIndex,  List<Backend> candidates, int number) {
         List<Long> partialOrderList = new ArrayList<Long>();
         partialOrderList.addAll(candidates.subList(realIndex, candidates.size())
                 .stream().map(b -> b.getId()).collect(Collectors.toList()));

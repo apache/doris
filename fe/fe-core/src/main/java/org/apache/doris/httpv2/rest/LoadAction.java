@@ -324,7 +324,7 @@ public class LoadAction extends RestBaseController {
         policy = new BeSelectionPolicy.Builder()
                 .addTags(userTags)
                 .needLoadAvailable().build();
-        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsRoundRobinByPolicy(policy, 1);
         if (backendIds.isEmpty()) {
             throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
         }
