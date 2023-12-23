@@ -2762,8 +2762,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         Map<Tag, Integer> nextIndexs = new HashMap<>();
         if (Config.enable_round_robin_create_tablet) {
             for (Tag tag : replicaAlloc.getAllocMap().keySet()) {
-                int startPos = systemInfoService.getStartPosOfRoundRobin(tag, storageMedium,
-                        isStorageMediumSpecified);
+                int startPos = -1;
+                if (Config.create_tablet_round_robin_from_start) {
+                    startPos = 0;
+                } else {
+                    startPos = systemInfoService.getStartPosOfRoundRobin(tag, storageMedium,
+                            isStorageMediumSpecified);
+                }
                 nextIndexs.put(tag, startPos);
             }
         }
