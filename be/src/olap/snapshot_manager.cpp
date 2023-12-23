@@ -235,6 +235,10 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
 
     RETURN_IF_ERROR_RESULT(TabletMeta::save(cloned_meta_file, new_tablet_meta_pb));
 
+    // release cached schema_pb
+    cloned_tablet_meta.release_cached_schema_pb(&cloned_tablet_meta_pb);
+    cloned_tablet_meta.release_cached_schema_pb(&new_tablet_meta_pb);
+
     return guards;
 }
 

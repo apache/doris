@@ -37,6 +37,7 @@
 #include "olap/olap_define.h"
 #include "olap/tablet_meta_manager.h"
 #include "olap/utils.h"
+#include "schema_cache.h"
 #include "util/string_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -411,7 +412,9 @@ Status TabletMeta::save_as_json(const string& file_path, DataDir* dir) {
 Status TabletMeta::save(const string& file_path) {
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
-    return TabletMeta::save(file_path, tablet_meta_pb);
+    auto status = TabletMeta::save(file_path, tablet_meta_pb);
+    release_cached_schema_pb(&tablet_meta_pb);
+    return status;
 }
 
 Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta_pb) {
@@ -467,6 +470,8 @@ Status TabletMeta::serialize(string* meta_binary) {
     if (!serialize_success) {
         LOG(FATAL) << "failed to serialize meta " << tablet_id();
     }
+    // release cached schema_pb
+    release_cached_schema_pb(&tablet_meta_pb);
     return Status::OK();
 }
 
@@ -633,7 +638,30 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     for (auto rs : _stale_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
     }
-    _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
+
+    std::string schema_pb_key;
+    std::shared_ptr<TabletSchemaPB> cached_schema_pb;
+    // we cannot use schema_pb cache in variant schema or schema_version not set
+    if (_schema->num_variant_columns() == 0 && _schema->schema_version() > 0) {
+        schema_pb_key = SchemaCache::get_schema_key(tablet_id(), _schema->columns(),
+                                                    _schema->schema_version(),
+                                                    SchemaCache::Type::SCHEMA_PB);
+        cached_schema_pb =
+                SchemaCache::instance()->get_schema<std::shared_ptr<TabletSchemaPB>>(schema_pb_key);
+    }
+    if (cached_schema_pb) {
+        tablet_meta_pb->set_allocated_schema(cached_schema_pb.get());
+    } else {
+        auto* tablet_schema_pb = tablet_meta_pb->mutable_schema();
+        _schema->to_schema_pb(tablet_schema_pb);
+        // can cache, cache it.
+        if (!schema_pb_key.empty()) {
+            std::shared_ptr<TabletSchemaPB> tablet_schema_pb_ptr =
+                    std::make_shared<TabletSchemaPB>();
+            tablet_schema_pb_ptr->CopyFrom(*tablet_schema_pb);
+            SchemaCache::instance()->insert_schema(schema_pb_key, tablet_schema_pb_ptr);
+        }
+    }
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 
@@ -679,6 +707,39 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_time_threshold_seconds());
 }
 
+void TabletMeta::release_cached_schema_pb(TabletMetaPB* tablet_meta_pb) {
+    if (_schema->num_variant_columns() > 0 || _schema->schema_version() == -1) {
+        // variant schema or not set schema_version, ignore
+        return;
+    }
+    // release cached schema_pb
+    std::string schema_pb_key =
+            SchemaCache::get_schema_key(tablet_id(), _schema->columns(), _schema->schema_version(),
+                                        SchemaCache::Type::SCHEMA_PB);
+    auto cached_schema_pb =
+            SchemaCache::instance()->get_schema<std::shared_ptr<TabletSchemaPB>>(schema_pb_key);
+    if (cached_schema_pb.get() == tablet_meta_pb->mutable_schema()) {
+        auto* p = tablet_meta_pb->release_schema();
+        VLOG_DEBUG << "tablet_schema_pb released tablet schema address: " << p;
+    }
+    VLOG_DEBUG << "rs_metas size: " << tablet_meta_pb->rs_metas_size();
+    for (int i = 0; i < tablet_meta_pb->rs_metas_size(); ++i) {
+        auto* rs = tablet_meta_pb->mutable_rs_metas(i);
+        if (cached_schema_pb.get() == rs->mutable_tablet_schema()) {
+            auto* p = rs->release_tablet_schema();
+            VLOG_DEBUG << "rs_meta released tablet schema address: " << p;
+        }
+    }
+    VLOG_DEBUG << "stale_rs_metas size: " << tablet_meta_pb->stale_rs_metas_size();
+    for (int i = 0; i < tablet_meta_pb->stale_rs_metas_size(); ++i) {
+        auto* rs = tablet_meta_pb->mutable_stale_rs_metas(i);
+        if (cached_schema_pb.get() == rs->mutable_tablet_schema()) {
+            auto* p = rs->release_tablet_schema();
+            VLOG_DEBUG << "stale rs meta released tablet schema address: " << p;
+        }
+    }
+}
+
 int64_t TabletMeta::mem_size() const {
     auto size = sizeof(TabletMeta);
     size += _schema->mem_size();
@@ -689,6 +750,7 @@ void TabletMeta::to_json(string* json_string, json2pb::Pb2JsonOptions& options) 
     TabletMetaPB tablet_meta_pb;
     to_meta_pb(&tablet_meta_pb);
     json2pb::ProtoMessageToJson(tablet_meta_pb, json_string, options);
+    release_cached_schema_pb(&tablet_meta_pb);
 }
 
 Version TabletMeta::max_version() const {

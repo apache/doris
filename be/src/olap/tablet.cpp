@@ -1752,6 +1752,7 @@ void Tablet::generate_tablet_meta_copy_unlocked(TabletMetaSharedPtr new_tablet_m
     TabletMetaPB tablet_meta_pb;
     _tablet_meta->to_meta_pb(&tablet_meta_pb);
     new_tablet_meta->init_from_pb(tablet_meta_pb);
+    _tablet_meta->release_cached_schema_pb(&tablet_meta_pb);
 }
 
 Status Tablet::prepare_compaction_and_calculate_permits(CompactionType compaction_type,
