@@ -63,6 +63,7 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         return 0;
     }
 
+    // If there is a continuous set of empty rowsets, prioritize merging.
     auto consecutive_empty_rowsets = tablet->pick_first_consecutive_empty_rowsets(
             tablet->tablet_meta()->time_series_compaction_empty_rowsets_threshold());
     if (!consecutive_empty_rowsets.empty()) {
@@ -91,7 +92,6 @@ uint32_t TimeSeriesCumulativeCompactionPolicy::calc_cumulative_compaction_score(
             (tablet->tablet_meta()->time_series_compaction_time_threshold_seconds() * 1000)) {
             return score;
         }
-
     } else if (score > 0) {
         // If the compaction process has not been successfully executed,
         // the condition for triggering compaction based on the last successful compaction time (condition 3) will never be met
@@ -156,6 +156,7 @@ void TimeSeriesCumulativeCompactionPolicy::calculate_cumulative_point(
             break;
         }
 
+        // check if the rowset has been compacted, but it is a empty rowset
         if (!is_delete && rs->version().first != 0 && rs->version().first != rs->version().second &&
             rs->num_segments() == 0) {
             *ret_cumulative_point = rs->version().first;
@@ -240,7 +241,6 @@ int TimeSeriesCumulativeCompactionPolicy::pick_input_rowsets(
                 total_size = 0;
                 continue;
             }
-
             return transient_size;
         }
     }
@@ -284,6 +284,7 @@ void TimeSeriesCumulativeCompactionPolicy::update_cumulative_point(
         RowsetSharedPtr output_rowset, Version& last_delete_version) {
     if (tablet->tablet_state() != TABLET_RUNNING || output_rowset->num_segments() == 0) {
         // if tablet under alter process, do not update cumulative point
+        // if the merged output rowset is empty, do not update cumulative point
         return;
     }
 
