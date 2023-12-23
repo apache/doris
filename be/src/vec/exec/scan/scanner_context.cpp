@@ -173,7 +173,7 @@ Status ScannerContext::init() {
     auto block = get_free_block();
     _estimated_block_bytes = std::max(block->allocated_bytes(), (size_t)16);
     int min_blocks = (config::min_bytes_in_scanner_queue + _estimated_block_bytes - 1) /
-                      _estimated_block_bytes;
+                     _estimated_block_bytes;
     _free_blocks_capacity = std::max(_free_blocks_capacity, min_blocks);
     return_free_block(std::move(block));
 
@@ -238,7 +238,6 @@ void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block)
 }
 
 void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) {
-
     int64_t old_bytes_in_queue = 0;
 
     for (auto& b : blocks) {
