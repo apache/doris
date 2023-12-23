@@ -1871,6 +1871,8 @@ public class StmtExecutor {
 
     // Process an insert statement.
     private void handleInsertStmt() throws Exception {
+        // insert into setting to disable page cache
+        context.getSessionVariable().enablePageCache = false;
         if (context.getConnectType() == ConnectType.MYSQL) {
             // Every time set no send flag and clean all data in buffer
             context.getMysqlChannel().reset();
