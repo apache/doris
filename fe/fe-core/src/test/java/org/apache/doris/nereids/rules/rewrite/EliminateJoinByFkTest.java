@@ -107,7 +107,8 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
 
     @Test
     void testMultiJoin() throws Exception {
-        addConstraint("Alter table foreign_null add constraint uk unique (id3)\n");
+        addConstraint("Alter table foreign_null add constraint uk_id3 unique (id3)\n");
+        addConstraint("Alter table foreign_not_null add constraint uk_id2 unique (id2)\n");
         String sql = "select id1 from "
                 + "foreign_null inner join foreign_not_null on id2 = id3\n"
                 + "inner join pri on id1 = id3";
@@ -116,6 +117,7 @@ class EliminateJoinByFkTest extends TestWithFeService implements MemoPatternMatc
                 .rewrite()
                 .nonMatch(logicalOlapScan().when(scan -> scan.getTable().getName().equals("pri")))
                 .printlnTree();
-        dropConstraint("Alter table foreign_null drop constraint uk\n");
+        dropConstraint("Alter table foreign_null drop constraint uk_id3\n");
+        dropConstraint("Alter table foreign_not_null drop constraint uk_id2");
     }
 }
