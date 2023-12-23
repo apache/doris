@@ -86,7 +86,7 @@ suite("test_build_mtmv") {
 
     def showCreateTableResult = sql """show create table ${mvName}"""
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
-    assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 10\nPROPERTIES"))
+    assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 2\nPROPERTIES"))
 
     // if not exist
     try {
