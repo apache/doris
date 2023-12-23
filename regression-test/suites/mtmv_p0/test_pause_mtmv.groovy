@@ -47,11 +47,11 @@ suite("test_pause_mtmv") {
     def jobName = getJobName("regression_test_mtmv_p0", mvName);
     order_qt_status_init "select Status  from jobs('type'='mv') where Name='${jobName}'"
      sql """
-        PAUSE MATERIALIZED VIEW ${mvName}
+        PAUSE MATERIALIZED VIEW JOB ON ${mvName}
     """
     order_qt_status_pause "select Status  from jobs('type'='mv') where Name='${jobName}'"
      sql """
-        RESUME MATERIALIZED VIEW ${mvName}
+        RESUME MATERIALIZED VIEW JOB ON ${mvName}
     """
     order_qt_status_resume "select Status  from jobs('type'='mv') where Name='${jobName}'"
     sql """
