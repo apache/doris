@@ -20,6 +20,7 @@ package org.apache.doris.datasource;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.EsExternalDatabase;
@@ -36,6 +37,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -254,6 +256,8 @@ public abstract class ExternalCatalog
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(logType);
         List<String> allDatabases = listDatabaseNames();
+        allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
+        allDatabases.add(InfoSchemaDb.DATABASE_NAME);
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
         Map<String, Boolean> excludeDatabaseMap = getExcludeDatabaseMap();
         for (String dbName : allDatabases) {
@@ -280,6 +284,7 @@ public abstract class ExternalCatalog
                 initCatalogLog.addCreateDb(dbId, dbName);
             }
         }
+
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
         lastUpdateTime = System.currentTimeMillis();
@@ -479,6 +484,9 @@ public abstract class ExternalCatalog
 
     protected ExternalDatabase<? extends ExternalTable> getDbForInit(String dbName, long dbId,
                                                                      InitCatalogLog.Type logType) {
+        if (dbName.equals(InfoSchemaDb.DATABASE_NAME)) {
+            return new ExternalInfoSchemaDatabase(this, dbId);
+        }
         switch (logType) {
             case HMS:
                 return new HMSExternalDatabase(this, dbId, dbName);
