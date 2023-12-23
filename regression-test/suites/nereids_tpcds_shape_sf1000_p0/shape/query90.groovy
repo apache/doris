@@ -24,13 +24,31 @@ suite("query90") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
     sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set dump_nereids_memo=true'
+    def ds = """select  cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
+ from ( select count(*) amc
+       from web_sales, household_demographics , time_dim, web_page
+       where ws_sold_time_sk = time_dim.t_time_sk
+         and ws_ship_hdemo_sk = household_demographics.hd_demo_sk
+         and ws_web_page_sk = web_page.wp_web_page_sk
+         and time_dim.t_hour between 12 and 12+1
+         and household_demographics.hd_dep_count = 6
+         and web_page.wp_char_count between 5000 and 5200) at,
+      ( select count(*) pmc
+       from web_sales, household_demographics , time_dim, web_page
+       where ws_sold_time_sk = time_dim.t_time_sk
+         and ws_ship_hdemo_sk = household_demographics.hd_demo_sk
+         and ws_web_page_sk = web_page.wp_web_page_sk
+         and time_dim.t_hour between 14 and 14+1
+         and household_demographics.hd_dep_count = 6
+         and web_page.wp_char_count between 5000 and 5200) pt
+ order by am_pm_ratio
+ limit 100"""
     qt_ds_shape_90 '''
     explain shape plan
     select  cast(amc as decimal(15,4))/cast(pmc as decimal(15,4)) am_pm_ratio
@@ -51,7 +69,6 @@ sql 'set enable_runtime_filter_prune=false'
          and household_demographics.hd_dep_count = 6
          and web_page.wp_char_count between 5000 and 5200) pt
  order by am_pm_ratio
- limit 100;
-
+ limit 100
     '''
 }

@@ -407,45 +407,26 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
     }
 }
 
+void PInternalServiceImpl::tablet_writer_add_block_by_http(
+        google::protobuf::RpcController* controller, const ::doris::PEmptyRequest* request,
+        PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
+    PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
+    google::protobuf::Closure* new_done =
+            new NewHttpClosure<PTabletWriterAddBlockRequest>(new_request, done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+    Status st = attachment_extract_request_contain_block<PTabletWriterAddBlockRequest>(new_request,
+                                                                                       cntl);
+    if (st.ok()) {
+        tablet_writer_add_block(controller, new_request, response, new_done);
+    } else {
+        st.to_protobuf(response->mutable_status());
+    }
+}
+
 void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcController* controller,
                                                    const PTabletWriterAddBlockRequest* request,
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        _tablet_writer_add_block(controller, request, response, done);
-    });
-    if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
-        return;
-    }
-}
-
-void PInternalServiceImpl::tablet_writer_add_block_by_http(
-        google::protobuf::RpcController* controller, const ::doris::PEmptyRequest* request,
-        PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, response, done]() {
-        PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
-        google::protobuf::Closure* new_done =
-                new NewHttpClosure<PTabletWriterAddBlockRequest>(new_request, done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        Status st = attachment_extract_request_contain_block<PTabletWriterAddBlockRequest>(
-                new_request, cntl);
-        if (st.ok()) {
-            _tablet_writer_add_block(controller, new_request, response, new_done);
-        } else {
-            st.to_protobuf(response->mutable_status());
-        }
-    });
-    if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
-        return;
-    }
-}
-
-void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcController* controller,
-                                                    const PTabletWriterAddBlockRequest* request,
-                                                    PTabletWriterAddBlockResult* response,
-                                                    google::protobuf::Closure* done) {
     int64_t submit_task_time_ns = MonotonicNanos();
     bool ret = _heavy_work_pool.try_offer([request, response, done, submit_task_time_ns, this]() {
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;

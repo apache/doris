@@ -100,7 +100,7 @@ bool ExchangeSinkLocalState::transfer_large_data_by_brpc() const {
 }
 
 Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _sender_id = info.sender_id;
@@ -174,22 +174,20 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
             id, p._dest_node_id, _sender_id, _state->be_number(), state->get_query_ctx());
 
     register_channels(_sink_buffer.get());
-
-    _exchange_sink_dependency = AndDependency::create_shared(
-            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+    auto* _exchange_sink_dependency = _dependency;
     _queue_dependency = ExchangeSinkQueueDependency::create_shared(
             _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
     _sink_buffer->set_dependency(_queue_dependency, _finish_dependency);
     _exchange_sink_dependency->add_child(_queue_dependency);
     if ((p._part_type == TPartitionType::UNPARTITIONED || channels.size() == 1) &&
         !only_local_exchange) {
-        _broadcast_dependency = BroadcastDependency::create_shared(
-                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
-        _broadcast_dependency->set_available_block(config::num_broadcast_buffer);
-        _broadcast_pb_blocks.reserve(config::num_broadcast_buffer);
-        for (size_t i = 0; i < config::num_broadcast_buffer; i++) {
-            _broadcast_pb_blocks.emplace_back(
-                    vectorized::BroadcastPBlockHolder(_broadcast_dependency.get()));
+        _broadcast_dependency =
+                Dependency::create_shared(_parent->operator_id(), _parent->node_id(),
+                                          "BroadcastDependency", true, state->get_query_ctx());
+        _broadcast_pb_blocks =
+                vectorized::BroadcastPBlockHolderQueue::create_shared(_broadcast_dependency);
+        for (int i = 0; i < config::num_broadcast_buffer; ++i) {
+            _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
         }
         _exchange_sink_dependency->add_child(_broadcast_dependency);
 
@@ -237,7 +235,7 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
 }
 
 Status ExchangeSinkLocalState::open(RuntimeState* state) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
     if (p._part_type == TPartitionType::HASH_PARTITIONED ||
         p._part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED) {
@@ -254,7 +252,7 @@ std::string ExchangeSinkLocalState::name_suffix() {
     return name;
 }
 
-segment_v2::CompressionTypePB& ExchangeSinkLocalState::compression_type() {
+segment_v2::CompressionTypePB ExchangeSinkLocalState::compression_type() const {
     return _parent->cast<ExchangeSinkOperatorX>()._compression_type;
 }
 
@@ -340,7 +338,7 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                 }
             }
         } else {
-            vectorized::BroadcastPBlockHolder* block_holder = nullptr;
+            std::shared_ptr<vectorized::BroadcastPBlockHolder> block_holder = nullptr;
             RETURN_IF_ERROR(local_state.get_next_available_buffer(&block_holder));
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -357,13 +355,10 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                     } else {
                         block_holder->get_block()->Clear();
                     }
-                    local_state._broadcast_dependency->take_available_block();
-                    block_holder->ref(local_state.channels.size());
                     for (auto channel : local_state.channels) {
                         if (!channel->is_receiver_eof()) {
                             Status status;
                             if (channel->is_local()) {
-                                block_holder->unref();
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -371,8 +366,6 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block
                                         block_holder, source_state == SourceState::FINISHED);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
-                        } else {
-                            block_holder->unref();
                         }
                     }
                     cur_block.clear_column_data();
@@ -456,21 +449,16 @@ void ExchangeSinkLocalState::register_channels(
 }
 
 Status ExchangeSinkLocalState::get_next_available_buffer(
-        vectorized::BroadcastPBlockHolder** holder) {
+        std::shared_ptr<vectorized::BroadcastPBlockHolder>* holder) {
     // This condition means we need use broadcast buffer, so we should make sure
     // there are available buffer before running pipeline
-    for (size_t broadcast_pb_block_idx = 0; broadcast_pb_block_idx < _broadcast_pb_blocks.size();
-         broadcast_pb_block_idx++) {
-        if (_broadcast_pb_blocks[broadcast_pb_block_idx].available()) {
-            *holder = &_broadcast_pb_blocks[broadcast_pb_block_idx];
-            return Status::OK();
-        }
+    if (_broadcast_pb_blocks->empty()) {
+        return Status::InternalError("No broadcast buffer left! Dependency: {}",
+                                     _broadcast_dependency->debug_string());
+    } else {
+        *holder = _broadcast_pb_blocks->pop();
+        return Status::OK();
     }
-    return Status::InternalError("No broadcast buffer left! Available blocks: " +
-                                 std::to_string(_broadcast_dependency->available_blocks()) +
-                                 " and number of buffer is " +
-                                 std::to_string(_broadcast_pb_blocks.size()) +
-                                 " Dependency: " + _broadcast_dependency->debug_string());
 }
 
 template <typename Channels, typename HashValueType>
@@ -522,8 +510,7 @@ Status ExchangeSinkOperatorX::try_close(RuntimeState* state, Status exec_status)
 
 std::string ExchangeSinkLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXSinkLocalState<>::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     fmt::format_to(debug_string_buffer, ", Sink Buffer: (_should_stop = {}, _busy_channels = {})",
                    _sink_buffer->_should_stop.load(), _sink_buffer->_busy_channels.load());
     return fmt::to_string(debug_string_buffer);
@@ -536,6 +523,7 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_close_timer);
     COUNTER_UPDATE(_wait_queue_timer, _queue_dependency->watcher_elapse_time());
+    COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     if (_broadcast_dependency) {
         COUNTER_UPDATE(_wait_broadcast_buffer_timer, _broadcast_dependency->watcher_elapse_time());
     }
@@ -545,7 +533,7 @@ Status ExchangeSinkLocalState::close(RuntimeState* state, Status exec_status) {
     }
     _sink_buffer->update_profile(profile());
     _sink_buffer->close();
-    return PipelineXSinkLocalState<>::close(state, exec_status);
+    return Base::close(state, exec_status);
 }
 
 } // namespace doris::pipeline

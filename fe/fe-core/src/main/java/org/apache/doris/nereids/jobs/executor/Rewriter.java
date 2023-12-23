@@ -55,6 +55,7 @@ import org.apache.doris.nereids.rules.rewrite.EliminateAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateEmptyRelation;
 import org.apache.doris.nereids.rules.rewrite.EliminateFilter;
+import org.apache.doris.nereids.rules.rewrite.EliminateJoinByFK;
 import org.apache.doris.nereids.rules.rewrite.EliminateJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.EliminateNotNull;
@@ -86,6 +87,7 @@ import org.apache.doris.nereids.rules.rewrite.PruneFileScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanPartition;
 import org.apache.doris.nereids.rules.rewrite.PruneOlapScanTablet;
 import org.apache.doris.nereids.rules.rewrite.PullUpCteAnchor;
+import org.apache.doris.nereids.rules.rewrite.PullUpJoinFromUnionAll;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderApply;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderLimit;
 import org.apache.doris.nereids.rules.rewrite.PullUpProjectUnderTopN;
@@ -285,6 +287,23 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.PUSH_DOWN_DISTINCT_THROUGH_JOIN, PushDownDistinctThroughJoin::new)
             ),
 
+            // this rule should invoke after infer predicate and push down distinct, and before push down limit
+            custom(RuleType.ELIMINATE_JOIN_BY_FOREIGN_KEY, EliminateJoinByFK::new),
+            // this rule should be after topic "Column pruning and infer predicate"
+            topic("Join pull up",
+                    topDown(
+                        new EliminateFilter(),
+                        new PushDownFilterThroughProject(),
+                        new MergeProjects()
+                    ),
+                    topDown(
+                        new PullUpJoinFromUnionAll()
+                    ),
+                    custom(RuleType.COLUMN_PRUNING, ColumnPruning::new),
+                    bottomUp(RuleSet.PUSH_DOWN_FILTERS),
+                    custom(RuleType.ELIMINATE_UNNECESSARY_PROJECT, EliminateUnnecessaryProject::new)
+            ),
+
             topic("Limit optimization",
                     // TODO: the logical plan should not contains any phase information,
                     //       we should refactor like AggregateStrategies, e.g. LimitStrategies,
@@ -337,6 +356,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                     custom(RuleType.ELIMINATE_SORT, EliminateSort::new),
                     bottomUp(new EliminateEmptyRelation())
             ),
+
             // this rule batch must keep at the end of rewrite to do some plan check
             topic("Final rewrite and check",
                     custom(RuleType.CHECK_DATA_TYPES, CheckDataTypes::new),

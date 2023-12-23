@@ -127,6 +127,7 @@ import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.Forward;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.NotAllowFallback;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.planner.GroupCommitPlanner;
@@ -395,6 +396,20 @@ public class StmtExecutor {
         return masterOpExecutor.getProxyStatus();
     }
 
+    public int getProxyStatusCode() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.ordinal();
+        }
+        return masterOpExecutor.getProxyStatusCode();
+    }
+
+    public String getProxyErrMsg() {
+        if (masterOpExecutor == null) {
+            return MysqlStateType.UNKNOWN.name();
+        }
+        return masterOpExecutor.getProxyErrMsg();
+    }
+
     public boolean isSyncLoadKindStmt() {
         if (parsedStmt == null) {
             return false;
@@ -402,10 +417,12 @@ public class StmtExecutor {
         if (parsedStmt instanceof LogicalPlanAdapter) {
             LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
             return logicalPlan instanceof InsertIntoTableCommand
+                    || logicalPlan instanceof InsertOverwriteTableCommand
                     || (logicalPlan instanceof CreateTableCommand
                     && ((CreateTableCommand) logicalPlan).isCtasCommand());
         }
-        return parsedStmt instanceof InsertStmt || parsedStmt instanceof CreateTableAsSelectStmt;
+        return parsedStmt instanceof InsertStmt || parsedStmt instanceof InsertOverwriteTableStmt
+                || parsedStmt instanceof CreateTableAsSelectStmt;
     }
 
     public boolean isAnalyzeStmt() {
@@ -1130,7 +1147,9 @@ public class StmtExecutor {
             if (context.getSessionVariable().isEnableFoldConstantByBe()) {
                 // fold constant expr
                 parsedStmt.foldConstant(rewriter, tQueryOptions);
-
+            }
+            if (context.getSessionVariable().isEnableRewriteElementAtToSlot()) {
+                parsedStmt.rewriteElementAtToSlot(rewriter, tQueryOptions);
             }
             // Apply expr and subquery rewrites.
             ExplainOptions explainOptions = parsedStmt.getExplainOptions();
@@ -2519,7 +2538,7 @@ public class StmtExecutor {
         // after success create table insert data
         try {
             parsedStmt = new NativeInsertStmt(tmpTableName, null, new LabelName(iotStmt.getDb(), iotStmt.getLabel()),
-                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols());
+                    iotStmt.getQueryStmt(), iotStmt.getHints(), iotStmt.getCols(), true);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
@@ -2592,7 +2611,7 @@ public class StmtExecutor {
         try {
             parsedStmt = new NativeInsertStmt(targetTableName, new PartitionNames(true, tempPartitionName),
                     new LabelName(iotStmt.getDb(), iotStmt.getLabel()), iotStmt.getQueryStmt(),
-                    iotStmt.getHints(), iotStmt.getCols());
+                    iotStmt.getHints(), iotStmt.getCols(), false);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
@@ -2759,6 +2778,9 @@ public class StmtExecutor {
             }
             AuditLogHelper.logAuditLog(context, originStmt.toString(), parsedStmt, getQueryStatisticsForAuditLog(),
                     true);
+            if (Config.enable_collect_internal_query_profile) {
+                updateProfile(true);
+            }
             QeProcessorImpl.INSTANCE.unregisterQuery(context.queryId());
         }
     }

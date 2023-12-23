@@ -866,7 +866,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     *uncompressed_bytes = content_uncompressed_size;
 
     // compress
-    if (config::compress_rowbatches && content_uncompressed_size > 0) {
+    if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {
         SCOPED_RAW_TIMER(&_compress_time_ns);
         pblock->set_compression_type(compression_type);
         pblock->set_uncompressed_size(content_uncompressed_size);
@@ -1109,7 +1109,9 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
 size_t MutableBlock::allocated_bytes() const {
     size_t res = 0;
     for (const auto& col : _columns) {
-        res += col->allocated_bytes();
+        if (col) {
+            res += col->allocated_bytes();
+        }
     }
 
     return res;

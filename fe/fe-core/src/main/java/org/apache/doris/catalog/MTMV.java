@@ -128,10 +128,6 @@ public class MTMV extends OlapTable {
         return relation;
     }
 
-    public MTMVCache getCache() {
-        return cache;
-    }
-
     public void setCache(MTMVCache cache) {
         this.cache = cache;
     }
@@ -157,11 +153,13 @@ public class MTMV extends OlapTable {
                 this.status.setSchemaChangeDetail(null);
                 this.status.setRefreshState(MTMVRefreshState.SUCCESS);
                 this.relation = relation;
-                try {
-                    this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
-                } catch (Throwable e) {
-                    this.cache = null;
-                    LOG.warn("generate cache failed", e);
+                if (!Env.isCheckpointThread()) {
+                    try {
+                        this.cache = MTMVCache.from(this, MTMVPlanUtil.createMTMVContext(this));
+                    } catch (Throwable e) {
+                        this.cache = null;
+                        LOG.warn("generate cache failed", e);
+                    }
                 }
             } else {
                 this.status.setRefreshState(MTMVRefreshState.FAIL);

@@ -1174,7 +1174,7 @@ public class PropertyAnalyzer {
             try {
                 groupCommitIntervalMs = Integer.parseInt(groupIntervalCommitMsStr);
             } catch (Exception e) {
-                throw new AnalysisException("schema version format error");
+                throw new AnalysisException("parse group_commit_interval_ms format error");
             }
 
             properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -42,6 +43,7 @@ import org.apache.commons.lang3.StringUtils;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -122,8 +124,9 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
         Builder fdBuilder = new Builder();
+        Set<Slot> output = ImmutableSet.copyOf(outputSupplier.get());
         if (table instanceof OlapTable && ((OlapTable) table).getKeysType().isAggregationFamily()) {
-            ImmutableSet<Slot> slotSet = computeOutput().stream()
+            ImmutableSet<Slot> slotSet = output.stream()
                     .filter(SlotReference.class::isInstance)
                     .map(SlotReference.class::cast)
                     .filter(s -> s.getColumn().isPresent()
@@ -131,6 +134,26 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
                     .collect(ImmutableSet.toImmutableSet());
             fdBuilder.addUniqueSlot(slotSet);
         }
+        table.getPrimaryKeyConstraints().forEach(c -> {
+            Set<Column> columns = c.getPrimaryKeys(this.getTable());
+            ImmutableSet<Slot> slotSet = output.stream()
+                    .filter(SlotReference.class::isInstance)
+                    .map(SlotReference.class::cast)
+                    .filter(s -> s.getColumn().isPresent()
+                            && columns.contains(s.getColumn().get()))
+                    .collect(ImmutableSet.toImmutableSet());
+            fdBuilder.addUniqueSlot(slotSet);
+        });
+        table.getUniqueConstraints().forEach(c -> {
+            Set<Column> columns = c.getUniqueKeys(this.getTable());
+            ImmutableSet<Slot> slotSet = output.stream()
+                    .filter(SlotReference.class::isInstance)
+                    .map(SlotReference.class::cast)
+                    .filter(s -> s.getColumn().isPresent()
+                            && columns.contains(s.getColumn().get()))
+                    .collect(ImmutableSet.toImmutableSet());
+            fdBuilder.addUniqueSlot(slotSet);
+        });
         return fdBuilder.build();
     }
 }

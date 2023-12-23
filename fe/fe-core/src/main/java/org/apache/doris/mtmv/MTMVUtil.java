@@ -31,6 +31,7 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVRefreshState;
 import org.apache.doris.mtmv.MTMVRefreshEnum.MTMVState;
@@ -253,7 +254,11 @@ public class MTMVUtil {
         List<Partition> res = Lists.newArrayList();
         Collection<Partition> allPartitions = mtmv.getPartitions();
         // check session variable if enable rewrite
-        if (!ctx.getSessionVariable().isEnableMvRewrite()) {
+        if (!ctx.getSessionVariable().isEnableMaterializedViewRewrite()) {
+            return res;
+        }
+        if (mtmvContainsExternalTable(mtmv) && !ctx.getSessionVariable()
+                .isMaterializedViewRewriteEnableContainForeignTable()) {
             return res;
         }
         MTMVRelation mtmvRelation = mtmv.getRelation();
@@ -438,7 +443,7 @@ public class MTMVUtil {
      * @param relatedTable
      * @return mv.partitionId ==> relatedTable.partitionId
      */
-    private static Map<Long, Set<Long>> getMvToBasePartitions(MTMV mtmv, OlapTable relatedTable)
+    public static Map<Long, Set<Long>> getMvToBasePartitions(MTMV mtmv, OlapTable relatedTable)
             throws AnalysisException {
         HashMap<Long, Set<Long>> res = Maps.newHashMap();
         Map<Long, PartitionItem> relatedTableItems = relatedTable.getPartitionInfo().getIdToItem(false);
@@ -485,5 +490,15 @@ public class MTMVUtil {
             }
         }
         return true;
+    }
+
+    private static boolean mtmvContainsExternalTable(MTMV mtmv) {
+        Set<BaseTableInfo> baseTables = mtmv.getRelation().getBaseTables();
+        for (BaseTableInfo baseTableInfo : baseTables) {
+            if (baseTableInfo.getCtlId() != InternalCatalog.INTERNAL_CATALOG_ID) {
+                return true;
+            }
+        }
+        return false;
     }
 }

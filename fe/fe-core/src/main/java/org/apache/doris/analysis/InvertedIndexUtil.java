@@ -45,6 +45,8 @@ public class InvertedIndexUtil {
 
     public static String INVERTED_INDEX_PARSER_IGNORE_ABOVE = "ignore_above";
 
+    public static String INVERTED_INDEX_PARSER_LOWERCASE = "lower_case";
+
     public static String getInvertedIndexParser(Map<String, String> properties) {
         String parser = properties == null ? null : properties.get(INVERTED_INDEX_PARSER_KEY);
         // default is "none" if not set
@@ -111,6 +113,13 @@ public class InvertedIndexUtil {
                     throw new AnalysisException("invalid index properties, ignore_above must be integer");
                 }
             }
+            String lowerCase = properties.get(INVERTED_INDEX_PARSER_LOWERCASE);
+            if (lowerCase != null) {
+                if (!"true".equals(lowerCase) && !"false".equals(lowerCase)) {
+                    throw new AnalysisException("invalid index properties, lowercase must be true or false");
+                }
+            }
+
         }
 
         // default is "none" if not set

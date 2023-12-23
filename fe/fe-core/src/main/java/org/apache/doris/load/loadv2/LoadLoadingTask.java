@@ -72,18 +72,20 @@ public class LoadLoadingTask extends LoadTask {
     private final boolean singleTabletLoadPerSink;
     private final boolean useNewLoadScanNode;
 
+    private final boolean enableMemTableOnSinkNode;
+
     private LoadingTaskPlanner planner;
 
     private Profile jobProfile;
     private long beginTime;
 
     public LoadLoadingTask(Database db, OlapTable table,
-                           BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
-                           long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
-                           long txnId, LoadTaskCallback callback, String timezone,
-                           long timeoutS, int loadParallelism, int sendBatchParallelism,
-                           boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
-                           boolean useNewLoadScanNode, Priority priority) {
+            BrokerDesc brokerDesc, List<BrokerFileGroup> fileGroups,
+            long jobDeadlineMs, long execMemLimit, boolean strictMode, boolean isPartialUpdate,
+            long txnId, LoadTaskCallback callback, String timezone,
+            long timeoutS, int loadParallelism, int sendBatchParallelism,
+            boolean loadZeroTolerance, Profile jobProfile, boolean singleTabletLoadPerSink,
+            boolean useNewLoadScanNode, Priority priority, boolean enableMemTableOnSinkNode) {
         super(callback, TaskType.LOADING, priority);
         this.db = db;
         this.table = table;
@@ -104,6 +106,7 @@ public class LoadLoadingTask extends LoadTask {
         this.jobProfile = jobProfile;
         this.singleTabletLoadPerSink = singleTabletLoadPerSink;
         this.useNewLoadScanNode = useNewLoadScanNode;
+        this.enableMemTableOnSinkNode = enableMemTableOnSinkNode;
     }
 
     public void init(TUniqueId loadId, List<List<TBrokerFileStatus>> fileStatusList,

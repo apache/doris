@@ -24,20 +24,13 @@ suite("query65") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    sql 'set enable_runtime_filter_prune=true'
 
-    qt_ds_shape_65 '''
-    explain shape plan
-
-
-
-
-select 
+    def ds = """select 
 	s_store_name,
 	i_item_desc,
 	sc.revenue,
@@ -62,7 +55,9 @@ select
        s_store_sk = sc.ss_store_sk and
        i_item_sk = sc.ss_item_sk
  order by s_store_name, i_item_desc
-limit 100;
-
-    '''
+limit 100"""
+    qt_ds_shape_65 """
+    explain shape plan
+    ${ds}
+    """
 }
