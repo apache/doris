@@ -221,6 +221,17 @@ public class MTMVTask extends AbstractTask {
     }
 
     @Override
+    public void runTask() throws JobException {
+        MTMVJob job = (MTMVJob) getJobOrJobException();
+        try {
+            job.writeLock();
+            super.runTask();
+        } finally {
+            job.writeUnlock();
+        }
+    }
+
+    @Override
     public TRow getTvfInfo() {
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
@@ -276,8 +287,10 @@ public class MTMVTask extends AbstractTask {
     }
 
     private void after() {
-        Env.getCurrentEnv()
-                .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation);
+        if (mtmv != null) {
+            Env.getCurrentEnv()
+                    .addMTMVTaskResult(new TableNameInfo(mtmv.getQualifiedDbName(), mtmv.getName()), this, relation);
+        }
         mtmv = null;
         relation = null;
         executor = null;

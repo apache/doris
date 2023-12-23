@@ -519,6 +519,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                             }
                         }
                     }
+                    for (Table table : tableList) {
+                        if (table.getType() == TableType.MATERIALIZED_VIEW) {
+                            Env.getCurrentEnv().getMtmvService().dropMTMV((MTMV) table);
+                        }
+                    }
                     unprotectDropDb(db, stmt.isForceDrop(), false, 0);
                 } finally {
                     MetaLockUtils.writeUnlockTables(tableList);
