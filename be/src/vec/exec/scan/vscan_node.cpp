@@ -335,7 +335,7 @@ Status VScanNode::close(RuntimeState* state) {
     if (is_closed()) {
         return Status::OK();
     }
-    _scanners.clear();
+
     RETURN_IF_ERROR(ExecNode::close(state));
     return Status::OK();
 }
@@ -348,7 +348,7 @@ void VScanNode::release_resource(RuntimeState* state) {
             _scanner_ctx->stop_scanners(state);
         }
     }
-
+    _scanners.clear();
     ExecNode::release_resource(state);
 }
 
