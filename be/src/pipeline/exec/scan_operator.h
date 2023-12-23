@@ -434,7 +434,7 @@ public:
 
     TPushAggOp::type get_push_down_agg_type() { return _push_down_agg_type; }
 
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_col_distribute_ids.empty() || OperatorX<LocalStateType>::ignore_data_distribution()) {
             // 1. `_col_distribute_ids` is empty means storage distribution is not effective, so we prefer to do local shuffle.
             // 2. `ignore_data_distribution()` returns true means we ignore the distribution.

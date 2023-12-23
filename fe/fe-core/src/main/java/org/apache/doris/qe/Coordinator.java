@@ -1585,10 +1585,14 @@ public class Coordinator implements CoordInterface {
                     dest.server = dummyServer;
                     dest.setBrpcServer(dummyServer);
 
-                    int parallelTasksNum = destParams.ignoreDataDistribution
-                            ? destParams.parallelTasksNum : destParams.instanceExecParams.size();
-                    for (int insIdx = 0; insIdx < parallelTasksNum; insIdx++) {
+                    Set<TNetworkAddress> hostSet = new HashSet<>();
+                    for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
                         FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                        if (destParams.ignoreDataDistribution
+                                && hostSet.contains(instanceExecParams.host)) {
+                            continue;
+                        }
+                        hostSet.add(instanceExecParams.host);
                         if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
                             dest.fragment_instance_id = instanceExecParams.instanceId;
                             dest.server = toRpcHost(instanceExecParams.host);
@@ -1623,10 +1627,14 @@ public class Coordinator implements CoordInterface {
                         }
                     });
                 } else {
+                    Set<TNetworkAddress> hostSet = new HashSet<>();
                     // add destination host to this fragment's destination
-                    int parallelTasksNum = destParams.ignoreDataDistribution
-                            ? destParams.parallelTasksNum : destParams.instanceExecParams.size();
-                    for (int j = 0; j < parallelTasksNum; ++j) {
+                    for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                        if (destParams.ignoreDataDistribution
+                                && hostSet.contains(destParams.instanceExecParams.get(j).host)) {
+                            continue;
+                        }
+                        hostSet.add(destParams.instanceExecParams.get(j).host);
                         TPlanFragmentDestination dest = new TPlanFragmentDestination();
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
@@ -1698,10 +1706,14 @@ public class Coordinator implements CoordInterface {
                         dest.server = dummyServer;
                         dest.setBrpcServer(dummyServer);
 
-                        int parallelTasksNum = destParams.ignoreDataDistribution
-                                ? destParams.parallelTasksNum : destParams.instanceExecParams.size();
-                        for (int insIdx = 0; insIdx < parallelTasksNum; insIdx++) {
+                        Set<TNetworkAddress> hostSet = new HashSet<>();
+                        for (int insIdx = 0; insIdx < destParams.instanceExecParams.size(); insIdx++) {
                             FInstanceExecParam instanceExecParams = destParams.instanceExecParams.get(insIdx);
+                            if (destParams.ignoreDataDistribution
+                                    && hostSet.contains(instanceExecParams.host)) {
+                                continue;
+                            }
+                            hostSet.add(instanceExecParams.host);
                             if (instanceExecParams.bucketSeqSet.contains(bucketSeq)) {
                                 dest.fragment_instance_id = instanceExecParams.instanceId;
                                 dest.server = toRpcHost(instanceExecParams.host);
@@ -1736,7 +1748,13 @@ public class Coordinator implements CoordInterface {
                         }
                     });
                 } else {
+                    Set<TNetworkAddress> hostSet = new HashSet<>();
                     for (int j = 0; j < destParams.instanceExecParams.size(); ++j) {
+                        if (destParams.ignoreDataDistribution
+                                && hostSet.contains(destParams.instanceExecParams.get(j).host)) {
+                            continue;
+                        }
+                        hostSet.add(destParams.instanceExecParams.get(j).host);
                         TPlanFragmentDestination dest = new TPlanFragmentDestination();
                         dest.fragment_instance_id = destParams.instanceExecParams.get(j).instanceId;
                         dest.server = toRpcHost(destParams.instanceExecParams.get(j).host);
@@ -2048,8 +2066,8 @@ public class Coordinator implements CoordInterface {
                             instanceParam.perNodeSharedScans.put(planNodeId, sharedScan);
                             params.instanceExecParams.add(instanceParam);
                         }
-                        params.ignoreDataDistribution = sharedScan;
-                        params.parallelTasksNum = sharedScan ? 1 : params.instanceExecParams.size();
+                        params.ignoreDataDistribution = sharedScan && enablePipelineXEngine;
+                        params.parallelTasksNum = params.ignoreDataDistribution ? 1 : params.instanceExecParams.size();
                     }
                 }
             }
@@ -2658,6 +2676,10 @@ public class Coordinator implements CoordInterface {
         }
     }
 
+    public void setMemTableOnSinkNode(boolean enableMemTableOnSinkNode) {
+        this.queryOptions.setEnableMemtableOnSinkNode(enableMemTableOnSinkNode);
+    }
+
     // map from a BE host address to the per-node assigned scan ranges;
     // records scan range assignment for a single fragment
     static class FragmentScanRangeAssignment
@@ -2926,8 +2948,8 @@ public class Coordinator implements CoordInterface {
                 }
             }
         }
-        params.parallelTasksNum = ignoreStorageDataDistribution ? 1 : params.instanceExecParams.size();
-        params.ignoreDataDistribution = ignoreStorageDataDistribution;
+        params.ignoreDataDistribution = ignoreStorageDataDistribution && enablePipelineXEngine;
+        params.parallelTasksNum = params.ignoreDataDistribution ? 1 : params.instanceExecParams.size();
     }
 
     private final Map<PlanFragmentId, BucketSeqToScanRange> fragmentIdTobucketSeqToScanRangeMap = Maps.newHashMap();
@@ -3180,9 +3202,7 @@ public class Coordinator implements CoordInterface {
                     loadChannelProfile.update(params.loadChannelProfile);
                 }
                 this.done = params.done;
-                if (this.done) {
-                    attachInstanceProfileToFragmentProfile();
-                }
+                attachInstanceProfileToFragmentProfile();
                 return this.done;
             } else {
                 RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);

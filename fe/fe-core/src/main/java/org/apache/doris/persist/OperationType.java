@@ -351,6 +351,8 @@ public class OperationType {
 
     public static final short OP_ALTER_MTMV = 459;
 
+    public static final short OP_ALTER_REPOSITORY = 460;
+
     /**
      * Get opcode name by op code.
      **/

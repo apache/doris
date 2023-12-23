@@ -536,13 +536,18 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan logicalPlan = visitQuery(ctx.query());
         String querySql = getOriginSql(ctx.query());
 
-        boolean isHash = ctx.HASH() != null || ctx.RANDOM() == null;
         int bucketNum = FeConstants.default_bucket_num;
-        if (isHash && ctx.INTEGER_VALUE() != null) {
+        if (ctx.INTEGER_VALUE() != null) {
             bucketNum = Integer.parseInt(ctx.INTEGER_VALUE().getText());
         }
-        DistributionDescriptor desc = new DistributionDescriptor(isHash, ctx.AUTO() != null,
-                bucketNum, ctx.HASH() != null ? visitIdentifierList(ctx.hashKeys) : null);
+        DistributionDescriptor desc = null;
+        if (ctx.HASH() != null) {
+            desc = new DistributionDescriptor(true, ctx.AUTO() != null, bucketNum,
+                    visitIdentifierList(ctx.hashKeys));
+        } else if (ctx.RANDOM() != null) {
+            desc = new DistributionDescriptor(false, ctx.AUTO() != null, bucketNum, null);
+        }
+
         Map<String, String> properties = ctx.propertyClause() != null
                 ? Maps.newHashMap(visitPropertyClause(ctx.propertyClause())) : Maps.newHashMap();
         String comment = ctx.STRING_LITERAL() == null ? "" : LogicalPlanBuilderAssistant.escapeBackSlash(
@@ -2808,7 +2813,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         LogicalPlan left = inputPlan;
         for (RelationContext relation : relations) {
             // build left deep join tree
-            LogicalPlan right = visitRelation(relation);
+            LogicalPlan right = withJoinRelations(visitRelation(relation), relation);
             left = (left == null) ? right :
                     new LogicalJoin<>(
                             JoinType.CROSS_JOIN,
@@ -2818,7 +2823,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             Optional.empty(),
                             left,
                             right);
-            left = withJoinRelations(left, relation);
             // TODO: pivot and lateral view
         }
         return left;

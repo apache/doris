@@ -446,8 +446,16 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
         }
     }
 
-    if (out.size() > 0) {
-        (*_error_log_file) << fmt::to_string(out) << std::endl;
+    size_t error_row_size = out.size();
+    if (error_row_size > 0) {
+        if (error_row_size > config::load_error_log_limit_bytes) {
+            fmt::memory_buffer limit_byte_out;
+            limit_byte_out.append(out.data(), out.data() + config::load_error_log_limit_bytes);
+            (*_error_log_file) << fmt::to_string(limit_byte_out) + "error log is too long"
+                               << std::endl;
+        } else {
+            (*_error_log_file) << fmt::to_string(out) << std::endl;
+        }
     }
     return Status::OK();
 }

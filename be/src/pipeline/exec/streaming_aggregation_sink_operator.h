@@ -120,7 +120,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         return {ExchangeType::PASSTHROUGH};
     }
 };

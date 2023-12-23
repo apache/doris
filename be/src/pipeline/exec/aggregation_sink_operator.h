@@ -366,12 +366,12 @@ public:
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
 
-    DataDistribution get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_probe_expr_ctxs.empty()) {
             return _needs_finalize || DataSinkOperatorX<LocalStateType>::_child_x
                                               ->ignore_data_distribution()
                            ? DataDistribution(ExchangeType::PASSTHROUGH)
-                           : DataSinkOperatorX<LocalStateType>::get_local_exchange_type();
+                           : DataSinkOperatorX<LocalStateType>::required_data_distribution();
         }
         return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
                             : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);

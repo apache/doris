@@ -24,13 +24,26 @@ suite("query37") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
     sql 'set parallel_fragment_exec_instance_num=8; '
     sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-
+    sql 'set enable_runtime_filter_prune=false'
+    sql 'set dump_nereids_memo=true'
+    def ds = """select  i_item_id
+       ,i_item_desc
+       ,i_current_price
+ from item, inventory, date_dim, catalog_sales
+ where i_current_price between 29 and 29 + 30
+ and inv_item_sk = i_item_sk
+ and d_date_sk=inv_date_sk
+ and d_date between cast('2002-03-29' as date) and (cast('2002-03-29' as date) +  interval 60 day)
+ and i_manufact_id in (705,742,777,944)
+ and inv_quantity_on_hand between 100 and 500
+ and cs_item_sk = i_item_sk
+ group by i_item_id,i_item_desc,i_current_price
+ order by i_item_id
+ limit 100"""
     qt_ds_shape_37 '''
     explain shape plan
     select  i_item_id
@@ -46,7 +59,6 @@ sql 'set enable_runtime_filter_prune=false'
  and cs_item_sk = i_item_sk
  group by i_item_id,i_item_desc,i_current_price
  order by i_item_id
- limit 100;
-
+ limit 100
     '''
 }

@@ -24,20 +24,12 @@ suite("query31") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_31 '''
-    explain shape plan
-
-
-
-
-with ss as
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """with ss as
  (select ca_county,d_qoy, d_year,sum(ss_ext_sales_price) as store_sales
  from store_sales,date_dim,customer_address
  where ss_sold_date_sk = d_date_sk
@@ -85,7 +77,9 @@ with ss as
        > case when ss1.store_sales > 0 then ss2.store_sales/ss1.store_sales else null end
     and case when ws2.web_sales > 0 then ws3.web_sales/ws2.web_sales else null end
        > case when ss2.store_sales > 0 then ss3.store_sales/ss2.store_sales else null end
- order by web_q1_q2_increase;
-
-    '''
+ order by web_q1_q2_increase"""
+    qt_ds_shape_31 """
+    explain shape plan
+    ${ds}
+    """
 }

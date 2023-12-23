@@ -88,4 +88,38 @@ public class CreateWorkloadSchedPolicyStmt extends DdlStmt {
     public Map<String, String> getProperties() {
         return properties;
     }
+
+    @Override
+    public String toSql() {
+        String str = "";
+        str = str + "CREAYE ";
+        str = str + "WORKLOAD SCHEDULE POLICY " + policyName + " ";
+
+        str = str + " CONDITIONS( ";
+        if (conditions != null) {
+            for (WorkloadConditionMeta wcm : conditions) {
+                str += wcm.toString() + ",";
+            }
+        }
+        str = str.substring(0, str.length() - 1);
+        str = str + ")";
+
+        str = str + " ACTIONS( ";
+        if (actions != null) {
+            for (WorkloadActionMeta wam : actions) {
+                str = str + wam.toString() + ",";
+            }
+        }
+        str = str.substring(0, str.length() - 1);
+        str = str + ")";
+
+        str = str + " PROPERTIES(";
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            str = str + "\"" + entry.getKey() + "\"" + "=" + "\"" + entry.getValue() + "\",";
+        }
+        str = str.substring(0, str.length() - 1);
+        str = str + ")";
+
+        return str;
+    }
 }
