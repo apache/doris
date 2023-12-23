@@ -1565,7 +1565,6 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                         .tag("retry_time", retry_time)
                         .error(status);
                 ++retry_time;
-                std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
         if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>() && !is_task_timeout) {

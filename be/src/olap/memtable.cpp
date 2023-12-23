@@ -44,7 +44,6 @@
 #include "runtime/load_channel_mgr.h"
 #include "runtime/thread_context.h"
 #include "tablet_meta.h"
-#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
@@ -426,6 +425,8 @@ void MemTable::_aggregate() {
         _output_mutable_block =
                 vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
         _output_mutable_block.clear_column_data();
+        _row_in_blocks = temp_row_in_blocks;
+        _last_sorted_pos = _row_in_blocks.size();
     }
 }
 
@@ -435,10 +436,7 @@ void MemTable::shrink_memtable_by_agg() {
         return;
     }
     size_t same_keys_num = _sort();
-    if (same_keys_num == 0) {
-        vectorized::Block in_block = _input_mutable_block.to_block();
-        _put_into_output(in_block);
-    } else {
+    if (same_keys_num != 0) {
         _aggregate<false>();
     }
 }
@@ -475,31 +473,6 @@ Status MemTable::_generate_delete_bitmap(int32_t segment_id) {
     {
         std::shared_lock meta_rlock(_tablet->get_header_lock());
         specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
-        DBUG_EXECUTE_IF("_append_block_with_partial_content.clear_specified_rowsets",
-                        { specified_rowsets.clear(); });
-        if (specified_rowsets.size() != _mow_context->rowset_ids.size()) {
-            // `get_rowset_by_ids` may fail to find some of the rowsets we request if cumulative compaction delete
-            // rowsets from `_rs_version_map`(see `Tablet::modify_rowsets` for detials) before we get here.
-            // Becasue we havn't begun calculation for merge-on-write table, we can safely reset the `_mow_context->rowset_ids`
-            // to the latest value and re-request the correspoding rowsets.
-            LOG(INFO) << fmt::format(
-                    "[Memtable Flush] some rowsets have been deleted due to "
-                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}), reset "
-                    "rowset_ids to the latest value. tablet_id: {}, cur max_version: {}, "
-                    "transaction_id: {}",
-                    specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
-                    _mow_context->max_version, _mow_context->txn_id);
-            Status st {Status::OK()};
-            _mow_context->update_rowset_ids_with_lock([&]() {
-                _mow_context->rowset_ids.clear();
-                st = _tablet->all_rs_id(_mow_context->max_version, &_mow_context->rowset_ids);
-            });
-            if (!st.ok()) {
-                return st;
-            }
-            specified_rowsets = _tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
-            DCHECK(specified_rowsets.size() == _mow_context->rowset_ids.size());
-        }
     }
     OlapStopWatch watch;
     RETURN_IF_ERROR(_tablet->calc_delete_bitmap(rowset, segments, specified_rowsets,

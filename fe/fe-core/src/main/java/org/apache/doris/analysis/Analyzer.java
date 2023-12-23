@@ -1271,6 +1271,14 @@ public class Analyzer {
     public void registerConjuncts(Expr e, boolean fromHavingClause, List<TupleId> ids) throws AnalysisException {
         for (Expr conjunct : e.getConjuncts()) {
             registerConjunct(conjunct);
+            if (!conjunct.isConstant()) {
+                ArrayList<TupleId> tupleIds = Lists.newArrayList();
+                ArrayList<SlotId> slotIds = Lists.newArrayList();
+                conjunct.getIds(tupleIds, slotIds);
+                if (tupleIds.isEmpty() && slotIds.isEmpty()) {
+                    conjunct.setBoundTupleIds(ids);
+                }
+            }
             if (ids != null) {
                 for (TupleId id : ids) {
                     registerConstantConjunct(id, conjunct);

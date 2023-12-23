@@ -45,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
+import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEsScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
@@ -87,7 +88,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
             Plan plan = doBindRelation(ctx);
-            if (!(plan instanceof Unbound)) {
+            if (!(plan instanceof Unbound) && plan instanceof Relation) {
                 // init output and allocate slot id immediately, so that the slot id increase
                 // in the order in which the table appears.
                 LogicalProperties logicalProperties = plan.getLogicalProperties();
@@ -253,7 +254,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
         }
         CascadesContext viewContext = CascadesContext.initContext(
                 parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
-        viewContext.newAnalyzer().analyze();
+        viewContext.newAnalyzer(true, customTableResolver).analyze();
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
         return viewContext.getRewritePlan();
     }
