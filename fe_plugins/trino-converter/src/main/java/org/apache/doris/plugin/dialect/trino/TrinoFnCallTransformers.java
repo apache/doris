@@ -17,11 +17,12 @@
 
 package org.apache.doris.plugin.dialect.trino;
 
-import com.google.common.collect.Lists;
 import org.apache.doris.nereids.analyzer.PlaceholderExpression;
 import org.apache.doris.nereids.parser.AbstractFnCallTransformer;
 import org.apache.doris.nereids.parser.AbstractFnCallTransformers;
 import org.apache.doris.nereids.trees.expressions.Expression;
+
+import com.google.common.collect.Lists;
 
 /**
  * The builder and factory for trino {@link AbstractFnCallTransformer},

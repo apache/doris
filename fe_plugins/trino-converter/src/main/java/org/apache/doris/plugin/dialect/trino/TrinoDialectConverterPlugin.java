@@ -17,12 +17,13 @@
 
 package org.apache.doris.plugin.dialect.trino;
 
-import com.google.common.collect.ImmutableSet;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.Plugin;
 import org.apache.doris.qe.SessionVariable;
+
+import com.google.common.collect.ImmutableSet;
 
 import javax.annotation.Nullable;
 import java.util.List;

@@ -17,7 +17,6 @@
 
 package org.apache.doris.plugin.dialect.spark;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.exceptions.ParseException;
@@ -29,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+
+import org.apache.commons.lang3.StringUtils;
 
 /**
  * Extends from {@link org.apache.doris.nereids.parser.LogicalPlanBuilder},

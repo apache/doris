@@ -17,13 +17,13 @@
 
 package org.apache.doris.plugin.dialect.trino;
 
-import mockit.Mock;
-import mockit.MockUp;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.parser.ParserContext;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.junit.jupiter.api.Assertions;
