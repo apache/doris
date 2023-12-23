@@ -28,6 +28,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/bit_util.h"
+#include "util/bvar_helper.h"
 
 namespace doris {
 namespace io {
