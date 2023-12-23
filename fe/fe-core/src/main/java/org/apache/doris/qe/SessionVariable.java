@@ -1259,7 +1259,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "When enable_auto_sample is enabled, tables"
                             + "larger than this value will automatically collect "
                             + "statistics through sampling"})
-    public long hugeTableLowerBoundSizeInBytes = 5L * 1024 * 1024 * 1024;
+    public long hugeTableLowerBoundSizeInBytes = 0;
 
     @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对大表的自动ANALYZE的最小时间间隔，"

@@ -86,7 +86,7 @@ public class StatisticConstants {
     public static final int INSERT_MERGE_ITEM_COUNT = 200;
 
     public static final long HUGE_TABLE_DEFAULT_SAMPLE_ROWS = 4194304;
-    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 5L * 1024 * 1024 * 1024;
+    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 0;
 
     public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(0);
 

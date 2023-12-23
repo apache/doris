@@ -349,7 +349,7 @@ public class StatisticsAutoCollectorTest {
 
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return 1000;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
             }
 
             @Mock
