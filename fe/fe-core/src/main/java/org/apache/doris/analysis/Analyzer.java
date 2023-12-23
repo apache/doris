@@ -151,9 +151,10 @@ public class Analyzer {
     // map from tuple id to the current output column index
     private final Map<TupleId, Integer> currentOutputColumn = Maps.newHashMap();
     // used for Information Schema Table Scan
-    private String schemaDb;
+    // This 3 fields is used for optimize the data fetching from FE,
+    // if can pre-filter the data, we can reduce the data fetching from FE.
     private String schemaCatalog;
-    private String schemaWild;
+    private String schemaDb;
     private String schemaTable; // table used in DESCRIBE Table
 
     // Current depth of nested analyze() calls. Used for enforcing a
@@ -2354,19 +2355,14 @@ public class Analyzer {
         return globalState.context;
     }
 
-    public String getSchemaWild() {
-        return schemaWild;
-    }
-
     public TQueryGlobals getQueryGlobals() {
         return new TQueryGlobals();
     }
 
     // for Schema Table Schema like SHOW TABLES LIKE "abc%"
-    public void setSchemaInfo(String db, String table, String wild, String catalog) {
+    public void setSchemaInfo(String db, String table, String catalog) {
         schemaDb = db;
         schemaTable = table;
-        schemaWild = wild;
         schemaCatalog = catalog;
     }
 

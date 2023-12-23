@@ -90,7 +90,7 @@ public class ShowDbStmt extends ShowStmt {
         selectStmt = new SelectStmt(selectList,
                 new FromClause(Lists.newArrayList(new TableRef(tableName, null))),
                 where, null, null, null, LimitElement.NO_LIMIT);
-        analyzer.setSchemaInfo(null, null, null, catalogName);
+        analyzer.setSchemaInfo(null, null, catalogName);
         return selectStmt;
     }
 

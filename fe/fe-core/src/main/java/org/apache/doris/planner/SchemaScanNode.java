@@ -75,7 +75,6 @@ public class SchemaScanNode extends ScanNode {
         schemaCatalog = analyzer.getSchemaCatalog();
         schemaDb = analyzer.getSchemaDb();
         schemaTable = analyzer.getSchemaTable();
-        schemaWild = analyzer.getSchemaWild();
         frontendIP = FrontendOptions.getLocalHostAddress();
         frontendPort = Config.rpc_port;
     }
