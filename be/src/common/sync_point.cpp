@@ -24,13 +24,12 @@
 #include <atomic>
 #include <condition_variable>
 #include <functional>
+#include <mutex>
 #include <random>
 #include <string>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
-
-#include "util/lock.h"
 
 namespace doris {
 
@@ -60,8 +59,8 @@ private:
   std::unordered_map<std::string, std::function<void(std::vector<std::any>&&)>> callbacks_;
   std::unordered_map<std::string, std::vector<std::string>> markers_;
   std::unordered_map<std::string, std::thread::id> marked_thread_id_;
-  doris::Mutex mutex_;
-  doris::ConditionVariable cv_;
+  std::mutex mutex_;
+  std::condition_variable cv_;
   // sync points that have been passed through
   std::unordered_set<std::string> cleared_points_;
   std::atomic<bool> enabled_;
