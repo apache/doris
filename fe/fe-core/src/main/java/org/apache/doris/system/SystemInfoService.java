@@ -582,7 +582,7 @@ public class SystemInfoService {
             }
         }
 
-        if (number != -1 && candidates.size() < number) {
+        if (candidates.size() < number) {
             LOG.debug("Not match policy: {}. candidates num: {}, expected: {}", policy, candidates.size(), number);
             return Lists.newArrayList();
         }
@@ -601,9 +601,9 @@ public class SystemInfoService {
             int realIndex = policy.nextRoundRobinIndex % candidates.size();
             List<Long> partialOrderList = new ArrayList<Long>();
             partialOrderList.addAll(candidates.subList(realIndex, candidates.size())
-                    .stream().map(b -> b.getId()).collect(Collectors.toList()));
+                    .stream().map(Backend::getId).collect(Collectors.toList()));
             partialOrderList.addAll(candidates.subList(0, realIndex)
-                    .stream().map(b -> b.getId()).collect(Collectors.toList()));
+                    .stream().map(Backend::getId).collect(Collectors.toList()));
 
             if (number == -1) {
                 return partialOrderList;
@@ -613,9 +613,9 @@ public class SystemInfoService {
         } else {
             Collections.shuffle(candidates);
             if (number != -1) {
-                return candidates.subList(0, number).stream().map(b -> b.getId()).collect(Collectors.toList());
+                return candidates.subList(0, number).stream().map(Backend::getId).collect(Collectors.toList());
             } else {
-                return candidates.stream().map(b -> b.getId()).collect(Collectors.toList());
+                return candidates.stream().map(Backend::getId).collect(Collectors.toList());
             }
         }
     }
