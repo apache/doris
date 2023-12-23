@@ -27,6 +27,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
@@ -49,8 +50,8 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
     protected void beforeCreatingConnectContext() throws Exception {
         Config.enable_round_robin_create_tablet = true;
         Config.allow_replica_on_same_host = true;
-        Config.tablet_checker_interval_ms = 100;
-        Config.tablet_schedule_interval_ms = 100;
+        FeConstants.tablet_checker_interval_ms = 100;
+        FeConstants.tablet_schedule_interval_ms = 100;
         Config.schedule_slot_num_per_hdd_path = 1;
         Config.disable_balance = true;
         Config.enable_debug_points = true;
