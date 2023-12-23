@@ -186,7 +186,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                 + "  (select * from "
                                 + "  lineitem "
                                 + "  where L_SHIPDATE in ('2017-01-30')) t1 "
-                                + "left join "
+                                + "right join "
                                 + "  (select * from "
                                 + "  orders "
                                 + "  where O_ORDERDATE in ('2017-01-30')) t2 "
@@ -204,6 +204,33 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     "orders",
                                     "O_ORDERDATE",
                                     true);
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoUseNullGenerateSideTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT t1.L_SHIPDATE, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
+                                + "count(distinct case when t1.L_SUPPKEY > 0 then t2.O_ORDERSTATUS else null end) as cnt_1 "
+                                + "from "
+                                + "  (select * from "
+                                + "  lineitem "
+                                + "  where L_SHIPDATE in ('2017-01-30')) t1 "
+                                + "left join "
+                                + "  (select * from "
+                                + "  orders "
+                                + "  where O_ORDERDATE in ('2017-01-30')) t2 "
+                                + "on t1.L_ORDERKEY = t2.O_ORDERKEY "
+                                + "group by "
+                                + "t1.L_SHIPDATE, "
+                                + "t2.O_ORDERDATE, "
+                                + "t1.L_QUANTITY, "
+                                + "t2.O_ORDERSTATUS;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("o_orderdate", rewrittenPlan);
+                            Assertions.assertFalse(relatedTableInfo.isPresent());
                         });
     }
 
