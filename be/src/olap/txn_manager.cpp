@@ -257,9 +257,10 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                               const PUniqueId& load_id, const RowsetSharedPtr& rowset_ptr,
                               bool is_recovery) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
-        LOG(FATAL) << "invalid commit req "
-                   << " partition_id=" << partition_id << " transaction_id=" << transaction_id
-                   << " tablet_id=" << tablet_id;
+        LOG(WARNING) << "invalid commit req "
+                     << " partition_id=" << partition_id << " transaction_id=" << transaction_id
+                     << " tablet_id=" << tablet_id;
+        return Status::InternalError("invalid partition id");
     }
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
@@ -334,8 +335,15 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     // save meta need access disk, it maybe very slow, so that it is not in global txn lock
     // it is under a single txn lock
     if (!is_recovery) {
-        Status save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
-                                                     rowset_ptr->rowset_meta()->get_rowset_pb());
+        auto rs_pb = rowset_ptr->rowset_meta()->get_rowset_pb();
+        // TODO(dx): remove log after fix partition id eq 0 bug
+        if (!rs_pb.has_partition_id() || rs_pb.partition_id() == 0) {
+            rs_pb.set_partition_id(partition_id);
+            LOG(WARNING) << "cant get partition id from rs pb, get from func arg partition_id="
+                         << partition_id;
+        }
+        Status save_status =
+                RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(), rs_pb);
         DBUG_EXECUTE_IF("TxnManager.RowsetMetaManager.save_wait", {
             if (auto wait = dp->param<int>("duration", 0); wait > 0) {
                 LOG_WARNING("TxnManager.RowsetMetaManager.save_wait").tag("wait ms", wait);
@@ -613,8 +621,8 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                                         : "0");
             }
         }
+        it->second.erase(load_itr);
     }
-    it->second.erase(tablet_info);
     if (it->second.empty()) {
         txn_tablet_map.erase(it);
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);

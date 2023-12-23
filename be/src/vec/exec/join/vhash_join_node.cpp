@@ -551,9 +551,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         Block temp_block;
         //get probe side output column
         for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            if (_left_output_slot_flags[i]) {
-                temp_block.insert(_probe_block.get_by_position(i));
-            }
+            temp_block.insert(_probe_block.get_by_position(i));
         }
         auto mark_column = ColumnNullable::create(ColumnUInt8::create(block_rows, 0),
                                                   ColumnUInt8::create(block_rows, 1));
@@ -595,7 +593,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
              (_join_op != TJoinOp::LEFT_ANTI_JOIN) && i < _right_output_slot_flags.size(); ++i) {
             auto type = remove_nullable(_right_table_data_types[i]);
             auto column = type->create_column();
-            column->resize(block_rows);
+            column->insert_many_defaults(block_rows);
             auto null_map_column = ColumnVector<UInt8>::create(block_rows, 1);
             auto nullable_column =
                     ColumnNullable::create(std::move(column), std::move(null_map_column));
@@ -840,6 +838,7 @@ void HashJoinNode::_prepare_probe_block() {
         column_type.column = remove_nullable(column_type.column);
         column_type.type = remove_nullable(column_type.type);
     }
+    _temp_probe_nullable_columns.clear();
     release_block_memory(_probe_block);
 }
 
@@ -916,6 +915,10 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         _build_side_mem_used += in_block->allocated_bytes();
 
         if (in_block->rows() != 0) {
+            _build_col_ids.resize(_build_expr_ctxs.size());
+            RETURN_IF_ERROR(_do_evaluate(*in_block, _build_expr_ctxs, *_build_expr_call_timer,
+                                         _build_col_ids));
+
             SCOPED_TIMER(_build_side_merge_block_timer);
             RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
         }
@@ -1057,6 +1060,7 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
                                           ColumnRawPtrs& raw_ptrs,
                                           const std::vector<int>& res_col_ids) {
     DCHECK_EQ(_build_expr_ctxs.size(), _probe_expr_ctxs.size());
+    _temp_probe_nullable_columns.clear();
     for (size_t i = 0; i < _build_expr_ctxs.size(); ++i) {
         if (_is_null_safe_eq_join[i]) {
             raw_ptrs[i] = block.get_by_position(res_col_ids[i]).column.get();
@@ -1080,6 +1084,15 @@ Status HashJoinNode::_extract_join_column(Block& block, ColumnUInt8::MutablePtr&
                     raw_ptrs[i] = &col_nested;
                 }
             } else {
+                if constexpr (!BuildSide) {
+                    if (_join_op == TJoinOp::RIGHT_ANTI_JOIN &&
+                        _build_expr_ctxs[i]->root()->is_nullable()) {
+                        _temp_probe_nullable_columns.emplace_back(make_nullable(
+                                block.get_by_position(res_col_ids[i]).column->assume_mutable()));
+                        raw_ptrs[i] = _temp_probe_nullable_columns.back().get();
+                        continue;
+                    }
+                }
                 raw_ptrs[i] = column;
             }
         }
@@ -1143,8 +1156,6 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
     ColumnUInt8::MutablePtr null_map_val;
-    std::vector<int> res_col_ids(_build_expr_ctxs.size());
-    RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
     }
@@ -1152,7 +1163,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     //  so we have to initialize this flag by the first build block.
     if (!_has_set_need_null_map_for_build) {
         _has_set_need_null_map_for_build = true;
-        _set_build_ignore_flag(block, res_col_ids);
+        _set_build_ignore_flag(block, _build_col_ids);
     }
     if (_short_circuit_for_null_in_build_side || _build_side_ignore_null) {
         null_map_val = ColumnUInt8::create();
@@ -1160,7 +1171,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     }
 
     // Get the key column that needs to be built
-    Status st = _extract_join_column<true>(block, null_map_val, raw_ptrs, res_col_ids);
+    Status st = _extract_join_column<true>(block, null_map_val, raw_ptrs, _build_col_ids);
 
     st = std::visit(
             Overload {

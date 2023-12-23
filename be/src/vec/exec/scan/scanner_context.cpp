@@ -55,6 +55,7 @@ ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::V
           _max_bytes_in_queue(max_bytes_in_blocks_queue_),
           _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
           _scanners(scanners_),
+          _scanners_ref(scanners_.begin(), scanners_.end()),
           _num_parallel_instances(num_parallel_instances) {
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {

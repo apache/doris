@@ -17,6 +17,7 @@
 
 suite("test_arithmetic_expressions") {
 
+    sql "set check_overflow_for_decimal=true;"
     def table1 = "test_arithmetic_expressions"
 
     sql "drop table if exists ${table1}"
@@ -109,4 +110,77 @@ suite("test_arithmetic_expressions") {
 
     qt_select """ select v1, v2, v1 % v2, v1 % v3 from ${table3} ORDER BY id; """
     sql "drop table if exists ${table3}"
+
+    // decimal128
+    sql "DROP TABLE IF EXISTS `test_arithmetic_expressions_128_1`";
+    sql """
+    CREATE TABLE test_arithmetic_expressions_128_1 (
+      k1 decimalv3(38, 6) NULL,
+      k2 decimalv3(38, 6) NULL,
+      k3 decimalv3(38, 6) NULL
+    ) ENGINE=OLAP
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`k1`, `k2`, `k3`) BUCKETS 8
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1"
+    );
+    """
+    sql """insert into test_arithmetic_expressions_128_1 values
+            (1, 99999999999999999999999999999999.999999, 99999999999999999999999999999999.999999),
+            (2, 49999999999999999999999999999999.999999, 49999999999999999999999999999999.999999),
+            (3, 33333333333333333333333333333333.333333, 33333333333333333333333333333333.333333),
+            (4.444444, 2.222222, 3.333333);"""
+    sql "sync"
+    qt_decimal128_select_all "select * from test_arithmetic_expressions_128_1 order by k1, k2;"
+    // qt_decimal128_cast "select k3, CAST(k3 AS DECIMALV3(38, 10)) from test_arithmetic_expressions_128_1 order by 1, 2;"
+    // int128 multiply overflow
+    qt_decimal128_multiply_0 "select k1 * k2 a from test_arithmetic_expressions_128_1 order by 1;"
+    qt_decimal128_arith_union "select * from (select k1 * k2 from test_arithmetic_expressions_128_1 union all select k3 from test_arithmetic_expressions_128_1) a order by 1"
+
+    test {
+        sql """
+            select k1 * k2 * k3 a from test_arithmetic_expressions_128_1 order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+            select k1 * k2 * k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by k1;
+        """
+        exception "Arithmetic overflow"
+    }
+    test {
+        sql """
+            select k1 * k2 / k3 * k1 * k2 * k3 from test_arithmetic_expressions_128_1 order by k1;
+        """
+        exception "Arithmetic overflow"
+    }
+
+    sql "DROP TABLE IF EXISTS `test_arithmetic_expressions_128_2`";
+    sql """
+    CREATE TABLE test_arithmetic_expressions_128_2 (
+        a DECIMALV3(38, 3) NOT NULL,
+        b DECIMALV3(38, 3) NOT NULL,
+        c DECIMALV3(38, 3) NOT NULL,
+        d DECIMALV3(38, 3) NOT NULL,
+        e DECIMALV3(38, 3) NOT NULL,
+        f DECIMALV3(38, 3) NOT NULL,
+        g DECIMALV3(38, 3) NOT NULL,
+        h DECIMALV3(38, 3) NOT NULL,
+        i DECIMALV3(38, 3) NOT NULL,
+        j DECIMALV3(38, 3) NOT NULL,
+        k DECIMALV3(38, 3) NOT NULL
+    ) DISTRIBUTED BY HASH(a) PROPERTIES("replication_num" = "1");
+    """
+
+    sql """
+    insert into test_arithmetic_expressions_128_2 values(999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999,999999.999);
+    """
+    sql "sync"
+    qt_decimal128_select_all_2 "select * from test_arithmetic_expressions_128_2 order by a"
+    qt_decimal128_mixed_calc_0 "select a + b + c from test_arithmetic_expressions_128_2;"
+    qt_decimal128_mixed_calc_1 "select (a + b + c) * d from test_arithmetic_expressions_128_2;"
+    qt_decimal128_mixed_calc_2 "select (a + b + c) / d from test_arithmetic_expressions_128_2;"
+    qt_decimal128_mixed_calc_3 "select a + b + c + d + e + f + g + h + i + j + k from test_arithmetic_expressions_128_2;"
+
 }

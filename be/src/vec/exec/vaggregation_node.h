@@ -855,7 +855,6 @@ protected:
     std::vector<size_t> _make_nullable_keys;
     RuntimeProfile::Counter* _hash_table_compute_timer;
     RuntimeProfile::Counter* _hash_table_input_counter;
-    RuntimeProfile::Counter* _build_timer;
     RuntimeProfile::Counter* _expr_timer;
     RuntimeProfile::Counter* _exec_timer;
 
@@ -973,7 +972,6 @@ protected:
 private:
     template <bool limit>
     Status _execute_with_serialized_key_helper(Block* block) {
-        SCOPED_TIMER(_build_timer);
         DCHECK(!_probe_expr_ctxs.empty());
 
         size_t key_size = _probe_expr_ctxs.size();

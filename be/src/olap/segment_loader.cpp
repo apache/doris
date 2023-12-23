@@ -70,14 +70,14 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
     }
 
     SegmentCache::CacheKey cache_key(rowset->rowset_id());
-    if (_segment_cache->lookup(cache_key, cache_handle)) {
+    if (!config::disable_segment_cache && _segment_cache->lookup(cache_key, cache_handle)) {
         return Status::OK();
     }
 
     std::vector<segment_v2::SegmentSharedPtr> segments;
     RETURN_IF_ERROR(rowset->load_segments(&segments));
 
-    if (use_cache) {
+    if (use_cache && !config::disable_segment_cache) {
         // memory of SegmentCache::CacheValue will be handled by SegmentCache
         SegmentCache::CacheValue* cache_value = new SegmentCache::CacheValue();
         cache_value->segments = std::move(segments);

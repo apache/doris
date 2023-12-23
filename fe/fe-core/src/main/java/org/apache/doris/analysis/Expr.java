@@ -38,7 +38,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
@@ -293,6 +292,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
+
+    protected List<TupleId> boundTupleIds = null;
 
     protected Expr() {
         super();
@@ -1276,12 +1277,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Returns true if expr is fully bound by tids, otherwise false.
      */
     public boolean isBoundByTupleIds(List<TupleId> tids) {
+        if (boundTupleIds != null && !boundTupleIds.isEmpty()) {
+            return boundTupleIds.stream().anyMatch(id -> tids.contains(id));
+        }
         for (Expr child : children) {
             if (!child.isBoundByTupleIds(tids)) {
                 return false;
             }
         }
         return true;
+    }
+
+    public void setBoundTupleIds(List<TupleId> tids) {
+        boundTupleIds = tids;
     }
 
 
@@ -2338,22 +2346,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         if (fn.functionName().equalsIgnoreCase(Operator.MULTIPLY.getName())
                 && fn.getReturnType().isDecimalV3()) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
-                return true;
-            } else {
-                return hasNullableChild(children);
-            }
+            return hasNullableChild(children);
         }
         if ((fn.functionName().equalsIgnoreCase(Operator.ADD.getName())
                 || fn.functionName().equalsIgnoreCase(Operator.SUBTRACT.getName()))
                 && fn.getReturnType().isDecimalV3()) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
-                return true;
-            } else {
-                return hasNullableChild(children);
-            }
+            return hasNullableChild(children);
         }
         if (fn.functionName().equalsIgnoreCase("group_concat")) {
             int size = Math.min(fn.getNumArgs(), children.size());
