@@ -898,6 +898,7 @@ nonReserved
     | ANALYZED
     | ARRAY
     | AT
+    | AUTO_INCREMENT
     | AUTHORS
     | AUTO_INCREMENT
     | BACKENDS
@@ -1064,6 +1065,7 @@ nonReserved
     | OPTIMIZED
     | PARAMETER
     | PARSED
+    | PARTITIONS
     | PASSWORD
     | PASSWORD_EXPIRE
     | PASSWORD_HISTORY
