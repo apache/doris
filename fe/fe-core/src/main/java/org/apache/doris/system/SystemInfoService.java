@@ -509,11 +509,15 @@ public class SystemInfoService {
                 // if only for check, no need to retry different storage medium to get backend
                 if (beIds.isEmpty() && storageMedium != null && !isStorageMediumSpecified && !isOnlyForCheck) {
                     storageMedium = (storageMedium == TStorageMedium.HDD) ? TStorageMedium.SSD : TStorageMedium.HDD;
-                    policy = builder.setStorageMedium(storageMedium).build();
+                    builder.setStorageMedium(storageMedium);
+                    if (Config.enable_round_robin_create_tablet) {
+                        builder.setNextRoundRobinIndex(nextIndexs.getOrDefault(tag, -1));
+                    }
+                    policy = builder.build();
                     beIds = selectBackendIdsByPolicy(policy, entry.getValue());
                 }
                 if (Config.enable_round_robin_create_tablet) {
-                    nextIndexs.put(tag, policy.nextRoundRobinIndex + beIds.size());
+                    nextIndexs.put(tag, policy.nextRoundRobinIndex);
                 }
                 // after retry different storage medium, it's still empty
                 if (beIds.isEmpty()) {
@@ -543,7 +547,7 @@ public class SystemInfoService {
     /**
      * Select a set of backends by the given policy.
      *
-     * @param policy
+     * @param policy if policy is enableRoundRobin, will update its nextRoundRobinIndex
      * @param number number of backends which need to be selected. -1 means return as many as possible.
      * @return return #number of backend ids,
      * or empty set if no backends match the policy, or the number of matched backends is less than "number";
@@ -562,6 +566,7 @@ public class SystemInfoService {
             return Lists.newArrayList(candidates.get(0).getId());
         }
 
+        boolean hasSameHost = false;
         if (!policy.allowOnSameHost) {
             // for each host, random select one backend.
             Map<String, List<Backend>> backendMaps = Maps.newHashMap();
@@ -577,7 +582,10 @@ public class SystemInfoService {
 
             candidates.clear();
             for (List<Backend> list : backendMaps.values()) {
-                Collections.shuffle(list);
+                if (list.size() > 1) {
+                    Collections.shuffle(list);
+                    hasSameHost = true;
+                }
                 candidates.add(list.get(0));
             }
         }
@@ -588,10 +596,12 @@ public class SystemInfoService {
         }
 
         if (policy.enableRoundRobin) {
-            if (policy.allowOnSameHost) {
-                Collections.sort(candidates, new BeIdComparator());
-            } else {
+            if (!policy.allowOnSameHost && hasSameHost) {
+                // not allow same host and has same host,
+                // then we compare them with their host
                 Collections.sort(candidates, new BeHostComparator());
+            } else {
+                Collections.sort(candidates, new BeIdComparator());
             }
 
             if (policy.nextRoundRobinIndex < 0) {
@@ -605,11 +615,10 @@ public class SystemInfoService {
             partialOrderList.addAll(candidates.subList(0, realIndex)
                     .stream().map(Backend::getId).collect(Collectors.toList()));
 
-            if (number == -1) {
-                return partialOrderList;
-            } else {
-                return partialOrderList.subList(0, number);
-            }
+            List<Long> result = number == -1 ? partialOrderList : partialOrderList.subList(0, number);
+            policy.nextRoundRobinIndex = realIndex + result.size();
+
+            return result;
         } else {
             Collections.shuffle(candidates);
             if (number != -1) {
