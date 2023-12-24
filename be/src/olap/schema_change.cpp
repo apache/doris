@@ -470,6 +470,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
                                              TabletSharedPtr new_tablet,
                                              TabletSchemaSPtr base_tablet_schema,
                                              TabletSchemaSPtr new_tablet_schema) {
+    bool eof = false;
     do {
         auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
@@ -477,14 +478,15 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                break;
+                eof = true;
+            } else {
+                return st;
             }
-            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
         RETURN_IF_ERROR(rowset_writer->add_block(new_block.get()));
-    } while (true);
+    } while (!eof);
 
     RETURN_IF_ERROR(rowset_writer->flush());
     return Status::OK();
@@ -547,14 +549,16 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     auto new_block = vectorized::Block::create_unique(new_tablet_schema->create_block());
 
+    bool eof = false;
     do {
         auto ref_block = vectorized::Block::create_unique(base_tablet_schema->create_block());
         auto st = rowset_reader->next_block(ref_block.get());
         if (!st) {
             if (st.is<ErrorCode::END_OF_FILE>()) {
-                break;
+                eof = true;
+            } else {
+                return st;
             }
-            return st;
         }
 
         RETURN_IF_ERROR(_changer.change_block(ref_block.get(), new_block.get()));
@@ -578,7 +582,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         // move unique ptr
         blocks.push_back(vectorized::Block::create_unique(new_tablet_schema->create_block()));
         swap(blocks.back(), new_block);
-    } while (true);
+    } while (!eof);
 
     RETURN_IF_ERROR(create_rowset());
 
