@@ -102,8 +102,6 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // insert into setting to disable page cache
-        ctx.getSessionVariable().enablePageCache = false;
         if (!ctx.getSessionVariable().isEnableNereidsDML()) {
             try {
                 ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
