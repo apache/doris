@@ -145,6 +145,16 @@ public:
 
     void set_status_on_failure(const Status& st) { _status = st; }
 
+    // return false if _is_counted_down is already true,
+    // otherwise, set _is_counted_down to true and return true.
+    bool set_counted_down() {
+        if (_is_counted_down) {
+            return false;
+        }
+        _is_counted_down = true;
+        return true;
+    }
+
 protected:
     void _discard_conjuncts() {
         for (auto& conjunct : _conjuncts) {
@@ -205,6 +215,8 @@ protected:
     int64_t _scan_cpu_timer = 0;
 
     bool _is_load = false;
+    // set to true after decrease the "_num_unfinished_scanners" in scanner context
+    bool _is_counted_down = false;
 
     bool _is_init = true;
 
@@ -215,5 +227,6 @@ protected:
 };
 
 using VScannerSPtr = std::shared_ptr<VScanner>;
+using VScannerWPtr = std::weak_ptr<VScanner>;
 
 } // namespace doris::vectorized

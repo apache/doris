@@ -36,7 +36,7 @@ class BlockingQueue;
 } // namespace doris
 
 namespace doris::vectorized {
-class ScannerDelegate;
+
 class ScannerContext;
 
 // Responsible for the scheduling and execution of all Scanners of a BE node.
@@ -79,7 +79,7 @@ private:
     void _schedule_scanners(std::shared_ptr<ScannerContext> ctx);
     // execution thread function
     void _scanner_scan(ScannerScheduler* scheduler, std::shared_ptr<ScannerContext> ctx,
-                       std::weak_ptr<ScannerDelegate> scanner);
+                       VScannerSPtr scanner);
 
     void _register_metrics();
 
