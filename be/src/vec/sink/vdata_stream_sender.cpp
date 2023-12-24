@@ -512,6 +512,7 @@ Status VDataStreamSender::open(RuntimeState* state) {
     }
 
     _compression_type = state->fragement_transmission_compression_type();
+    RETURN_IF_ERROR(get_block_compression_codec(_compression_type, &_codec));
     return Status::OK();
 }
 
@@ -778,7 +779,8 @@ Status BlockSerializer<Parent>::serialize_block(const Block* src, PBlock* dest, 
         size_t uncompressed_bytes = 0, compressed_bytes = 0;
         RETURN_IF_ERROR(src->serialize(
                 _parent->_state->be_exec_version(), dest, &uncompressed_bytes, &compressed_bytes,
-                _parent->compression_type(), _parent->transfer_large_data_by_brpc()));
+                _parent->compression_type(), _parent->transfer_large_data_by_brpc(),
+                &_ser_reuse_mem, _parent->_codec));
         COUNTER_UPDATE(_parent->_bytes_sent_counter, compressed_bytes * num_receivers);
         COUNTER_UPDATE(_parent->_uncompressed_bytes_counter, uncompressed_bytes * num_receivers);
         COUNTER_UPDATE(_parent->_compress_timer, src->get_compress_time());

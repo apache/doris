@@ -834,10 +834,10 @@ Status Block::filter_block(Block* block, int filter_column_id, int column_to_kee
     return filter_block(block, columns_to_filter, filter_column_id, column_to_keep);
 }
 
-Status Block::serialize(int be_exec_version, PBlock* pblock,
-                        /*std::string* compressed_buffer,*/ size_t* uncompressed_bytes,
+Status Block::serialize(int be_exec_version, PBlock* pblock, size_t* uncompressed_bytes,
                         size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
-                        bool allow_transfer_large_data) const {
+                        bool allow_transfer_large_data, SerReuseMem* ser_reuse_mem,
+                        BlockCompressionCodec* codec) const {
     pblock->set_be_exec_version(be_exec_version);
 
     // calc uncompressed size for allocation
@@ -853,17 +853,31 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
 
     // serialize data values
     // when data type is HLL, content_uncompressed_size maybe larger than real size.
+    char* buf = nullptr;
     std::string column_values;
-    try {
-        column_values.resize(content_uncompressed_size);
-    } catch (...) {
-        std::string msg = fmt::format("Try to alloc {} bytes for pblock column values failed.",
-                                      content_uncompressed_size);
-        LOG(WARNING) << msg;
-        return Status::BufferAllocFailed(msg);
+    if (!ser_reuse_mem) {
+        try {
+            column_values.resize(content_uncompressed_size);
+        } catch (...) {
+            std::string msg = fmt::format("Try to alloc {} bytes for pblock column values failed.",
+                                          content_uncompressed_size);
+            LOG(WARNING) << msg;
+            return Status::BufferAllocFailed(msg);
+        }
+        buf = column_values.data();
+    } else {
+        try {
+            ser_reuse_mem->serialize_mem.resize(content_uncompressed_size);
+        } catch (...) {
+            std::string msg = fmt::format("Try to alloc {} bytes for pblock column values failed.",
+                                          content_uncompressed_size);
+            LOG(WARNING) << msg;
+            return Status::BufferAllocFailed(msg);
+        }
+        buf = ser_reuse_mem->serialize_mem.data();
     }
-    char* buf = column_values.data();
 
+    char* start_buf = buf;
     for (const auto& c : *this) {
         buf = c.type->serialize(*(c.column), buf, pblock->be_exec_version());
     }
@@ -875,26 +889,33 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
         pblock->set_compression_type(compression_type);
         pblock->set_uncompressed_size(content_uncompressed_size);
 
-        BlockCompressionCodec* codec;
-        RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
+        faststring compress_str;
+        faststring* buf_compressed = nullptr;
+        if (ser_reuse_mem) {
+            buf_compressed = &ser_reuse_mem->compress_mem;
+        } else {
+            buf_compressed = &compress_str;
+        }
+        if (!codec) RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
 
-        faststring buf_compressed;
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(
-                Slice(column_values.data(), content_uncompressed_size), &buf_compressed));
-        size_t compressed_size = buf_compressed.size();
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                codec->compress(Slice(start_buf, content_uncompressed_size), buf_compressed));
+        size_t compressed_size = buf_compressed->size();
         if (LIKELY(compressed_size < content_uncompressed_size)) {
-            pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
+            pblock->set_column_values(buf_compressed->data(), buf_compressed->size());
             pblock->set_compressed(true);
             *compressed_bytes = compressed_size;
         } else {
-            pblock->set_column_values(std::move(column_values));
+            pblock->set_column_values(ser_reuse_mem ? ser_reuse_mem->serialize_mem
+                                                    : std::move(column_values));
             *compressed_bytes = content_uncompressed_size;
         }
 
         VLOG_ROW << "uncompressed size: " << content_uncompressed_size
                  << ", compressed size: " << compressed_size;
     } else {
-        pblock->set_column_values(std::move(column_values));
+        pblock->set_column_values(ser_reuse_mem ? ser_reuse_mem->serialize_mem
+                                                : std::move(column_values));
         *compressed_bytes = content_uncompressed_size;
     }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {

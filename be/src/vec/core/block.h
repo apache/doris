@@ -37,6 +37,8 @@
 #include "common/exception.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
+#include "util/block_compression.h"
+#include "util/faststring.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
@@ -59,6 +61,10 @@ enum CompressionTypePB : int;
 
 namespace vectorized {
 
+struct SerReuseMem {
+    std::string serialize_mem;
+    faststring compress_mem;
+};
 /** Container for set of columns for bunch of rows in memory.
   * This is unit of data processing.
   * Also contains metadata - data types of columns and their names
@@ -282,7 +288,8 @@ public:
     // serialize block to PBlock
     Status serialize(int be_exec_version, PBlock* pblock, size_t* uncompressed_bytes,
                      size_t* compressed_bytes, segment_v2::CompressionTypePB compression_type,
-                     bool allow_transfer_large_data = false) const;
+                     bool allow_transfer_large_data = false, SerReuseMem* ser_reuse_mem = nullptr,
+                     BlockCompressionCodec* bcc = nullptr) const;
 
     Status deserialize(const PBlock& pblock);
 

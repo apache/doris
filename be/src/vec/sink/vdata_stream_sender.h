@@ -94,6 +94,7 @@ private:
 
     bool _is_local;
     const int _batch_size;
+    SerReuseMem _ser_reuse_mem;
 };
 
 struct ShuffleChannelIds {
@@ -220,6 +221,7 @@ protected:
     bool _transfer_large_data_by_brpc = false;
 
     segment_v2::CompressionTypePB _compression_type;
+    BlockCompressionCodec* _codec = nullptr;
 
     bool _only_local_exchange = false;
     bool _enable_pipeline_exec = false;
