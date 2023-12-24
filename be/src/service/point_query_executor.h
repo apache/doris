@@ -109,7 +109,7 @@ private:
 };
 
 // RowCache is a LRU cache for row store
-class RowCache {
+class RowCache : public LRUCachePolicy {
 public:
     // The cache key for row lru cache
     struct RowCacheKey {
@@ -187,7 +187,6 @@ public:
 private:
     static constexpr uint32_t kDefaultNumShards = 128;
     RowCache(int64_t capacity, int num_shards = kDefaultNumShards);
-    std::unique_ptr<Cache> _cache;
 };
 
 // A cache used for prepare stmt.
@@ -204,7 +203,8 @@ private:
     friend class PointQueryExecutor;
     LookupConnectionCache(size_t capacity)
             : LRUCachePolicy(CachePolicy::CacheType::LOOKUP_CONNECTION_CACHE, capacity,
-                             LRUCacheType::SIZE, config::tablet_lookup_cache_clean_interval) {}
+                             LRUCacheType::SIZE, config::tablet_lookup_cache_stale_sweep_time_sec) {
+    }
 
     std::string encode_key(__int128_t cache_id) {
         fmt::memory_buffer buffer;

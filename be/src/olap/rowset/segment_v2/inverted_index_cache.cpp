@@ -113,13 +113,10 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
             auto* cache_value = (InvertedIndexSearcherCache::CacheValue*)value;
             return cache_value->last_visit_time;
         };
-        _cache = std::unique_ptr<Cache>(
-                new ShardedLRUCache("InvertedIndexSearcherCache", capacity, LRUCacheType::SIZE,
-                                    num_shards, get_last_visit_time, true, open_searcher_limit));
+        init(capacity, LRUCacheType::SIZE, num_shards, get_last_visit_time, true,
+             open_searcher_limit);
     } else {
-        _cache = std::unique_ptr<Cache>(new ShardedLRUCache("InvertedIndexSearcherCache", capacity,
-                                                            LRUCacheType::SIZE, num_shards,
-                                                            open_searcher_limit));
+        init(capacity, LRUCacheType::SIZE, num_shards, open_searcher_limit);
     }
 }
 

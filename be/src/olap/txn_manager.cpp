@@ -116,8 +116,7 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
     _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
     // For debugging
-    _tablet_version_cache = std::unique_ptr<Cache>(
-            new ShardedLRUCache("TabletVersionCache", 100000, LRUCacheType::NUMBER, 32));
+    _tablet_version_cache = std::make_unique<TabletVersionCache>(100000);
 }
 
 // prepare txn should always be allowed because ingest task will be retried
@@ -889,12 +888,12 @@ int64_t TxnManager::get_txn_by_tablet_version(int64_t tablet_id, int64_t version
     memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
     CacheKey cache_key((const char*)&key, sizeof(key));
 
-    auto handle = _tablet_version_cache->lookup(cache_key);
+    auto handle = _tablet_version_cache->get()->lookup(cache_key);
     if (handle == nullptr) {
         return -1;
     }
-    int64_t res = *(int64_t*)_tablet_version_cache->value(handle);
-    _tablet_version_cache->release(handle);
+    int64_t res = *(int64_t*)_tablet_version_cache->get()->value(handle);
+    _tablet_version_cache->get()->release(handle);
     return res;
 }
 
@@ -911,9 +910,9 @@ void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, i
         delete cache_value;
     };
 
-    auto handle = _tablet_version_cache->insert(cache_key, value, 1, deleter, CachePriority::NORMAL,
-                                                sizeof(txn_id));
-    _tablet_version_cache->release(handle);
+    auto handle = _tablet_version_cache->get()->insert(cache_key, value, 1, deleter,
+                                                       CachePriority::NORMAL, sizeof(txn_id));
+    _tablet_version_cache->get()->release(handle);
 }
 
 TxnState TxnManager::get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,

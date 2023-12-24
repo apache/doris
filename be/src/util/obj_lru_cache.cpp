@@ -19,11 +19,12 @@
 
 namespace doris {
 
-ObjLRUCache::ObjLRUCache(int64_t capacity, uint32_t num_shards) {
+ObjLRUCache::ObjLRUCache(int64_t capacity, uint32_t num_shards)
+        : LRUCachePolicy(CachePolicy::CacheType::COMMON_OBJ_LRU_CACHE,
+                         config::common_obj_lru_cache_stale_sweep_time_sec) {
     _enabled = (capacity > 0);
     if (_enabled) {
-        _cache = std::unique_ptr<Cache>(
-                new ShardedLRUCache("ObjLRUCache", capacity, LRUCacheType::NUMBER, num_shards));
+        init(capacity, LRUCacheType::NUMBER, num_shards);
     }
 }
 

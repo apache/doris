@@ -34,22 +34,46 @@ struct LRUCacheValueBase {
 // Base of lru cache, allow prune stale entry and prune all entry.
 class LRUCachePolicy : public CachePolicy {
 public:
-    LRUCachePolicy(CacheType type, uint32_t stale_sweep_time_s)
-            : CachePolicy(type, stale_sweep_time_s) {};
+    LRUCachePolicy(CacheType type, uint32_t stale_sweep_time_s, bool enable_prune = true)
+            : CachePolicy(type, stale_sweep_time_s, enable_prune) {};
     LRUCachePolicy(CacheType type, size_t capacity, LRUCacheType lru_cache_type,
-                   uint32_t stale_sweep_time_s, uint32_t num_shards = -1)
-            : CachePolicy(type, stale_sweep_time_s) {
-        _cache = num_shards == -1
-                         ? std::unique_ptr<Cache>(
-                                   new ShardedLRUCache(type_string(type), capacity, lru_cache_type))
-                         : std::unique_ptr<Cache>(new ShardedLRUCache(type_string(type), capacity,
-                                                                      lru_cache_type, num_shards));
+                   uint32_t stale_sweep_time_s, uint32_t num_shards = DEFAULT_LRU_CACHE_NUM_SHARDS,
+                   bool enable_prune = true)
+            : CachePolicy(type, stale_sweep_time_s, enable_prune) {
+        init(capacity, lru_cache_type, num_shards);
+    }
+
+    void init(size_t capacity, LRUCacheType lru_cache_type, uint32_t num_shards) {
+        CHECK(!_is_init);
+        _cache = std::unique_ptr<ShardedLRUCache>(
+                new ShardedLRUCache(type_string(type()), capacity, lru_cache_type, num_shards,
+                                    DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY));
+        _is_init = true;
+    }
+    void init(size_t capacity, LRUCacheType lru_cache_type, uint32_t num_shards,
+              uint32_t element_count_capacity) {
+        CHECK(!_is_init);
+        _cache = std::unique_ptr<ShardedLRUCache>(new ShardedLRUCache(
+                type_string(type()), capacity, lru_cache_type, num_shards, element_count_capacity));
+        _is_init = true;
+    }
+    void init(size_t capacity, LRUCacheType lru_cache_type, uint32_t num_shards,
+              CacheValueTimeExtractor cache_value_time_extractor, bool cache_value_check_timestamp,
+              uint32_t element_count_capacity) {
+        CHECK(!_is_init);
+        _cache = std::unique_ptr<ShardedLRUCache>(new ShardedLRUCache(
+                type_string(type()), capacity, lru_cache_type, num_shards,
+                cache_value_time_extractor, cache_value_check_timestamp, element_count_capacity));
+        _is_init = true;
     }
 
     ~LRUCachePolicy() override = default;
 
     // Try to prune the cache if expired.
     void prune_stale() override {
+        if (_stale_sweep_time_s <= 0) {
+            return;
+        }
         if (_cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
             COUNTER_SET(_cost_timer, (int64_t)0);
             SCOPED_TIMER(_cost_timer);
@@ -95,6 +119,7 @@ public:
 
 protected:
     std::unique_ptr<Cache> _cache;
+    bool _is_init = false;
 };
 
 } // namespace doris

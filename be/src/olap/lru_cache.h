@@ -52,11 +52,16 @@ namespace doris {
     } while (0)
 
 class Cache;
+class LRUCachePolicy;
 
 enum LRUCacheType {
     SIZE,  // The capacity of cache is based on the size of cache entry.
     NUMBER // The capacity of cache is based on the number of cache entry.
 };
+
+static constexpr LRUCacheType DEFAULT_LRU_CACHE_TYPE = LRUCacheType::SIZE;
+static constexpr uint32_t DEFAULT_LRU_CACHE_NUM_SHARDS = 16;
+static constexpr size_t DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY = 0;
 
 class CacheKey {
 public:
@@ -389,14 +394,6 @@ private:
 
 class ShardedLRUCache : public Cache {
 public:
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity,
-                             LRUCacheType type = LRUCacheType::SIZE, uint32_t num_shards = 16,
-                             uint32_t element_count_capacity = 0);
-    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards,
-                             CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
-    // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
@@ -415,6 +412,16 @@ public:
     size_t get_total_capacity() override { return _total_capacity; };
 
 private:
+    // LRUCache can only be created and managed with LRUCachePolicy.
+    friend class LRUCachePolicy;
+
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             uint32_t num_shards, uint32_t element_count_capacity);
+    explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
+                             uint32_t num_shards,
+                             CacheValueTimeExtractor cache_value_time_extractor,
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity);
+
     void update_cache_metrics() const;
 
     static std::string lru_cache_type_string(LRUCacheType type) {
