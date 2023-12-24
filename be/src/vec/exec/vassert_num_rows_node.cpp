@@ -32,6 +32,7 @@
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 class DescriptorTbl;
@@ -103,6 +104,7 @@ Status VAssertNumRowsNode::pull(doris::RuntimeState* state, vectorized::Block* b
                                  to_string_lambda(_assertion), _desired_num_rows, _subquery_string);
     }
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
+    RETURN_IF_ERROR(VExprContext::filter_block(_conjuncts, block, block->columns()));
     return Status::OK();
 }
 
