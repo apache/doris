@@ -52,6 +52,7 @@ import java.util.BitSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
@@ -691,7 +692,7 @@ public class HyperGraph {
         }
         int size = t.getExpressions().size();
         for (int i = 0; i < size; i++) {
-            if (!expressionMap.get(t.getExpression(i)).equals(o.getExpression(i))) {
+            if (!Objects.equals(expressionMap.get(t.getExpression(i)), o.getExpression(i))) {
                 return false;
             }
         }
