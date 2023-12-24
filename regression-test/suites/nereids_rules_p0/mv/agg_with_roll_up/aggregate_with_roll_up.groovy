@@ -42,7 +42,11 @@ suite("aggregate_with_roll_up") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    PARTITION BY RANGE(o_orderdate) (PARTITION `day_2` VALUES LESS THAN ('2023-12-30'))
+    PARTITION BY RANGE(o_orderdate) (
+    PARTITION `day_2` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-11"),
+    PARTITION `day_4` VALUES LESS THAN ("2023-12-30")
+    )
     DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -73,7 +77,10 @@ suite("aggregate_with_roll_up") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    PARTITION BY RANGE(l_shipdate) (PARTITION `day_1` VALUES LESS THAN ('2023-12-30'))
+    PARTITION BY RANGE(l_shipdate) (
+    PARTITION `day_1` VALUES LESS THAN ('2023-12-9'),
+    PARTITION `day_2` VALUES LESS THAN ("2023-12-11"),
+    PARTITION `day_3` VALUES LESS THAN ("2023-12-30"))
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES (
       "replication_num" = "1"
@@ -131,6 +138,26 @@ suite("aggregate_with_roll_up") {
         sql"""
         CREATE MATERIALIZED VIEW ${mv_name} 
         BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS ${mv_sql}
+        """
+
+        def job_name = getJobName(db, mv_name);
+        waitingMTMVTaskFinished(job_name)
+        explain {
+            sql("${query_sql}")
+            contains "(${mv_name})"
+        }
+    }
+
+    def check_rewrite_with_mv_partition = { mv_sql, query_sql, mv_name, partition_column ->
+
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mv_name}"""
+        sql"""
+        CREATE MATERIALIZED VIEW ${mv_name} 
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        PARTITION BY (${partition_column})
         DISTRIBUTED BY RANDOM BUCKETS 2
         PROPERTIES ('replication_num' = '1') 
         AS ${mv_sql}
@@ -283,7 +310,7 @@ suite("aggregate_with_roll_up") {
             "l_partkey, " +
             "l_suppkey"
     order_qt_query15_0_before "${query15_0}"
-    check_rewrite(mv15_0, query15_0, "mv15_0")
+    check_rewrite_with_mv_partition(mv15_0, query15_0, "mv15_0", "l_shipdate")
     order_qt_query15_0_after "${query15_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv15_0"""
 
