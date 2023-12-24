@@ -30,9 +30,9 @@ public:
     PipScannerContext(RuntimeState* state, vectorized::VScanNode* parent,
                       const TupleDescriptor* output_tuple_desc,
                       const RowDescriptor* output_row_descriptor,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
-                      int64_t max_bytes_in_blocks_queue, const std::vector<int>& col_distribute_ids,
-                      const int num_parallel_instances)
+                      const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
+                      int64_t limit_, int64_t max_bytes_in_blocks_queue,
+                      const std::vector<int>& col_distribute_ids, const int num_parallel_instances)
             : vectorized::ScannerContext(state, parent, output_tuple_desc, output_row_descriptor,
                                          scanners, limit_, max_bytes_in_blocks_queue,
                                          num_parallel_instances),
@@ -55,6 +55,9 @@ public:
         std::vector<vectorized::BlockUPtr> merge_blocks;
         {
             std::unique_lock<std::mutex> l(*_queue_mutexs[id]);
+            // The pipeline maybe wake up by scanner.done. If there are still any data
+            // in the queue, should read the data first and then check if the scanner.done
+            // if done, then eos is returned to indicate that the scan operator finished.
             if (_blocks_queues[id].empty()) {
                 *eos = done();
                 return Status::OK();
@@ -96,9 +99,6 @@ public:
 
         return Status::OK();
     }
-
-    // We should make those method lock free.
-    bool done() override { return _is_finished || _should_stop; }
 
     void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) override {
         const int queue_size = _blocks_queues.size();

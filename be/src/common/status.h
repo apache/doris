@@ -434,14 +434,6 @@ public:
 
     bool ok() const { return _code == ErrorCode::OK; }
 
-    // Convert into TStatus. Call this if 'status_container' contains an optional
-    // TStatus field named 'status'. This also sets __isset.status.
-    template <typename T>
-    void set_t_status(T* status_container) const {
-        to_thrift(&status_container->status);
-        status_container->__isset.status = true;
-    }
-
     // Convert into TStatus.
     void to_thrift(TStatus* status) const;
     TStatus to_thrift() const;

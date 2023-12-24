@@ -213,7 +213,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     params.__set_backend_num(req.backend_num);
     params.__set_fragment_instance_id(req.fragment_instance_id);
     params.__set_fragment_id(req.fragment_id);
-    exec_status.set_t_status(&params);
+    params.__set_status(exec_status.to_thrift());
     params.__set_done(req.done);
     params.__set_query_type(req.runtime_state->query_type());
     params.__set_finished_scan_ranges(req.runtime_state->num_finished_range());
