@@ -113,6 +113,7 @@ public class PartitionPruner extends DefaultExpressionRewriter<Void> {
                         partitionTableType))
                 .collect(ImmutableList.toImmutableList());
 
+        partitionPredicate = OrToIn.INSTANCE.rewrite(partitionPredicate, null);
         PartitionPruner partitionPruner = new PartitionPruner(evaluators, partitionPredicate);
         //TODO: we keep default partition because it's too hard to prune it, we return false in canPrune().
         return partitionPruner.prune();
