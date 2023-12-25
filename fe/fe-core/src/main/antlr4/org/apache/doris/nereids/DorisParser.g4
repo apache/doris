@@ -502,15 +502,15 @@ partitionsDef
     ;
     
 partitionDef
-    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) properties=propertyClause?
+    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) (LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN)?
     ;
     
 lessThanPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
+    : PARTITION (ifNotExists=IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
     ;
     
 fixedPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
+    : PARTITION (ifNotExists=IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
     ;
 
 stepPartitionDef
@@ -518,7 +518,7 @@ stepPartitionDef
     ;
 
 inPartitionDef
-    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
+    : PARTITION (ifNotExists=IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
         (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq))?
     ;
     
