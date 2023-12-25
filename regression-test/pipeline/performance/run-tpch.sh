@@ -139,13 +139,13 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-q
 )
 exit_flag="$?"
 
-# echo "#### 5. check if need backup doris logs"
-# if [[ ${exit_flag} != "0" ]]; then
-#     print_doris_fe_log
-#     print_doris_be_log
-#     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
-#         upload_doris_log_to_oss "${file_name}"
-#     fi
-# fi
+echo "#### 5. check if need backup doris logs"
+if [[ ${exit_flag} != "0" ]]; then
+    print_doris_fe_log
+    print_doris_be_log
+    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+        upload_doris_log_to_oss "${file_name}"
+    fi
+fi
 
 exit "${exit_flag}"

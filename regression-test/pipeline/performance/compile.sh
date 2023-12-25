@@ -30,7 +30,6 @@ fi
 EOF
 
 if ${DEBUG:-false}; then
-    
     pull_request_num="28431"
     commit_id="b052225cd0a180b4576319b5bd6331218dd0d3fe"
     target_branch="master"
@@ -93,7 +92,7 @@ else
     REMOTE_CCACHE='/mnt/remote_ccache_master'
     docker_image="apache/doris:build-env-ldb-toolchain-latest"
 fi
-if ${merge_latest:-true}; then
+if ${merge_target_branch_latest:-true}; then
     if ! merge_pr_to_target_branch_latest "${pull_request_num}" "${target_branch}"; then
         exit 1
     fi

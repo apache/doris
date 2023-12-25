@@ -81,34 +81,24 @@ storage_root_path=$(get_doris_conf_value "${DORIS_HOME}"/be/conf/be_custom.conf 
 mkdir -p "${meta_dir}"
 mkdir -p "${storage_root_path}"
 if ! start_doris_fe; then
-    echo "WARNING: Start doris fe failed at first time"
+    echo "ERROR: Start doris fe failed."
     print_doris_fe_log
-    echo "WARNING: delete meta_dir and storage_root_path, then retry start doris fe"
-    rm -rf "${meta_dir:?}/"*
-    rm -rf "${storage_root_path:?}/"*
-    if ! start_doris_fe; then
-        need_backup_doris_logs=true
-        exit_flag=1
-    fi
+    need_backup_doris_logs=true
+    exit_flag=1
 fi
 if ! start_doris_be; then
-    echo "WARNING: Start doris be failed at first time"
+    echo "ERROR: Start doris be failed."
     print_doris_be_log
-    echo "WARNING: delete storage_root_path, then retry start doris be"
-    rm -rf "${storage_root_path:?}/"*
-    if ! start_doris_be; then
-        need_backup_doris_logs=true
-        exit_flag=1
-    fi
+    need_backup_doris_logs=true
+    exit_flag=1
 fi
 if ! add_doris_be_to_fe; then
     need_backup_doris_logs=true
     exit_flag=1
-else
-    # wait 10s for doris totally started, otherwize may encounter the error below,
-    # ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
-    sleep 10s
 fi
+# wait 10s for doris totally started, otherwize may encounter the error below,
+# ERROR 1105 (HY000) at line 102: errCode = 2, detailMessage = Failed to find enough backend, please check the replication num,replication tag and storage medium.
+sleep 10s
 
 echo "#### 4. set session variables"
 echo "TODO"
