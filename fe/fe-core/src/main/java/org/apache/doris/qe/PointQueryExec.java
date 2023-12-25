@@ -121,6 +121,9 @@ public class PointQueryExec implements CoordInterface {
         OlapScanNode planRoot = getPlanRoot();
         // compute scan range
         List<TScanRangeLocations> locations = planRoot.lazyEvaluateRangeLocations();
+        if (planRoot.getScanTabletIds().isEmpty()) {
+            return;
+        }
         Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
         this.tabletID = planRoot.getScanTabletIds().get(0);
 
@@ -167,6 +170,10 @@ public class PointQueryExec implements CoordInterface {
     @Override
     public RowBatch getNext() throws Exception {
         setScanRangeLocations();
+        // No partition/tablet found return emtpy row batch
+        if (candidateBackends == null || candidateBackends.isEmpty()) {
+            return new RowBatch();
+        }
         Iterator<Backend> backendIter = candidateBackends.iterator();
         RowBatch rowBatch = null;
         int tryCount = 0;

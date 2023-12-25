@@ -48,12 +48,13 @@
 
 namespace doris::pipeline {
 
-BlockedTaskScheduler::BlockedTaskScheduler() : _started(false), _shutdown(false) {}
+BlockedTaskScheduler::BlockedTaskScheduler(std::string name)
+        : _name(name), _started(false), _shutdown(false) {}
 
-Status BlockedTaskScheduler::start(std::string sche_name) {
+Status BlockedTaskScheduler::start() {
     LOG(INFO) << "BlockedTaskScheduler start";
     RETURN_IF_ERROR(Thread::create(
-            "BlockedTaskScheduler", sche_name, [this]() { this->_schedule(); }, &_thread));
+            "BlockedTaskScheduler", _name, [this]() { this->_schedule(); }, &_thread));
     while (!this->_started.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
@@ -349,7 +350,7 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
                                     Status exec_status) {
     // close_a_pipeline may delete fragment context and will core in some defer
     // code, because the defer code will access fragment context it self.
-    std::shared_ptr<PipelineFragmentContext> lock_for_context =
+    std::shared_ptr<TaskExecutionContext> lock_for_context =
             task->fragment_context()->shared_from_this();
     auto status = task->try_close(exec_status);
     auto cancel = [&]() {

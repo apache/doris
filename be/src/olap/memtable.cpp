@@ -44,6 +44,7 @@
 namespace doris {
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
+bvar::Adder<int64_t> g_memtable_input_block_allocated_size("memtable_input_block_allocated_size");
 
 using namespace ErrorCode;
 
@@ -137,6 +138,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 }
 
 MemTable::~MemTable() {
+    g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     g_memtable_cnt << -1;
     if (_keys_type != KeysType::DUP_KEYS) {
         for (auto it = _row_in_blocks.begin(); it != _row_in_blocks.end(); it++) {
@@ -198,6 +200,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<ui
 
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
+    auto block_size0 = _input_mutable_block.allocated_bytes();
     if (is_append) {
         // Append the block, call insert range from
         _input_mutable_block.add_rows(&target_block, 0, target_block.rows());
@@ -205,7 +208,10 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<ui
     } else {
         _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
     }
-    size_t input_size = target_block.bytes() * num_rows / target_block.rows();
+    auto block_size1 = _input_mutable_block.allocated_bytes();
+    g_memtable_input_block_allocated_size << block_size1 - block_size0;
+    size_t input_size = target_block.bytes() * num_rows / target_block.rows() *
+                        config::memtable_insert_memory_ratio;
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {
@@ -451,6 +457,8 @@ void MemTable::_aggregate() {
         _output_mutable_block =
                 vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
         _output_mutable_block.clear_column_data();
+        _row_in_blocks = temp_row_in_blocks;
+        _last_sorted_pos = _row_in_blocks.size();
     }
 }
 
@@ -460,10 +468,7 @@ void MemTable::shrink_memtable_by_agg() {
         return;
     }
     size_t same_keys_num = _sort();
-    if (same_keys_num == 0) {
-        vectorized::Block in_block = _input_mutable_block.to_block();
-        _put_into_output(in_block);
-    } else {
+    if (same_keys_num != 0) {
         _aggregate<false>();
     }
 }
@@ -502,6 +507,10 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
         !_tablet_schema->cluster_key_idxes().empty()) {
         _sort_by_cluster_keys();
     }
+    g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
+    _input_mutable_block.clear();
+    _insert_mem_tracker->release(_mem_usage);
+    _mem_usage = 0;
     return vectorized::Block::create_unique(_output_mutable_block.to_block());
 }
 

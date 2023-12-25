@@ -21,7 +21,6 @@
 #include <memory>
 
 #include "common/status.h"
-#include "scan_task_queue.h"
 #include "util/threadpool.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -31,9 +30,7 @@ class ExecEnv;
 namespace vectorized {
 class VScanner;
 } // namespace vectorized
-namespace taskgroup {
-class ScanTaskTaskGroupQueue;
-}
+
 template <typename T>
 class BlockingQueue;
 } // namespace doris
@@ -66,15 +63,12 @@ public:
 
     [[nodiscard]] Status init(ExecEnv* env);
 
-    [[nodiscard]] Status submit(ScannerContext* ctx);
+    [[nodiscard]] Status submit(std::shared_ptr<ScannerContext> ctx);
 
     void stop();
 
     std::unique_ptr<ThreadPoolToken> new_limited_scan_pool_token(ThreadPool::ExecutionMode mode,
                                                                  int max_concurrency);
-    taskgroup::ScanTaskTaskGroupQueue* local_scan_task_queue() {
-        return _task_group_local_scan_queue.get();
-    }
 
     int remote_thread_pool_max_size() const { return _remote_thread_pool_max_size; }
 
@@ -82,12 +76,11 @@ private:
     // scheduling thread function
     void _schedule_thread(int queue_id);
     // schedule scanners in a certain ScannerContext
-    void _schedule_scanners(ScannerContext* ctx);
+    void _schedule_scanners(std::shared_ptr<ScannerContext> ctx);
     // execution thread function
-    void _scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx, VScannerSPtr scanner);
+    void _scanner_scan(ScannerScheduler* scheduler, std::shared_ptr<ScannerContext> ctx,
+                       VScannerSPtr scanner);
 
-    void _task_group_scanner_scan(ScannerScheduler* scheduler,
-                                  taskgroup::ScanTaskTaskGroupQueue* scan_queue);
     void _register_metrics();
 
     static void _deregister_metrics();
@@ -102,7 +95,7 @@ private:
     // and put it to the _scheduling_map.
     // If any scanner finish, it will take ctx from and put it to pending queue again.
     std::atomic_uint _queue_idx = {0};
-    BlockingQueue<ScannerContext*>** _pending_queues = nullptr;
+    BlockingQueue<std::shared_ptr<ScannerContext>>** _pending_queues = nullptr;
 
     // scheduling thread pool
     std::unique_ptr<ThreadPool> _scheduler_pool;
@@ -114,9 +107,6 @@ private:
     std::unique_ptr<PriorityThreadPool> _remote_scan_thread_pool;
     std::unique_ptr<ThreadPool> _limited_scan_thread_pool;
 
-    std::unique_ptr<taskgroup::ScanTaskTaskGroupQueue> _task_group_local_scan_queue;
-    std::unique_ptr<ThreadPool> _group_local_scan_thread_pool;
-
     // true is the scheduler is closed.
     std::atomic_bool _is_closed = {false};
     bool _is_init = false;
@@ -126,13 +116,13 @@ private:
 struct SimplifiedScanTask {
     SimplifiedScanTask() = default;
     SimplifiedScanTask(std::function<void()> scan_func,
-                       vectorized::ScannerContext* scanner_context) {
+                       std::shared_ptr<vectorized::ScannerContext> scanner_context) {
         this->scan_func = scan_func;
         this->scanner_context = scanner_context;
     }
 
     std::function<void()> scan_func;
-    vectorized::ScannerContext* scanner_context = nullptr;
+    std::shared_ptr<vectorized::ScannerContext> scanner_context = nullptr;
 };
 
 // used for cpu hard limit

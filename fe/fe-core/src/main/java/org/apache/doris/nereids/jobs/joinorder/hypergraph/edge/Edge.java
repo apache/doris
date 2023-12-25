@@ -22,6 +22,8 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.BitSet;
 import java.util.List;
 import java.util.Set;
@@ -51,6 +53,8 @@ public abstract class Edge {
     // record all sub nodes behind in this operator. It's T function in paper
     private final long subTreeNodes;
 
+    private long rejectNodes = 0;
+
     /**
      * Create simple edge.
      */
@@ -69,6 +73,10 @@ public abstract class Edge {
 
     public boolean isSimple() {
         return LongBitmap.getCardinality(leftExtendedNodes) == 1 && LongBitmap.getCardinality(rightExtendedNodes) == 1;
+    }
+
+    public void addRejectEdge(Edge edge) {
+        rejectNodes = LongBitmap.newBitmapUnion(edge.getReferenceNodes(), rejectNodes);
     }
 
     public void addLeftExtendNode(long left) {
@@ -170,6 +178,20 @@ public abstract class Edge {
     public abstract Set<Slot> getInputSlots();
 
     public abstract List<? extends Expression> getExpressions();
+
+    public Set<? extends Expression> getExpressionSet() {
+        return ImmutableSet.copyOf(getExpressions());
+    }
+
+    public boolean canPullUp() {
+        // Only inner join and filter with none rejectNodes can be pull up
+        return rejectNodes == 0
+                && !(this instanceof JoinEdge && !((JoinEdge) this).getJoinType().isInnerJoin());
+    }
+
+    public long getRejectNodes() {
+        return rejectNodes;
+    }
 
     public Expression getExpression(int i) {
         return getExpressions().get(i);

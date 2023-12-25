@@ -71,7 +71,7 @@ suite("test_group_commit_wal_limit") {
     assertEquals(code, 0)
     out = process.text
     logger.info("out is " + out )
-    assertTrue(out.contains('[INTERNAL_ERROR]Stream load size too large'))
+    assertTrue(out.contains('Stream load size too large'))
 
     // too lagre data case 1TB
     strBuilder = new StringBuilder()
@@ -89,7 +89,7 @@ suite("test_group_commit_wal_limit") {
     assertEquals(code, 0)
     out = process.text
     logger.info("out is " + out )
-    assertTrue(out.contains('[INTERNAL_ERROR]Stream load size too large'))
+    assertTrue(out.contains('Stream load size too large'))
 
     // httpload 
     // normal case
@@ -126,7 +126,7 @@ suite("test_group_commit_wal_limit") {
     assertEquals(code, 0)
     out = process.text
     logger.info("out is " + out )
-    assertTrue(out.contains('[INTERNAL_ERROR]Http load size too large'))
+    assertTrue(out.contains('Http load size too large'))
 
     // too lagre data case 1TB
     strBuilder = new StringBuilder()
@@ -144,5 +144,5 @@ suite("test_group_commit_wal_limit") {
     assertEquals(code, 0)
     out = process.text
     logger.info("out is " + out )
-    assertTrue(out.contains('[INTERNAL_ERROR]Http load size too large'))
+    assertTrue(out.contains('Http load size too large'))
 }

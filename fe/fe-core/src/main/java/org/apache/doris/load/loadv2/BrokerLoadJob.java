@@ -83,6 +83,8 @@ public class BrokerLoadJob extends BulkLoadJob {
     // If set to true, the profile of load job with be pushed to ProfileManager
     private boolean enableProfile = false;
 
+    private boolean enableMemTableOnSinkNode = false;
+
     // for log replay and unit test
     public BrokerLoadJob() {
         super(EtlJobType.BROKER);
@@ -93,8 +95,9 @@ public class BrokerLoadJob extends BulkLoadJob {
             throws MetaNotFoundException {
         super(EtlJobType.BROKER, dbId, label, originStmt, userInfo);
         this.brokerDesc = brokerDesc;
-        if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().enableProfile()) {
-            enableProfile = true;
+        if (ConnectContext.get() != null) {
+            enableProfile = ConnectContext.get().getSessionVariable().enableProfile();
+            enableMemTableOnSinkNode = ConnectContext.get().getSessionVariable().enableMemtableOnSinkNode;
         }
     }
 
@@ -212,7 +215,7 @@ public class BrokerLoadJob extends BulkLoadJob {
                         isStrictMode(), isPartialUpdate(), transactionId, this, getTimeZone(), getTimeout(),
                         getLoadParallelism(), getSendBatchParallelism(),
                         getMaxFilterRatio() <= 0, enableProfile ? jobProfile : null, isSingleTabletLoadPerSink(),
-                        useNewLoadScanNode(), getPriority());
+                        useNewLoadScanNode(), getPriority(), enableMemTableOnSinkNode);
 
                 UUID uuid = UUID.randomUUID();
                 TUniqueId loadId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());

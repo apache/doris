@@ -251,8 +251,8 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            vectorized::DataTypePtr storage_type =
-                    _segment->get_data_type_of(*_schema->column(cid), false);
+            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
+                    _schema->column(cid)->path(), _schema->column(cid)->is_nullable(), false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();
@@ -379,6 +379,8 @@ private:
                                          const MatchPredicate* match_pred, const Schema* schema);
 
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
+
+    bool _need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column, size_t nrows_read);
 
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;

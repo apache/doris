@@ -42,8 +42,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 
-namespace doris {
-namespace config {
+namespace doris::config {
 
 // Dir of custom config file
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
@@ -109,10 +108,6 @@ DEFINE_mInt32(hash_table_double_grow_degree, "31");
 DEFINE_mInt32(max_fill_rate, "2");
 
 DEFINE_mInt32(double_resize_threshold, "23");
-// Expand the hash table before inserting data, the maximum expansion size.
-// There are fewer duplicate keys, reducing the number of resize hash tables
-// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
-DEFINE_mInt64(hash_table_pre_expanse_max_rows, "65535");
 
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
@@ -222,8 +217,6 @@ DEFINE_Int32(be_service_threads, "64");
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.
 DEFINE_Int32(num_threads_per_core, "3");
-// if true, compresses tuple data in Serialize
-DEFINE_mBool(compress_rowbatches, "true");
 DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
@@ -475,6 +468,8 @@ DEFINE_Int32(single_replica_load_download_num_workers, "64");
 DEFINE_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
+// error log size limit, default 200MB
+DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
@@ -586,10 +581,14 @@ DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
 // Alignment
 DEFINE_Int32(memory_max_alignment, "16");
 
+// memtable insert memory tracker will multiply input block size with this ratio
+DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
 DEFINE_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
+// max parallel flush task per memtable writer
+DEFINE_mInt32(memtable_flush_running_count_limit, "5");
 
 DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
@@ -599,6 +598,10 @@ DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
 DEFINE_Int32(load_process_soft_mem_limit_percent, "80");
+
+// If load memory consumption is within load_process_safe_mem_permit_percent,
+// memtable memory limiter will do nothing.
+DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -770,6 +773,8 @@ DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 DEFINE_Int32(load_stream_messages_in_batch, "128");
 // brpc streaming StreamWait seconds on EAGAIN
 DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
+// max tasks per flush token in load stream
+DEFINE_Int32(load_stream_flush_token_max_tasks, "5");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -782,12 +787,6 @@ DEFINE_Validator(max_send_batch_parallelism_per_job,
 DEFINE_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
 DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
-// number of download cache thread pool size
-DEFINE_Int32(download_cache_thread_pool_thread_num, "48");
-// number of download cache thread pool queue size
-DEFINE_Int32(download_cache_thread_pool_queue_size, "102400");
-// download cache buffer size
-DEFINE_Int64(download_cache_buffer_size, "10485760");
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -841,16 +840,6 @@ DEFINE_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 DEFINE_String(rpc_load_balancer, "rr");
 
-// The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
-// An export will be triggered when the number of spans in the queue reaches half of the maximum.
-DEFINE_Int32(max_span_queue_size, "2048");
-
-// The maximum batch size of every export spans. It must be smaller or equal to max_queue_size.
-DEFINE_Int32(max_span_export_batch_size, "512");
-
-// The time interval between two consecutive export spans.
-DEFINE_Int32(export_span_schedule_delay_millis, "500");
-
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
 DEFINE_mInt32(string_type_length_soft_limit_bytes, "1048576");
@@ -862,10 +851,6 @@ DEFINE_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
 
 DEFINE_Validator(jsonb_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
-
-// used for olap scanner to save memory, when the size of unused_object_pool
-// is greater than object_pool_buffer_size, release the object in the unused_object_pool.
-DEFINE_Int32(object_pool_buffer_size, "100");
 
 // Threshold of reading a small file into memory
 DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
@@ -902,7 +887,7 @@ DEFINE_Int32(concurrency_per_dir, "2");
 // "whole_file_cache": the whole file.
 DEFINE_mString(file_cache_type, "file_block_cache");
 DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
-    return config == "" || config == "file_block_cache";
+    return config.empty() || config == "file_block_cache";
 });
 
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
@@ -937,7 +922,7 @@ DEFINE_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 DEFINE_Bool(hide_webserver_config_page, "false");
 
-DEFINE_Bool(enable_segcompaction, "true");
+DEFINE_Bool(enable_segcompaction, "false");
 
 // Max number of segments allowed in a single segcompaction task.
 DEFINE_Int32(segcompaction_batch_size, "10");
@@ -968,8 +953,6 @@ DEFINE_Bool(enable_debug_points, "false");
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
-// 128 MB
-DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
@@ -1106,9 +1089,10 @@ DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 DEFINE_Int16(bitmap_serialize_version, "1");
 
 // group commit insert config
-DEFINE_String(group_commit_replay_wal_dir, "./wal");
+DEFINE_String(group_commit_wal_path, "./wal");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
+DEFINE_Int32(group_commit_relay_wal_threads, "10");
 
 // the count of thread to group commit insert
 DEFINE_Int32(group_commit_insert_threads, "10");
@@ -1148,6 +1132,9 @@ DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
 DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
+
+// 128 MB
+DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1201,7 +1188,7 @@ bool replaceenv(std::string& s) {
     std::size_t pos = 0;
     std::size_t start = 0;
     while ((start = s.find("${", pos)) != std::string::npos) {
-        std::size_t end = s.find("}", start + 2);
+        std::size_t end = s.find('}', start + 2);
         if (end == std::string::npos) {
             return false;
         }
@@ -1239,9 +1226,9 @@ bool strtox(const std::string& valstr, std::vector<T>& retval) {
 }
 
 bool strtox(const std::string& valstr, bool& retval) {
-    if (valstr.compare("true") == 0) {
+    if (valstr == "true") {
         retval = true;
-    } else if (valstr.compare("false") == 0) {
+    } else if (valstr == "false") {
         retval = false;
     } else {
         return false;
@@ -1601,18 +1588,17 @@ std::vector<std::vector<std::string>> get_config_info() {
         std::vector<std::string> _config;
         _config.push_back(it.first);
 
-        _config.push_back(field_it->second.type);
+        _config.emplace_back(field_it->second.type);
         if (0 == strcmp(field_it->second.type, "bool")) {
-            _config.push_back(it.second == "1" ? "true" : "false");
+            _config.emplace_back(it.second == "1" ? "true" : "false");
         } else {
             _config.push_back(it.second);
         }
-        _config.push_back(field_it->second.valmutable ? "true" : "false");
+        _config.emplace_back(field_it->second.valmutable ? "true" : "false");
 
         configs.push_back(_config);
     }
     return configs;
 }
 
-} // namespace config
-} // namespace doris
+} // namespace doris::config

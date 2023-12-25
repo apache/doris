@@ -1731,16 +1731,19 @@ bool VecDateTimeValue::from_unixtime(int64_t timestamp, const std::string& timez
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    return from_unixtime(timestamp, ctz);
+    from_unixtime(timestamp, ctz);
+    return true;
 }
 
-bool VecDateTimeValue::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
+void VecDateTimeValue::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
                     std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
 
     const auto tp = cctz::convert(t, ctz);
+
+    // there's no overflow check since it's hot path
 
     _neg = 0;
     _type = TIME_DATETIME;
@@ -1750,8 +1753,6 @@ bool VecDateTimeValue::from_unixtime(int64_t timestamp, const cctz::time_zone& c
     _hour = tp.hour();
     _minute = tp.minute();
     _second = tp.second();
-
-    return true;
 }
 
 const char* VecDateTimeValue::month_name() const {
@@ -3202,20 +3203,21 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const std::string& timezon
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    return from_unixtime(timestamp, ctz);
+    from_unixtime(timestamp, ctz);
+    return true;
 }
 
 template <typename T>
-bool DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
+void DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
                     std::chrono::system_clock::from_time_t(0));
     cctz::time_point<cctz::sys_seconds> t = epoch + cctz::seconds(timestamp);
-
     const auto tp = cctz::convert(t, ctz);
 
+    // there's no overflow check since it's hot path
+
     set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(), 0);
-    return true;
 }
 
 template <typename T>
@@ -3225,11 +3227,12 @@ bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    return from_unixtime(timestamp, ctz);
+    from_unixtime(timestamp, ctz);
+    return true;
 }
 
 template <typename T>
-bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
+void DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
                                    const cctz::time_zone& ctz) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
@@ -3240,7 +3243,6 @@ bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
 
     set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
              timestamp.second);
-    return true;
 }
 
 template <typename T>
@@ -3250,11 +3252,12 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
     }
-    return from_unixtime(timestamp, nano_seconds, ctz, scale);
+    from_unixtime(timestamp, nano_seconds, ctz, scale);
+    return true;
 }
 
 template <typename T>
-bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
+void DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
                                    const cctz::time_zone& ctz, int scale) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
@@ -3269,7 +3272,6 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
 
     set_time(tp.year(), tp.month(), tp.day(), tp.hour(), tp.minute(), tp.second(),
              nano_seconds / int_exp10(9 - scale) * int_exp10(6 - scale));
-    return true;
 }
 
 template <typename T>

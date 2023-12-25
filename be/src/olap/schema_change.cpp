@@ -262,8 +262,7 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
 
 Status BlockChanger::change_block(vectorized::Block* ref_block,
                                   vectorized::Block* new_block) const {
-    ObjectPool pool;
-    RuntimeState* state = pool.add(RuntimeState::create_unique().release());
+    std::unique_ptr<RuntimeState> state = RuntimeState::create_unique();
     state->set_desc_tbl(&_desc_tbl);
     state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
@@ -272,8 +271,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     if (_where_expr != nullptr) {
         vectorized::VExprContextSPtr ctx = nullptr;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
-        RETURN_IF_ERROR(ctx->prepare(state, row_desc));
-        RETURN_IF_ERROR(ctx->open(state));
+        RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
+        RETURN_IF_ERROR(ctx->open(state.get()));
 
         RETURN_IF_ERROR(
                 vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
@@ -288,8 +287,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
         if (_schema_mapping[idx].expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
-            RETURN_IF_ERROR(ctx->prepare(state, row_desc));
-            RETURN_IF_ERROR(ctx->open(state));
+            RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
+            RETURN_IF_ERROR(ctx->open(state.get()));
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
@@ -1340,10 +1339,10 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
                                                  const TabletColumn& column_schema,
                                                  const std::string& value) {
-    column_mapping->default_value = WrapperField::create(column_schema);
-
-    if (column_mapping->default_value == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("column_mapping->default_value is nullptr");
+    if (auto field = WrapperField::create(column_schema); field.has_value()) {
+        column_mapping->default_value = field.value();
+    } else {
+        return field.error();
     }
 
     if (column_schema.is_nullable() && value.length() == 0) {

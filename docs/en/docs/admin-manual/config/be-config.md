@@ -632,7 +632,7 @@ BaseCompaction:546859:
 
 * Type: bool
 * Description: Enable to use segment compaction during loading to avoid -238 error
-* Default value: true
+* Default value: false
 
 #### `segcompaction_batch_size`
 
@@ -727,6 +727,11 @@ BaseCompaction:546859:
 
 * Description: The load error log will be deleted after this time
 * Default value: 48 (h)
+
+#### `load_error_log_limit_bytes`
+
+* Description: The loading error logs larger than this value will be truncated
+* Default value: 209715200 (byte)
 
 #### `load_process_max_memory_limit_percent`
 
@@ -974,12 +979,6 @@ BaseCompaction:546859:
 
 * Description: Interval in milliseconds between memtable flush mgr refresh iterations
 * Default value: 100
-
-#### `download_cache_buffer_size`
-
-* Type: int64
-* Description: The size of the buffer used to receive data when downloading the cache.
-* Default value: 10485760
 
 #### `zone_map_row_num_threshold`
 
@@ -1505,3 +1504,16 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: BE Whether to enable the use of java-jni. When enabled, mutual calls between c++ and java are allowed. Currently supports hudi, java-udf, jdbc, max-compute, paimon, preload, avro
 * Default value: true
+
+#### `group_commit_wal_path`
+
+* The `WAL` directory of group commit.
+* Default: A directory named `wal` is created under each directory of the `storage_root_path`. Configuration examples:
+  ```
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  ```
+
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* Description: The `max_filter_ratio` limit can only work if the total rows of `group commit` is less than this value. See [Group Commit](../../data-operate/import/import-way/group-commit-manual.md) for more details
+* Default: 10000

@@ -147,7 +147,7 @@ public class JobManager<T extends AbstractJob<?, C>, C> implements Writable {
 
     }
 
-    private void alterJobStatus(Long jobId, JobStatus status) throws JobException {
+    public void alterJobStatus(Long jobId, JobStatus status) throws JobException {
         checkJobExist(jobId);
         jobMap.get(jobId).updateJobStatus(status);
         jobMap.get(jobId).logUpdateOperation();

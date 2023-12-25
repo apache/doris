@@ -61,7 +61,9 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
+import org.apache.doris.nereids.trees.plans.commands.AddConstraintCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropConstraintCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.planner.Planner;
@@ -185,7 +187,7 @@ public abstract class TestWithFeService {
     }
 
     // Help to create a mocked ConnectContext.
-    protected ConnectContext createDefaultCtx() throws IOException {
+    public static ConnectContext createDefaultCtx() throws IOException {
         return createCtx(UserIdentity.ROOT, "127.0.0.1");
     }
 
@@ -262,7 +264,7 @@ public abstract class TestWithFeService {
         return adapter;
     }
 
-    protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
+    protected static ConnectContext createCtx(UserIdentity user, String host) throws IOException {
         ConnectContext ctx = new ConnectContext();
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());
@@ -684,6 +686,22 @@ public abstract class TestWithFeService {
     public void createFunction(String sql) throws Exception {
         CreateFunctionStmt createFunctionStmt = (CreateFunctionStmt) parseAndAnalyzeStmt(sql);
         Env.getCurrentEnv().createFunction(createFunctionStmt);
+    }
+
+    public void addConstraint(String sql) throws Exception {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof AddConstraintCommand) {
+            ((AddConstraintCommand) parsed).run(connectContext, stmtExecutor);
+        }
+    }
+
+    public void dropConstraint(String sql) throws Exception {
+        LogicalPlan parsed = new NereidsParser().parseSingle(sql);
+        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
+        if (parsed instanceof DropConstraintCommand) {
+            ((DropConstraintCommand) parsed).run(connectContext, stmtExecutor);
+        }
     }
 
     protected void dropPolicy(String sql) throws Exception {

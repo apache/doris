@@ -145,4 +145,12 @@ public abstract class AbstractTask implements Task {
         return job == null ? "" : job.getJobName();
     }
 
+    public Job getJobOrJobException() throws JobException {
+        AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(jobId);
+        if (job == null) {
+            throw new JobException("job not exist, jobId:" + jobId);
+        }
+        return job;
+    }
+
 }

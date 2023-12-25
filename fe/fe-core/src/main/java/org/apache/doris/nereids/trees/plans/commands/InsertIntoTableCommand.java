@@ -83,6 +83,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
      * When source it's from job scheduler,it will be set.
      */
     private long jobId;
+    private boolean allowAutoPartition;
 
     /**
      * constructor
@@ -91,6 +92,8 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
         super(PlanType.INSERT_INTO_TABLE_COMMAND);
         this.logicalQuery = Objects.requireNonNull(logicalQuery, "logicalQuery should not be null");
         this.labelName = Objects.requireNonNull(labelName, "labelName should not be null");
+        // only insert overwrite will disable it.
+        this.allowAutoPartition = true;
     }
 
     public Optional<String> getLabelName() {
@@ -103,6 +106,10 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     public void setJobId(long jobId) {
         this.jobId = jobId;
+    }
+
+    public void setAllowAutoPartition(boolean allowAutoPartition) {
+        this.allowAutoPartition = allowAutoPartition;
     }
 
     @Override
@@ -175,7 +182,7 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
                     physicalOlapTableSink.getTargetTable(), label, planner);
             insertExecutor.beginTransaction();
             insertExecutor.finalizeSink(sink, physicalOlapTableSink.isPartialUpdate(),
-                    physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT);
+                    physicalOlapTableSink.getDmlCommandType() == DMLCommandType.INSERT, this.allowAutoPartition);
         } finally {
             targetTableIf.readUnlock();
         }
@@ -247,6 +254,14 @@ public class InsertIntoTableCommand extends Command implements ForwardWithSync, 
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
     }
 
