@@ -148,7 +148,7 @@ public:
         }
     }
     void init_data_distribution() {
-        set_data_distribution(operatorXs.front()->get_local_exchange_type());
+        set_data_distribution(operatorXs.front()->required_data_distribution());
     }
     void set_data_distribution(const DataDistribution& data_distribution) {
         _data_distribution = data_distribution;

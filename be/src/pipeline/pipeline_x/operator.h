@@ -181,7 +181,7 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
-    [[nodiscard]] virtual DataDistribution get_local_exchange_type() const {
+    [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution() && !is_source()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
@@ -348,6 +348,10 @@ public:
 
     Dependency* dependency() override { return _dependency; }
 
+    auto dependency_sptr() {
+        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
+    }
+
 protected:
     DependencyType* _dependency = nullptr;
     typename DependencyType::SharedState* _shared_state = nullptr;
@@ -481,7 +485,7 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
-    virtual DataDistribution get_local_exchange_type() const {
+    virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
@@ -607,6 +611,10 @@ public:
     virtual std::string name_suffix() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
     Dependency* dependency() override { return _dependency; }
+
+    auto dependency_sptr() {
+        return std::dynamic_pointer_cast<DependencyArg>(_dependency->shared_from_this());
+    }
 
 protected:
     DependencyType* _dependency = nullptr;

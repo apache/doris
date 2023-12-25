@@ -601,10 +601,6 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
     }
 }
 
-taskgroup::TaskGroup* ScannerContext::get_task_group() const {
-    return _state->get_query_ctx()->get_task_group();
-}
-
 template void ScannerContext::clear_and_join(pipeline::ScanLocalStateBase* parent,
                                              RuntimeState* state);
 template void ScannerContext::clear_and_join(VScanNode* parent, RuntimeState* state);

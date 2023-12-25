@@ -21,12 +21,14 @@
 #include <CLucene/search/IndexSearcher.h>
 #include <CLucene/util/bkd/bkd_reader.h>
 // IWYU pragma: no_include <bthread/errno.h>
-#include <errno.h> // IWYU pragma: keep
-#include <string.h>
 #include <sys/resource.h>
+
+#include <cerrno> // IWYU pragma: keep
+#include <cstring>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <iostream>
+#include <memory>
 
 #include "common/logging.h"
 #include "olap/olap_common.h"
@@ -38,8 +40,7 @@
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 
-namespace doris {
-namespace segment_v2 {
+namespace doris::segment_v2 {
 
 Status FulltextIndexSearcherBuilder::build(DorisCompoundReader* directory,
                                            OptionalIndexSearcherPtr& output_searcher) {
@@ -109,8 +110,7 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
 
     if (config::enable_inverted_index_cache_check_timestamp) {
         auto get_last_visit_time = [](const void* value) -> int64_t {
-            InvertedIndexSearcherCache::CacheValue* cache_value =
-                    (InvertedIndexSearcherCache::CacheValue*)value;
+            auto* cache_value = (InvertedIndexSearcherCache::CacheValue*)value;
             return cache_value->last_visit_time;
         };
         _cache = std::unique_ptr<Cache>(
@@ -146,8 +146,7 @@ Status InvertedIndexSearcherCache::get_index_searcher(
     cache_handle->owned = !use_cache;
     IndexSearcherPtr index_searcher;
     std::unique_ptr<IndexSearcherBuilder> index_builder = nullptr;
-    auto mem_tracker =
-            std::unique_ptr<MemTracker>(new MemTracker("InvertedIndexSearcherCacheWithRead"));
+    auto mem_tracker = std::make_unique<MemTracker>("InvertedIndexSearcherCacheWithRead");
 #ifndef BE_TEST
     {
         bool exists = false;
@@ -280,7 +279,7 @@ Status InvertedIndexSearcherCache::insert(const io::FileSystemSPtr& fs,
     cache_value->index_searcher = std::move(index_searcher);
     cache_value->size = mem_tracker->consumption();
     cache_value->last_visit_time = UnixMillis();
-    auto lru_handle = _insert(cache_key, cache_value.release());
+    auto* lru_handle = _insert(cache_key, cache_value.release());
     _cache->release(lru_handle);
     return Status::OK();
 }
@@ -300,7 +299,7 @@ int64_t InvertedIndexSearcherCache::mem_consumption() {
 
 bool InvertedIndexSearcherCache::_lookup(const InvertedIndexSearcherCache::CacheKey& key,
                                          InvertedIndexCacheHandle* handle) {
-    auto lru_handle = _cache->lookup(key.index_file_path);
+    auto* lru_handle = _cache->lookup(key.index_file_path);
     if (lru_handle == nullptr) {
         return false;
     }
@@ -311,8 +310,7 @@ bool InvertedIndexSearcherCache::_lookup(const InvertedIndexSearcherCache::Cache
 Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCache::CacheKey& key,
                                                    CacheValue* value) {
     auto deleter = [](const doris::CacheKey& key, void* value) {
-        InvertedIndexSearcherCache::CacheValue* cache_value =
-                (InvertedIndexSearcherCache::CacheValue*)value;
+        auto* cache_value = (InvertedIndexSearcherCache::CacheValue*)value;
         delete cache_value;
     };
 
@@ -325,7 +323,7 @@ bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCach
     if (key.encode().empty()) {
         return false;
     }
-    auto lru_handle = _cache->lookup(key.encode());
+    auto* lru_handle = _cache->lookup(key.encode());
     if (lru_handle == nullptr) {
         return false;
     }
@@ -348,8 +346,8 @@ void InvertedIndexQueryCache::insert(const CacheKey& key, std::shared_ptr<roarin
         return;
     }
 
-    auto lru_handle = _cache->insert(key.encode(), (void*)cache_value_ptr.release(),
-                                     bitmap->getSizeInBytes(), deleter, CachePriority::NORMAL);
+    auto* lru_handle = _cache->insert(key.encode(), (void*)cache_value_ptr.release(),
+                                      bitmap->getSizeInBytes(), deleter, CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(_cache.get(), lru_handle);
 }
 
@@ -360,5 +358,4 @@ int64_t InvertedIndexQueryCache::mem_consumption() {
     return 0L;
 }
 
-} // namespace segment_v2
-} // namespace doris
+} // namespace doris::segment_v2

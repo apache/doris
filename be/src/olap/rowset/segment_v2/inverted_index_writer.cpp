@@ -192,6 +192,12 @@ public:
             // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
             _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
         }
+        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+        if (lowercase == "true") {
+            _analyzer->set_lowercase(true);
+        } else if (lowercase == "false") {
+            _analyzer->set_lowercase(false);
+        }
         _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
                                                                      create, true);
         _index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);
@@ -252,7 +258,6 @@ public:
             }
 
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(empty_value.c_str(), 0);
                 RETURN_IF_ERROR(add_null_document());
             }
         }
@@ -299,13 +304,10 @@ public:
                     get_parser_ignore_above_value_from_properties(_index_meta->properties());
             auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
-                // only ignore_above UNTOKENIZED strings
-                if (_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                    v->get_size() > ignore_above) {
-                    VLOG_DEBUG << "fulltext index value length can be at most "
-                               << ignore_above_value << ", but got "
-                               << "value length:" << v->get_size() << ", ignore this value";
-                    new_fulltext_field(empty_value.c_str(), 0);
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
+                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                     v->get_size() > ignore_above) ||
+                    (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
                     RETURN_IF_ERROR(add_null_document());
                 } else {
                     new_fulltext_field(v->get_data(), v->get_size());
@@ -352,13 +354,10 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                // only ignore_above UNTOKENIZED strings
-                if (_parser_type == InvertedIndexParserType::PARSER_NONE &&
-                    value.length() > ignore_above) {
-                    VLOG_DEBUG << "fulltext index value length can be at most "
-                               << ignore_above_value << ", but got "
-                               << "value length:" << value.length() << ", ignore this value";
-                    new_fulltext_field(empty_value.c_str(), 0);
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
+                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                     value.length() > ignore_above) ||
+                    (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
                     RETURN_IF_ERROR(add_null_document());
                 } else {
                     new_fulltext_field(value.c_str(), value.length());

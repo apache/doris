@@ -212,6 +212,8 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
 
+    _use_global_rf = request.__isset.parallel_instances && (request.__isset.per_node_shared_scans &&
+                                                            !request.per_node_shared_scans.empty());
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(
@@ -288,10 +290,10 @@ Status PipelineXFragmentContext::_plan_local_exchange(
         do_local_exchange = false;
         // Plan local exchange for each operator.
         for (; idx < ops.size();) {
-            if (ops[idx]->get_local_exchange_type().need_local_exchange()) {
+            if (ops[idx]->required_data_distribution().need_local_exchange()) {
                 RETURN_IF_ERROR(_add_local_exchange(
                         pip_idx, idx, ops[idx]->node_id(), _runtime_state->obj_pool(), pip,
-                        ops[idx]->get_local_exchange_type(), &do_local_exchange, num_buckets,
+                        ops[idx]->required_data_distribution(), &do_local_exchange, num_buckets,
                         bucket_seq_to_instance_idx, ignore_data_hash_distribution));
             }
             if (do_local_exchange) {
@@ -305,10 +307,10 @@ Status PipelineXFragmentContext::_plan_local_exchange(
             idx++;
         }
     } while (do_local_exchange);
-    if (pip->sink_x()->get_local_exchange_type().need_local_exchange()) {
+    if (pip->sink_x()->required_data_distribution().need_local_exchange()) {
         RETURN_IF_ERROR(_add_local_exchange(
                 pip_idx, idx, pip->sink_x()->node_id(), _runtime_state->obj_pool(), pip,
-                pip->sink_x()->get_local_exchange_type(), &do_local_exchange, num_buckets,
+                pip->sink_x()->required_data_distribution(), &do_local_exchange, num_buckets,
                 bucket_seq_to_instance_idx, ignore_data_hash_distribution));
     }
     return Status::OK();
@@ -985,7 +987,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                  request.__isset.parallel_instances));
+                                                  _use_global_rf));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));
