@@ -124,6 +124,12 @@ Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
     return Status::OK();
 }
 
+Status WalDirsInfo::clear() {
+    std::unique_lock wlock(_lock);
+    _wal_dirs_info_vec.clear();
+    return Status::OK();
+}
+
 std::string WalDirsInfo::get_available_random_wal_dir() {
     if (_wal_dirs_info_vec.size() == 1) {
         return (*_wal_dirs_info_vec.begin())->get_wal_dir();

@@ -65,6 +65,7 @@ public:
     WalDirsInfo() = default;
     ~WalDirsInfo() = default;
     Status add(const std::string& wal_dir, size_t limit, size_t used, size_t pre_allocated);
+    Status clear();
     std::string get_available_random_wal_dir();
     size_t get_max_available_size();
     Status update_wal_dir_limit(std::string wal_dir, size_t limit = -1);

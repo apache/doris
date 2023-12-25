@@ -512,9 +512,16 @@ bool LoadBlockQueue::has_enough_wal_disk_space(
     }
     if (pre_allocated < available_bytes) {
         st = wal_mgr->update_wal_dir_limit(wal_base_path);
+        if (!st.ok()) {
+            LOG(WARNING) << "update wal dir limit failed, reason: " << st.to_string();
+        }
         st = wal_mgr->update_wal_dir_used(wal_base_path);
         if (!st.ok()) {
-            LOG(WARNING) << "update wal disk info map failed, reason: " << st.to_string();
+            LOG(WARNING) << "update wal dir used failed, reason: " << st.to_string();
+        }
+        st = wal_mgr->update_wal_dir_pre_allocated(wal_base_path, pre_allocated, true);
+        if (!st.ok()) {
+            LOG(WARNING) << "update wal dir pre_allocated failed, reason: " << st.to_string();
         }
         block_queue_pre_allocated.fetch_add(pre_allocated);
         return true;
