@@ -671,7 +671,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         // data from data.
         _build_col_ids.resize(_build_expr_ctxs.size());
         while (!eos && !_short_circuit_for_null_in_probe_side) {
-            block.clear_column_data();
+            release_block_memory(block, 1);
             RETURN_IF_CANCELLED(state);
 
             RETURN_IF_ERROR_AND_CHECK_SPAN(child(1)->get_next_after_projects(state, &block, &eos),
