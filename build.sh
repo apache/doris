@@ -582,6 +582,12 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     build_ui
 fi
 
+# Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
+declare MVN_PRIVITE_PENDING=""
+if [[ -f ${USER_SETTINGS_MVN_REPO} ]]; then
+    MVN_PRIVITE_PENDING="-gs ${USER_SETTINGS_MVN_REPO}"
+fi
+
 # Clean and build Frontend
 if [[ "${FE_MODULES}" != '' ]]; then
     echo "Build Frontend Modules: ${FE_MODULES}"
@@ -590,9 +596,9 @@ if [[ "${FE_MODULES}" != '' ]]; then
         clean_fe
     fi
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}}
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${MVN_PRIVITE_PENDING}
     else
-        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}}
+        "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${MVN_PRIVITE_PENDING}
     fi
     cd "${DORIS_HOME}"
 fi
