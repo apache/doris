@@ -410,9 +410,6 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         TQueryStatistics queryStatistics;
         DCHECK(req.query_statistics->collect_dml_statistics());
         req.query_statistics->to_thrift(&queryStatistics);
-         LOG_WARNING("yxc test")
-                .tag("rows", queryStatistics.scan_rows)
-                .tag("bytes", queryStatistics.scan_bytes);
         params.__set_query_statistics(queryStatistics);
     }
 
