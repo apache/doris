@@ -71,7 +71,8 @@ public class ShowIndexStmt extends ShowStmt {
         tableName.analyze(analyzer);
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
                 ConnectContext.get(), tableName.getCtl(), tableName.getDb(), tableName.getTbl(), PrivPredicate.SHOW)) {
-            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, analyzer.getQualifiedUser(),
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW INDEX",
+                    analyzer.getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     tableName.toSql());
         }
     }

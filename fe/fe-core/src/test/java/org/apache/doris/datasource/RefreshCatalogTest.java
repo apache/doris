@@ -73,15 +73,15 @@ public class RefreshCatalogTest extends TestWithFeService {
     public void testRefreshCatalog() throws Exception {
         CatalogIf test1 = env.getCatalogMgr().getCatalog("test1");
         List<String> dbNames1 = test1.getDbNames();
-        // there are test1.db1 , test1.db2
-        Assertions.assertEquals(2, dbNames1.size());
+        // there are test1.db1 , test1.db2, information_schema
+        Assertions.assertEquals(3, dbNames1.size());
         // 1.simulate ExternalCatalog adds a new table
         RefreshCatalogProvider.addData();
         // 2.wait for the refresh time of the catalog
         Thread.sleep(5000);
-        // there are test1.db1 , test1.db2 , test1.db3
+        // there are test1.db1 , test1.db2 , test1.db3, information_schema
         List<String> dbNames2 = test1.getDbNames();
-        Assertions.assertEquals(3, dbNames2.size());
+        Assertions.assertEquals(4, dbNames2.size());
     }
 
     public static class RefreshCatalogProvider implements TestExternalCatalog.TestCatalogProvider {
