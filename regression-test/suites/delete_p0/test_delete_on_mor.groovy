@@ -63,7 +63,7 @@ suite("test_delete_on_mor") {
                 );"""
 
             sql """insert into ${tableA} values
-                (10000,"u1","北京",20,1),
+                (10000,"u1","北京",19,1),
                 (10000,"u1","北京",20,1),
                 (10001,"u3","北京",30,0),
                 (10002,"u4","上海",20,1),
@@ -71,8 +71,8 @@ suite("test_delete_on_mor") {
                 (10004,"u6","重庆",35,1),
                 (10004,"u7","重庆",35,1);  """
 
-            sql """insert into ${tableA} values
-                (10000,"u1","北京",20,1),
+            sql """insert into ${tableB} values
+                (10000,"u1","北京",18,1),
                 (10000,"u1","北京",20,1),
                 (10001,"u3","北京",30,0),
                 (10002,"u4","上海",20,1),
@@ -86,7 +86,21 @@ suite("test_delete_on_mor") {
             sql """ DELETE FROM ${tableA} a USING ${tableB} b
                 WHERE a.user_id = b.user_id AND a.city = b.city
                 and b.city = '北京' AND b.age = 20;"""
+            sql "sync;"
             qt_sql "select * from ${tableA} order by user_id;"
+
+            sql """DELETE from ${tableA} USING ${tableA}  a
+            JOIN (
+                SELECT a.user_id, a.city
+                FROM ${tableA} a
+                JOIN ${tableB} ON a.user_id = ${tableB}.user_id AND a.city = ${tableB}.city
+                WHERE ${tableB}.city = '上海' AND ${tableB}.age = 20
+            ) AS matched_rows
+            ON ${tableA}.user_id = matched_rows.user_id AND ${tableA}.city = matched_rows.city; """
+            qt_sql "select * from ${tableA} order by user_id;"
+
+            sql "DROP TABLE IF EXISTS ${tableA};"
+            sql "DROP TABLE IF EXISTS ${tableB};"
         }
     }
 }
