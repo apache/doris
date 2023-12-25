@@ -242,7 +242,7 @@ Status GroupCommitBlockSink::_add_blocks(bool write_wal, bool is_blocks_contain_
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
             if (write_wal) {
-                _group_commit_mode = _load_block_queue->is_wal_disk_space_enough(
+                _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(
                                              _blocks, load_id, is_blocks_contain_all_load_data)
                                              ? TGroupCommitMode::ASYNC_MODE
                                              : TGroupCommitMode::SYNC_MODE;

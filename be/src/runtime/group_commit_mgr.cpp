@@ -485,7 +485,7 @@ Status LoadBlockQueue::close_wal() {
     return Status::OK();
 }
 
-bool LoadBlockQueue::is_wal_disk_space_enough(
+bool LoadBlockQueue::has_enough_wal_disk_space(
         const std::vector<std::shared_ptr<vectorized::Block>>& blocks, const TUniqueId& load_id,
         bool is_blocks_contain_all_load_data) {
     size_t blocks_size = 0;
@@ -511,7 +511,7 @@ bool LoadBlockQueue::is_wal_disk_space_enough(
         }
     }
     if (pre_allocated < available_bytes) {
-        st = wal_mgr->update_wal_disk_info_map(wal_base_path, -1, -1, pre_allocated);
+        st = wal_mgr->update_wal_disk_info(wal_base_path, -1, -1, pre_allocated);
         if (!st.ok()) {
             LOG(WARNING) << "update wal disk info map failed, reason: " << st.to_string();
         }

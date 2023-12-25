@@ -65,8 +65,8 @@ public:
                       WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
                       int be_exe_version);
     Status close_wal();
-    bool is_wal_disk_space_enough(const std::vector<std::shared_ptr<vectorized::Block>>& blocks,
-                                  const TUniqueId& load_id, bool is_blocks_contain_all_load_data);
+    bool has_enough_wal_disk_space(const std::vector<std::shared_ptr<vectorized::Block>>& blocks,
+                                   const TUniqueId& load_id, bool is_blocks_contain_all_load_data);
 
     static constexpr size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
     UniqueId load_instance_id;

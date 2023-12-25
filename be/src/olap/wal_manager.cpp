@@ -29,10 +29,12 @@
 #include <shared_mutex>
 #include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
+#include "olap/wal_dirs_info.h"
 #include "olap/wal_writer.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
@@ -52,6 +54,7 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
                               .set_min_threads(1)
                               .set_max_threads(config::group_commit_relay_wal_threads)
                               .build(&_thread_pool));
+    _wal_dirs_info = WalDirsInfo::create_unique();
 }
 
 WalManager::~WalManager() {
@@ -74,7 +77,7 @@ void WalManager::stop() {
 Status WalManager::init() {
     RETURN_IF_ERROR(_init_wal_dirs_conf());
     RETURN_IF_ERROR(_init_wal_dirs());
-    RETURN_IF_ERROR(_init_wal_disk_info());
+    RETURN_IF_ERROR(_init_wal_dirs_info());
     return Thread::create(
             "WalMgr", "replay_wal", [this]() { static_cast<void>(this->replay()); },
             &_replay_thread);
@@ -120,7 +123,7 @@ Status WalManager::_init_wal_dirs() {
     return Status::OK();
 }
 
-Status WalManager::_init_wal_disk_info() {
+Status WalManager::_init_wal_dirs_info() {
     for (const std::string& wal_dir : _wal_dirs) {
         size_t available_bytes;
 #ifndef BE_TEST
@@ -143,11 +146,7 @@ Status WalManager::_init_wal_disk_info() {
         if (is_percent) {
             wal_disk_limit += wal_dir_size;
         }
-        {
-            std::unique_lock<std::shared_mutex> l(_wal_disk_info_lock);
-            _wal_disk_info_map.insert(std::make_pair(
-                    wal_dir, std::make_shared<WalDiskInfo>(wal_disk_limit, wal_dir_size, 0)));
-        }
+        RETURN_IF_ERROR(_wal_dirs_info->add(wal_dir, wal_disk_limit, wal_dir_size, 0));
 
 #ifdef BE_TEST
         wal_limit_test_bytes = wal_disk_limit;
@@ -230,8 +229,7 @@ void WalManager::print_wal_status_queue() {
 
 Status WalManager::add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
                                 const std::string& label, std::string& base_path) {
-    // TODO: (Yukang) change it.
-    base_path = get_min_disk_usage_wal_dir();
+    base_path = _wal_dirs_info->get_available_random_wal_dir();
     std::stringstream ss;
     ss << base_path << "/" << std::to_string(db_id) << "/" << std::to_string(table_id) << "/"
        << std::to_string(wal_id) << "_" << label;
@@ -404,7 +402,7 @@ Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, std::vector<
     table_ptr->add_wals(wals);
 #ifndef BE_TEST
     for (auto wal : wals) {
-        RETURN_IF_ERROR(update_wal_disk_info_map(_get_base_wal_path(wal)));
+        RETURN_IF_ERROR(update_wal_disk_info(_get_base_wal_path(wal)));
     }
 #endif
     return Status::OK();
@@ -432,8 +430,8 @@ Status WalManager::delete_wal(int64_t wal_id, size_t block_queue_pre_allocated) 
             _wal_path_map.erase(wal_id);
         }
     }
-    RETURN_IF_ERROR(update_wal_disk_info_map(_get_base_wal_path(wal_path), -1, -1,
-                                             block_queue_pre_allocated, false));
+    RETURN_IF_ERROR(update_wal_disk_info(_get_base_wal_path(wal_path), -1, -1,
+                                         block_queue_pre_allocated, false));
     return Status::OK();
 }
 
@@ -474,103 +472,19 @@ Status WalManager::get_wal_column_index(int64_t wal_id, std::vector<size_t>& col
     return Status::OK();
 }
 
-bool WalManager::is_wal_disk_space_enough() {
-    // if all disks space usage < 80%
-    std::shared_lock l(_wal_disk_info_lock);
-    for (const auto& it : _wal_disk_info_map) {
-        size_t limit = it.second->limit;
-        size_t available = it.second->available();
-        if (available >= limit * 0.8) {
-            return true;
-        }
-    }
-    return false;
-}
-
-const string& WalManager::get_min_disk_usage_wal_dir() {
-    std::shared_lock l(_wal_disk_info_lock);
-    return _wal_dirs.size() == 1
-                   ? _wal_dirs[0]
-                   : *std::min_element(_wal_dirs.begin(), _wal_dirs.end(),
-                                       [this](const std::string& dir1, const std::string& dir2) {
-                                           return _wal_disk_info_map[dir1]->available() <
-                                                  _wal_disk_info_map[dir2]->available();
-                                       });
-}
-
-const string& WalManager::get_random_wal_dir() {
-    std::shared_lock l(_wal_disk_info_lock);
-    return _wal_disk_info_map.size() == 1
-                   ? _wal_disk_info_map.begin()->first
-                   : std::next(_wal_disk_info_map.begin(), rand() % _wal_disk_info_map.size())
-                             ->first;
-}
-
 size_t WalManager::get_max_available_size() {
-    std::shared_lock l(_wal_disk_info_lock);
-    return _wal_disk_info_map.size() == 1
-                   ? _wal_disk_info_map.begin()->second->available()
-                   : std::max_element(_wal_disk_info_map.begin(), _wal_disk_info_map.end(),
-                                      [](const auto& map1, const auto& map2) {
-                                          return map1.second->available() <
-                                                 map2.second->available();
-                                      })
-                             ->second->available();
+    return _wal_dirs_info->get_max_available_size();
 }
 
-Status WalManager::update_wal_disk_info_map(std::string wal_dir, size_t limit, size_t used,
-                                            size_t pre_allocated, bool is_add_pre_allocated) {
-    if (_wal_disk_info_map.find(wal_dir) != _wal_disk_info_map.end()) {
-        std::unique_lock l(_wal_disk_info_lock);
-        if (limit != static_cast<size_t>(-1)) {
-            _wal_disk_info_map[wal_dir]->limit = limit;
-        } else {
-            size_t available_bytes;
-            size_t disk_capacity_bytes;
-            RETURN_IF_ERROR(io::global_local_filesystem()->get_space_info(
-                    wal_dir, &disk_capacity_bytes, &available_bytes));
-            bool is_percent = true;
-            int64_t wal_disk_limit = ParseUtil::parse_mem_spec(
-                    config::group_commit_wal_max_disk_limit, -1, available_bytes, &is_percent);
-            if (wal_disk_limit <= 0) {
-                return Status::InternalError("Disk full! Please check your disk usage!");
-            }
-            size_t wal_dir_size = 0;
-            RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(wal_dir, &wal_dir_size));
-            _wal_disk_info_map[wal_dir]->limit = wal_disk_limit;
-        }
-        if (used != static_cast<size_t>(-1)) {
-            _wal_disk_info_map[wal_dir]->used = used;
-        } else {
-            size_t wal_dir_size = 0;
-            RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(wal_dir, &wal_dir_size));
-            _wal_disk_info_map[wal_dir]->used = wal_dir_size;
-        }
-        if (pre_allocated != static_cast<size_t>(-1)) {
-            if (is_add_pre_allocated) {
-                _wal_disk_info_map[wal_dir]->pre_allocated += pre_allocated;
-            } else {
-                _wal_disk_info_map[wal_dir]->pre_allocated -= pre_allocated;
-            }
-        }
-    } else {
-        return Status::InternalError("Can not find wal dir in wal disk info map.");
-    }
-    return Status::OK();
+Status WalManager::update_wal_disk_info(std::string wal_dir, size_t limit, size_t used,
+                                        size_t pre_allocated, bool is_add_pre_allocated) {
+    return _wal_dirs_info->update_wal_disk_info(wal_dir, limit, used, pre_allocated,
+                                                is_add_pre_allocated);
 }
 
 Status WalManager::get_wal_disk_available_size(const std::string& wal_dir,
                                                size_t* available_bytes) {
-    RETURN_IF_ERROR(update_wal_disk_info_map(wal_dir));
-    std::shared_lock l(_wal_disk_info_lock);
-    {
-        if (auto it = _wal_disk_info_map.find(wal_dir); it != _wal_disk_info_map.end()) {
-            *available_bytes = _wal_disk_info_map[wal_dir]->available();
-            return Status::OK();
-        } else {
-            return Status::InternalError("can not find wal dir!");
-        }
-    }
+    return _wal_dirs_info->get_wal_disk_available_size(wal_dir, available_bytes);
 }
 
 std::string WalManager::_get_base_wal_path(const std::string& wal_path_str) {

@@ -31,6 +31,7 @@
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "olap/wal_dirs_info.h"
 #include "olap/wal_reader.h"
 #include "olap/wal_table.h"
 #include "olap/wal_writer.h"
@@ -44,18 +45,6 @@ class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
 
 public:
-    struct WalDiskInfo {
-        WalDiskInfo(size_t limit, size_t used, size_t pre_allocated)
-                : limit(limit), used(used), pre_allocated(pre_allocated) {}
-        size_t available() const {
-            int64_t available = limit - used - pre_allocated;
-            return available > 0 ? available : 0;
-        }
-        size_t limit;
-        size_t used;
-        size_t pre_allocated;
-    };
-
     enum WAL_STATUS {
         PREPARE = 0,
         REPLAY,
@@ -89,19 +78,17 @@ public:
     void erase_wal_column_index(int64_t wal_id);
     Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
 
-    Status update_wal_disk_info_map(std::string wal_dir, size_t limit = -1, size_t used = -1,
-                                    size_t pre_allocated = -1, bool is_add_pre_allocated = true);
+    Status update_wal_disk_info(std::string wal_dir, size_t limit = -1, size_t used = -1,
+                                size_t pre_allocated = -1, bool is_add_pre_allocated = true);
     Status get_wal_disk_available_size(const std::string& wal_dir, size_t* available_bytes);
-    bool is_wal_disk_space_enough();
-    const std::string& get_min_disk_usage_wal_dir();
     size_t get_max_available_size();
-    const std::string& get_random_wal_dir();
 
 private:
     Status _init_wal_dirs_conf();
     Status _init_wal_dirs();
-    Status _init_wal_disk_info();
+    Status _init_wal_dirs_info();
     std::string _get_base_wal_path(const std::string& wal_path_str);
+    const std::string& _get_available_random_wal_dir();
 
 public:
     // used for be ut
@@ -123,8 +110,6 @@ private:
     std::shared_mutex _wal_column_id_map_lock;
     std::unordered_map<int64_t, std::vector<size_t>&> _wal_column_id_map;
     std::unique_ptr<doris::ThreadPool> _thread_pool;
-    std::shared_mutex _wal_disk_info_lock;
-    // wal dir to wal disk info map
-    std::unordered_map<std::string, std::shared_ptr<WalDiskInfo>> _wal_disk_info_map;
+    std::unique_ptr<WalDirsInfo> _wal_dirs_info;
 };
 } // namespace doris
