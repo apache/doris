@@ -168,6 +168,8 @@ CREATE CATALOG hive PROPERTIES (
 
 ### Hive With Glue
 
+> When connecting Glue, if it's not on the EC2 environment, need copy the `~/.aws` from the EC2 environment to the current environment. And can also download and configure the [AWS Cli tools](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), which also creates the `.aws` directory under the current user directory.
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",

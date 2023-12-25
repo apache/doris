@@ -134,9 +134,8 @@ Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
             }
         }
 
-        if (!is_mem_reuse || !keep_origin) {
-            output_block->swap(mutable_block.to_block());
-        }
+        output_block->swap(mutable_block.to_block());
+
         DCHECK(output_block->rows() == rows);
     }
 

@@ -577,7 +577,7 @@ MutableColumns Block::mutate_columns() {
     size_t num_columns = data.size();
     MutableColumns columns(num_columns);
     for (size_t i = 0; i < num_columns; ++i) {
-        columns[i] = data[i].column ? (*std::move(data[i].column)).assume_mutable()
+        columns[i] = data[i].column ? (*std::move(data[i].column)).mutate()
                                     : data[i].type->create_column();
     }
     return columns;
@@ -716,7 +716,7 @@ void Block::swap(Block& other) noexcept {
 void Block::swap(Block&& other) noexcept {
     clear();
     data = std::move(other.data);
-    initialize_index_by_name();
+    index_by_name = std::move(other.index_by_name);
     row_same_bit = std::move(other.row_same_bit);
 }
 
@@ -936,7 +936,7 @@ void MutableBlock::swap(MutableBlock& another) noexcept {
     _columns.swap(another._columns);
     _data_types.swap(another._data_types);
     _names.swap(another._names);
-    initialize_index_by_name();
+    index_by_name.swap(another.index_by_name);
 }
 
 void MutableBlock::swap(MutableBlock&& another) noexcept {
@@ -944,7 +944,7 @@ void MutableBlock::swap(MutableBlock&& another) noexcept {
     _columns = std::move(another._columns);
     _data_types = std::move(another._data_types);
     _names = std::move(another._names);
-    initialize_index_by_name();
+    index_by_name = std::move(another.index_by_name);
 }
 
 void MutableBlock::add_row(const Block* block, int row) {
@@ -1027,6 +1027,7 @@ Block MutableBlock::to_block(int start_column) {
 
 Block MutableBlock::to_block(int start_column, int end_column) {
     ColumnsWithTypeAndName columns_with_schema;
+    columns_with_schema.reserve(end_column - start_column);
     for (size_t i = start_column; i < end_column; ++i) {
         columns_with_schema.emplace_back(std::move(_columns[i]), _data_types[i], _names[i]);
     }

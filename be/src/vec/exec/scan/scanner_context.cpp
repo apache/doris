@@ -339,6 +339,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             static_cast<void>(m.merge(*merge_block));
             return_free_block(std::move(merge_block));
         }
+        (*block)->set_columns(std::move(m.mutable_columns()));
     }
 
     return Status::OK();

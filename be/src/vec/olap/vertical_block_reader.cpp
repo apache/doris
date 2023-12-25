@@ -405,6 +405,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _agg_data_counters.push_back(_last_agg_data_counter);
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
+    block->set_columns(std::move(target_columns));
 
     return Status::OK();
 }
@@ -545,6 +546,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
         });
         ++target_block_row;
     } while (target_block_row < _reader_context.batch_size);
+    block->set_columns(std::move(target_columns));
     return Status::OK();
 }
 
