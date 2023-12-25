@@ -447,7 +447,7 @@ Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_co
                                                       bool* has_dict) {
     bool loaded;
     RETURN_IF_ERROR(_try_load_dict_page(&loaded, has_dict));
-    if (loaded && has_dict) {
+    if (loaded && *has_dict) {
         return _chunk_reader->read_dict_values_to_column(doris_column);
     }
     return Status::OK();
