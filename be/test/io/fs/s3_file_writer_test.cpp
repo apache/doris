@@ -130,10 +130,9 @@ TEST_F(S3FileWriterTest, multi_part_io_error) {
         // The second part would fail uploading itself to s3
         // so the result of close should be not ok
         ASSERT_TRUE(!s3_file_writer->close().ok());
-        bool exits = false;
-        auto s = s3_fs->exists("multi_part_io_error", &exits);
-        LOG(INFO) << "status is " << s;
-        ASSERT_TRUE(!exits);
+        int64_t size = -1;
+        ASSERT_TRUE((s3_fs->file_size("multi_part_io_error", &size)).ok());
+        ASSERT_EQ(0, size);
     }
 }
 
@@ -200,9 +199,9 @@ TEST_F(S3FileWriterTest, appendv_random_quit) {
         size_t bytes_read = 0;
         ASSERT_TRUE(local_file_reader->read_at(offset, slice, &bytes_read).ok());
         ASSERT_TRUE(!s3_file_writer->append(Slice(buf, bytes_read)).ok());
-        bool exits = false;
-        static_cast<void>(s3_fs->exists("appendv_random_quit", &exits));
-        ASSERT_TRUE(!exits);
+        int64_t size = -1;
+        ASSERT_TRUE((s3_fs->file_size("appendv_random_quit", &size)).ok());
+        ASSERT_EQ(0, size);
     }
 }
 
@@ -237,9 +236,9 @@ TEST_F(S3FileWriterTest, multi_part_open_error) {
         // and it would be rejectd one error
         auto st = s3_file_writer->append(Slice(buf.get(), bytes_read));
         ASSERT_TRUE(!st.ok());
-        bool exits = false;
-        static_cast<void>(s3_fs->exists("multi_part_open_error", &exits));
-        ASSERT_TRUE(!exits);
+        int64_t size = -1;
+        ASSERT_TRUE((s3_fs->file_size("multi_part_open_error", &size)).ok());
+        ASSERT_EQ(0, size);
     }
 }
 
@@ -326,9 +325,9 @@ TEST_F(S3FileWriterTest, close_error) {
         io::FileWriterPtr s3_file_writer;
         ASSERT_TRUE(s3_fs->create_file("close_error", &s3_file_writer, &state).ok());
         ASSERT_TRUE(!s3_file_writer->close().ok());
-        bool exits = false;
-        static_cast<void>(s3_fs->exists("close_error", &exits));
-        ASSERT_TRUE(!exits);
+        int64_t size = -1;
+        ASSERT_TRUE((s3_fs->file_size("close_error", &size)).ok());
+        ASSERT_EQ(0, size);
     }
 }
 
@@ -363,9 +362,9 @@ TEST_F(S3FileWriterTest, finalize_error) {
         }
         ASSERT_EQ(s3_file_writer->bytes_appended(), file_size);
         ASSERT_TRUE(!s3_file_writer->finalize().ok());
-        bool exits = false;
-        static_cast<void>(s3_fs->exists("finalize_error", &exits));
-        ASSERT_TRUE(!exits);
+        int64_t size = -1;
+        ASSERT_TRUE((s3_fs->file_size("finalize_error", &size)).ok());
+        ASSERT_EQ(0, size);
     }
 }
 
