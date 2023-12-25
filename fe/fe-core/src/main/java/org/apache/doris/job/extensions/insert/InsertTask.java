@@ -40,7 +40,6 @@ import com.google.common.collect.ImmutableMap;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
-import org.apache.commons.lang3.RandomUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.Optional;
@@ -125,7 +124,6 @@ public class InsertTask extends AbstractTask {
         this.sql = sql;
         this.currentDb = currentDb;
         this.userIdentity = userIdentity;
-        setTaskId(getNextTaskId());
     }
 
     public InsertTask(String labelName, InsertIntoTableCommand insertInto,
@@ -136,12 +134,6 @@ public class InsertTask extends AbstractTask {
         this.ctx = ctx;
         this.stmtExecutor = executor;
         this.loadStatistic = statistic;
-        setTaskId(getNextTaskId());
-    }
-
-    private static long getNextTaskId() {
-        // do not use Env.getNextId(), just generate id without logging
-        return System.nanoTime() + RandomUtils.nextInt();
     }
 
     @Override
