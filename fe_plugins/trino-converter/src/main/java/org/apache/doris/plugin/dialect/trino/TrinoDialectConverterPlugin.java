@@ -28,6 +28,9 @@ import com.google.common.collect.ImmutableSet;
 import javax.annotation.Nullable;
 import java.util.List;
 
+/**
+ * Extends from {@link org.apache.doris.plugin.DialectConverterPlugin}, focus on Trino dialect.
+ */
 public class TrinoDialectConverterPlugin extends Plugin implements DialectConverterPlugin {
 
     @Override

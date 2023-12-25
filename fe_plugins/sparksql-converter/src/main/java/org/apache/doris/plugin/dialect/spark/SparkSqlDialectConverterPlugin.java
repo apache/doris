@@ -29,6 +29,10 @@ import com.google.common.collect.ImmutableSet;
 import java.util.List;
 import javax.annotation.Nullable;
 
+/**
+ * Extends from {@link org.apache.doris.plugin.DialectConverterPlugin},
+ * just focus on the syntax difference between spark-sql and doris.
+ */
 public class SparkSqlDialectConverterPlugin extends Plugin implements DialectConverterPlugin {
 
     @Override
