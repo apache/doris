@@ -457,11 +457,20 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (config::enable_index_apply_preds_except_leafnode_of_andnode) {
         RETURN_IF_ERROR(_apply_index_except_leafnode_of_andnode());
         if (_can_filter_by_preds_except_leafnode_of_andnode()) {
-            for (auto& expr : _remaining_conjunct_roots) {
+            for (auto it = _remaining_conjunct_roots.begin();
+                 it != _remaining_conjunct_roots.end();) {
                 _pred_except_leafnode_of_andnode_evaluate_result.clear();
-                auto res = _execute_predicates_except_leafnode_of_andnode(expr);
+                auto res = _execute_predicates_except_leafnode_of_andnode(*it);
                 if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
                     _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
+                    // Delete expr after it obtains the final result.
+                    {
+                        std::erase_if(_common_expr_ctxs_push_down,
+                                      [&it](const auto& iter) { return iter->root() == *it; });
+                        it = _remaining_conjunct_roots.erase(it);
+                    }
+                } else {
+                    ++it;
                 }
             }
         }
@@ -472,7 +481,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_ctx();
+        auto* query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
     }
 
