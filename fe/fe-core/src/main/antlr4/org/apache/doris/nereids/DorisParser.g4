@@ -506,11 +506,11 @@ partitionDef
     ;
     
 lessThanPartitionDef
-    : PARTITION (ifNotExists=IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LESS THAN (MAXVALUE | constantSeq)
     ;
     
 fixedPartitionDef
-    : PARTITION (ifNotExists=IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier VALUES LEFT_BRACKET lower=constantSeq COMMA upper=constantSeq RIGHT_PAREN
     ;
 
 stepPartitionDef
@@ -518,7 +518,7 @@ stepPartitionDef
     ;
 
 inPartitionDef
-    : PARTITION (ifNotExists=IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
+    : PARTITION (IF NOT EXISTS)? partitionName=identifier (VALUES IN ((LEFT_PAREN constantSeqs+=constantSeq
         (COMMA constantSeqs+=constantSeq)* RIGHT_PAREN) | constants=constantSeq))?
     ;
     

@@ -2455,9 +2455,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String partitionName = ctx.partitionName.getText();
         if (ctx.MAXVALUE() == null) {
             List<Expression> lessThanValues = visitConstantSeq(ctx.constantSeq());
-            return new LessThanPartition(ctx.ifNotExists != null, partitionName, lessThanValues);
+            return new LessThanPartition(ctx.EXISTS() != null, partitionName, lessThanValues);
         } else {
-            return new LessThanPartition(ctx.ifNotExists != null, partitionName,
+            return new LessThanPartition(ctx.EXISTS() != null, partitionName,
                     ImmutableList.of(MaxValue.INSTANCE));
         }
     }
@@ -2467,7 +2467,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String partitionName = ctx.partitionName.getText();
         List<Expression> lowerBounds = visitConstantSeq(ctx.lower);
         List<Expression> upperBounds = visitConstantSeq(ctx.upper);
-        return new FixedRangePartition(ctx.ifNotExists != null, partitionName, lowerBounds, upperBounds);
+        return new FixedRangePartition(ctx.EXISTS() != null, partitionName, lowerBounds, upperBounds);
     }
 
     @Override
@@ -2488,7 +2488,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             values = visitConstantSeq(ctx.constants).stream().map(ImmutableList::of)
                     .collect(Collectors.toList());
         }
-        return new InPartition(ctx.ifNotExists != null, ctx.partitionName.getText(), values);
+        return new InPartition(ctx.EXISTS() != null, ctx.partitionName.getText(), values);
     }
 
     @Override
