@@ -829,7 +829,7 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
 }
 
-std::string _mask_token(const std::string& str) {
+std::string EngineCloneTask::_mask_token(const std::string& str) {
     std::regex pattern("token=[\\w|-]+");
     return regex_replace(str, pattern, "token=******");
 }
