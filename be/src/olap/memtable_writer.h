@@ -108,6 +108,8 @@ public:
     int64_t total_received_rows() const { return _total_received_rows; }
 
     const FlushStatistic& get_flush_token_stats();
+    
+    uint64_t flush_running_count() const;
 
 private:
     // push a full memtable to flush executor
