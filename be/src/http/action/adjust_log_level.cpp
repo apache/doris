@@ -37,7 +37,7 @@ int handle_request(HttpRequest* req) {
         return value;
     };
     const auto& module = parse_param("module");
-    const auto& level = req->param("level");
+    const auto& level = parse_param("level");
     int new_level = std::stoi(level);
     return google::SetVLOGLevel(module.c_str(), new_level);
 }
