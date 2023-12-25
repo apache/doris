@@ -32,28 +32,11 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 
 /**
- * This class is used to convert sql with different dialects
- * using sql convertor service.
+ * This class is used to convert sql with different dialects using sql convertor service.
  * The sql convertor service is a http service which is used to convert sql.
- * Request body:
- * {
- * "version": "v1",
- * "sql": "select * from t",
- * "from": "presto",
- * "to": "doris",
- * "source": "text",
- * "case_sensitive": "0"
- * }
- * <p>
- * Response body:
- * {
- * "version": "v1",
- * "data": "select * from t",
- * "code": 0,
- * "message": ""
  */
-public class SQLDialectUtils {
-    private static final Logger LOG = LogManager.getLogger(SQLDialectUtils.class);
+public class HttpDialectUtils {
+    private static final Logger LOG = LogManager.getLogger(HttpDialectUtils.class);
 
     public static String convertSql(String targetURL, String originStmt) {
         ConvertRequest convertRequest = new ConvertRequest(originStmt, "presto");

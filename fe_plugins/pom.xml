@@ -65,7 +65,7 @@ under the License.
     <modules>
         <module>auditdemo</module>
         <module>auditloader</module>
-        <module>presto-converter</module>
+        <module>http-dialect-converter</module>
         <module>trino-converter</module>
         <module>sparksql-converter</module>
     </modules>

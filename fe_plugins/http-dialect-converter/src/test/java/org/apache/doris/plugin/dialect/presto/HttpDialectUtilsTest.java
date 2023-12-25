@@ -27,7 +27,7 @@ import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
 
-public class SQLDialectUtilsTest {
+public class HttpDialectUtilsTest {
 
     private int port;
     private SimpleHttpServer server;
@@ -52,20 +52,20 @@ public class SQLDialectUtilsTest {
         String expectedSql = "select * from t1 where `k1` = 1";
 
         String targetURL = "http://127.0.0.1:" + port + "/api/v1/convert";
-        String res = SQLDialectUtils.convertSql(targetURL, originSql);
+        String res = HttpDialectUtils.convertSql(targetURL, originSql);
         Assert.assertEquals(originSql, res);
         // test presto
         server.setResponse("{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
-        res = SQLDialectUtils.convertSql(targetURL, originSql);
+        res = HttpDialectUtils.convertSql(targetURL, originSql);
         Assert.assertEquals(expectedSql, res);
         // test response version error
         server.setResponse("{\"version\": \"v2\", \"data\": \"" + expectedSql + "\", \"code\": 0, \"message\": \"\"}");
-        res = SQLDialectUtils.convertSql(targetURL, originSql);
+        res = HttpDialectUtils.convertSql(targetURL, originSql);
         Assert.assertEquals(originSql, res);
         // 7. test response code error
         server.setResponse(
                 "{\"version\": \"v1\", \"data\": \"" + expectedSql + "\", \"code\": 400, \"message\": \"\"}");
-        res = SQLDialectUtils.convertSql(targetURL, originSql);
+        res = HttpDialectUtils.convertSql(targetURL, originSql);
         Assert.assertEquals(originSql, res);
     }
 

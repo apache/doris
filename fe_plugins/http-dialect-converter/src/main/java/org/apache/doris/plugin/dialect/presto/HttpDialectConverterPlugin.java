@@ -17,7 +17,6 @@
 
 package org.apache.doris.plugin.dialect.presto;
 
-import com.google.common.base.Preconditions;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.Plugin;
@@ -26,6 +25,7 @@ import org.apache.doris.plugin.PluginException;
 import org.apache.doris.plugin.PluginInfo;
 import org.apache.doris.qe.SessionVariable;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 
 import java.io.IOException;
@@ -33,17 +33,46 @@ import java.io.InputStream;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Arrays;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Properties;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
-public class PrestoDialectConverterPlugin extends Plugin implements DialectConverterPlugin {
+/**
+ * Currently, there are many frameworks and services that support SQL dialect conversion,
+ * but they may not been implemented in Java.
+ * Therefore, we can encapsulate these SQL dialect conversion frameworks or services into an HTTP service,
+ * and combine them with this plugin to provide dialect conversion capabilities.
+ * Note that the protocol request/response for the wrapped HTTP service must comply with the following rules:
+ * <pre>
+ * Request body:
+ * {
+ *     "version": "v1",
+ *     "sql": "select * from t",
+ *     "from": "presto",
+ *     "to": "doris",
+ *     "source": "text",
+ *     "case_sensitive": "0"
+ * }
+ *
+ * Response body:
+ * {
+ *     "version": "v1",
+ *     "data": "select * from t",
+ *     "code": 0,
+ *     "message": ""
+ * }
+ * </pre>
+ * */
+public class HttpDialectConverterPlugin extends Plugin implements DialectConverterPlugin {
 
     private volatile boolean isInit = false;
     private volatile boolean isClosed = false;
     private volatile String targetURL = null;
+    private volatile ImmutableSet<Dialect> acceptDialects = null;
 
     @Override
     public void init(PluginInfo info, PluginContext ctx) throws PluginException {
@@ -83,6 +112,8 @@ public class PrestoDialectConverterPlugin extends Plugin implements DialectConve
         final Map<String, String> properties = props.stringPropertyNames().stream()
                 .collect(Collectors.toMap(Function.identity(), props::getProperty));
         targetURL = properties.get("target_url");
+        acceptDialects = ImmutableSet.copyOf(Arrays.stream(Objects.requireNonNull(properties.get("accept_dialects"))
+                    .split(",")).map(Dialect::getByName).collect(Collectors.toSet()));
     }
 
     @Override
@@ -93,12 +124,12 @@ public class PrestoDialectConverterPlugin extends Plugin implements DialectConve
 
     @Override
     public ImmutableSet<Dialect> acceptDialects() {
-        return ImmutableSet.of(Dialect.PRESTO);
+        return acceptDialects;
     }
 
     @Override
     public @Nullable String convertSql(String originSql, SessionVariable sessionVariable) {
         Preconditions.checkNotNull(targetURL);
-        return SQLDialectUtils.convertSql(targetURL, originSql);
+        return HttpDialectUtils.convertSql(targetURL, originSql);
     }
 }

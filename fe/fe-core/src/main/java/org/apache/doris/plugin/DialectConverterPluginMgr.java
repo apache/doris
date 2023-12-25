@@ -34,7 +34,7 @@ public class DialectConverterPluginMgr {
 
     private static final Logger LOG = LogManager.getLogger(DialectConverterPluginMgr.class);
 
-    private static final int REFRESH_INTERVAL_MS = 60000;
+    private static final int REFRESH_INTERVAL_MS = 10000;
 
     private final PluginMgr pluginMgr;
     // should not be null
