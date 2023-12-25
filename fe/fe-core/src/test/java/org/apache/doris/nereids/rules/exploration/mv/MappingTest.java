@@ -64,7 +64,7 @@ public class MappingTest extends TestWithFeService {
                 + ")");
         createTable("CREATE TABLE IF NOT EXISTS customer (\n"
                 + "  C_CUSTKEY     INTEGER NOT NULL,\n"
-                + "  C_NAME        VARCHAR(25) NOT NULL,\n"
+                + "  C_NAME        VARCHAR(25) NOT NULL\n"
                 + ")\n"
                 + "DUPLICATE KEY(C_CUSTKEY, C_NAME)\n"
                 + "DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 3\n"
