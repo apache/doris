@@ -61,4 +61,22 @@ public class ProfileAction extends RestBaseController {
         result.put("profile", queryProfileStr);
         return ResponseEntityBuilder.ok(result);
     }
+
+    @RequestMapping(path = "/api/profile/text", method = RequestMethod.GET)
+    protected Object profileText(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+
+        String queryId = request.getParameter("query_id");
+        if (Strings.isNullOrEmpty(queryId)) {
+            return "Missing query_id";
+        }
+
+        String queryProfileStr = ProfileManager.getInstance().getProfile(queryId);
+        if (queryProfileStr == null) {
+            return "query id " + queryId + " not found";
+        }
+
+        return queryProfileStr;
+    }
 }

@@ -39,9 +39,13 @@
 namespace doris {
 WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
         : _exec_env(exec_env), _stop_background_threads_latch(1), _stop(false) {
-    doris::vectorized::WalReader::string_split(wal_dir_list, ",", _wal_dirs);
+    doris::vectorized::WalReader::string_split(wal_dir_list, ";", _wal_dirs);
     _all_wal_disk_bytes = std::make_shared<std::atomic_size_t>(0);
     _cv = std::make_shared<std::condition_variable>();
+    static_cast<void>(ThreadPoolBuilder("GroupCommitReplayWalThreadPool")
+                              .set_min_threads(1)
+                              .set_max_threads(config::group_commit_relay_wal_threads)
+                              .build(&_thread_pool));
 }
 
 WalManager::~WalManager() {
@@ -56,6 +60,7 @@ void WalManager::stop() {
         if (_replay_thread) {
             _replay_thread->join();
         }
+        _thread_pool->shutdown();
         LOG(INFO) << "WalManager is stopped";
     }
 }
@@ -161,6 +166,10 @@ Status WalManager::add_wal_path(int64_t db_id, int64_t table_id, int64_t wal_id,
        << std::to_string(wal_id) << "_" << label;
     {
         std::lock_guard<std::shared_mutex> wrlock(_wal_lock);
+        auto it = _wal_path_map.find(wal_id);
+        if (it != _wal_path_map.end()) {
+            return Status::InternalError("wal_id {} already in wal_path_map", wal_id);
+        }
         _wal_path_map.emplace(wal_id, ss.str());
     }
     return Status::OK();
@@ -262,7 +271,7 @@ Status WalManager::scan_wals(const std::string& wal_path) {
                     }
                 }
             }
-            st = add_recover_wal(db_id.file_name, table_id.file_name, res);
+            st = add_recover_wal(std::stoll(db_id.file_name), std::stoll(table_id.file_name), res);
             count += res.size();
             if (!st.ok()) {
                 LOG(WARNING) << "Failed add replay wal, db=" << db_id.file_name
@@ -285,7 +294,7 @@ Status WalManager::replay() {
             _exec_env->master_info()->network_address.port == 0) {
             continue;
         }
-        std::vector<std::string> replay_tables;
+        std::vector<int64_t> replay_tables;
         {
             std::lock_guard<std::shared_mutex> wrlock(_lock);
             auto it = _table_map.begin();
@@ -299,23 +308,24 @@ Status WalManager::replay() {
             }
         }
         for (const auto& table_id : replay_tables) {
-            auto st = _table_map[table_id]->replay_wals();
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed add replay wal on table " << table_id;
-            }
+            RETURN_IF_ERROR(_thread_pool->submit_func([table_id, this] {
+                auto st = this->_table_map[table_id]->replay_wals();
+                if (!st.ok()) {
+                    LOG(WARNING) << "Failed add replay wal on table " << table_id;
+                }
+            }));
         }
     } while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::group_commit_replay_wal_retry_interval_seconds)));
     return Status::OK();
 }
 
-Status WalManager::add_recover_wal(const std::string& db_id, const std::string& table_id,
-                                   std::vector<std::string> wals) {
+Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, std::vector<std::string> wals) {
     std::lock_guard<std::shared_mutex> wrlock(_lock);
     std::shared_ptr<WalTable> table_ptr;
     auto it = _table_map.find(table_id);
     if (it == _table_map.end()) {
-        table_ptr = std::make_shared<WalTable>(_exec_env, std::stoll(db_id), std::stoll(table_id));
+        table_ptr = std::make_shared<WalTable>(_exec_env, db_id, table_id);
         _table_map.emplace(table_id, table_ptr);
     } else {
         table_ptr = it->second;
@@ -324,7 +334,7 @@ Status WalManager::add_recover_wal(const std::string& db_id, const std::string& 
     return Status::OK();
 }
 
-size_t WalManager::get_wal_table_size(const std::string& table_id) {
+size_t WalManager::get_wal_table_size(int64_t table_id) {
     std::shared_lock rdlock(_lock);
     auto it = _table_map.find(table_id);
     if (it != _table_map.end()) {
@@ -351,10 +361,13 @@ Status WalManager::delete_wal(int64_t wal_id) {
         if (_wal_id_to_writer_map.empty()) {
             CHECK_EQ(_all_wal_disk_bytes->load(std::memory_order_relaxed), 0);
         }
-        std::string wal_path = _wal_path_map[wal_id];
-        RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));
-        LOG(INFO) << "delete file=" << wal_path;
-        _wal_path_map.erase(wal_id);
+        auto it = _wal_path_map.find(wal_id);
+        if (it != _wal_path_map.end()) {
+            std::string wal_path = it->second;
+            RETURN_IF_ERROR(io::global_local_filesystem()->delete_file(wal_path));
+            LOG(INFO) << "delete file=" << wal_path;
+            _wal_path_map.erase(wal_id);
+        }
     }
     return Status::OK();
 }
@@ -371,10 +384,13 @@ void WalManager::stop_relay_wal() {
 }
 
 void WalManager::add_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_column_id_map_lock);
     _wal_column_id_map.emplace(wal_id, column_index);
+    LOG(INFO) << "add " << wal_id << " to wal_column_id_map";
 }
 
 void WalManager::erase_wal_column_index(int64_t wal_id) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_column_id_map_lock);
     if (_wal_column_id_map.erase(wal_id)) {
         LOG(INFO) << "erase " << wal_id << " from wal_column_id_map";
     } else {
@@ -383,6 +399,7 @@ void WalManager::erase_wal_column_index(int64_t wal_id) {
 }
 
 Status WalManager::get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index) {
+    std::lock_guard<std::shared_mutex> wrlock(_wal_column_id_map_lock);
     auto it = _wal_column_id_map.find(wal_id);
     if (it != _wal_column_id_map.end()) {
         column_index = it->second;

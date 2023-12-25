@@ -91,24 +91,24 @@ TEST_F(WalManagerTest, recovery_normal) {
     k_request_line = "{\"Status\": \"Success\",    \"Message\": \"Test\"}";
 
     std::string db_id = "1";
-    std::string tb_1_id = "1";
+    int64_t tb_1_id = 1;
     std::string wal_100_id = "100";
     std::string wal_101_id = "101";
-    std::string tb_2_id = "2";
+    int64_t tb_2_id = 2;
     std::string wal_200_id = "200";
     std::string wal_201_id = "201";
 
     std::filesystem::create_directory(wal_dir + "/" + db_id);
-    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + tb_1_id);
-    std::string wal_100 = wal_dir + "/" + db_id + "/" + tb_1_id + "/" + wal_100_id;
-    std::string wal_101 = wal_dir + "/" + db_id + "/" + tb_1_id + "/" + wal_101_id;
+    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + std::to_string(tb_1_id));
+    std::string wal_100 = wal_dir + "/" + db_id + "/" + std::to_string(tb_1_id) + "/" + wal_100_id;
+    std::string wal_101 = wal_dir + "/" + db_id + "/" + std::to_string(tb_1_id) + "/" + wal_101_id;
     createWal(wal_100);
     createWal(wal_101);
 
     std::filesystem::create_directory(wal_dir + "/" + db_id);
-    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + tb_2_id);
-    std::string wal_200 = wal_dir + "/" + db_id + "/" + tb_2_id + "/" + wal_200_id;
-    std::string wal_201 = wal_dir + "/" + db_id + "/" + tb_2_id + "/" + wal_201_id;
+    std::filesystem::create_directory(wal_dir + "/" + db_id + "/" + std::to_string(tb_2_id));
+    std::string wal_200 = wal_dir + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_200_id;
+    std::string wal_201 = wal_dir + "/" + db_id + "/" + std::to_string(tb_2_id) + "/" + wal_201_id;
     createWal(wal_200);
     createWal(wal_201);
     static_cast<void>(_env->wal_mgr()->init());

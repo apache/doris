@@ -24,20 +24,12 @@ suite("query91") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_91 '''
-    explain shape plan
-
-
-
-
-select  
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """select  
         cc_call_center_id Call_Center,
         cc_name Call_Center_Name,
         cc_manager Manager,
@@ -64,7 +56,9 @@ and     ( (cd_marital_status       = 'M' and cd_education_status     = 'Unknown'
 and     hd_buy_potential like '1001-5000%'
 and     ca_gmt_offset           = -6
 group by cc_call_center_id,cc_name,cc_manager,cd_marital_status,cd_education_status
-order by sum(cr_net_loss) desc;
-
-    '''
+order by sum(cr_net_loss) desc"""
+    qt_ds_shape_91 """
+    explain shape plan
+    ${ds}
+    """
 }

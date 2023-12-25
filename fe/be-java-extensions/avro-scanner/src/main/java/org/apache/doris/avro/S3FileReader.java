@@ -17,8 +17,6 @@
 
 package org.apache.doris.avro;
 
-import org.apache.doris.avro.AvroFileCache.AvroFileMeta;
-
 import org.apache.avro.Schema;
 import org.apache.avro.mapred.AvroWrapper;
 import org.apache.avro.mapred.Pair;
@@ -58,7 +56,7 @@ public class S3FileReader extends AvroReader {
     }
 
     @Override
-    public void open(AvroFileMeta avroFileMeta, boolean tableSchema) throws IOException {
+    public void open(AvroFileContext avroFileContext, boolean tableSchema) throws IOException {
         Configuration conf = new Configuration();
         conf.set(AvroProperties.FS_S3A_ACCESS_KEY, accessKey);
         conf.set(AvroProperties.FS_S3A_SECRET_KEY, secretKey);
@@ -66,10 +64,10 @@ public class S3FileReader extends AvroReader {
         conf.set(AvroProperties.FS_S3A_REGION, region);
         path = new Path(s3aUri);
         fileSystem = FileSystem.get(URI.create(s3aUri), conf);
-        if (tableSchema) {
-            openSchemaReader();
-        } else {
-            openDataReader(avroFileMeta);
+        openSchemaReader();
+        if (!tableSchema) {
+            avroFileContext.setSchema(schemaReader.getSchema());
+            openDataReader(avroFileContext);
         }
     }
 

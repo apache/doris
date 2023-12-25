@@ -51,6 +51,7 @@ public class MatchPredicate extends Predicate {
         MATCH_ALL("MATCH_ALL", "match_all", TExprOpcode.MATCH_ALL),
         MATCH_PHRASE("MATCH_PHRASE", "match_phrase", TExprOpcode.MATCH_PHRASE),
         MATCH_PHRASE_PREFIX("MATCH_PHRASE_PREFIX", "match_phrase_prefix", TExprOpcode.MATCH_PHRASE_PREFIX),
+        MATCH_REGEXP("MATCH_REGEXP", "match_regexp", TExprOpcode.MATCH_REGEXP),
         MATCH_ELEMENT_EQ("MATCH_ELEMENT_EQ", "match_element_eq", TExprOpcode.MATCH_ELEMENT_EQ),
         MATCH_ELEMENT_LT("MATCH_ELEMENT_LT", "match_element_lt", TExprOpcode.MATCH_ELEMENT_LT),
         MATCH_ELEMENT_GT("MATCH_ELEMENT_GT", "match_element_gt", TExprOpcode.MATCH_ELEMENT_GT),
@@ -155,6 +156,16 @@ public class MatchPredicate extends Predicate {
                     Type.BOOLEAN));
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
                     Operator.MATCH_PHRASE_PREFIX.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_REGEXP.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_REGEXP.getName(),
                     symbolNotUsed,
                     Lists.<Type>newArrayList(new ArrayType(t), t),
                     Type.BOOLEAN));

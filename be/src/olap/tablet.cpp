@@ -2122,16 +2122,7 @@ Status Tablet::_cooldown_data() {
         LOG(INFO) << "cannot pick cooldown rowset in tablet " << tablet_id();
         return Status::OK();
     }
-    if (old_rowset->num_segments() < 1) {
-        // Empty rowset, just reset rowset's resource_id
-        std::lock_guard meta_wlock(_meta_lock);
-        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        old_rowset->rowset_meta()->set_fs(dest_fs);
-        LOG(INFO) << "cooldown empty rowset " << old_rowset->version() << " "
-                  << old_rowset->rowset_id().to_string() << " to " << dest_fs->root_path().native()
-                  << ", tablet_id=" << tablet_id();
-        return Status::OK();
-    }
+
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
     auto pending_rs_guard = StorageEngine::instance()->pending_remote_rowsets().add(new_rowset_id);
     Status st;
@@ -2178,7 +2169,9 @@ Status Tablet::_cooldown_data() {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         save_meta();
     }
-    // upload cooldowned rowset meta to remote fs
+    // Upload cooldowned rowset meta to remote fs
+    // ATTN: Even if it is an empty rowset, in order for the followers to synchronize, the coolown meta must be
+    // uploaded, otherwise followers may never completely cooldown.
     if (auto t = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
         t != nullptr) { // `t` can be nullptr if it has been dropped
         async_write_cooldown_meta(std::move(t));
@@ -3023,7 +3016,10 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
                                      segment_caches, &rowset_find);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
-            DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
+            // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
+            // while stress test
+            DCHECK(expected_st || st.is<MEM_LIMIT_EXCEEDED>())
+                    << "unexpected error status while lookup_row_key:" << st;
             if (!expected_st) {
                 return st;
             }

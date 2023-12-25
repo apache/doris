@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <climits>
 #include <type_traits>
 
 #include "vec/columns/column_decimal.h"
@@ -220,7 +221,6 @@ template <typename T>
 /// Returns the maximum ascii string length for this type.
 /// e.g. the max/min int8_t has 3 characters.
 int max_ascii_len() {
-    LOG(FATAL) << "Not implemented.";
     return 0;
 }
 
@@ -272,6 +272,16 @@ inline int max_ascii_len<__int128>() {
 template <>
 inline int max_ascii_len<wide::Int256>() {
     return 77;
+}
+
+template <>
+inline int max_ascii_len<float>() {
+    return INT_MAX;
+}
+
+template <>
+inline int max_ascii_len<double>() {
+    return INT_MAX;
 }
 } // namespace NumberTraits
 

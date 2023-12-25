@@ -273,6 +273,7 @@ protected:
         std::string json_rowset_meta = R"({
             "rowset_id": 540081,
             "tablet_id": 15673,
+            "partition_id": 10000,
             "tablet_schema_hash": 567997577,
             "rowset_type": "BETA_ROWSET",
             "rowset_state": "VISIBLE",

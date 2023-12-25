@@ -24,21 +24,12 @@ suite("query2") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-
-    qt_ds_shape_2 '''
-    explain shape plan
-
-
-
-
-with wscs as
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """with wscs as
  (select sold_date_sk
         ,sales_price
   from (select ws_sold_date_sk sold_date_sk
@@ -94,7 +85,9 @@ with wscs as
   where date_dim.d_week_seq = wswscs.d_week_seq and
         d_year = 1998+1) z
  where d_week_seq1=d_week_seq2-53
- order by d_week_seq1;
-
-    '''
+ order by d_week_seq1"""
+    qt_ds_shape_2 """
+    explain shape plan
+    ${ds}
+    """
 }

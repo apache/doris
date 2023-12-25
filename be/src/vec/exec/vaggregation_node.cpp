@@ -847,13 +847,20 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
-                    auto mapped = _aggregate_data_container->append_data(origin);
-                    auto st = _create_agg_status(mapped);
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
+                    try {
+                        HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
+                        auto mapped = _aggregate_data_container->append_data(origin);
+                        auto st = _create_agg_status(mapped);
+                        if (!st) {
+                            throw Exception(st.code(), st.to_string());
+                        }
+                        ctor(key, mapped);
+                    } catch (...) {
+                        // Exception-safety - if it can not allocate memory or create status,
+                        // the destructors will not be called.
+                        ctor(key, nullptr);
+                        throw;
                     }
-                    ctor(key, mapped);
                 };
 
                 auto creator_for_null_key = [this](auto& mapped) {

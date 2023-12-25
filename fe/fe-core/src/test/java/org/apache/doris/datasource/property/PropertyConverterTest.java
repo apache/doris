@@ -69,7 +69,6 @@ public class PropertyConverterTest extends TestWithFeService {
 
     @Override
     protected void runBeforeAll() throws Exception {
-        createDorisCluster();
         createDatabase("mock_db");
         useDatabase("mock_db");
         createTable("create table mock_tbl1 \n" + "(k1 int, k2 int) distributed by hash(k1) buckets 1\n"

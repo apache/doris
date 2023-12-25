@@ -77,10 +77,6 @@ public abstract class AggregateFunction extends BoundFunction implements Expects
         return distinct;
     }
 
-    public Class<? extends AggregateFunction> getRollup() {
-        return null;
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {

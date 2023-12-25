@@ -273,6 +273,28 @@ public class BackupJob extends AbstractJob {
         return state == BackupJobState.CANCELLED;
     }
 
+    @Override
+    public synchronized Status updateRepo(Repository repo) {
+        this.repo = repo;
+
+        if (this.state == BackupJobState.UPLOADING) {
+            for (Map.Entry<Long, Long> entry : unfinishedTaskIds.entrySet()) {
+                long signature = entry.getKey();
+                long beId = entry.getValue();
+                AgentTask task = AgentTaskQueue.getTask(beId, TTaskType.UPLOAD, signature);
+                if (task == null || task.getTaskType() != TTaskType.UPLOAD) {
+                    continue;
+                }
+                ((UploadTask) task).updateBrokerProperties(
+                                S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
+            }
+            LOG.info("finished to update upload job properties. {}", this);
+        }
+        LOG.info("finished to update repo of job. {}", this);
+        return Status.OK;
+    }
+
     // Polling the job state and do the right things.
     @Override
     public synchronized void run() {

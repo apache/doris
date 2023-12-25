@@ -104,7 +104,7 @@ public class ConnectContext {
     protected volatile long backendId;
     protected volatile LoadTaskInfo streamLoadInfo;
 
-    protected volatile TUniqueId queryId;
+    protected volatile TUniqueId queryId = null;
     protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;

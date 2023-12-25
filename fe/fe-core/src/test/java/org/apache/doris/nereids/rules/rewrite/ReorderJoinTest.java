@@ -124,6 +124,7 @@ class ReorderJoinTest implements MemoPatternMatchSupported {
                 .filter(new EqualTo(scan3.getOutput().get(0), scan1.getOutput().get(0)))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan2)
+                .applyBottomUp(new SemiJoinCommute())
                 .rewrite()
                 .matchesFromRoot(
                     logicalProject(

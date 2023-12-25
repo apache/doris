@@ -6,14 +6,14 @@
 2
 
 -- !show_1 --
-normal	20	50%	true	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%
 test_group	10	10%	true	2147483647	0	0	0%
 
 -- !mem_limit_1 --
 2
 
 -- !mem_limit_2 --
-normal	20	50%	true	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%
 test_group	10	11%	true	2147483647	0	0	0%
 
 -- !mem_overcommit_1 --
@@ -23,24 +23,24 @@ test_group	10	11%	true	2147483647	0	0	0%
 2
 
 -- !mem_overcommit_3 --
-normal	20	50%	true	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%
 test_group	10	11%	false	2147483647	0	0	0%
 
 -- !cpu_hard_limit_1 --
 2
 
 -- !cpu_hard_limit_2 --
-normal	20	50%	true	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%
 test_group	10	11%	false	2147483647	0	0	20%
 
 -- !queue_1 --
 2
 
 -- !show_queue --
-normal	20	50%	true	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%
 test_group	10	11%	false	100	0	0	20%
 
 -- !select_tvf_1 --
-normal	20	50%	true	2147483647	0	0	0%
+normal	20	50%	true	2147483647	0	0	1%
 test_group	10	11%	false	100	0	0	20%
 

@@ -23,6 +23,20 @@ suite ("test_alter_colocate_table") {
         """
     }
 
+    // wait group clean
+    def existsGroup = false;
+    for (def i = 0; i < 60; i++) {
+        def dbName = sql("SELECT DATABASE()")[0][0]
+        def result = sql_return_maparray "show proc '/colocation_group'"
+        existsGroup = result.any { it.GroupName.indexOf(dbName + ".x_group_") >= 0 }
+        if (existsGroup) {
+            sleep(1000)
+        } else {
+            break
+        }
+    }
+    assertFalse(existsGroup)
+
     sql """
         CREATE TABLE IF NOT EXISTS col_tbl1
         (

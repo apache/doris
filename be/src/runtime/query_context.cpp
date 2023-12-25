@@ -36,12 +36,14 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
           timeout_second(-1),
           _query_id(query_id),
           _exec_env(exec_env),
-          _runtime_filter_mgr(new RuntimeFilterMgr(TUniqueId(), this)),
           _query_options(query_options) {
     _start_time = VecDateTimeValue::local_time();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
-    _execution_dependency.reset(new pipeline::Dependency(-1, -1, "ExecutionDependency", this));
+    _execution_dependency =
+            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", this);
+    _runtime_filter_mgr.reset(
+            new RuntimeFilterMgr(TUniqueId(), RuntimeFilterParamsContext::create(this)));
 }
 
 QueryContext::~QueryContext() {

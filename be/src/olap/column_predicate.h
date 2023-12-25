@@ -192,6 +192,8 @@ public:
     virtual void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                              bool* flags) const {}
 
+    virtual bool support_zonemap() const { return true; }
+
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         return true;
     }

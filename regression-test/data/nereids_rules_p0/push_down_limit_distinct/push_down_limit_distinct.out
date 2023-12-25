@@ -2,20 +2,14 @@
 -- !basic --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t]
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t]
+----PhysicalLimit[LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalOlapScan[t]
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalOlapScan[t]
 

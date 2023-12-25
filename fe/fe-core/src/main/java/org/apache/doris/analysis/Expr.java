@@ -298,6 +298,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     protected boolean printSqlInParens = false;
     protected Optional<String> exprName = Optional.empty();
 
+    protected List<TupleId> boundTupleIds = null;
+
     protected Expr() {
         super();
         type = Type.INVALID;
@@ -1293,12 +1295,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Returns true if expr is fully bound by tids, otherwise false.
      */
     public boolean isBoundByTupleIds(List<TupleId> tids) {
+        if (boundTupleIds != null && !boundTupleIds.isEmpty()) {
+            return boundTupleIds.stream().anyMatch(id -> tids.contains(id));
+        }
         for (Expr child : children) {
             if (!child.isBoundByTupleIds(tids)) {
                 return false;
             }
         }
         return true;
+    }
+
+    public void setBoundTupleIds(List<TupleId> tids) {
+        boundTupleIds = tids;
     }
 
 

@@ -172,6 +172,10 @@ public class OlapTableSink extends DataSink {
         tDataSink.getOlapTableSink().setLoadId(newLoadId);
     }
 
+    public void setAutoPartition(boolean var) {
+        tDataSink.getOlapTableSink().getPartition().setEnableAutomaticPartition(var);
+    }
+
     // must called after tupleDescriptor is computed
     public void complete(Analyzer analyzer) throws UserException {
         for (Long partitionId : partitionIds) {

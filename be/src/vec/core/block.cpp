@@ -584,7 +584,9 @@ MutableColumns Block::mutate_columns() {
 }
 
 void Block::set_columns(MutableColumns&& columns) {
-    /// TODO: assert if |columns| doesn't match |data|!
+    DCHECK_GE(columns.size(), data.size())
+            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
+                           columns.size(), data.size());
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = std::move(columns[i]);
@@ -592,7 +594,9 @@ void Block::set_columns(MutableColumns&& columns) {
 }
 
 void Block::set_columns(const Columns& columns) {
-    /// TODO: assert if |columns| doesn't match |data|!
+    DCHECK_GE(columns.size(), data.size())
+            << fmt::format("Invalid size of columns, columns size: {}, data size: {}",
+                           columns.size(), data.size());
     size_t num_columns = data.size();
     for (size_t i = 0; i < num_columns; ++i) {
         data[i].column = columns[i];
@@ -866,7 +870,7 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     *uncompressed_bytes = content_uncompressed_size;
 
     // compress
-    if (config::compress_rowbatches && content_uncompressed_size > 0) {
+    if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {
         SCOPED_RAW_TIMER(&_compress_time_ns);
         pblock->set_compression_type(compression_type);
         pblock->set_uncompressed_size(content_uncompressed_size);
@@ -1109,7 +1113,9 @@ void Block::shrink_char_type_column_suffix_zero(const std::vector<size_t>& char_
 size_t MutableBlock::allocated_bytes() const {
     size_t res = 0;
     for (const auto& col : _columns) {
-        res += col->allocated_bytes();
+        if (col) {
+            res += col->allocated_bytes();
+        }
     }
 
     return res;

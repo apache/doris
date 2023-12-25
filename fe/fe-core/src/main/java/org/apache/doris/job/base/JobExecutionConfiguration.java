@@ -178,8 +178,8 @@ public class JobExecutionConfiguration {
 
         // Calculate the trigger time list
         for (long triggerTime = firstTriggerTime; triggerTime <= windowEndTimeMs; triggerTime += intervalMs) {
-            if (triggerTime >= currentTimeMs && (null == timerDefinition.getEndTimeMs()
-                    || triggerTime < timerDefinition.getEndTimeMs())) {
+            if (null == timerDefinition.getEndTimeMs()
+                    || triggerTime < timerDefinition.getEndTimeMs()) {
                 timerDefinition.setLatestSchedulerTimeMs(triggerTime);
                 timestamps.add(queryDelayTimeSecond(currentTimeMs, triggerTime));
             }

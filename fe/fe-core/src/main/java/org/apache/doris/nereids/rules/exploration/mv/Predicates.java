@@ -23,9 +23,10 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -34,7 +35,7 @@ import java.util.stream.Collectors;
 public class Predicates {
 
     // Predicates that can be pulled up
-    private final List<Expression> pulledUpPredicates = new ArrayList<>();
+    private final Set<Expression> pulledUpPredicates = new HashSet<>();
 
     private Predicates() {
     }
@@ -49,7 +50,7 @@ public class Predicates {
         return predicates;
     }
 
-    public List<? extends Expression> getPulledUpPredicates() {
+    public Set<? extends Expression> getPulledUpPredicates() {
         return pulledUpPredicates;
     }
 

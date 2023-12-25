@@ -50,7 +50,8 @@ public:
     };
 
     Status add_block(std::shared_ptr<vectorized::Block> block, bool write_wal);
-    Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
+    Status get_block(RuntimeState* runtime_state, vectorized::Block* block, bool* find_block,
+                     bool* eos);
     Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
@@ -72,6 +73,7 @@ public:
     Status status = Status::OK();
 
 private:
+    void _cancel_without_lock(const Status& st);
     std::chrono::steady_clock::time_point _start_time;
 
     std::condition_variable _put_cond;
@@ -114,7 +116,7 @@ private:
                                const TPipelineFragmentParams& pipeline_params);
     Status _finish_group_commit_load(int64_t db_id, int64_t table_id, const std::string& label,
                                      int64_t txn_id, const TUniqueId& instance_id, Status& status,
-                                     bool prepare_failed, RuntimeState* state);
+                                     RuntimeState* state);
 
     ExecEnv* _exec_env = nullptr;
     ThreadPool* _thread_pool = nullptr;

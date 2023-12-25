@@ -45,9 +45,7 @@ lisi	300
 zhangsang	200
 
 -- !select --
-clz	200
-lisi	300
-zhangsang	200
+{grace_period=3333}
 
 -- !select --
 clz	200
@@ -58,4 +56,7 @@ zhangsang	200
 clz	200
 lisi	300
 zhangsang	200
+
+-- !select_union --
+11	111
 

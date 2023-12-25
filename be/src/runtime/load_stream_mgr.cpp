@@ -34,7 +34,9 @@ namespace doris {
 
 LoadStreamMgr::LoadStreamMgr(uint32_t segment_file_writer_thread_num,
                              FifoThreadPool* heavy_work_pool, FifoThreadPool* light_work_pool)
-        : _heavy_work_pool(heavy_work_pool), _light_work_pool(light_work_pool) {
+        : _num_threads(segment_file_writer_thread_num),
+          _heavy_work_pool(heavy_work_pool),
+          _light_work_pool(light_work_pool) {
     static_cast<void>(ThreadPoolBuilder("SegmentFileWriterThreadPool")
                               .set_min_threads(segment_file_writer_thread_num)
                               .set_max_threads(segment_file_writer_thread_num)

@@ -311,7 +311,6 @@ public abstract class FileQueryScanNode extends FileScanNode {
             params.setProperties(locationProperties);
         }
 
-        boolean enableSqlCache = ConnectContext.get().getSessionVariable().enableFileCache;
         boolean enableShortCircuitRead = HdfsResource.enableShortCircuitRead(locationProperties);
         List<String> pathPartitionKeys = getPathPartitionKeys();
         for (Split split : inputSplits) {
@@ -369,14 +368,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
             curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
             TScanRangeLocation location = new TScanRangeLocation();
             Backend selectedBackend;
-            if (enableSqlCache) {
+            if (enableShortCircuitRead) {
+                // Try to find a local BE if enable hdfs short circuit read
+                selectedBackend = backendPolicy.getNextLocalBe(Arrays.asList(fileSplit.getHosts()), curLocations);
+            } else {
                 // Use consistent hash to assign the same scan range into the same backend among different queries
                 selectedBackend = backendPolicy.getNextConsistentBe(curLocations);
-            } else if (enableShortCircuitRead) {
-                // Try to find a local BE if enable hdfs short circuit read
-                selectedBackend = backendPolicy.getNextLocalBe(Arrays.asList(fileSplit.getHosts()));
-            } else {
-                selectedBackend = backendPolicy.getNextBe();
             }
             setLocationPropertiesIfNecessary(selectedBackend, locationType, locationProperties);
             location.setBackendId(selectedBackend.getId());

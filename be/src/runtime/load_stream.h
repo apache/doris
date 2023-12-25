@@ -69,6 +69,7 @@ private:
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    LoadStreamMgr* _load_stream_mgr = nullptr;
 };
 
 using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;

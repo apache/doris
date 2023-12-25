@@ -38,6 +38,7 @@ bvar::Status<int64_t> g_memtable_flush_memory("mm_limiter_mem_flush", 0);
 bvar::Status<int64_t> g_memtable_load_memory("mm_limiter_mem_load", 0);
 bvar::Status<int64_t> g_load_hard_mem_limit("mm_limiter_limit_hard", 0);
 bvar::Status<int64_t> g_load_soft_mem_limit("mm_limiter_limit_soft", 0);
+bvar::Status<int64_t> g_orphan_memory("mm_limiter_mem_orphan", 0);
 
 // Calculate the total memory limit of all load tasks on this BE
 static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
@@ -58,6 +59,8 @@ MemTableMemoryLimiter::~MemTableMemoryLimiter() {
 Status MemTableMemoryLimiter::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
+    _load_safe_mem_permit =
+            _load_hard_mem_limit * config::load_process_safe_mem_permit_percent / 100;
     g_load_hard_mem_limit.set_value(_load_hard_mem_limit);
     g_load_soft_mem_limit.set_value(_load_soft_mem_limit);
     _mem_tracker = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
@@ -96,10 +99,14 @@ bool MemTableMemoryLimiter::_hard_limit_reached() {
            _proc_mem_extra() >= 0;
 }
 
+bool MemTableMemoryLimiter::_load_usage_low() {
+    return _mem_tracker->consumption() <= _load_safe_mem_permit;
+}
+
 void MemTableMemoryLimiter::handle_memtable_flush() {
     // Check the soft limit.
     DCHECK(_load_soft_mem_limit > 0);
-    if (!_soft_limit_reached()) {
+    if (!_soft_limit_reached() || _load_usage_low()) {
         return;
     }
     MonotonicStopWatch timer;
@@ -236,6 +243,7 @@ void MemTableMemoryLimiter::_refresh_mem_tracker() {
     g_memtable_load_memory.set_value(_mem_usage);
     VLOG_DEBUG << "refreshed mem_tracker, num writers: " << _writers.size();
     THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(), _mem_tracker.get());
+    g_orphan_memory.set_value(ExecEnv::GetInstance()->orphan_mem_tracker()->consumption());
     if (!_hard_limit_reached()) {
         _hard_limit_end_cond.notify_all();
     }

@@ -59,8 +59,8 @@ suite("test_group_commit_http_stream") {
         assertTrue(json.GroupCommit)
         assertTrue(json.Label.startsWith("group_commit_"))
         assertEquals(total_rows, json.NumberTotalRows)
-        //assertEquals(loaded_rows, json.NumberLoadedRows)
-        //assertEquals(filtered_rows, json.NumberFilteredRows)
+        assertEquals(loaded_rows, json.NumberLoadedRows)
+        assertEquals(filtered_rows, json.NumberFilteredRows)
         assertEquals(unselected_rows, json.NumberUnselectedRows)
         if (filtered_rows > 0) {
             assertFalse(json.ErrorURL.isEmpty())

@@ -24,20 +24,13 @@ suite("query75") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    sql 'set enable_runtime_filter_prune=true'
 
-    qt_ds_shape_75 '''
-    explain shape plan
-
-
-
-
-WITH all_sales AS (
+    def ds = """WITH all_sales AS (
  SELECT d_year
        ,i_brand_id
        ,i_class_id
@@ -103,7 +96,9 @@ WITH all_sales AS (
    AND prev_yr.d_year=1999-1
    AND CAST(curr_yr.sales_cnt AS DECIMAL(17,2))/CAST(prev_yr.sales_cnt AS DECIMAL(17,2))<0.9
  ORDER BY sales_cnt_diff,sales_amt_diff
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_75 """
+    explain shape plan
+    ${ds}
+    """
 }

@@ -1,0 +1,1 @@
+SELECT cast(v["repo"]["name"] as string) as repo_name, count() AS stars FROM github_events WHERE cast(v["type"] as string) = 'WatchEvent' AND year(cast(v["created_at"] as datetime)) = '2015' GROUP BY repo_name ORDER BY stars, repo_name DESC LIMIT 50

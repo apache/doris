@@ -33,6 +33,7 @@ static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
                                   TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
+    request->partition_id = 30002;
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 3;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;

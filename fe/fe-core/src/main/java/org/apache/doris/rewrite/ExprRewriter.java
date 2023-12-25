@@ -202,6 +202,24 @@ public class ExprRewriter {
         }
     }
 
+    public Expr rewriteElementAtToSlot(Expr inputExpr, Analyzer analyzer)
+            throws AnalysisException {
+        boolean changed = false;
+        for (ExprRewriteRule rule : rules) {
+            if (rule instanceof ElementAtToSlotRefRule) {
+                Expr newExpr = ((ElementAtToSlotRefRule) rule).rewrite(inputExpr, analyzer);
+                if (!newExpr.equals(inputExpr)) {
+                    inputExpr = newExpr;
+                    changed = true;
+                }
+            }
+        }
+        if (changed) {
+            ++numChanges;
+        }
+        return inputExpr;
+    }
+
     /**
      * Applies 'rule' on the Expr tree rooted at 'expr' until there are no more
      * changes.

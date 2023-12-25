@@ -77,6 +77,7 @@ enum class InvertedIndexQueryType {
     MATCH_ALL_QUERY = 6,
     MATCH_PHRASE_QUERY = 7,
     MATCH_PHRASE_PREFIX_QUERY = 8,
+    MATCH_REGEXP_QUERY = 9,
 };
 
 inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
@@ -110,6 +111,9 @@ inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
     }
     case InvertedIndexQueryType::MATCH_PHRASE_PREFIX_QUERY: {
         return "MPHRASEPREFIX";
+    }
+    case InvertedIndexQueryType::MATCH_REGEXP_QUERY: {
+        return "MREGEXP";
     }
     default:
         return "";

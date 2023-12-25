@@ -152,7 +152,8 @@ public class InsertExecutor {
     /**
      * finalize sink to complete enough info for sink execution
      */
-    public void finalizeSink(DataSink sink, boolean isPartialUpdate, boolean isFromInsert) {
+    public void finalizeSink(DataSink sink, boolean isPartialUpdate, boolean isFromInsert,
+            boolean allowAutoPartition) {
         if (!(sink instanceof OlapTableSink)) {
             return;
         }
@@ -170,6 +171,9 @@ public class InsertExecutor {
                     false,
                     isStrictMode);
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
+            if (!allowAutoPartition) {
+                olapTableSink.setAutoPartition(false);
+            }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }

@@ -167,7 +167,6 @@ public:
         return blocks_num;
     }
 
-    taskgroup::TaskGroup* get_task_group() const;
     SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
     void reschedule_scanner_ctx();

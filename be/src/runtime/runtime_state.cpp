@@ -446,8 +446,16 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
         }
     }
 
-    if (out.size() > 0) {
-        (*_error_log_file) << fmt::to_string(out) << std::endl;
+    size_t error_row_size = out.size();
+    if (error_row_size > 0) {
+        if (error_row_size > config::load_error_log_limit_bytes) {
+            fmt::memory_buffer limit_byte_out;
+            limit_byte_out.append(out.data(), out.data() + config::load_error_log_limit_bytes);
+            (*_error_log_file) << fmt::to_string(limit_byte_out) + "error log is too long"
+                               << std::endl;
+        } else {
+            (*_error_log_file) << fmt::to_string(out) << std::endl;
+        }
     }
     return Status::OK();
 }
@@ -509,21 +517,4 @@ bool RuntimeState::enable_page_cache() const {
            (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
 }
 
-RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* state) {
-    RuntimeFilterParamsContext* params = state->obj_pool()->add(new RuntimeFilterParamsContext());
-    params->runtime_filter_wait_infinitely = state->runtime_filter_wait_infinitely();
-    params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
-    params->enable_pipeline_exec = state->enable_pipeline_exec();
-    params->execution_timeout = state->execution_timeout();
-    params->runtime_filter_mgr = state->runtime_filter_mgr();
-    params->exec_env = state->exec_env();
-    params->query_id.set_hi(state->query_id().hi);
-    params->query_id.set_lo(state->query_id().lo);
-
-    params->fragment_instance_id.set_hi(state->fragment_instance_id().hi);
-    params->fragment_instance_id.set_lo(state->fragment_instance_id().lo);
-    params->be_exec_version = state->be_exec_version();
-    params->query_ctx = state->get_query_ctx();
-    return params;
-}
 } // end namespace doris

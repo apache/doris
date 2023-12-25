@@ -432,6 +432,32 @@ public class WorkloadGroupMgr implements Writable, GsonPostProcessable {
         return procNode.fetchResult(currentUserIdentity).getRows();
     }
 
+    public Long getWorkloadGroupIdByName(String name) {
+        readLock();
+        try {
+            WorkloadGroup wg = nameToWorkloadGroup.get(name);
+            if (wg == null) {
+                return null;
+            }
+            return wg.getId();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public String getWorkloadGroupNameById(Long id) {
+        readLock();
+        try {
+            WorkloadGroup wg = idToWorkloadGroup.get(id);
+            if (wg == null) {
+                return null;
+            }
+            return wg.getName();
+        } finally {
+            readUnlock();
+        }
+    }
+
     // for ut
     public Map<String, WorkloadGroup> getNameToWorkloadGroup() {
         return nameToWorkloadGroup;

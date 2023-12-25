@@ -94,4 +94,5 @@ enum TExprOpcode {
     MATCH_ELEMENT_LE,
     MATCH_ELEMENT_GE,
     MATCH_PHRASE_PREFIX,
+    MATCH_REGEXP,
 }

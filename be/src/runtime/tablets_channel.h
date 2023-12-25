@@ -116,9 +116,14 @@ protected:
     Status _open_all_writers(const PTabletWriterOpenRequest& request);
 
     void _add_broken_tablet(int64_t tablet_id);
+    // thread-unsafe, add a shared lock for `_tablet_writers_lock` if needed
+    bool _is_broken_tablet(int64_t tablet_id) const;
     void _add_error_tablet(google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
                            int64_t tablet_id, Status error) const;
-    bool _is_broken_tablet(int64_t tablet_id);
+    void _build_tablet_to_rowidxs(
+            const PTabletWriterAddBlockRequest& request,
+            std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>*
+                    tablet_to_rowidxs);
     virtual void _init_profile(RuntimeProfile* profile);
 
     // id of this load channel

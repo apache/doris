@@ -24,20 +24,12 @@ suite("query9") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_9 '''
-    explain shape plan
-
-
-
-
-select case when (select count(*) 
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """select case when (select count(*) 
                   from store_sales 
                   where ss_quantity between 1 and 20) > 2972190
             then (select avg(ss_ext_sales_price) 
@@ -84,7 +76,9 @@ select case when (select count(*)
                   where ss_quantity between 81 and 100) end bucket5
 from reason
 where r_reason_sk = 1
-;
-
-    '''
+"""
+    qt_ds_shape_9 """
+    explain shape plan
+    ${ds}
+    """
 }

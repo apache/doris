@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 
 import com.google.common.base.Objects;
@@ -40,6 +41,10 @@ public class PrimaryKeyConstraint extends Constraint {
 
     public ImmutableSet<String> getPrimaryKeyNames() {
         return columns;
+    }
+
+    public ImmutableSet<Column> getPrimaryKeys(TableIf table) {
+        return columns.stream().map(table::getColumn).collect(ImmutableSet.toImmutableSet());
     }
 
     public void addForeignTable(TableIf table) {

@@ -201,7 +201,10 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
                     sink.isPartialUpdate(),
                     sink.getDMLCommandType(),
                     (LogicalPlan) (sink.child(0)));
-            new InsertIntoTableCommand(copySink, labelName).run(ctx, executor);
+            // for overwrite situation, we disable auto create partition.
+            InsertIntoTableCommand insertCommand = new InsertIntoTableCommand(copySink, labelName);
+            insertCommand.setAllowAutoPartition(false);
+            insertCommand.run(ctx, executor);
             if (ctx.getState().getStateType() == MysqlStateType.ERR) {
                 String errMsg = Strings.emptyToNull(ctx.getState().getErrorMessage());
                 LOG.warn("InsertInto state error:{}", errMsg);
@@ -278,6 +281,14 @@ public class InsertOverwriteTableCommand extends Command implements ForwardWithS
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return InsertExecutor.normalizePlan(this.logicalQuery, InsertExecutor.getTargetTable(this.logicalQuery, ctx));
     }
 

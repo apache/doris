@@ -80,48 +80,12 @@ check_tpch_result() {
 
     echo "#### 1. check if need to load data"
     SF="100" # SCALE FACTOR
-    if ${DEBUG:-false}; then
-        SF="100"
-    fi
-    TPCH_DATA_DIR="/data/tpch/sf_${SF}"                                               # no / at the end
-    TPCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/tpch-data # no / at the end
+    if ${DEBUG:-false}; then SF="1"; fi
     db_name="tpch_sf${SF}"
     sed -i "s|^export DB=.*$|export DB='${db_name}'|g" \
         "${teamcity_build_checkoutDir}"/tools/tpch-tools/conf/doris-cluster.conf
     if ! check_tpch_table_rows "${db_name}" "${SF}"; then
-        echo "INFO: need to load tpch-sf${SF} data"
-        # prepare data
-        mkdir -p "${TPCH_DATA_DIR}"
-        (
-            cd "${TPCH_DATA_DIR}" || exit 1
-            declare -A table_file_count
-            table_file_count=(['region']=1 ['nation']=1 ['supplier']=1 ['customer']=1 ['part']=1 ['partsupp']=10 ['orders']=10 ['lineitem']=10)
-            for table_name in ${!table_file_count[*]}; do
-                if [[ ${table_file_count[${table_name}]} -eq 1 ]]; then
-                    url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl"
-                    if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && exit 1; fi
-                elif [[ ${table_file_count[${table_name}]} -eq 10 ]]; then
-                    (
-                        for i in {1..10}; do
-                            url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl.${i}"
-                            if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && exit 1; fi
-                        done
-                    ) &
-                    wait
-                fi
-            done
-        )
-        # create table and load data
-        sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
-        bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
-        rm -rf "${TPCH_DATA_DIR_LINK}"
-        ln -s "${TPCH_DATA_DIR}" "${TPCH_DATA_DIR_LINK}"
-        bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh -c 10
-        if ! check_tpch_table_rows "${db_name}" "${SF}"; then
-            exit 1
-        fi
-        echo "INFO: sleep 10min to wait compaction done" && sleep 10m
-        data_reload="true"
+        echo "ERROR: check_tpch_table_rows failed." && exit 1
     fi
 
     echo "#### 2. run tpch-sf${SF} query"

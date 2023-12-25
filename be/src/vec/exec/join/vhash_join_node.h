@@ -451,6 +451,7 @@ private:
 
     std::vector<IRuntimeFilter*> _runtime_filters;
     std::atomic_bool _probe_open_finish = false;
+    std::vector<int> _build_col_ids;
 };
 } // namespace vectorized
 } // namespace doris

@@ -61,16 +61,21 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
     static final double BROADCAST_JOIN_SKEW_PENALTY_LIMIT = 2.0;
     static final double RANDOM_SHUFFLE_TO_HASH_SHUFFLE_FACTOR = 0.1;
     private final int beNumber;
+    private final int parallelInstance;
 
     public CostModelV1(ConnectContext connectContext) {
         SessionVariable sessionVariable = connectContext.getSessionVariable();
         if (sessionVariable.isPlayNereidsDump()) {
             // TODO: @bingfeng refine minidump setting, and pass testMinidumpUt
             beNumber = 1;
+            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
         } else if (sessionVariable.getBeNumberForTest() != -1) {
+            // shape test, fix the BE number and instance number
             beNumber = sessionVariable.getBeNumberForTest();
+            parallelInstance = 8;
         } else {
             beNumber = Math.max(1, ConnectContext.get().getEnv().getClusterInfo().getBackendsNumber(true));
+            parallelInstance = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum());
         }
     }
 
@@ -301,7 +306,6 @@ class CostModelV1 extends PlanVisitor<Cost, PlanContext> {
             //                    on the output rows, taken on outputRowCount()
             double probeSideFactor = 1.0;
             double buildSideFactor = context.getSessionVariable().getBroadcastRightTableScaleFactor();
-            int parallelInstance = Math.max(1, context.getSessionVariable().getParallelExecInstanceNum());
             int totalInstanceNumber = parallelInstance * beNumber;
             if (buildSideFactor <= 1.0) {
                 if (buildStats.computeSize() < 1024 * 1024) {

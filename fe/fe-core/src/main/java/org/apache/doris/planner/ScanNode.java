@@ -720,9 +720,9 @@ public abstract class ScanNode extends PlanNode {
                 || getShouldColoScan();
     }
 
-    public boolean ignoreScanDistribution(ConnectContext context) {
+    public boolean ignoreStorageDataDistribution(ConnectContext context) {
         return !isKeySearch() && context != null
-                && context.getSessionVariable().isIgnoreScanDistribution()
+                && context.getSessionVariable().isIgnoreStorageDataDistribution()
                 && context.getSessionVariable().getEnablePipelineXEngine()
                 && !fragment.isHasColocateFinalizeAggNode()
                 && !fragment.isHasNullAwareLeftAntiJoin();

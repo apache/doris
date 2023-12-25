@@ -24,20 +24,13 @@ suite("query43") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    sql 'set enable_runtime_filter_prune=true'
 
-    qt_ds_shape_43 '''
-    explain shape plan
-
-
-
-
-select  s_store_name, s_store_id,
+    def ds = """select  s_store_name, s_store_id,
         sum(case when (d_day_name='Sunday') then ss_sales_price else null end) sun_sales,
         sum(case when (d_day_name='Monday') then ss_sales_price else null end) mon_sales,
         sum(case when (d_day_name='Tuesday') then ss_sales_price else  null end) tue_sales,
@@ -52,7 +45,9 @@ select  s_store_name, s_store_id,
        d_year = 2000 
  group by s_store_name, s_store_id
  order by s_store_name, s_store_id,sun_sales,mon_sales,tue_sales,wed_sales,thu_sales,fri_sales,sat_sales
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_43 """
+    explain shape plan
+    ${ds}
+    """
 }

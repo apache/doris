@@ -1618,8 +1618,25 @@ public class FunctionCallExpr extends Expr {
             // now first find table function in table function sets
             if (isTableFnCall) {
                 Type[] childTypes = collectChildReturnTypes();
-                fn = getTableFunction(fnName.getFunction(), childTypes,
-                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                // when we call explode<Array<Decimal>> with nested decimal has specific precision and scale,
+                // collectChildReturnTypes will return specific precision and scale decimal type witch may not match
+                // builtln func we defined in fe code, because we make array_support_type is actual origin type.here we
+                // temp write this if to get matched explode function and then set actually decimal type from sql to
+                // func return type. if we switch nereid would hasn't this problems.
+                if (fnName.getFunction().equalsIgnoreCase("explode") && childTypes[0].isArrayType()) {
+                    // get origin type to match builtln func
+                    Type[] matchFuncChildTypes = getActualArgTypes(childTypes);
+                    fn = getTableFunction(fnName.getFunction(), matchFuncChildTypes,
+                            Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    if (fn == null) {
+                        throw new AnalysisException(getFunctionNotFoundError(argTypes));
+                    }
+                    // set param child types
+                    fn.setReturnType(((ArrayType) childTypes[0]).getItemType());
+                } else {
+                    fn = getTableFunction(fnName.getFunction(), childTypes,
+                            Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                }
                 if (fn == null) {
                     throw new AnalysisException(getFunctionNotFoundError(argTypes));
                 }
@@ -1857,6 +1874,14 @@ public class FunctionCallExpr extends Expr {
                 if (i >= args.length && i >= 2 && args.length >= 2
                         && fnName.getFunction().equalsIgnoreCase("map")) {
                     ix = i % 2 == 0 ? 0 : 1;
+                }
+                // array_zip varargs special case array_zip(array1, array2, ...)
+                // we only specialize array_zip with first array type, next type we same with custom type
+                if (i >= args.length && (fnName.getFunction().equalsIgnoreCase("array_zip"))) {
+                    if (argTypes[i].isNull()) {
+                        uncheckedCastChild(args[i - 1], i);
+                    }
+                    continue;
                 }
 
                 if (i == 0 && (fnName.getFunction().equalsIgnoreCase("char"))) {

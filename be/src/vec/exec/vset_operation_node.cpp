@@ -55,10 +55,7 @@ namespace vectorized {
 template <bool is_intersect>
 VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs)
-        : ExecNode(pool, tnode, descs),
-          _valid_element_in_hash_tbl(0),
-          _mem_used(0),
-          _build_finished(false) {
+        : ExecNode(pool, tnode, descs), _valid_element_in_hash_tbl(0), _build_finished(false) {
     _hash_table_variants = std::make_unique<HashTableVariants>();
 }
 
@@ -229,20 +226,10 @@ Status VSetOperationNode<is_intersect>::sink(RuntimeState* state, Block* block, 
     SCOPED_TIMER(_exec_timer);
 
     if (block->rows() != 0) {
-        _mem_used += block->allocated_bytes();
-        RETURN_IF_ERROR(_mutable_block.merge(*block));
-    }
-
-    if (block->rows() != 0) {
-        if (_build_block.empty()) {
-            RETURN_IF_ERROR(_mutable_block.merge(*(block->create_same_struct_block(0, false))));
-        }
         RETURN_IF_ERROR(_mutable_block.merge(*block));
         if (_mutable_block.rows() > std::numeric_limits<uint32_t>::max()) {
-            return Status::NotSupported(
-                    "Hash join do not support build table rows"
-                    " over:" +
-                    std::to_string(std::numeric_limits<uint32_t>::max()));
+            return Status::NotSupported("set operator do not support build table rows over:" +
+                                        std::to_string(std::numeric_limits<uint32_t>::max()));
         }
     }
 

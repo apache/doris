@@ -41,6 +41,8 @@ import java.util.Map;
 
 public class UdfExecutor extends BaseExecutor {
     public static final Logger LOG = Logger.getLogger(UdfExecutor.class);
+    public static final String UDF_PREPARE_FUNCTION_NAME = "prepare";
+
     // setup by init() and cleared by close()
     private Method method;
 
@@ -122,6 +124,16 @@ public class UdfExecutor extends BaseExecutor {
         return method;
     }
 
+    private Method findPrepareMethod(Method[] methods) {
+        for (Method method : methods) {
+            if (method.getName().equals(UDF_PREPARE_FUNCTION_NAME) && method.getReturnType().equals(void.class)
+                    && method.getParameterCount() == 0) {
+                return method;
+            }
+        }
+        return null; // Method not found
+    }
+
     // Preallocate the input objects that will be passed to the underlying UDF.
     // These objects are allocated once and reused across calls to evaluate()
     @Override
@@ -146,6 +158,10 @@ public class UdfExecutor extends BaseExecutor {
             Constructor<?> ctor = c.getConstructor();
             udf = ctor.newInstance();
             Method[] methods = c.getMethods();
+            Method prepareMethod = findPrepareMethod(methods);
+            if (prepareMethod != null) {
+                prepareMethod.invoke(udf);
+            }
             for (Method m : methods) {
                 // By convention, the udf must contain the function "evaluate"
                 if (!m.getName().equals(UDF_FUNCTION_NAME)) {

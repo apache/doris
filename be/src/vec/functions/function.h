@@ -716,7 +716,8 @@ ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const Colum
     M(Struct, ColumnStruct)            \
     M(VARIANT, ColumnObject)           \
     M(BitMap, ColumnBitmap)            \
-    M(HLL, ColumnHLL)
+    M(HLL, ColumnHLL)                  \
+    M(QuantileState, ColumnQuantileState)
 
 #define TYPE_TO_BASIC_COLUMN_TYPE(M) \
     NUMERIC_TYPE_TO_COLUMN_TYPE(M)   \

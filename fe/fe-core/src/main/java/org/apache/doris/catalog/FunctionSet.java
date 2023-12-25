@@ -386,16 +386,31 @@ public class FunctionSet<T> {
                 throw new TypeException(templateFunction
                                 + " is not support for template since it's not a ScalarFunction");
             }
-            Type[] args = specializedFunction.getArgs();
+            ArrayList<Type> args = new ArrayList<>();
+            Collections.addAll(args, specializedFunction.getArgs());
             Map<String, Type> specializedTypeMap = Maps.newHashMap();
             boolean enableDecimal256 = SessionVariable.getEnableDecimal256();
-            for (int i = 0; i < args.length; i++) {
-                if (args[i].hasTemplateType()) {
+            int i = 0;
+            for (; i < args.size(); i++) {
+                if (args.get(i).hasTemplateType()) {
                     hasTemplateType = true;
-                    args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false,
-                            enableDecimal256);
+                    // if args[i] is template type, and requestFunction.getArgs()[i] NULL_TYPE, we need call function
+                    // deduce to get the specific type
+                    Type deduceType = requestFunction.getArgs()[i];
+                    if (requestFunction.getArgs()[i].isNull()
+                            || (requestFunction.getArgs()[i] instanceof ArrayType
+                            && ((ArrayType) requestFunction.getArgs()[i]).getItemType().isNull())
+                            && FunctionTypeDeducers.DEDUCERS.containsKey(specializedFunction.functionName())) {
+                        deduceType = FunctionTypeDeducers.deduce(specializedFunction.functionName(), i, requestFunction.getArgs());
+                        args.set(i, args.get(i).specializeTemplateType(deduceType == null ? requestFunction.getArgs()[i]
+                                : deduceType, specializedTypeMap, false, enableDecimal256));
+                    } else {
+                        args.set(i, args.get(i).specializeTemplateType(requestFunction.getArgs()[i],
+                                specializedTypeMap, false, enableDecimal256));
+                    }
                 }
             }
+            specializedFunction.setArgs(args);
             if (specializedFunction.getReturnType().hasTemplateType()) {
                 hasTemplateType = true;
                 specializedFunction.setReturnType(
@@ -426,7 +441,7 @@ public class FunctionSet<T> {
                 newTypes[i] = inputType;
             }
         }
-        Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), newTypes);
+        Type newRetType = FunctionTypeDeducers.deduce(inferenceFunction.functionName(), 0, newTypes);
         if (newRetType != null && inferenceFunction instanceof ScalarFunction) {
             ScalarFunction f = (ScalarFunction) inferenceFunction;
             return new ScalarFunction(f.getFunctionName(), Lists.newArrayList(newTypes), newRetType, f.hasVarArgs(),
@@ -448,7 +463,20 @@ public class FunctionSet<T> {
         final Type[] candicateArgTypes = candicate.getArgs();
         if (!(descArgTypes[0] instanceof ScalarType)
                 || !(candicateArgTypes[0] instanceof ScalarType)) {
-            if (candicateArgTypes[0] instanceof ArrayType || candicateArgTypes[0] instanceof MapType) {
+            if (candicateArgTypes[0] instanceof ArrayType) {
+                // match is exactly type. but for null type , with in array|map elem can not return true, because for
+                // be will make null_type to uint8
+                // so here meet null_type just make true as allowed, descArgTypes[0]).getItemType().isNull() is for
+                // empty literal like: []|{}
+                if (descArgTypes[0] instanceof ArrayType && ((ArrayType) descArgTypes[0]).getItemType().isNull()) {
+                    return true;
+                }
+                return descArgTypes[0].matchesType(candicateArgTypes[0]);
+            } else if (candicateArgTypes[0] instanceof MapType) {
+                if (descArgTypes[0] instanceof MapType && ((MapType) descArgTypes[0]).getKeyType().isNull()
+                        && ((MapType) descArgTypes[0]).getValueType().isNull()) {
+                    return true;
+                }
                 return descArgTypes[0].matchesType(candicateArgTypes[0]);
             }
             return false;
@@ -1772,6 +1800,9 @@ public class FunctionSet<T> {
                     Lists.newArrayList(new ArrayType(subType)), false,
                     "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
         }
+        addTableFunctionWithCombinator(EXPLODE, Type.WILDCARD_DECIMAL, Function.NullableMode.ALWAYS_NULLABLE,
+                Lists.newArrayList(new ArrayType(Type.WILDCARD_DECIMAL)), false,
+                "_ZN5doris19DummyTableFunctions7explodeEPN9doris_udf15FunctionContextERKNS1_13CollectionValE");
     }
 
     public boolean isAggFunctionName(String name) {

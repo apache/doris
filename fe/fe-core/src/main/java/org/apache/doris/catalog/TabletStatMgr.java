@@ -55,7 +55,8 @@ public class TabletStatMgr extends MasterDaemon {
         ImmutableMap<Long, Backend> backends = Env.getCurrentSystemInfo().getIdToBackend();
         long start = System.currentTimeMillis();
         taskPool.submit(() -> {
-            backends.values().parallelStream().forEach(backend -> {
+            // no need to get tablet stat if backend is not alive
+            backends.values().stream().filter(Backend::isAlive).parallel().forEach(backend -> {
                 BackendService.Client client = null;
                 TNetworkAddress address = null;
                 boolean ok = false;

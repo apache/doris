@@ -24,20 +24,12 @@ suite("query80") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_80 '''
-    explain shape plan
-
-
-
-
-with ssr as
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """with ssr as
  (select  s_store_id as store_id,
           sum(ss_ext_sales_price) as sales,
           sum(coalesce(sr_return_amt, 0)) as returns,
@@ -129,7 +121,9 @@ group by web_site_id)
  group by rollup (channel, id)
  order by channel
          ,id
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_80 """
+    explain shape plan
+    ${ds}
+    """
 }

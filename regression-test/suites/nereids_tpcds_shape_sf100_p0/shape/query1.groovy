@@ -24,15 +24,12 @@ suite("query1") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-    qt_ds_shape_1 '''
-    explain shape plan
-with customer_total_return as
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """with customer_total_return as
 (select sr_customer_sk as ctr_customer_sk
 ,sr_store_sk as ctr_store_sk
 ,sum(SR_FEE) as ctr_total_return
@@ -53,7 +50,9 @@ and s_store_sk = ctr1.ctr_store_sk
 and s_state = 'SD'
 and ctr1.ctr_customer_sk = c_customer_sk
 order by c_customer_id
-limit 100;
-
-    '''
+limit 100"""
+    qt_ds_shape_1 """
+    explain shape plan
+    ${ds}
+    """
 }

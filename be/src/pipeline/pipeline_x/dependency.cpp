@@ -169,6 +169,7 @@ void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
 void RuntimeFilterDependency::sub_filters() {
     auto value = _filters.fetch_sub(1);
     if (value == 1) {
+        _watcher.stop();
         std::vector<PipelineXTask*> local_block_task {};
         {
             std::unique_lock<std::mutex> lc(_task_lock);

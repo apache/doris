@@ -24,20 +24,12 @@ suite("query70") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_70 '''
-    explain shape plan
-
-
-
-
-select  
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """select  
     sum(ss_net_profit) as total_sum
    ,s_state
    ,s_county
@@ -71,7 +63,9 @@ select
    lochierarchy desc
   ,case when lochierarchy = 0 then s_state end
   ,rank_within_parent
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_70 """
+    explain shape plan
+    ${ds}
+    """
 }

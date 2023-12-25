@@ -380,6 +380,8 @@ private:
 
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 
+    bool _need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column, size_t nrows_read);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 

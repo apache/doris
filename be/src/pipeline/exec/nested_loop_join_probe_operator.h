@@ -227,11 +227,11 @@ public:
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }
 
-    ExchangeType get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-            return ExchangeType::NOOP;
+            return {ExchangeType::NOOP};
         }
-        return ExchangeType::ADAPTIVE_PASSTHROUGH;
+        return {ExchangeType::ADAPTIVE_PASSTHROUGH};
     }
 
     const RowDescriptor& row_desc() override {

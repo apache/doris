@@ -367,7 +367,7 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 // 4. not A like XXX
                 colBuilder.setNumNulls(0);
                 Preconditions.checkArgument(
-                        child instanceof EqualTo
+                        child instanceof EqualPredicate
                                 || child instanceof InPredicate
                                 || child instanceof IsNull
                                 || child instanceof Like,
@@ -512,6 +512,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             context.addKeyIfSlot(rightExpr);
             return statistics;
         }
+        if (leftRange.isInfinite() || rightRange.isInfinite()) {
+            return context.statistics.withSel(DEFAULT_INEQUALITY_COEFFICIENT);
+        }
+
         double leftOverlapPercent = leftRange.overlapPercentWith(rightRange);
         // Left always greater than right
         if (leftOverlapPercent == 0) {

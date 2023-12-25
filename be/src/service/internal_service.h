@@ -240,11 +240,6 @@ private:
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
                          const Status& extract_st);
 
-    void _tablet_writer_add_block(google::protobuf::RpcController* controller,
-                                  const PTabletWriterAddBlockRequest* request,
-                                  PTabletWriterAddBlockResult* response,
-                                  google::protobuf::Closure* done);
-
     void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,
                                      bool is_succeed);

@@ -24,20 +24,12 @@ suite("query71") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_71 '''
-    explain shape plan
-
-
-
-
-select i_brand_id brand_id, i_brand brand,t_hour,t_minute,
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """select i_brand_id brand_id, i_brand brand,t_hour,t_minute,
  	sum(ext_price) ext_price
  from item, (select ws_ext_sales_price as ext_price, 
                         ws_sold_date_sk as sold_date_sk,
@@ -73,7 +65,9 @@ select i_brand_id brand_id, i_brand brand,t_hour,t_minute,
    and (t_meal_time = 'breakfast' or t_meal_time = 'dinner')
  group by i_brand, i_brand_id,t_hour,t_minute
  order by ext_price desc, i_brand_id
- ;
-
-    '''
+ """
+    qt_ds_shape_71 """
+    explain shape plan
+    ${ds}
+    """
 }

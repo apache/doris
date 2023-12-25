@@ -69,6 +69,7 @@ public:
     ~TabletPublishTxnTask() = default;
 
     void handle();
+    Status result() { return _result; }
 
 private:
     EnginePublishVersionTask* _engine_publish_version_task = nullptr;
@@ -80,6 +81,7 @@ private:
     Version _version;
     TabletInfo _tablet_info;
     TabletPublishStatistics _stats;
+    Status _result;
 };
 
 class EnginePublishVersionTask : public EngineTask {

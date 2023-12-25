@@ -165,7 +165,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
      * @param predicatesSupplier Supplier to get pushdown predicates.
      * @return Result scan node.
      */
-    private LogicalOlapScan select(
+    public static LogicalOlapScan select(
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
             Supplier<Set<Expression>> predicatesSupplier,
@@ -237,7 +237,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         }
     }
 
-    private boolean isSameDataType(LogicalOlapScan scan, long selectIndex, Set<Slot> slots) {
+    private static boolean isSameDataType(LogicalOlapScan scan, long selectIndex, Set<Slot> slots) {
         if (selectIndex != scan.getTable().getBaseIndexId()) {
             Map<String, PrimitiveType> columnTypes =
                     scan.getTable().getSchemaByIndexId(selectIndex).stream().collect(Collectors
@@ -252,7 +252,7 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
         return true;
     }
 
-    private boolean indexHasAggregate(MaterializedIndex index, LogicalOlapScan scan) {
+    private static boolean indexHasAggregate(MaterializedIndex index, LogicalOlapScan scan) {
         return scan.getTable().getSchemaByIndexId(index.getId())
                 .stream()
                 .anyMatch(Column::isAggregated);

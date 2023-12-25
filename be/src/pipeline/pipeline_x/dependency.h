@@ -67,6 +67,8 @@ struct BasicSharedState {
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
+    ENABLE_FACTORY_CREATOR(Dependency);
+
 public:
     Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
@@ -126,7 +128,7 @@ protected:
     std::atomic<bool> _ready;
     const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state;
+    std::shared_ptr<BasicSharedState> _shared_state = nullptr;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -275,16 +277,6 @@ public:
     ENABLE_FACTORY_CREATOR(AndDependency);
     AndDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AndDependency", query_ctx) {}
-
-    [[nodiscard]] std::string name() const override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}[", Dependency::_name);
-        for (auto& child : Dependency::_children) {
-            fmt::format_to(debug_string_buffer, "{}, ", child->name());
-        }
-        fmt::format_to(debug_string_buffer, "]");
-        return fmt::to_string(debug_string_buffer);
-    }
 
     std::string debug_string(int indentation_level = 0) override;
 
@@ -489,8 +481,6 @@ struct SetSharedState : public BasicSharedState {
 public:
     SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
-    //record memory during running
-    int64_t mem_used = 0;
     vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
@@ -573,11 +563,18 @@ public:
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
+    // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
     HASH_SHUFFLE = 1,
+    // Round-robin passthrough data blocks.
     PASSTHROUGH = 2,
+    // Shuffle data by Crc32HashPartitioner<ShuffleChannelIds> (e.g. same as storage engine).
     BUCKET_HASH_SHUFFLE = 3,
+    // Passthrough data blocks to all channels.
     BROADCAST = 4,
+    // Passthrough data to channels evenly in an adaptive way.
     ADAPTIVE_PASSTHROUGH = 5,
+    // Send all data to the first channel.
+    PASS_TO_ONE = 6,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -594,10 +591,28 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "BROADCAST";
     case ExchangeType::ADAPTIVE_PASSTHROUGH:
         return "ADAPTIVE_PASSTHROUGH";
+    case ExchangeType::PASS_TO_ONE:
+        return "PASS_TO_ONE";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
+
+struct DataDistribution {
+    DataDistribution(ExchangeType type) : distribution_type(type) {}
+    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
+            : distribution_type(type), partition_exprs(partition_exprs_) {}
+    DataDistribution(const DataDistribution& other)
+            : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
+    bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
+    DataDistribution& operator=(const DataDistribution& other) {
+        distribution_type = other.distribution_type;
+        partition_exprs = other.partition_exprs;
+        return *this;
+    }
+    ExchangeType distribution_type;
+    std::vector<TExpr> partition_exprs;
+};
 
 class Exchanger;
 

@@ -646,7 +646,7 @@ BaseCompaction:546859:
 
 * 类型：bool
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
-* 默认值：true
+* 默认值：false
 
 #### `segcompaction_batch_size`
 
@@ -753,6 +753,11 @@ BaseCompaction:546859:
 
 * 描述: load错误日志将在此时间后删除
 * 默认值: 48（h）
+
+#### `load_error_log_limit_bytes`
+
+* Description: load错误日志大小超过此值将被截断
+* 默认值: 209715200 (byte)
 
 #### `load_process_max_memory_limit_percent`
 
@@ -999,12 +1004,6 @@ BaseCompaction:546859:
 
 * 描述：memtable主动下刷时刷新内存统计的周期（毫秒）
 * 默认值：100
-
-#### `download_cache_buffer_size`
-
-* 类型: int64
-* 描述: 下载缓存时用于接收数据的buffer的大小。
-* 默认值: 10485760
 
 #### `zone_map_row_num_threshold`
 

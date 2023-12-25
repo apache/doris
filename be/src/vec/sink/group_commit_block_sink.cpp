@@ -21,8 +21,8 @@
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/sink/volap_table_sink.h"
 #include "vec/sink/vtablet_finder.h"
-#include "vec/sink/vtablet_sink.h"
 
 namespace doris {
 
@@ -30,13 +30,17 @@ namespace vectorized {
 
 GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                            const std::vector<TExpr>& texprs, Status* status)
-        : DataSink(row_desc) {
+        : DataSink(row_desc), _filter_bitmap(1024) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "GroupCommitBlockSink";
 }
 
-GroupCommitBlockSink::~GroupCommitBlockSink() = default;
+GroupCommitBlockSink::~GroupCommitBlockSink() {
+    if (_load_block_queue) {
+        _load_block_queue->remove_load_id(_load_id);
+    }
+}
 
 Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);
@@ -50,6 +54,8 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
     _max_filter_ratio = table_sink.max_filter_ratio;
+    _vpartition = new doris::VOlapTablePartitionParam(_schema, table_sink.partition);
+    RETURN_IF_ERROR(_vpartition->init());
     return Status::OK();
 }
 
@@ -139,11 +145,33 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
-    if (_block_convertor->num_filtered_rows() > 0) {
+    _has_filtered_rows = false;
+    if (!_vpartition->is_auto_partition()) {
+        //reuse vars for find_partition
+        _partitions.assign(rows, nullptr);
+        _filter_bitmap.Reset(rows);
+
+        for (int index = 0; index < rows; index++) {
+            _vpartition->find_partition(block.get(), index, _partitions[index]);
+        }
+        for (int row_index = 0; row_index < rows; row_index++) {
+            if (_partitions[row_index] == nullptr) [[unlikely]] {
+                _filter_bitmap.Set(row_index, true);
+                LOG(WARNING) << "no partition for this tuple. tuple="
+                             << block->dump_data(row_index, 1);
+            }
+            _has_filtered_rows = true;
+        }
+    }
+
+    if (_block_convertor->num_filtered_rows() > 0 || _has_filtered_rows) {
         auto cloneBlock = block->clone_without_columns();
         auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         for (int i = 0; i < rows; ++i) {
             if (_block_convertor->filter_map()[i]) {
+                continue;
+            }
+            if (_filter_bitmap.Get(i)) {
                 continue;
             }
             res_block.add_row(block.get(), i);

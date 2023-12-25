@@ -51,6 +51,8 @@ public abstract class MetadataTableValuedFunction extends TableValuedFunctionIf 
                 return TasksTableValuedFunction.getColumnIndexFromColumnName(columnName, params);
             case QUERIES:
                 return QueriesTableValuedFunction.getColumnIndexFromColumnName(columnName);
+            case WORKLOAD_SCHED_POLICY:
+                return WorkloadSchedPolicyTableValuedFunction.getColumnIndexFromColumnName(columnName);
             default:
                 throw new AnalysisException("Unknown Metadata TableValuedFunction type");
         }

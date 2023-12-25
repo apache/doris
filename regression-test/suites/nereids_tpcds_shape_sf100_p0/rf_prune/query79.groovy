@@ -24,20 +24,13 @@ suite("query79") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    sql 'set enable_runtime_filter_prune=true'
 
-    qt_ds_shape_79 '''
-    explain shape plan
-
-
-
-
-select 
+    def ds = """select 
   c_last_name,c_first_name,substr(s_city,1,30),ss_ticket_number,amt,profit
   from
    (select ss_ticket_number
@@ -56,7 +49,9 @@ select
     group by ss_ticket_number,ss_customer_sk,ss_addr_sk,store.s_city) ms,customer
     where ss_customer_sk = c_customer_sk
  order by c_last_name,c_first_name,substr(s_city,1,30), profit
-limit 100;
-
-    '''
+limit 100"""
+    qt_ds_shape_79 """
+    explain shape plan
+    ${ds}
+    """
 }

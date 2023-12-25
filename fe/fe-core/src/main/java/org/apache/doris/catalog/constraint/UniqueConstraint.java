@@ -17,6 +17,9 @@
 
 package org.apache.doris.catalog.constraint;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.TableIf;
+
 import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableSet;
 
@@ -32,6 +35,10 @@ public class UniqueConstraint extends Constraint {
 
     public ImmutableSet<String> getUniqueColumnNames() {
         return columns;
+    }
+
+    public ImmutableSet<Column> getUniqueKeys(TableIf table) {
+        return columns.stream().map(table::getColumn).collect(ImmutableSet.toImmutableSet());
     }
 
     @Override

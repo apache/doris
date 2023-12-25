@@ -130,10 +130,10 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
             auto reader = doris::segment_v2::InvertedIndexReader::create_reader(
                     inverted_index_ctx, str_ref.to_string());
 
-            std::vector<std::string> element_tokens =
-                    doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                            reader.get(), inverted_index_ctx->analyzer, column_name, query_type,
-                            false);
+            std::vector<std::string> element_tokens;
+            doris::segment_v2::InvertedIndexReader::get_analyse_result(
+                    element_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
+                    query_type, false);
             data_tokens.insert(data_tokens.end(), element_tokens.begin(), element_tokens.end());
         }
     } else {
@@ -141,8 +141,9 @@ inline std::vector<std::string> FunctionMatchBase::analyse_data_token(
         auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
                                                                             str_ref.to_string());
 
-        data_tokens = doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                reader.get(), inverted_index_ctx->analyzer, column_name, query_type, false);
+        doris::segment_v2::InvertedIndexReader::get_analyse_result(data_tokens, reader.get(),
+                                                                   inverted_index_ctx->analyzer,
+                                                                   column_name, query_type, false);
     }
     return data_tokens;
 }
@@ -161,10 +162,10 @@ Status FunctionMatchAny::execute_match(const std::string& column_name,
                << inverted_index_parser_type_to_string(parser_type);
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
                                                                         match_query_str);
-    std::vector<std::string> query_tokens =
-            doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    reader.get(), inverted_index_ctx->analyzer, column_name,
-                    doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY);
+    std::vector<std::string> query_tokens;
+    doris::segment_v2::InvertedIndexReader::get_analyse_result(
+            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
+            doris::segment_v2::InvertedIndexQueryType::MATCH_ANY_QUERY);
     if (query_tokens.empty()) {
         LOG(WARNING) << fmt::format(
                 "token parser result is empty for query, "
@@ -206,10 +207,10 @@ Status FunctionMatchAll::execute_match(const std::string& column_name,
                << inverted_index_parser_type_to_string(parser_type);
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
                                                                         match_query_str);
-    std::vector<std::string> query_tokens =
-            doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    reader.get(), inverted_index_ctx->analyzer, column_name,
-                    doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY);
+    std::vector<std::string> query_tokens;
+    doris::segment_v2::InvertedIndexReader::get_analyse_result(
+            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
+            doris::segment_v2::InvertedIndexQueryType::MATCH_ALL_QUERY);
     if (query_tokens.empty()) {
         LOG(WARNING) << fmt::format(
                 "token parser result is empty for query, "
@@ -257,10 +258,10 @@ Status FunctionMatchPhrase::execute_match(const std::string& column_name,
                << inverted_index_parser_type_to_string(parser_type);
     auto reader = doris::segment_v2::InvertedIndexReader::create_reader(inverted_index_ctx,
                                                                         match_query_str);
-    std::vector<std::string> query_tokens =
-            doris::segment_v2::InvertedIndexReader::get_analyse_result(
-                    reader.get(), inverted_index_ctx->analyzer, column_name,
-                    doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
+    std::vector<std::string> query_tokens;
+    doris::segment_v2::InvertedIndexReader::get_analyse_result(
+            query_tokens, reader.get(), inverted_index_ctx->analyzer, column_name,
+            doris::segment_v2::InvertedIndexQueryType::MATCH_PHRASE_QUERY);
     if (query_tokens.empty()) {
         LOG(WARNING) << fmt::format(
                 "token parser result is empty for query, "
@@ -315,6 +316,7 @@ void register_function_match(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMatchAll>();
     factory.register_function<FunctionMatchPhrase>();
     factory.register_function<FunctionMatchPhrasePrefix>();
+    factory.register_function<FunctionMatchRegexp>();
     factory.register_function<FunctionMatchElementEQ>();
     factory.register_function<FunctionMatchElementLT>();
     factory.register_function<FunctionMatchElementGT>();

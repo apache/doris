@@ -818,7 +818,26 @@ suite("load") {
     )
     '''
 
-    
+sql '''
+alter table customer add constraint customer_pk primary key (c_customer_sk);
+'''
+
+sql '''
+alter table customer add constraint customer_uk unique (c_customer_id);
+'''
+   
+sql '''
+alter table store_sales add constraint ss_fk foreign key(ss_customer_sk) references customer(c_customer_sk);
+'''
+
+sql '''
+alter table web_sales add constraint ws_fk foreign key(ws_bill_customer_sk) references customer(c_customer_sk);
+'''
+
+sql '''
+alter table catalog_sales add constraint cs_fk foreign key(cs_bill_customer_sk) references customer(c_customer_sk);
+'''
+
 sql """
 alter table web_sales modify column ws_web_site_sk set stats ('row_count'='72001237', 'ndv'='24', 'min_value'='1', 'max_value'='24', 'avg_size'='576009896', 'max_size'='576009896' )
 """

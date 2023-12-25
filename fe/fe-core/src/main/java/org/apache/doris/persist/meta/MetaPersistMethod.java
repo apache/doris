@@ -212,6 +212,13 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveWorkloadGroups", CountingDataOutputStream.class, long.class);
                 break;
+            case "workloadSchedPolicy":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadWorkloadSchedPolicy", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveWorkloadSchedPolicy", CountingDataOutputStream.class,
+                                long.class);
+                break;
             case "binlogs":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadBinlogs", DataInputStream.class, long.class);

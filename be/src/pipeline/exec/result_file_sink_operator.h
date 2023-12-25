@@ -77,7 +77,7 @@ private:
     std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
     bool _only_local_exchange = false;
     vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
-    std::unique_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
+    std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
     RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
     RuntimeProfile::Counter* _local_send_timer = nullptr;
     RuntimeProfile::Counter* _brpc_send_timer = nullptr;
