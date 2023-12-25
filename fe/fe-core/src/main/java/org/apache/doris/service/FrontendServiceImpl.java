@@ -72,6 +72,7 @@ import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
@@ -440,14 +441,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private String getMysqlTableSchema(String ctl, String db) {
-        if (ctl.equals(InfoSchemaDb.DATABASE_NAME)) {
+        if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             return db;
         }
         return ctl + "." + db;
     }
 
     private String getDbNameFromMysqlTableSchema(String ctl, String db) {
-        if (ctl.equals(InfoSchemaDb.DATABASE_NAME)) {
+        if (ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
             return db;
         }
         String[] parts = db.split("\\.");
