@@ -505,13 +505,14 @@ bool LoadBlockQueue::has_enough_wal_disk_space(
     auto* wal_mgr = ExecEnv::GetInstance()->wal_mgr();
     size_t available_bytes = 0;
     {
-        st = wal_mgr->get_wal_disk_available_size(wal_base_path, &available_bytes);
+        st = wal_mgr->get_wal_dir_available_size(wal_base_path, &available_bytes);
         if (!st.ok()) {
             LOG(WARNING) << "get wal disk available size filed!";
         }
     }
     if (pre_allocated < available_bytes) {
-        st = wal_mgr->update_wal_disk_info(wal_base_path, -1, -1, pre_allocated);
+        st = wal_mgr->update_wal_dir_limit(wal_base_path);
+        st = wal_mgr->update_wal_dir_used(wal_base_path);
         if (!st.ok()) {
             LOG(WARNING) << "update wal disk info map failed, reason: " << st.to_string();
         }

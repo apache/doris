@@ -46,8 +46,9 @@ public:
     Status set_used(size_t used);
     Status set_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated);
     size_t available();
-    Status update_wal_disk_info(size_t limit = -1, size_t used = -1, size_t pre_allocated = -1,
-                                bool is_add_pre_allocated = true);
+    Status update_wal_dir_limit(size_t limit = -1);
+    Status update_wal_dir_used(size_t used = -1);
+    Status update_wal_dir_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated = true);
 
 private:
     std::string _wal_dir;
@@ -66,9 +67,13 @@ public:
     Status add(const std::string& wal_dir, size_t limit, size_t used, size_t pre_allocated);
     std::string get_available_random_wal_dir();
     size_t get_max_available_size();
-    Status update_wal_disk_info(std::string wal_dir, size_t limit = -1, size_t used = -1,
-                                size_t pre_allocated = -1, bool is_add_pre_allocated = true);
-    Status get_wal_disk_available_size(const std::string& wal_dir, size_t* available_bytes);
+    Status update_wal_dir_limit(std::string wal_dir, size_t limit = -1);
+    Status update_all_wal_dir_limit();
+    Status update_wal_dir_used(std::string wal_dir, size_t used = -1);
+    Status update_all_wal_dir_used();
+    Status update_wal_dir_pre_allocated(std::string wal_dir, size_t pre_allocated,
+                                        bool is_add_pre_allocated);
+    Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
 
 private:
     std::vector<std::shared_ptr<WalDirInfo>> _wal_dirs_info_vec;

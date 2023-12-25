@@ -74,8 +74,7 @@ size_t WalDirInfo::available() {
     return available > 0 ? available : 0;
 }
 
-Status WalDirInfo::update_wal_disk_info(size_t limit, size_t used, size_t pre_allocated,
-                                        bool is_add_pre_allocated) {
+Status WalDirInfo::update_wal_dir_limit(size_t limit) {
     if (limit != static_cast<size_t>(-1)) {
         RETURN_IF_ERROR(set_limit(limit));
     } else {
@@ -93,6 +92,10 @@ Status WalDirInfo::update_wal_disk_info(size_t limit, size_t used, size_t pre_al
         RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(_wal_dir, &wal_dir_size));
         RETURN_IF_ERROR(set_limit(wal_disk_limit));
     }
+    return Status::OK();
+}
+
+Status WalDirInfo::update_wal_dir_used(size_t used) {
     if (used != static_cast<size_t>(-1)) {
         RETURN_IF_ERROR(set_used(used));
     } else {
@@ -100,9 +103,11 @@ Status WalDirInfo::update_wal_disk_info(size_t limit, size_t used, size_t pre_al
         RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(_wal_dir, &wal_dir_size));
         RETURN_IF_ERROR(set_used(wal_dir_size));
     }
-    if (pre_allocated != static_cast<size_t>(-1)) {
-        RETURN_IF_ERROR(set_pre_allocated(pre_allocated, is_add_pre_allocated));
-    }
+    return Status::OK();
+}
+
+Status WalDirInfo::update_wal_dir_pre_allocated(size_t pre_allocated, bool is_add_pre_allocated) {
+    RETURN_IF_ERROR(set_pre_allocated(pre_allocated, is_add_pre_allocated));
     return Status::OK();
 }
 
@@ -152,20 +157,50 @@ size_t WalDirsInfo::get_max_available_size() {
                              ->available();
 }
 
-Status WalDirsInfo::update_wal_disk_info(std::string wal_dir, size_t limit, size_t used,
-                                         size_t pre_allocated, bool is_add_pre_allocated) {
+Status WalDirsInfo::update_wal_dir_limit(std::string wal_dir, size_t limit) {
     for (const auto& wal_dir_info : _wal_dirs_info_vec) {
         if (wal_dir_info->get_wal_dir() == wal_dir) {
-            return wal_dir_info->update_wal_disk_info(limit, used, pre_allocated,
-                                                      is_add_pre_allocated);
+            return wal_dir_info->update_wal_dir_limit(limit);
         }
     }
     return Status::InternalError("Can not find wal dir in wal disks info.");
 }
 
-Status WalDirsInfo::get_wal_disk_available_size(const std::string& wal_dir,
-                                                size_t* available_bytes) {
-    RETURN_IF_ERROR(update_wal_disk_info(wal_dir));
+Status WalDirsInfo::update_all_wal_dir_limit() {
+    for (const auto& wal_dir_info : _wal_dirs_info_vec) {
+        RETURN_IF_ERROR(wal_dir_info->update_wal_dir_limit(-1));
+    }
+    return Status::OK();
+}
+
+Status WalDirsInfo::update_wal_dir_used(std::string wal_dir, size_t used) {
+    for (const auto& wal_dir_info : _wal_dirs_info_vec) {
+        if (wal_dir_info->get_wal_dir() == wal_dir) {
+            return wal_dir_info->update_wal_dir_used(used);
+        }
+    }
+    return Status::InternalError("Can not find wal dir in wal disks info.");
+}
+
+Status WalDirsInfo::update_all_wal_dir_used() {
+    for (const auto& wal_dir_info : _wal_dirs_info_vec) {
+        RETURN_IF_ERROR(wal_dir_info->update_wal_dir_used(-1));
+    }
+    return Status::OK();
+}
+
+Status WalDirsInfo::update_wal_dir_pre_allocated(std::string wal_dir, size_t pre_allocated,
+                                                 bool is_add_pre_allocated) {
+    for (const auto& wal_dir_info : _wal_dirs_info_vec) {
+        if (wal_dir_info->get_wal_dir() == wal_dir) {
+            return wal_dir_info->update_wal_dir_pre_allocated(pre_allocated, is_add_pre_allocated);
+        }
+    }
+    return Status::InternalError("Can not find wal dir in wal disks info.");
+}
+
+Status WalDirsInfo::get_wal_dir_available_size(const std::string& wal_dir,
+                                               size_t* available_bytes) {
     std::shared_lock l(_lock);
     for (const auto& wal_dir_info : _wal_dirs_info_vec) {
         if (wal_dir_info->get_wal_dir() == wal_dir) {

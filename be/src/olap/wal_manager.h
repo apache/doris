@@ -25,12 +25,14 @@
 #include <cstdint>
 #include <memory>
 #include <shared_mutex>
+#include <thread>
 #include <unordered_map>
 
 #include "common/config.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/FrontendService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "gutil/ref_counted.h"
 #include "olap/wal_dirs_info.h"
 #include "olap/wal_reader.h"
 #include "olap/wal_table.h"
@@ -78,9 +80,11 @@ public:
     void erase_wal_column_index(int64_t wal_id);
     Status get_wal_column_index(int64_t wal_id, std::vector<size_t>& column_index);
 
-    Status update_wal_disk_info(std::string wal_dir, size_t limit = -1, size_t used = -1,
-                                size_t pre_allocated = -1, bool is_add_pre_allocated = true);
-    Status get_wal_disk_available_size(const std::string& wal_dir, size_t* available_bytes);
+    Status update_wal_dir_limit(const std::string& wal_dir, size_t limit = -1);
+    Status update_wal_dir_used(const std::string& wal_dir, size_t used = -1);
+    Status update_wal_dir_pre_allocated(const std::string& wal_dir, size_t pre_allocated,
+                                        bool is_add_pre_allocated);
+    Status get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes);
     size_t get_max_available_size();
 
 private:
@@ -89,6 +93,7 @@ private:
     Status _init_wal_dirs_info();
     std::string _get_base_wal_path(const std::string& wal_path_str);
     const std::string& _get_available_random_wal_dir();
+    Status _update_wal_dir_info_thread();
 
 public:
     // used for be ut
@@ -98,6 +103,7 @@ private:
     ExecEnv* _exec_env = nullptr;
     std::shared_mutex _lock;
     scoped_refptr<Thread> _replay_thread;
+    scoped_refptr<Thread> _update_wal_dirs_info_thread;
     CountDownLatch _stop_background_threads_latch;
     std::map<int64_t, std::shared_ptr<WalTable>> _table_map;
     std::vector<std::string> _wal_dirs;

@@ -27,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <shared_mutex>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -68,6 +69,9 @@ void WalManager::stop() {
         _stop_background_threads_latch.count_down();
         if (_replay_thread) {
             _replay_thread->join();
+        }
+        if (_update_wal_dirs_info_thread) {
+            _update_wal_dirs_info_thread->join();
         }
         _thread_pool->shutdown();
         LOG(INFO) << "WalManager is stopped";
@@ -152,7 +156,10 @@ Status WalManager::_init_wal_dirs_info() {
         wal_limit_test_bytes = wal_disk_limit;
 #endif
     }
-    return Status::OK();
+    return Thread::create(
+            "WalMgr", "update_wal_dir_info",
+            [this]() { static_cast<void>(this->_update_wal_dir_info_thread()); },
+            &_update_wal_dirs_info_thread);
 }
 
 void WalManager::add_wal_status_queue(int64_t table_id, int64_t wal_id, WAL_STATUS wal_status) {
@@ -319,7 +326,7 @@ Status WalManager::scan_wals(const std::string& wal_path) {
                              << ", st=" << st.to_string();
                 return st;
             }
-            if (wals.size() == 0) {
+            if (wals.empty()) {
                 continue;
             }
             std::vector<std::string> res;
@@ -402,7 +409,8 @@ Status WalManager::add_recover_wal(int64_t db_id, int64_t table_id, std::vector<
     table_ptr->add_wals(wals);
 #ifndef BE_TEST
     for (auto wal : wals) {
-        RETURN_IF_ERROR(update_wal_disk_info(_get_base_wal_path(wal)));
+        RETURN_IF_ERROR(update_wal_dir_limit(_get_base_wal_path(wal)));
+        RETURN_IF_ERROR(update_wal_dir_used(_get_base_wal_path(wal)));
     }
 #endif
     return Status::OK();
@@ -430,8 +438,8 @@ Status WalManager::delete_wal(int64_t wal_id, size_t block_queue_pre_allocated) 
             _wal_path_map.erase(wal_id);
         }
     }
-    RETURN_IF_ERROR(update_wal_disk_info(_get_base_wal_path(wal_path), -1, -1,
-                                         block_queue_pre_allocated, false));
+    RETURN_IF_ERROR(update_wal_dir_pre_allocated(_get_base_wal_path(wal_path),
+                                                 block_queue_pre_allocated, false));
     return Status::OK();
 }
 
@@ -476,15 +484,31 @@ size_t WalManager::get_max_available_size() {
     return _wal_dirs_info->get_max_available_size();
 }
 
-Status WalManager::update_wal_disk_info(std::string wal_dir, size_t limit, size_t used,
-                                        size_t pre_allocated, bool is_add_pre_allocated) {
-    return _wal_dirs_info->update_wal_disk_info(wal_dir, limit, used, pre_allocated,
-                                                is_add_pre_allocated);
+Status WalManager::update_wal_dir_limit(const std::string& wal_dir, size_t limit) {
+    return _wal_dirs_info->update_wal_dir_limit(wal_dir, limit);
 }
 
-Status WalManager::get_wal_disk_available_size(const std::string& wal_dir,
-                                               size_t* available_bytes) {
-    return _wal_dirs_info->get_wal_disk_available_size(wal_dir, available_bytes);
+Status WalManager::update_wal_dir_used(const std::string& wal_dir, size_t used) {
+    return _wal_dirs_info->update_wal_dir_used(wal_dir, used);
+}
+
+Status WalManager::update_wal_dir_pre_allocated(const std::string& wal_dir, size_t pre_allocated,
+                                                bool is_add_pre_allocated) {
+    return _wal_dirs_info->update_wal_dir_pre_allocated(wal_dir, pre_allocated,
+                                                        is_add_pre_allocated);
+}
+
+Status WalManager::_update_wal_dir_info_thread() {
+    while (!_stop.load()) {
+        static_cast<void>(_wal_dirs_info->update_all_wal_dir_limit());
+        static_cast<void>(_wal_dirs_info->update_all_wal_dir_used());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+    return Status::OK();
+}
+
+Status WalManager::get_wal_dir_available_size(const std::string& wal_dir, size_t* available_bytes) {
+    return _wal_dirs_info->get_wal_dir_available_size(wal_dir, available_bytes);
 }
 
 std::string WalManager::_get_base_wal_path(const std::string& wal_path_str) {
