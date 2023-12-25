@@ -259,7 +259,7 @@ suite("test_ctas") {
             `l_varchar` varchar(65533) NULL
         ) ENGINE=OLAP
         DUPLICATE KEY(`l_varchar`)
-        COMMENT 'OLAP\'
+        COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`l_varchar`) BUCKETS 10
         PROPERTIES (
                 "replication_allocation" = "tag.location.default: 1",

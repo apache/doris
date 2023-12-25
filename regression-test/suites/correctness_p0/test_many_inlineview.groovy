@@ -56,7 +56,7 @@ suite("test_many_inlineview") {
     sql """
         CREATE TABLE `ods_drp_xpi_storemain` (
         `fID` varchar(300) NOT NULL COMMENT 'ID',
-        `fStoreCode` varchar(150) NULL COMMENT '店铺编码',
+        `fStoreCode` varchar(150) NULL COMMENT '店铺编码'
         ) ENGINE=OLAP
         UNIQUE KEY(`fID`)
         DISTRIBUTED BY HASH(`fID`) BUCKETS 4
