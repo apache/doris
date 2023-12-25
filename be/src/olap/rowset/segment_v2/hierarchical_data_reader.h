@@ -229,7 +229,7 @@ public:
 private:
     Status extract_to(vectorized::MutableColumnPtr& dst, size_t nrows);
 
-    const TabletColumn& _col;
+    TabletColumn _col;
     // may shared among different column iterators
     std::unique_ptr<StreamReader> _root_reader;
 };

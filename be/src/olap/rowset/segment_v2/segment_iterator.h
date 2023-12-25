@@ -251,8 +251,8 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            vectorized::DataTypePtr storage_type =
-                    _segment->get_data_type_of(*_schema->column(cid), false);
+            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
+                    _schema->column(cid)->path(), _schema->column(cid)->is_nullable(), false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();
