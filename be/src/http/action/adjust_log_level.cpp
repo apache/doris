@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include <glog/vlog_is_on.h>
 #include <http/action/adjust_log_level.h>
 
 #include "common/logging.h"
