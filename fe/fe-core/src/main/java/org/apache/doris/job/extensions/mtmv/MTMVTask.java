@@ -222,12 +222,16 @@ public class MTMVTask extends AbstractTask {
 
     @Override
     public void runTask() throws JobException {
+        LOG.info("mtmv task start run, taskId: {}", super.getTaskId());
         MTMVJob job = (MTMVJob) getJobOrJobException();
         try {
+            LOG.info("mtmv task get writeLock start, taskId: {}", super.getTaskId());
             job.writeLock();
+            LOG.info("mtmv task get writeLock end, taskId: {}", super.getTaskId());
             super.runTask();
         } finally {
             job.writeUnlock();
+            LOG.info("mtmv task release writeLock, taskId: {}", super.getTaskId());
         }
     }
 
