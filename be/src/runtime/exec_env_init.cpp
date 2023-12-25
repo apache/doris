@@ -249,11 +249,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _tablet_schema_cache = TabletSchemaCache::create_global_schema_cache();
     _tablet_schema_cache->start();
 
-    // S3 buffer pool
-    _s3_buffer_pool = new io::S3FileBufferPool();
-    _s3_buffer_pool->init(config::s3_write_buffer_whole_size, config::s3_write_buffer_size,
-                          this->s3_file_upload_thread_pool());
-
     // Storage engine
     doris::EngineOptions options;
     options.store_paths = store_paths;
@@ -561,7 +556,6 @@ void ExecEnv::destroy() {
 
     // Free resource after threads are stopped.
     // Some threads are still running, like threads created by _new_load_stream_mgr ...
-    SAFE_DELETE(_s3_buffer_pool);
     SAFE_DELETE(_tablet_schema_cache);
     _deregister_metrics();
     SAFE_DELETE(_load_channel_mgr);
