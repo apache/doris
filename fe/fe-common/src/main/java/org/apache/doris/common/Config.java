@@ -981,6 +981,29 @@ public class Config extends ConfigBase {
     public static int tablet_further_repair_max_times = 5;
 
     /**
+     * be health check window time scope
+     * window length default 30 mins
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int be_check_health_window_length = 30 * 60;
+
+    /**
+     * clone task failed more than the specified number of times within a certain period of time,
+     * this replicas will be rebalanced
+     * failed times, default 100
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int clone_tablet_in_window_failed_limit_number = 100;
+
+    /**
+     * if be un health (clone failed in time window or version accumulate) , when version incomplete,
+     * tabletScheduler will create replica in health bes
+     * default true
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean create_new_replica_in_health_backends = true;
+
+    /**
      * the default slot number per path for hdd in tablet scheduler
      * TODO(cmy): remove this config and dynamically adjust it by clone task statistic
      */
