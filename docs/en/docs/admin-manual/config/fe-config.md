@@ -1305,7 +1305,7 @@ This configuration is just for compatible with old version, this config has been
 
 #### `enable_single_replica_load`
 
-Default：false
+Default：true
 
 IsMutable：true
 

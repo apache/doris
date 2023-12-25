@@ -621,7 +621,7 @@ public class Config extends ConfigBase {
             "是否启用 stream load 和 broker load 的单副本写入。",
             "Whether to enable to write single replica for stream load and broker load."},
             varType = VariableAnnotation.EXPERIMENTAL)
-    public static boolean enable_single_replica_load = false;
+    public static boolean enable_single_replica_load = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "单个数据库最大并发运行的事务数，包括 prepare 和 commit 事务。",
