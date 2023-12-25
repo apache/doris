@@ -30,12 +30,12 @@ under the License.
 
 </version>
 
-### description
+### Description
 
 VARIANT Type
 Introduced a new data type VARIANT in Doris 2.1, which can store semi-structured JSON data. It allows storing complex data structures containing different data types (such as integers, strings, boolean values, etc.) without the need to define specific columns in the table structure beforehand. The Variant type is particularly useful for handling complex nested structures that may change at any time. During the writing process, this type can automatically infer column information based on the structure and types of the columns, merging them into the existing Schema of the table. It stores JSON keys and their corresponding values as columns and dynamic sub-columns.
 
-### note
+### Note
 Advantages over JSON Type:
 
 1. Different storage methods: The JSON type is stored in binary JSONB format, and the entire JSON is stored row by row in segment files. In contrast, the VARIANT type infers types during writing and stores the written JSON columns. It has a higher compression ratio compared to the JSON type, providing better storage efficiency.
@@ -59,7 +59,7 @@ Below are test results based on clickbench data:
 
 **8x faster query, query performance comparable to static columns**
 
-### example
+### Example
 Demonstrate the functionality and usage of Variant with an example covering table creation, data import, and query cycle.
 
 #### Table Creation Syntax
@@ -330,3 +330,8 @@ Ensure consistency in types whenever possible. Doris automatically performs comp
 5. Arrays with dimensions of 2 or higher will be stored as JSONB encoding, which might perform less efficiently than native arrays.
 6. Not supported as primary or sort keys.
 7. Queries with filters or aggregations require casting. The storage layer eliminates cast operations based on storage type and the target type of the cast, speeding up queries. 
+
+
+### Keywords
+
+    VARIANT
