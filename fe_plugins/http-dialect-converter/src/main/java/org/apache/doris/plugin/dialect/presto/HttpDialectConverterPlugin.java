@@ -43,7 +43,7 @@ import javax.annotation.Nullable;
 
 /**
  * Currently, there are many frameworks and services that support SQL dialect conversion,
- * but they may not been implemented in Java.
+ * but they may not be implemented in Java.
  * Therefore, we can encapsulate these SQL dialect conversion frameworks or services into an HTTP service,
  * and combine them with this plugin to provide dialect conversion capabilities.
  * Note that the protocol request/response for the wrapped HTTP service must comply with the following rules:
