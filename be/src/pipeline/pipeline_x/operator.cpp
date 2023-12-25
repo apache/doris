@@ -187,6 +187,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             }
         }
         DCHECK(mutable_block.rows() == rows);
+        output_block->set_columns(std::move(mutable_columns));
     }
 
     return Status::OK();

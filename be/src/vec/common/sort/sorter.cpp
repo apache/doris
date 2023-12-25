@@ -186,6 +186,7 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
 
         if (merged_rows == batch_size) break;
     }
+    block->set_columns(std::move(merged_columns));
 
     if (merged_rows == 0) {
         *eos = true;
