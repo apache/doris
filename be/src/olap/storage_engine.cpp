@@ -402,7 +402,9 @@ Status StorageEngine::_check_file_descriptor_number() {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "
                    << config::min_file_descriptor_number;
-        return Status::InternalError("file descriptors limit is too small");
+        return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                "file descriptors limit {} is small than {}", l.rlim_cur,
+                config::min_file_descriptor_number);
     }
     return Status::OK();
 }

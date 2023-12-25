@@ -8,8 +8,8 @@
 #include <gen_cpp/Status_types.h> // for TStatus
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -93,7 +93,8 @@ namespace ErrorCode {
     E(VERSION_NOT_EXIST, -214, false);                       \
     E(TABLE_NOT_FOUND, -215, true);                          \
     E(TRY_LOCK_FAILED, -216, false);                         \
-    E(OUT_OF_BOUND, -218, true);                             \
+    E(EXCEEDED_LIMIT, -217, false);                          \
+    E(OUT_OF_BOUND, -218, false);                            \
     E(INVALID_ROOT_PATH, -222, true);                        \
     E(NO_AVAILABLE_ROOT_PATH, -223, true);                   \
     E(CHECK_LINES_ERROR, -224, true);                        \
