@@ -488,7 +488,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         List<String> colNames = ctx.cols == null ? ImmutableList.of() : visitIdentifierList(ctx.cols);
         // TODO visit partitionSpecCtx
         Pair<Boolean, List<String>> partitionSpec = visitPartitionSpec(ctx.partitionSpec());
-        LogicalPlan plan = ctx.query() != null ? visitQuery(ctx.query()) : visitInlineTable(ctx.inlineTable());
+        LogicalPlan plan = visitQuery(ctx.query());
         UnboundTableSink<?> sink = new UnboundTableSink<>(
                 tableName.build(),
                 colNames,
