@@ -1100,7 +1100,7 @@ DEFINE_Int32(group_commit_memory_rows_for_max_filter_ratio, "10000");
 DEFINE_Bool(wait_internal_group_commit_finish, "false");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
-DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
 
 DEFINE_Bool(exit_on_exception, "false");
 // This config controls whether the s3 file writer would flush cache asynchronously
