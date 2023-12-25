@@ -155,4 +155,97 @@ suite("test_subquery") {
     qt_sql_mark_join """with A as (select count(*) n1 from test_one_row_relation where exists (select 1 from test_one_row_relation t where t.user_id = test_one_row_relation.user_id) or 1 = 1) select * from A;"""
 
     sql """drop table if exists test_one_row_relation;"""
+
+    sql """drop table if exists subquery_test_t1;"""
+    sql """drop table if exists subquery_test_t2;"""
+    sql """create table subquery_test_t1 (
+                id int
+            )
+            UNIQUE KEY (`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
+    sql """create table subquery_test_t2 (
+                id int
+            )
+            UNIQUE KEY (`id`)
+            DISTRIBUTED BY HASH(`id`) BUCKETS 1
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");"""
+
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not (
+                            exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 5) 
+                            and
+                            exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
+                        ); """)
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            exists(select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
+                        );""")
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
+                        );  """)
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6)
+                        ); """)
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            ( subquery_test_t1.id < 100 or subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6) )
+                        ); """)
+        contains("isMarkJoin=true")
+    }
+    explain {
+        sql("""analyzed plan select subquery_test_t1.id from subquery_test_t1
+                where
+                    not ( 
+                            subquery_test_t1.id > 10 
+                            and 
+                            ( subquery_test_t1.id < 100 or case when subquery_test_t1.id in (select 1 from subquery_test_t2 where subquery_test_t1.id = subquery_test_t2.id and subquery_test_t2.id = 6) then 1 else 0 end )
+                        );""")
+        contains("isMarkJoin=true")
+    }
+
+    sql """drop table if exists table_23_undef_undef"""
+    sql """create table table_23_undef_undef (`pk` int,`col_int_undef_signed` int  ,`col_varchar_10__undef_signed` varchar(10)  ,`col_varchar_1024__undef_signed` varchar(1024)  ) engine=olap distributed by hash(pk) buckets 10 properties(    'replication_num' = '1');"""
+    sql """drop table if exists table_20_undef_undef"""
+    sql """create table table_20_undef_undef (`pk` int,`col_int_undef_signed` int  ,`col_varchar_10__undef_signed` varchar(10)  ,`col_varchar_1024__undef_signed` varchar(1024)  ) engine=olap distributed by hash(pk) buckets 10 properties(    'replication_num' = '1');"""
+    sql """drop table if exists table_9_undef_undef"""
+    sql """create table table_9_undef_undef (`pk` int,`col_int_undef_signed` int  ,`col_varchar_10__undef_signed` varchar(10)  ,`col_varchar_1024__undef_signed` varchar(1024)  ) engine=olap distributed by hash(pk) buckets 10 properties(    'replication_num' = '1');"""
+
+    sql """insert into table_23_undef_undef values (0,0,'t','p'),(1,6,'q',"really"),(2,3,'p',"of"),(3,null,"he",'k'),(4,8,"this","don't"),(5,6,"see","this"),(6,5,'s','q'),(7,null,'o','j'),(8,9,'l',"could"),(9,null,"one",'l'),(10,7,"can't",'f'),(11,2,"going","not"),(12,null,'g','r'),(13,3,"ok",'s'),(14,6,"she",'k'),(15,null,"she",'p'),(16,8,"what","him"),(17,null,"from","to"),(18,5,"so","up"),(19,null,"my","is"),(20,null,'h',"see"),(21,null,"as","to"),(22,0,"know","the");"""
+    sql """insert into table_20_undef_undef values (0,null,'r','x'),(1,null,'m',"say"),(2,2,"mean",'h'),(3,null,'n','b'),(4,8,"do","do"),(5,9,'h',"were"),(6,null,"was","one"),(7,2,'o',"she"),(8,0,"who","me"),(9,null,'n',"that"),(10,null,"will",'l'),(11,4,'m',"if"),(12,5,"the","got"),(13,null,"why",'f'),(14,0,"of","for"),(15,null,"or","ok"),(16,null,'c','u'),(17,3,'f','c'),(18,null,"see",'f'),(19,2,'f','z');"""
+    sql """insert into table_9_undef_undef values (0,3,"his",'g'),(1,8,'p','n'),(2,null,"get","got"),(3,3,'r','r'),(4,null,"or","get"),(5,0,'j',"yeah"),(6,null,'w','x'),(7,8,'q',"for"),(8,3,'p',"that");"""
+
+    qt_select_sub"""SELECT DISTINCT alias1.`pk` AS field1,     alias2.`col_int_undef_signed` AS field2 FROM table_23_undef_undef AS alias1,     table_20_undef_undef AS alias2 WHERE (         EXISTS (             SELECT DISTINCT SQ1_alias1.`col_varchar_10__undef_signed` AS SQ1_field1             FROM table_9_undef_undef AS SQ1_alias1             WHERE SQ1_alias1.`col_varchar_10__undef_signed` = alias1.`col_varchar_10__undef_signed`             )         )     OR alias1.`col_varchar_1024__undef_signed` = "TmxRwcNZHC"     AND (         alias1.`col_varchar_10__undef_signed` <> "rnZeukOcuM"         AND alias2.`col_varchar_10__undef_signed` != "dbPAEpzstk"         ) ORDER BY alias1.`pk`,     field1,     field2 LIMIT 2 OFFSET 7; """
+    sql """drop table if exists table_23_undef_undef"""
+    sql """drop table if exists table_20_undef_undef"""
+    sql """drop table if exists table_9_undef_undef"""
+
 }
