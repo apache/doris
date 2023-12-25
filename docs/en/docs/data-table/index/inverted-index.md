@@ -89,6 +89,9 @@ The features for inverted index is as follows:
         - char_replace: replace each char in the pattern with a char in the replacement
           - char_filter_pattern: character array to be replaced
           - char_filter_replacement: replaced character array, can be left unset, defaults to a space character
+    - lower_case: Whether to convert tokens to lowercase, thereby achieving case-insensitive matching.
+      - true: Convert to lowercase
+      - false: Do not convert to lowercase 
   - COMMENT is optional
 
 ```sql
