@@ -24,6 +24,7 @@
 
 #include "common/status.h"
 #include "operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "runtime/descriptors.h"
 #include "vec/exec/scan/vscan_node.h"
@@ -59,6 +60,7 @@ public:
 
 class ScanDependency final : public Dependency {
 public:
+    using SharedState = FakeSharedState;
     ENABLE_FACTORY_CREATOR(ScanDependency);
     ScanDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "ScanDependency", query_ctx) {}
@@ -98,10 +100,11 @@ private:
     std::mutex _always_done_lock;
 };
 
-class ScanLocalStateBase : public PipelineXLocalState<>, public vectorized::RuntimeFilterConsumer {
+class ScanLocalStateBase : public PipelineXLocalState<ScanDependency>,
+                           public vectorized::RuntimeFilterConsumer {
 public:
     ScanLocalStateBase(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<>(state, parent),
+            : PipelineXLocalState<ScanDependency>(state, parent),
               vectorized::RuntimeFilterConsumer(parent->node_id(), parent->runtime_filter_descs(),
                                                 parent->row_descriptor(), _conjuncts) {}
     virtual ~ScanLocalStateBase() = default;
@@ -210,8 +213,6 @@ class ScanLocalState : public ScanLocalStateBase {
     TPushAggOp::type get_push_down_agg_type() override;
 
     int64_t get_push_down_count() override;
-
-    Dependency* dependency() override { return _scan_dependency.get(); }
 
     RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); };
     Dependency* finishdependency() override { return _finish_dependency.get(); }
