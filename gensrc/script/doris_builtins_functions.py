@@ -76,7 +76,6 @@ visible_functions = {
         [['map'], 'MAP<K, V>', ['K', 'V', '...'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
         [['element_at', '%element_extract%'], 'V', ['MAP<K, V>', 'K'], 'ALWAYS_NULLABLE', ['K', 'V']],
         [['size', 'map_size'], 'BIGINT', ['MAP<K, V>'], '', ['K', 'V']],
-        [['count'], 'BIGINT', ['MAP<K, V>'], 'ALWAYS_NOT_NULLABLE', ['K', 'V']],
         [['map_contains_key'], 'BOOLEAN', ['MAP<K, V>', 'K'], 'CUSTOM', ['K', 'V']],
         [['map_contains_value'], 'BOOLEAN', ['MAP<K, V>', 'V'], 'CUSTOM', ['K', 'V']],
         #[['map_contains_key_like'], 'BOOLEAN', ['MAP<K, V>', 'K'], '', ['K', 'V']],
@@ -95,7 +94,6 @@ visible_functions = {
         [['named_struct'], 'ANY_STRUCT_TYPE', ['TYPES'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
         [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'INT'], 'ALWAYS_NULLABLE', ['TYPES...']],
         [['struct_element'], 'ANY_ELEMENT_TYPE', ['ANY_STRUCT_TYPE', 'VARCHAR'], 'ALWAYS_NULLABLE', ['TYPES...']],
-        [['count'], 'BIGINT', ['ANY_STRUCT_TYPE'], 'ALWAYS_NOT_NULLABLE', ['TYPES...']],
     ],
 
     # array functions
@@ -120,7 +118,6 @@ visible_functions = {
         [['array'], 'ARRAY', ['STRING', '...'], 'ALWAYS_NOT_NULLABLE'],
 
         [['element_at', '%element_extract%'], 'T', ['ARRAY<T>', 'BIGINT'], 'ALWAYS_NULLABLE', ['T']],
-        [['count'], 'BIGINT', ['ARRAY<T>'], 'ALWAYS_NOT_NULLABLE', ['T']],
 
         [['l1_distance'], 'DOUBLE', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
         [['l1_distance'], 'DOUBLE', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
