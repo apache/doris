@@ -18,13 +18,11 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.hint.LeadingHint;
 import org.apache.doris.nereids.hint.OrderedHint;
@@ -35,9 +33,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -90,15 +85,7 @@ public class EliminateLogicalSelectHint extends OneRewriteRuleFactory {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
-        Map<String, Optional<String>> parameters = selectHint.getParameters();
-        StatementBase parsedStatement = context.getParsedStatement();
-        if (parsedStatement instanceof LogicalPlanAdapter) {
-            LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
-            if (logicalPlan instanceof InsertIntoTableCommand || logicalPlan instanceof InsertOverwriteTableCommand) {
-                parameters.put("enable_page_cache", Optional.of("false"));
-            }
-        }
-        for (Entry<String, Optional<String>> kv : parameters.entrySet()) {
+        for (Entry<String, Optional<String>> kv : selectHint.getParameters().entrySet()) {
             String key = kv.getKey();
             Optional<String> value = kv.getValue();
             if (value.isPresent()) {
