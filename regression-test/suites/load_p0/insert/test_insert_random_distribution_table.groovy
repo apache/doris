@@ -44,11 +44,25 @@ suite("test_insert_random_distribution_table", "p0") {
     def totalCount = sql "select count() from ${tableName}"
     assertEquals(totalCount[0][0], 4)
     def res = sql "show tablets from ${tableName}"
-    def tabletId1 = res[0][0]
-    def tabletId2 = res[1][0]
-    def tabletId3 = res[2][0]
-    def tabletId4 = res[3][0]
-    def tabletId5 = res[4][0]
+    def getTablets = { result -> 
+      def map = [:]
+      def tablets = []
+      for (int i = 0; i < result.size(); i++) {
+          if (!map.get(result[i][0])) {
+              tablets.add(result[i][0])
+              map.put(result[i][0], result[i])
+          }
+      }
+      return tablets
+    }
+
+    def tablets = getTablets.call(res)
+
+    def tabletId1 = tablets[0]
+    def tabletId2 = tablets[1]
+    def tabletId3 = tablets[2] 
+    def tabletId4 = tablets[3] 
+    def tabletId5 = tablets[4] 
 
     def rowCount1 = sql "select count() from ${tableName} tablet(${tabletId1})"
     def rowCount2 = sql "select count() from ${tableName} tablet(${tabletId2})"
@@ -132,25 +146,28 @@ suite("test_insert_random_distribution_table", "p0") {
     def partition3 = "p20231013"
     assertEquals(totalCount[0][0], 5)
     res = sql "show tablets from ${tableName} partition ${partition1}"
-    def tabletId11 = res[0][0]
-    def tabletId12 = res[1][0]
-    def tabletId13 = res[2][0]
-    def tabletId14 = res[3][0]
-    def tabletId15 = res[4][0]
+    tablets = getTablets.call(res)
+    def tabletId11 = tablets[0] 
+    def tabletId12 = tablets[1] 
+    def tabletId13 = tablets[2] 
+    def tabletId14 = tablets[3] 
+    def tabletId15 = tablets[4] 
 
     res = sql "show tablets from ${tableName} partition ${partition2}"
-    def tabletId21 = res[0][0]
-    def tabletId22 = res[1][0]
-    def tabletId23 = res[2][0]
-    def tabletId24 = res[3][0]
-    def tabletId25 = res[4][0]
+    tablets = getTablets.call(res)
+    def tabletId21 = tablets[0] 
+    def tabletId22 = tablets[1] 
+    def tabletId23 = tablets[2] 
+    def tabletId24 = tablets[3] 
+    def tabletId25 = tablets[4] 
 
     res = sql "show tablets from ${tableName} partition ${partition3}"
-    def tabletId31 = res[0][0]
-    def tabletId32 = res[1][0]
-    def tabletId33 = res[2][0]
-    def tabletId34 = res[3][0]
-    def tabletId35 = res[4][0]
+    tablets = getTablets.call(res)
+    def tabletId31 = tablets[0] 
+    def tabletId32 = tablets[1] 
+    def tabletId33 = tablets[2] 
+    def tabletId34 = tablets[3] 
+    def tabletId35 = tablets[4] 
 
     def rowCount11 = sql "select count() from ${tableName} tablet(${tabletId11})"
     def rowCount12 = sql "select count() from ${tableName} tablet(${tabletId12})"
