@@ -45,7 +45,8 @@ wait_pid() {
 
     health_log "wait process $pid"
     while true; do
-        if [ ! ps -p $pid ] >/dev/null; then
+        ps -p $pid >/dev/null
+        if [ $? -ne 0 ]; then
             break
         fi
         sleep 1s
