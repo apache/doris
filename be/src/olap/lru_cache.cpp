@@ -529,9 +529,11 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
     CHECK(num_shards > 0) << "num_shards cannot be 0";
     CHECK_EQ((num_shards & (num_shards - 1)), 0)
             << "num_shards should be power of two, but got " << num_shards;
-    CHECK(total_capacity >= _num_shards)
-            << "lru cache capacity cannot be 0. total_capacity: " << total_capacity
-            << ", _num_shards: " << _num_shards;
+    if (total_capacity < _num_shards) {
+        LOG(INFO) << name
+                  << " lru cache capacity less than _num_shards. capacity: " << total_capacity
+                  << ", num_shards: " << _num_shards;
+    }
 
     const size_t per_shard = (total_capacity + (_num_shards - 1)) / _num_shards;
     const size_t per_shard_element_count_capacity =
