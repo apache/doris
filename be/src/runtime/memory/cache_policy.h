@@ -39,7 +39,8 @@ public:
         DELETE_BITMAP_AGG_CACHE = 9,
         TABLET_VERSION_CACHE = 10,
         LAST_SUCCESS_CHANNEL_CACHE = 11,
-        COMMON_OBJ_LRU_CACHE = 12
+        COMMON_OBJ_LRU_CACHE = 12,
+        FOR_UT = 13
     };
 
     static std::string type_string(CacheType type) {
@@ -70,6 +71,8 @@ public:
             return "LastSuccessChannelCache";
         case CacheType::COMMON_OBJ_LRU_CACHE:
             return "CommonObjLRUCache";
+        case CacheType::FOR_UT:
+            return "ForUT";
         default:
             LOG(FATAL) << "not match type of cache policy :" << static_cast<int>(type);
         }
