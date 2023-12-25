@@ -487,7 +487,8 @@ void PlanFragmentExecutor::send_report(bool done) {
     // but fragments still need to be cancelled (e.g. limit reached), the coordinator will
     // be waiting for a final report and profile.
     _report_status_cb(status, _is_report_success ? profile() : nullptr,
-                      _is_report_success ? load_channel_profile() : nullptr, done || !status.ok());
+                      _is_report_success ? load_channel_profile() : nullptr, done || !status.ok(),
+                      _dml_query_statistics());
 }
 
 void PlanFragmentExecutor::stop_report_thread() {

@@ -121,14 +121,11 @@ public:
         return _task_group_entity;
     }
 
-private:
-
     void set_query_statistics(std::shared_ptr<QueryStatistics> query_statistics) {
         _query_statistics = query_statistics;
     }
 
 protected:
-
     Status _create_sink(int sender_id, const TDataSink& t_data_sink, RuntimeState* state);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
@@ -207,7 +204,6 @@ protected:
     // If this is set to false, and '_is_report_success' is false as well,
     // This executor will not report status to FE on being cancelled.
     bool _is_report_on_cancel;
-
 
     DescriptorTbl* _desc_tbl = nullptr;
     static bool _has_inverted_index_or_partial_update(TOlapTableSink sink);
