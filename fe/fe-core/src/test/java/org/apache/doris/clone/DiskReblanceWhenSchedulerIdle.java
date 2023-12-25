@@ -49,8 +49,6 @@ public class DiskReblanceWhenSchedulerIdle extends TestWithFeService {
     protected void beforeCreatingConnectContext() throws Exception {
         Config.enable_round_robin_create_tablet = true;
         Config.allow_replica_on_same_host = true;
-        Config.tablet_checker_interval_ms = 100;
-        Config.tablet_schedule_interval_ms = 100;
         Config.schedule_slot_num_per_hdd_path = 1;
         Config.disable_balance = true;
         Config.enable_debug_points = true;
