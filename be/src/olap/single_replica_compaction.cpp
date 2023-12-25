@@ -437,7 +437,9 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
                 HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, get_file_size_cb));
         // check disk capacity
         if (data_dir->reach_capacity_limit(file_size)) {
-            return Status::InternalError("Disk reach capacity limit");
+            return Status::Error<EXCEEDED_LIMIT>(
+                    "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                    file_size);
         }
 
         total_file_size += file_size;

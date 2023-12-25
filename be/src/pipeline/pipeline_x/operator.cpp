@@ -622,7 +622,7 @@ template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 template class StatefulOperatorX<TableFunctionLocalState>;
 
-template class PipelineXSinkLocalState<HashJoinBuildSinkDependency>;
+template class PipelineXSinkLocalState<SharedHashTableDependency>;
 template class PipelineXSinkLocalState<SortSinkDependency>;
 template class PipelineXSinkLocalState<NestedLoopJoinBuildSinkDependency>;
 template class PipelineXSinkLocalState<AnalyticSinkDependency>;
@@ -635,6 +635,7 @@ template class PipelineXSinkLocalState<SetSinkDependency>;
 template class PipelineXSinkLocalState<SetProbeSinkDependency>;
 template class PipelineXSinkLocalState<LocalExchangeSinkDependency>;
 template class PipelineXSinkLocalState<AndDependency>;
+template class PipelineXSinkLocalState<ResultSinkDependency>;
 
 template class PipelineXLocalState<HashJoinProbeDependency>;
 template class PipelineXLocalState<SortSourceDependency>;
@@ -648,6 +649,7 @@ template class PipelineXLocalState<PartitionSortSourceDependency>;
 template class PipelineXLocalState<SetSourceDependency>;
 template class PipelineXLocalState<LocalExchangeSourceDependency>;
 template class PipelineXLocalState<AndDependency>;
+template class PipelineXLocalState<ScanDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;

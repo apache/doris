@@ -219,7 +219,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
                              << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
                              << config::wal_max_disk_size * 0.8
                              << " Bytes). Please set this load to \"group commit\"=false.";
-                st = Status::InternalError("Stream load size too large.");
+                st = Status::Error<EXCEEDED_LIMIT>("Stream load size too large.");
             }
         }
     }

@@ -152,6 +152,19 @@ suite("test_build_mtmv") {
         DROP MATERIALIZED VIEW ${mvName}
     """
 
+    // use default value
+    sql """
+            CREATE MATERIALIZED VIEW ${mvName}
+            DISTRIBUTED BY RANDOM BUCKETS 2
+            PROPERTIES ('replication_num' = '1')
+            AS
+            SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+        """
+
+    sql """
+            DROP MATERIALIZED VIEW ${mvName}
+        """
+
     // IMMEDIATE schedule interval
     sql """
         CREATE MATERIALIZED VIEW ${mvName}

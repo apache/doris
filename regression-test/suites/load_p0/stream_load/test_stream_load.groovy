@@ -1543,7 +1543,7 @@ suite("test_stream_load", "p0") {
                 `c47` varchar(48) NULL,
                 `c48` varchar(48) NULL,
                 `c49` varchar(48) NULL,
-                `c50` varchar(48) NULL,
+                `c50` varchar(48) NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`c1`)
             COMMENT 'OLAP'
