@@ -22,8 +22,16 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TCompareOperator;
+import org.apache.doris.thrift.TWorkloadAction;
+import org.apache.doris.thrift.TWorkloadActionType;
+import org.apache.doris.thrift.TWorkloadCondition;
+import org.apache.doris.thrift.TWorkloadMetricType;
+import org.apache.doris.thrift.TWorkloadSchedPolicy;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.esotericsoftware.minlog.Log;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
 
@@ -40,6 +48,23 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     public static final String PRIORITY = "priority";
     public static final ImmutableSet<String> POLICY_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(ENABLED).add(PRIORITY).build();
+
+    // used for convert fe type to thrift type
+    private static ImmutableMap<WorkloadMetricType, TWorkloadMetricType> METRIC_MAP
+            = new ImmutableMap.Builder<WorkloadMetricType, TWorkloadMetricType>()
+            .put(WorkloadMetricType.QUERY_TIME, TWorkloadMetricType.QUERY_TIME).build();
+    private static ImmutableMap<WorkloadActionType, TWorkloadActionType> ACTION_MAP
+            = new ImmutableMap.Builder<WorkloadActionType, TWorkloadActionType>()
+            .put(WorkloadActionType.MOVE_QUERY_TO_GROUP, TWorkloadActionType.MOVE_QUERY_TO_GROUP)
+            .put(WorkloadActionType.CANCEL_QUERY, TWorkloadActionType.CANCEL_QUERY).build();
+
+    private static ImmutableMap<WorkloadConditionOperator, TCompareOperator> OP_MAP
+            = new ImmutableMap.Builder<WorkloadConditionOperator, TCompareOperator>()
+            .put(WorkloadConditionOperator.EQUAL, TCompareOperator.EQUAL)
+            .put(WorkloadConditionOperator.GREATER, TCompareOperator.GREATER)
+            .put(WorkloadConditionOperator.GREATER_EQUAL, TCompareOperator.GREATER_EQUAL)
+            .put(WorkloadConditionOperator.LESS, TCompareOperator.LESS)
+            .put(WorkloadConditionOperator.LESS_EQUAl, TCompareOperator.LESS_EQUAL).build();
 
     @SerializedName(value = "id")
     long id;
@@ -171,6 +196,48 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
 
     public List<WorkloadActionMeta> getActionMetaList() {
         return actionMetaList;
+    }
+
+    public TopicInfo toTopicInfo() {
+        TWorkloadSchedPolicy tPolicy = new TWorkloadSchedPolicy();
+        tPolicy.setId(id);
+        tPolicy.setName(name);
+        tPolicy.setVersion(version);
+        tPolicy.setPriority(priority);
+        tPolicy.setEnabled(enabled);
+
+        List<TWorkloadCondition> condList = new ArrayList();
+        for (WorkloadConditionMeta cond : conditionMetaList) {
+            TWorkloadCondition tCond = new TWorkloadCondition();
+            TWorkloadMetricType metricType = METRIC_MAP.get(cond.metricName);
+            if (metricType == null) {
+                return null;
+            }
+            tCond.setMetricName(metricType);
+            tCond.setOp(OP_MAP.get(cond.op));
+            tCond.setValue(cond.value);
+            condList.add(tCond);
+        }
+
+        List<TWorkloadAction> actionList = new ArrayList();
+        for (WorkloadActionMeta action : actionMetaList) {
+            TWorkloadAction tAction = new TWorkloadAction();
+            TWorkloadActionType tActionType = ACTION_MAP.get(action.action);
+            if (tActionType == null) {
+                return null;
+            }
+            tAction.setAction(tActionType);
+            tAction.setActionArgs(action.actionArgs);
+            actionList.add(tAction);
+        }
+
+        tPolicy.setConditionList(condList);
+        tPolicy.setActionList(actionList);
+
+        TopicInfo topicInfo = new TopicInfo();
+        topicInfo.setWorkloadSchedPolicy(tPolicy);
+
+        return topicInfo;
     }
 
     @Override
