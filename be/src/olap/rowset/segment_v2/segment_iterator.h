@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <fmt/ranges.h>
 #include <gen_cpp/Exprs_types.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -231,9 +232,20 @@ private:
         SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
             int block_cid = _schema_block_id_map[cid];
-            RETURN_IF_ERROR(block->copy_column_data_to_block(_current_return_columns[cid].get(),
-                                                             sel_rowid_idx, select_size, block_cid,
-                                                             _opts.block_row_max));
+            Status st = block->copy_column_data_to_block(_current_return_columns[cid].get(),
+                                                         sel_rowid_idx, select_size, block_cid,
+                                                         _opts.block_row_max);
+            if (!st.ok()) {
+                LOG(WARNING)
+                        << "copy_column_data_to_block failed"
+                        << ", cid: " << cid << ", _schema:" << _schema->dump_schema()
+                        << ", _first_read_column_ids:" << fmt::format("{}", _first_read_column_ids)
+                        << ", _schema_block_id_map:" << fmt::format("{}", _schema_block_id_map)
+                        << ", _num_delete_predicates:"
+                        << fmt::format("{}",
+                                       _opts.delete_condition_predicates->num_of_column_predicate())
+                        << ", _lazy_materialization_read:" << _lazy_materialization_read;
+            }
         }
         return Status::OK();
     }

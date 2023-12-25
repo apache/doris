@@ -181,6 +181,7 @@ public:
     int32_t rowid_col_idx() const { return _rowid_col_idx; }
     int32_t version_col_idx() const { return _version_col_idx; }
     int64_t mem_size() const { return _mem_size; }
+    std::string dump_schema() const;
 
 private:
     void _init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,

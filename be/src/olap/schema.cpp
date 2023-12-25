@@ -213,4 +213,16 @@ vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& fi
     return ptr;
 }
 
+std::string Schema::dump_schema() const {
+    std::string dump;
+    for (int cid = 0; cid < _cols.size(); ++cid) {
+        if (_cols[cid] != nullptr) {
+            dump += fmt::format("({},{},{})", _cols[cid]->name(),
+                                static_cast<int>(_cols[cid]->type()), cid);
+            dump += ",";
+        }
+    }
+    return dump;
+}
+
 } // namespace doris
