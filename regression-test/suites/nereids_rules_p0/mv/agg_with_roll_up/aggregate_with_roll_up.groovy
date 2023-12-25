@@ -402,7 +402,7 @@ suite("aggregate_with_roll_up") {
             "count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) " +
             "from lineitem t1 " +
             "left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate " +
-            "where o_orderdate = '2023-12-11' and l_partkey = 2 " +
+            "where o_orderdate = '2023-12-11' and l_partkey = 3 " +
             "group by " +
             "l_shipdate, " +
             "l_suppkey"
