@@ -414,7 +414,6 @@ void ScannerContext::dec_num_scheduling_ctx() {
         _ctx_finish_cv.notify_one();
     }
     g_num_running_scanners.set_value(_num_running_scanners);
-
 }
 
 void ScannerContext::set_ready_to_finish() {
