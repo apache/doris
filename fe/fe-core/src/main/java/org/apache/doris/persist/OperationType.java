@@ -352,7 +352,7 @@ public class OperationType {
     public static final short OP_ALTER_MTMV = 459;
 
     public static final short OP_ALTER_REPOSITORY = 460;
-  
+
     public static final short OP_DELETE_DECOMMISSION_TABLET = 461;
 
     /**
