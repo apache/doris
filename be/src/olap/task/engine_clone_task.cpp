@@ -31,13 +31,13 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <regex>
 #include <set>
 #include <shared_mutex>
 #include <system_error>
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
-#include <regex>
 
 #include "common/config.h"
 #include "common/logging.h"
@@ -547,7 +547,8 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             }
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << _mask_token(remote_file_url) << ", file_size=" << file_size
+                             << ", remote_path=" << _mask_token(remote_file_url)
+                             << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
