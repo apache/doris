@@ -488,6 +488,22 @@ public:
                _query_options.enable_hash_join_early_start_probe;
     }
 
+    bool enable_parallel_scan() const {
+        return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    int parallel_scan_max_scanners_count() const {
+        return _query_options.__isset.parallel_scan_max_scanners_count
+                       ? _query_options.parallel_scan_max_scanners_count
+                       : 0;
+    }
+
+    int64_t parallel_scan_min_rows_per_scanner() const {
+        return _query_options.__isset.parallel_scan_min_rows_per_scanner
+                       ? _query_options.parallel_scan_min_rows_per_scanner
+                       : 0;
+    }
+
     int repeat_max_num() const {
 #ifndef BE_TEST
         if (!_query_options.__isset.repeat_max_num) {

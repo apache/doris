@@ -238,14 +238,16 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;
         Status status;
+
+        /// If `_segment_row_ranges` is empty, the segment is not split.
         if (_segment_row_ranges.empty()) {
-            _read_options.row_ranges = RowRanges::create_single(seg_ptr->num_rows());
+            _read_options.row_ranges.clear();
             status = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
         } else {
             DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
             auto local_options = _read_options;
             local_options.row_ranges = _segment_row_ranges[i - seg_start];
-            status = seg_ptr->new_iterator(_input_schema, std::move(local_options), &iter);
+            status = seg_ptr->new_iterator(_input_schema, local_options, &iter);
         }
 
         if (!status.ok()) {

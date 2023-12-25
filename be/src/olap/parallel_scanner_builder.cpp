@@ -26,23 +26,29 @@ using namespace vectorized;
 
 template <typename ParentType>
 Status ParallelScannerBuilder<ParentType>::build_scanners(std::list<VScannerSPtr>& scanners) {
-    return _build_scanners_by_rowid(scanners);
+    RETURN_IF_ERROR(_load());
+    if (_is_dup_mow_key) {
+        return _build_scanners_by_rowid(scanners);
+    } else {
+        // TODO: support to split by key range
+        return Status::NotSupported("split by key range not supported yet.");
+    }
 }
 
 template <typename ParentType>
 Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
         std::list<VScannerSPtr>& scanners) {
-    size_t total_rows = 0;
-    for (auto&& [tablet, _] : _tablets) {
-        total_rows += tablet->num_rows();
-    }
-
-    size_t rows_per_scanner = total_rows / _max_scanners_count;
-    rows_per_scanner = std::max<size_t>(rows_per_scanner, _min_rows_per_scanner);
-
+    DCHECK_GE(_rows_per_scanner, _min_rows_per_scanner);
     for (auto&& [tablet, version] : _tablets) {
-        std::vector<RowsetSharedPtr> rowsets;
-        RETURN_IF_ERROR(tablet->capture_consistent_rowsets({0, version}, &rowsets));
+        DCHECK(_all_rowsets.contains(tablet->tablet_id()));
+        auto& rowsets = _all_rowsets[tablet->tablet_id()];
+
+        TabletReader::ReadSource reade_source_with_delete_info;
+        if (!_state->skip_delete_predicate()) {
+            RETURN_IF_ERROR(tablet->capture_rs_readers(
+                    {0, version}, &reade_source_with_delete_info.rs_splits, false));
+            reade_source_with_delete_info.fill_delete_predicates();
+        }
 
         TabletReader::ReadSource read_source;
 
@@ -52,11 +58,9 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
             RowsetReaderSharedPtr reader;
             RETURN_IF_ERROR(beta_rowset->create_reader(&reader));
             const auto rowset_id = beta_rowset->rowset_id();
-            auto& segment_cache_handle = _segment_cache_handles[rowset_id];
 
-            RETURN_IF_ERROR(beta_rowset->load());
-            RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(beta_rowset,
-                                                                     &segment_cache_handle, true));
+            DCHECK(_segment_cache_handles.contains(rowset_id));
+            auto& segment_cache_handle = _segment_cache_handles[rowset_id];
 
             if (beta_rowset->num_rows() == 0) {
                 continue;
@@ -65,7 +69,6 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
             const auto& segments = segment_cache_handle.get_segments();
             int segment_start = 0;
             auto split = RowSetSplits(reader->clone());
-            size_t total_collected = 0;
 
             for (size_t i = 0; i != segments.size(); ++i) {
                 const auto& segment = segments[i];
@@ -73,23 +76,25 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
                 const size_t rows_of_segment = segment->num_rows();
                 int64_t offset_in_segment = 0;
 
+                // try to split large segments into RowRanges
                 while (offset_in_segment < rows_of_segment) {
                     const int64_t remaining_rows = rows_of_segment - offset_in_segment;
-                    auto rows_need = rows_per_scanner - rows_collected;
+                    auto rows_need = _rows_per_scanner - rows_collected;
+
+                    // 0.9: try to avoid splitting the segments into excessively small parts.
                     if (rows_need >= remaining_rows * 0.9) {
                         rows_need = remaining_rows;
                     }
                     DCHECK_LE(rows_need, remaining_rows);
 
-                    auto old_count = row_ranges.count();
+                    // RowRange stands for range: [From, To), From is inclusive, To is exclusive.
                     row_ranges.add({offset_in_segment,
                                     offset_in_segment + static_cast<int64_t>(rows_need)});
-                    DCHECK_EQ(rows_need + old_count, row_ranges.count());
                     rows_collected += rows_need;
                     offset_in_segment += rows_need;
-                    total_collected += rows_need;
 
-                    if (rows_collected >= rows_per_scanner) { // build a new scanner
+                    // If collected enough rows, build a new scanner
+                    if (rows_collected >= _rows_per_scanner) {
                         split.segment_offsets.first = segment_start,
                         split.segment_offsets.second = i + 1;
                         split.segment_row_ranges.emplace_back(std::move(row_ranges));
@@ -99,29 +104,29 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
 
                         read_source.rs_splits.emplace_back(std::move(split));
 
-                        scanners.emplace_back(_build_scanner(tablet, version, _key_ranges,
-                                                             std::move(read_source)));
+                        scanners.emplace_back(
+                                _build_scanner(tablet, version, _key_ranges,
+                                               {std::move(read_source.rs_splits),
+                                                reade_source_with_delete_info.delete_predicates}));
 
                         read_source = TabletReader::ReadSource();
                         split = RowSetSplits(reader->clone());
                         row_ranges = RowRanges();
-                        DCHECK(row_ranges.is_empty());
-                        DCHECK_EQ(row_ranges.range_size(), 0);
 
                         segment_start = offset_in_segment < rows_of_segment ? i : i + 1;
                         rows_collected = 0;
                     }
                 }
 
+                // The non-empty `row_ranges` means there are some rows left in this segment not added into `split`.
                 if (!row_ranges.is_empty()) {
                     DCHECK_GT(rows_collected, 0);
                     DCHECK_EQ(row_ranges.to(), segment->num_rows());
                     split.segment_row_ranges.emplace_back(std::move(row_ranges));
                 }
             }
-            DCHECK_EQ(total_collected, beta_rowset->num_rows());
 
-            DCHECK_LE(rows_collected, rows_per_scanner);
+            DCHECK_LE(rows_collected, _rows_per_scanner);
             if (rows_collected > 0) {
                 split.segment_offsets.first = segment_start;
                 split.segment_offsets.second = segments.size();
@@ -132,26 +137,35 @@ Status ParallelScannerBuilder<ParentType>::_build_scanners_by_rowid(
             }
         } // end `for (auto& rowset : rowsets)`
 
-        DCHECK_LE(rows_collected, rows_per_scanner);
+        DCHECK_LE(rows_collected, _rows_per_scanner);
         if (rows_collected > 0) {
             DCHECK_GT(read_source.rs_splits.size(), 0);
+#ifndef NDEBUG
             for (auto& split : read_source.rs_splits) {
                 DCHECK(split.rs_reader != nullptr);
                 DCHECK_LT(split.segment_offsets.first, split.segment_offsets.second);
                 DCHECK_EQ(split.segment_row_ranges.size(),
                           split.segment_offsets.second - split.segment_offsets.first);
             }
+#endif
             scanners.emplace_back(
-                    _build_scanner(tablet, version, _key_ranges, std::move(read_source)));
+                    _build_scanner(tablet, version, _key_ranges,
+                                   {std::move(read_source.rs_splits),
+                                    reade_source_with_delete_info.delete_predicates}));
         }
     }
 
     return Status::OK();
 }
+
+/**
+ * Load rowsets of each tablet with specified version, segments of each rowset.
+ */
 template <typename ParentType>
 Status ParallelScannerBuilder<ParentType>::_load() {
+    _total_rows = 0;
     for (auto&& [tablet, version] : _tablets) {
-        const auto tablet_id = tablet->table_id();
+        const auto tablet_id = tablet->tablet_id();
         auto& rowsets = _all_rowsets[tablet_id];
         RETURN_IF_ERROR(tablet->capture_consistent_rowsets({0, version}, &rowsets));
 
@@ -162,75 +176,17 @@ Status ParallelScannerBuilder<ParentType>::_load() {
 
             RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(
                     std::dynamic_pointer_cast<BetaRowset>(rowset), &segment_cache_handle, true));
+            _total_rows += rowset->num_rows();
         }
     }
+
+    _rows_per_scanner = _total_rows / _max_scanners_count;
+    _rows_per_scanner = std::max<size_t>(_rows_per_scanner, _min_rows_per_scanner);
+
+    return Status::OK();
 }
 
 template <typename ParentType>
-std::unique_ptr<SegmentGroup>
-ParallelScannerBuilder<ParentType>::_create_segment_group_from_rowsets(
-        const std::vector<RowsetSharedPtr>& rowsets) {
-    if (rowsets.empty()) {
-        return {};
-    }
-
-    size_t max_rows = 0;
-    for (const auto& rowset : rowsets) {
-        const auto rowset_id = rowset->rowset_id();
-        DCHECK(_segment_cache_handles.contains(rowset_id));
-        auto& cache_handle = _segment_cache_handles[rowset_id];
-        auto& segments = cache_handle.get_segments();
-
-        if (segments.empty()) {
-            continue;
-        }
-
-        if (rowset->is_segments_overlapping()) {
-            auto* largest_segment = segments[0].get();
-            for (size_t i = 1; i != segments.size(); ++i) {
-                if (segments[i]->num_rows() > largest_segment->num_rows()) {
-                    largest_segment = segments[i].get();
-                }
-            }
-
-            if (largest_segment->num_rows() > max_rows) {
-
-            }
-        }
-    }
-
-    auto get_max_rows = [this](Rowset* rowset) -> uint32_t {
-        const auto rowset_id = rowset->rowset_id();
-        DCHECK(_segment_cache_handles.contains(rowset_id));
-        auto& cache_handle = _segment_cache_handles[rowset_id];
-
-        auto& segments = cache_handle.get_segments();
-        if (segments.empty()) {
-            return 0;
-        }
-
-        if (rowset->is_segments_overlapping()) {
-            auto* largest_segment = segments[0].get();
-            for (size_t i = 1; i != segments.size(); ++i) {
-                if (segments[i]->num_rows() > largest_segment->num_rows()) {
-                    largest_segment = segments[i].get();
-                }
-            }
-            return largest_segment->num_rows();
-        }
-
-        return rowset->num_rows();
-    };
-
-    auto* biggest_rowset = rowsets[0].get();
-    for (size_t i = 1; i != rowsets.size(); ++i) {
-        if (rowsets[i]->num_rows() > biggest_rowset->num_rows()) {
-            biggest_rowset = rowsets[i].get();
-        }
-    }
-}
-
-        template <typename ParentType>
 std::shared_ptr<NewOlapScanner> ParallelScannerBuilder<ParentType>::_build_scanner(
         BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
         TabletReader::ReadSource&& read_source) {
@@ -238,12 +194,6 @@ std::shared_ptr<NewOlapScanner> ParallelScannerBuilder<ParentType>::_build_scann
             _state,  _scanner_profile.get(), key_ranges,         std::move(tablet),
             version, std::move(read_source), _limit_per_scanner, _is_preaggregation};
     return NewOlapScanner::create_shared(_parent, std::move(params));
-}
-
-template <typename ParentType>
-Status ParallelScannerBuilder<ParentType>::_build_scanners_by_key_range(
-        std::list<VScannerSPtr>& scanners) {
-    return Status::OK();
 }
 
 template class ParallelScannerBuilder<NewOlapScanNode>;
