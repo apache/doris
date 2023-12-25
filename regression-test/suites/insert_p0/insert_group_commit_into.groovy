@@ -98,7 +98,8 @@ suite("insert_group_commit_into") {
             )
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
-                "replication_num" = "1"
+                "replication_num" = "1",
+                "group_commit_interval_ms" = "200"
             );
             """
 
@@ -215,7 +216,7 @@ suite("insert_group_commit_into") {
         }
 
         // test connect to observer fe
-        /*try {
+        try {
             def fes = sql_return_maparray "show frontends"
             logger.info("frontends: ${fes}")
             if (fes.size() > 1) {
@@ -233,6 +234,7 @@ suite("insert_group_commit_into") {
                         sql """ set group_commit = async_mode; """
                         sql """ set enable_nereids_dml = false; """
                         sql """ set enable_profile= true; """
+                        sql """ set enable_nereids_planner = false; """
 
                         // 1. insert into
                         def server_info = group_commit_insert """ insert into ${table}(name, id) values('c', 3);  """, 1
@@ -261,7 +263,7 @@ suite("insert_group_commit_into") {
                 logger.info("only one fe, skip test connect to observer fe")
             }
         } finally {
-        }*/
+        }
 
         // table with array type
         tableName = "insert_group_commit_into_duplicate_array"
