@@ -3,7 +3,7 @@
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
-------filter((if((mean = 0), 0, (stdev / mean)) > 1))
+------filter((if((mean = 0.0), 0.0, (stdev / mean)) > 1.0))
 --------hashAgg[LOCAL]
 ----------PhysicalProject
 ------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()

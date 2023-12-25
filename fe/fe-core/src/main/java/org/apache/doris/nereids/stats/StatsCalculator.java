@@ -787,7 +787,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                             .setNumNulls(stats.numNulls < 0 ? stats.numNulls : stats.numNulls * groupingSetNum)
                             .setDataSize(stats.dataSize < 0 ? stats.dataSize : stats.dataSize * groupingSetNum);
                     return Pair.of(kv.getKey(), columnStatisticBuilder.build());
-                }).collect(Collectors.toMap(Pair::key, Pair::value));
+                }).collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         return new Statistics(rowCount < 0 ? rowCount : rowCount * groupingSetNum, 1, columnStatisticMap);
     }
 
@@ -808,7 +808,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                     // TODO: compute the literal size
                     return Pair.of(project.toSlot(), statistic);
                 })
-                .collect(Collectors.toMap(Pair::key, Pair::value));
+                .collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         int rowCount = 1;
         return new Statistics(rowCount, 1, columnStatsMap);
     }
@@ -823,7 +823,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                             .setAvgSizeByte(0);
                     return Pair.of(project.toSlot(), columnStat.build());
                 })
-                .collect(Collectors.toMap(Pair::key, Pair::value));
+                .collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         int rowCount = 0;
         return new Statistics(rowCount, 1, columnStatsMap);
     }
@@ -998,7 +998,7 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                         }
                     }
                     return Pair.of(expr.toSlot(), colStatsBuilder.build());
-                }).collect(Collectors.toMap(Pair::key, Pair::value));
+                }).collect(Collectors.toMap(Pair::key, Pair::value, (item1, item2) -> item1));
         columnStatisticMap.putAll(childColumnStats);
         return new Statistics(childStats.getRowCount(), 1, columnStatisticMap);
     }
