@@ -77,6 +77,7 @@
 #include "runtime/stream_load/stream_load_recorder.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
+#include "util/profile_recorder.h"
 #include "util/spinlock.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"
@@ -230,13 +231,15 @@ Status StorageEngine::_init_store_map() {
         _store_map.emplace(store->path(), store);
     }
 
-    std::string stream_load_record_path;
+    std::string record_path;
     if (!tmp_stores.empty()) {
-        stream_load_record_path = tmp_stores[0]->path();
+        record_path = tmp_stores[0]->path();
     }
 
-    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(stream_load_record_path),
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_stream_load_recorder(record_path),
                                    "init StreamLoadRecorder failed");
+    RETURN_NOT_OK_STATUS_WITH_WARN(_init_profile_recorder(record_path),
+                                   "init ProfileRecorder failed");
 
     return Status::OK();
 }
@@ -256,6 +259,25 @@ Status StorageEngine::_init_stream_load_recorder(const std::string& stream_load_
                 Status::IOError("open StreamLoadRecorder rocksdb failed, path={}",
                                 stream_load_record_path),
                 "init StreamLoadRecorder failed");
+    }
+    return Status::OK();
+}
+
+Status StorageEngine::_init_profile_recorder(const std::string& profile_record_path) {
+    LOG(INFO) << "profile record path: " << profile_record_path;
+    // init profile record rocksdb
+    _profile_recorder = ProfileRecorder::create_unique(profile_record_path);
+    if (_profile_recorder == nullptr) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::MemoryAllocFailed("allocate memory for ProfileRecorder failed"),
+                "new ProfileRecorder failed");
+    }
+    auto st = _profile_recorder->init();
+    if (!st.ok()) {
+        RETURN_NOT_OK_STATUS_WITH_WARN(
+                Status::IOError("open ProfileRecorder rocksdb failed, path={}",
+                                profile_record_path),
+                "init ProfileRecorder failed");
     }
     return Status::OK();
 }
