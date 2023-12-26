@@ -186,7 +186,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 PhysicalRelation scan = aliasTransferMap.get(targetSlot).first;
                 RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                         bitmapContains.child(0), ImmutableList.of(scanSlot),
-                        ImmutableList.of(bitmapContains.child(1)), type, i, join, isNot, -1L);
+                        ImmutableList.of(bitmapContains.child(1)), type, i, join, isNot, -1L, scan);
                 scan.addAppliedRuntimeFilter(filter);
                 ctx.addJoinToTargetMap(join, scanSlot.getExprId());
                 ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
@@ -267,7 +267,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
                         compare.child(1), ImmutableList.of(olapScanSlot), ImmutableList.of(olapScanSlot),
                         TRuntimeFilterType.MIN_MAX, exprOrder, join, true, buildSideNdv,
-                        getMinMaxType(compare));
+                        getMinMaxType(compare), scan);
                 scan.addAppliedRuntimeFilter(filter);
                 ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
                 ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
@@ -618,7 +618,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     // build multi-target runtime filter
                     // since always on different join, set the expr_order as 0
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                            equalTo.right(), targetList, type, 0, join, buildSideNdv);
+                            equalTo.right(), targetList, type, 0, join, buildSideNdv, cteNode);
                     targetNodes.forEach(node -> node.addAppliedRuntimeFilter(filter));
                     for (Slot slot : targetList) {
                         ctx.setTargetExprIdToFilter(slot.getExprId(), filter);
