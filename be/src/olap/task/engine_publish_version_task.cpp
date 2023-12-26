@@ -179,8 +179,17 @@ Status EnginePublishVersionTask::finish() {
                     }
                     auto handle_version_not_continuous = [&]() {
                         add_error_tablet_id(tablet_info.tablet_id);
-                        _discontinuous_version_tablets->emplace_back(
-                                partition_id, tablet_info.tablet_id, version.first);
+                        // When there are too many missing versions, do not directly retry the
+                        // publish and handle it through async publish.
+                        if (max_version + config::mow_publish_max_discontinuous_version_num <
+                            version.first) {
+                            StorageEngine::instance()->add_async_publish_task(
+                                    partition_id, tablet_info.tablet_id, version.first,
+                                    _publish_version_req.transaction_id, false);
+                        } else {
+                            _discontinuous_version_tablets->emplace_back(
+                                    partition_id, tablet_info.tablet_id, version.first);
+                        }
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
                                 "check_version_exist failed");
                         int64_t missed_version = max_version + 1;

@@ -30,6 +30,7 @@
 #include <memory>
 #include <mutex>
 #include <set>
+#include <shared_mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -344,6 +345,8 @@ private:
 
     void _async_publish_callback();
 
+    void _process_async_publish();
+
     Status _persist_broken_paths();
 
 private:
@@ -495,7 +498,7 @@ private:
     std::map<int64_t, std::map<int64_t, std::pair<int64_t, int64_t>>> _async_publish_tasks;
     // aync publish for discontinuous versions of merge_on_write table
     scoped_refptr<Thread> _async_publish_thread;
-    std::mutex _async_publish_mutex;
+    std::shared_mutex _async_publish_lock;
 
     bool _clear_segment_cache = false;
 
