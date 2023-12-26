@@ -3405,6 +3405,11 @@ public class Env {
                 binlogConfig.appendToShowCreateTable(sb);
             }
 
+            if (olapTable.hasVariantColumns()) {
+                VariantConfig variantConfig = olapTable.getVariantConfig();
+                variantConfig.appendToShowCreateTable(sb);
+            }
+
             // enable single replica compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION).append("\" = \"");
             sb.append(olapTable.enableSingleReplicaCompaction()).append("\"");
@@ -4839,6 +4844,17 @@ public class Env {
         editLog.logUpdateBinlogConfig(info);
     }
 
+    public void updateVariantConfig(Database db, OlapTable table, VariantConfig newVariantConfig) {
+        Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
+
+        table.setVariantConfig(newVariantConfig);
+
+        ModifyTablePropertyOperationLog info =
+                new ModifyTablePropertyOperationLog(db.getId(), table.getId(), table.getName(),
+                        newVariantConfig.toProperties());
+        editLog.logUpdateVariantConfig(info);
+    }
+
     public void replayModifyTableProperty(short opCode, ModifyTablePropertyOperationLog info)
             throws MetaNotFoundException {
         long dbId = info.getDbId();
@@ -4872,6 +4888,11 @@ public class Env {
                     BinlogConfig newBinlogConfig = new BinlogConfig();
                     newBinlogConfig.mergeFromProperties(properties);
                     olapTable.setBinlogConfig(newBinlogConfig);
+                    break;
+                case OperationType.OP_UPDATE_VARIANT_CONFIG:
+                    VariantConfig newVariantConfig = new VariantConfig();
+                    newVariantConfig.mergeFromProperties(properties);
+                    olapTable.setVariantConfig(newVariantConfig);
                     break;
                 default:
                     break;

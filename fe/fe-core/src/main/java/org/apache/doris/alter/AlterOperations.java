@@ -107,6 +107,17 @@ public class AlterOperations {
             || clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
     }
 
+    public boolean checkVariantConfigChange(List<AlterClause> alterClauses) {
+        return alterClauses.stream().filter(clause ->
+                clause instanceof ModifyTablePropertiesClause
+        ).anyMatch(clause ->
+                clause.getProperties().containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE)
+                || clause.getProperties().containsKey(
+                        PropertyAnalyzer.PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN)
+                || clause.getProperties().containsKey(
+                PropertyAnalyzer.VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN));
+    }
+
     public boolean isBeingSynced(List<AlterClause> alterClauses) {
         return alterClauses.stream().filter(clause ->
             clause instanceof ModifyTablePropertiesClause

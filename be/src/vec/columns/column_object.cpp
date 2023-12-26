@@ -42,6 +42,7 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "olap/olap_common.h"
+#include "olap/variant_config.h"
 #include "util/defer_op.h"
 #include "util/simd/bits.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -444,8 +445,10 @@ ColumnPtr ColumnObject::index(const IColumn& indexes, size_t limit) const {
             [&](const auto& subcolumn) { return subcolumn.index(indexes, limit); });
 }
 
-bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
+bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows,
+                                                     int rows_threshold_to_estimate_spasr,
+                                                     double defaults_ratio_to_estimate_sparse) {
+    if (num_rows < rows_threshold_to_estimate_spasr) {
         return false;
     }
     std::vector<double> defaults_ratio;
@@ -454,7 +457,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
     }
     double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
                            defaults_ratio.size();
-    return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
+    return default_ratio >= defaults_ratio_to_estimate_sparse;
 }
 
 void ColumnObject::Subcolumn::finalize() {
@@ -584,6 +587,11 @@ ColumnObject::ColumnObject(bool is_nullable_, bool create_root_)
     if (create_root_) {
         subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
     }
+}
+
+ColumnObject::ColumnObject(VariantConfig variant_config)
+        : is_nullable(true), num_rows(0), config(std::move(variant_config)) {
+    subcolumns.create_root(Subcolumn(0, is_nullable, true /*root*/));
 }
 
 ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
@@ -1209,7 +1217,9 @@ void ColumnObject::finalize(bool ignore_sparse) {
         }
 
         // Check and spilit sparse subcolumns
-        if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows))) {
+        if (!ignore_sparse && (entry->data.check_if_sparse_column(
+                                      num_rows, config.threshold_rows_to_estimate_sparse_column(),
+                                      config.ratio_of_defaults_as_sparse_column()))) {
             // TODO seperate ambiguous path
             sparse_columns.add(entry->path, entry->data);
             continue;

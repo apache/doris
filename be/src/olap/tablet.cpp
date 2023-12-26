@@ -1976,6 +1976,7 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
     context.segments_overlap = OVERLAP_UNKNOWN;
     context.tablet_schema = tablet_schema();
     context.newest_write_timestamp = UnixSeconds();
+    context.tablet_id = table_id();
     auto rs_writer = DORIS_TRY(create_rowset_writer(context, false));
     RETURN_IF_ERROR(rs_writer->flush());
     RETURN_IF_ERROR(rs_writer->build(new_rowset));
@@ -3680,6 +3681,14 @@ bool Tablet::is_enable_binlog() {
 
 void Tablet::set_binlog_config(BinlogConfig binlog_config) {
     tablet_meta()->set_binlog_config(binlog_config);
+}
+
+void Tablet::set_variant_config(VariantConfig variant_config) {
+    tablet_meta()->set_variant_config(variant_config);
+}
+
+const VariantConfig& Tablet::variant_config() const {
+    return _tablet_meta->variant_config();
 }
 
 void Tablet::gc_binlogs(int64_t version) {

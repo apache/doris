@@ -105,6 +105,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.VariantConfig;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.cluster.Cluster;
@@ -1367,6 +1368,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         Set<String> bfColumns;
         String partitionName = singlePartitionDesc.getPartitionName();
         BinlogConfig binlogConfig;
+        VariantConfig variantConfig;
 
         // check
         OlapTable olapTable = db.getOlapTableOrDdlException(tableName);
@@ -1503,6 +1505,8 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // get BinlogConfig
             binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+            // get VariantConfig
+            variantConfig = new VariantConfig(olapTable.getVariantConfig());
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         } finally {
@@ -1548,7 +1552,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
                     olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                     olapTable.storeRowColumn(),
-                    binlogConfig, dataProperty.isStorageMediumSpecified(), null);
+                    binlogConfig, dataProperty.isStorageMediumSpecified(), null, variantConfig);
             // TODO cluster key ids
 
             // check again
@@ -1805,7 +1809,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             Long timeSeriesCompactionFileCountThreshold, Long timeSeriesCompactionTimeThresholdSeconds,
             Long timeSeriesCompactionEmptyRowsetsThreshold,
             boolean storeRowColumn, BinlogConfig binlogConfig,
-            boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes) throws DdlException {
+            boolean isStorageMediumSpecified, List<Integer> clusterKeyIndexes,
+            VariantConfig variantConfig) throws DdlException {
         // create base index first.
         Preconditions.checkArgument(baseIndexId != -1);
         MaterializedIndex baseIndex = new MaterializedIndex(baseIndexId, IndexState.NORMAL);
@@ -1871,7 +1876,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                             compactionPolicy, timeSeriesCompactionGoalSizeMbytes,
                             timeSeriesCompactionFileCountThreshold, timeSeriesCompactionTimeThresholdSeconds,
                             timeSeriesCompactionEmptyRowsetsThreshold,
-                            storeRowColumn, binlogConfig);
+                            storeRowColumn, binlogConfigm, variantConfig);
 
                     task.setStorageFormat(storageFormat);
                     task.setClusterKeyIndexes(clusterKeyIndexes);
@@ -2303,6 +2308,19 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         BinlogConfig binlogConfigForTask = new BinlogConfig(olapTable.getBinlogConfig());
 
+        // set variant config
+        try {
+            Map<String, String> variantConfigMap = PropertyAnalyzer.analyzeVariantConfig(properties);
+            if (variantConfigMap != null) {
+                VariantConfig variantConfig = new VariantConfig();
+                variantConfig.mergeFromProperties(variantConfigMap);
+                olapTable.setVariantConfig(variantConfig);
+            }
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        VariantConfig variantConfigForTask = new VariantConfig(olapTable.getVariantConfig());
+
         if (partitionInfo.getType() == PartitionType.UNPARTITIONED) {
             // if this is an unpartitioned table, we should analyze data property and replication num here.
             // if this is a partitioned table, there properties are already analyzed
@@ -2498,7 +2516,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                         storeRowColumn, binlogConfigForTask,
                         partitionInfo.getDataProperty(partitionId).isStorageMediumSpecified(),
-                        keysDesc.getClusterKeysColumnIds());
+                        keysDesc.getClusterKeysColumnIds(), variantConfigForTask);
                 olapTable.addPartition(partition);
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
@@ -2575,7 +2593,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
                             olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             storeRowColumn, binlogConfigForTask,
-                            dataProperty.isStorageMediumSpecified(), keysDesc.getClusterKeysColumnIds());
+                            dataProperty.isStorageMediumSpecified(), keysDesc.getClusterKeysColumnIds(),
+                            variantConfigForTask);
                     olapTable.addPartition(partition);
                     olapTable.getPartitionInfo().getDataProperty(partition.getId())
                             .setStoragePolicy(partionStoragePolicy);
@@ -2940,6 +2959,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         long rowsToTruncate = 0;
 
         BinlogConfig binlogConfig;
+        VariantConfig variantConfig;
         olapTable.readLock();
         try {
             olapTable.checkNormalStateForAlter();
@@ -2979,6 +2999,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             copiedTbl = olapTable.selectiveCopy(origPartitions.keySet(), IndexExtState.VISIBLE, false);
 
             binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+            variantConfig = new VariantConfig(olapTable.getVariantConfig());
         } finally {
             olapTable.readUnlock();
         }
@@ -3025,7 +3046,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                         olapTable.storeRowColumn(), binlogConfig,
                         copiedTbl.getPartitionInfo().getDataProperty(oldPartitionId).isStorageMediumSpecified(),
-                        clusterKeyIdxes);
+                        clusterKeyIdxes, variantConfig);
                 newPartitions.add(newPartition);
             }
         } catch (DdlException e) {

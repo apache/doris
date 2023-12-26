@@ -296,6 +296,12 @@ message BinlogConfigPB {
     optional int64 max_history_nums = 4;
 }
 
+message VariantConfigPB {
+    optional bool enable_decimal_type = 1;
+    optional double ratio_of_defaults_as_sparse_column = 2;
+    optional int64 threshold_rows_to_estimate_sparse_column= 3;
+}
+
 message TabletMetaPB {
     optional int64 table_id = 1;    // ?
     optional int64 partition_id = 2;    // ?
@@ -336,6 +342,7 @@ message TabletMetaPB {
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
     optional int64 time_series_compaction_time_threshold_seconds = 31 [default = 3600];
     optional int64 time_series_compaction_empty_rowsets_threshold = 32 [default = 5];
+    optional VariantConfigPB variant_config = 33;
 }
 
 message OLAPRawDeltaHeaderMessage {

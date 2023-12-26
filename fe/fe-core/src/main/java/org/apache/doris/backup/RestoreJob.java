@@ -50,6 +50,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantConfig;
 import org.apache.doris.catalog.View;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.common.Config;
@@ -1035,9 +1036,11 @@ public class RestoreJob extends AbstractJob {
         double bfFpp = localTbl.getBfFpp();
 
         BinlogConfig binlogConfig;
+        VariantConfig variantConfig;
         localTbl.readLock();
         try {
             binlogConfig = new BinlogConfig(localTbl.getBinlogConfig());
+            variantConfig = new VariantConfig(localTbl.getVariantConfig());
         } finally {
             localTbl.readUnlock();
         }
@@ -1071,7 +1074,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                             localTbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                             localTbl.storeRowColumn(),
-                            binlogConfig);
+                            binlogConfig,
+                            variantConfig);
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);

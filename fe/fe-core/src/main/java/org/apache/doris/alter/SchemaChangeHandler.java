@@ -63,6 +63,7 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantConfig;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -2240,7 +2241,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
                                     null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
-                                    disableAutoCompaction);
+                                    disableAutoCompaction, null);
         }
 
         olapTable.writeLockOrDdlException();
@@ -2283,7 +2284,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String partitionName : partitionNames) {
             try {
                 updatePartitionProperties(db, olapTable.getName(), partitionName, storagePolicyId,
-                                                                            isInMemory, null, null, null, -1, -1, -1);
+                        isInMemory, null, null, null, -1, -1, -1, null);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -2300,7 +2301,8 @@ public class SchemaChangeHandler extends AlterHandler {
                                           int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
                                           Map<String, Long> timeSeriesCompactionConfig,
                                           int enableSingleCompaction, int skipWriteIndexOnLoad,
-                                          int disableAutoCompaction) throws UserException {
+                                          int disableAutoCompaction,
+                                          VariantConfig variantConfig) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -2334,7 +2336,7 @@ public class SchemaChangeHandler extends AlterHandler {
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
                                             storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
                                             timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad,
-                                            disableAutoCompaction);
+                                            disableAutoCompaction, variantConfig);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {
@@ -3039,12 +3041,81 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                                                newBinlogConfig, null, null, -1, -1, -1);
+                                                newBinlogConfig, null, null, -1, -1, -1, null);
         }
 
         olapTable.writeLockOrDdlException();
         try {
             Env.getCurrentEnv().updateBinlogConfig(db, olapTable, newBinlogConfig);
+        } finally {
+            olapTable.writeUnlock();
+        }
+
+        return false;
+    }
+
+    public boolean updateVariantConfig(Database db, OlapTable olapTable, List<AlterClause> alterClauses)
+            throws DdlException, UserException {
+        List<Partition> partitions = Lists.newArrayList();
+        VariantConfig oldVariantConfig;
+        VariantConfig newVariantConfig;
+
+        olapTable.readLock();
+        try {
+            oldVariantConfig = new VariantConfig(olapTable.getVariantConfig());
+            newVariantConfig = new VariantConfig(oldVariantConfig);
+            partitions.addAll(olapTable.getPartitions());
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        } finally {
+            olapTable.readUnlock();
+        }
+
+        for (AlterClause alterClause : alterClauses) {
+            Map<String, String> properties = alterClause.getProperties();
+            if (properties == null) {
+                continue;
+            }
+
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE)) {
+                boolean enableDecimalType = Boolean.parseBoolean(properties.get(
+                        PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE));
+                if (enableDecimalType != oldVariantConfig.isEnableDecimalType()) {
+                    newVariantConfig.setEnableDecimalType(enableDecimalType);
+                }
+            }
+            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN)) {
+                Double sparseRatio = Double.parseDouble(properties.get(
+                        PropertyAnalyzer.PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN));
+                if (sparseRatio != oldVariantConfig.getRatioOfDefaultsAsSparseColumn()) {
+                    newVariantConfig.setRatioOfDefaultsAsSparseColumn(sparseRatio);
+                }
+            }
+            if (properties.containsKey(PropertyAnalyzer.VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN)) {
+                Long thresholdToEstimateSparse = Long.parseLong(properties.get(
+                        PropertyAnalyzer.VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN));
+                if (thresholdToEstimateSparse != oldVariantConfig.getThresholdRowsToEstimateSparseColumn()) {
+                    newVariantConfig.setThresholdRowsToEstimateSparseColumn(thresholdToEstimateSparse);
+                }
+            }
+        }
+
+        boolean hasChanged = !newVariantConfig.equals(oldVariantConfig);
+        if (!hasChanged) {
+            LOG.info("table {} variant config is same as the previous version, so nothing need to do",
+                    olapTable.getName());
+            return true;
+        }
+
+        for (Partition partition : partitions) {
+            updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
+                    null, null, null, -1, -1, -1,
+                    newVariantConfig);
+        }
+
+        olapTable.writeLockOrDdlException();
+        try {
+            Env.getCurrentEnv().updateVariantConfig(db, olapTable, newVariantConfig);
         } finally {
             olapTable.writeUnlock();
         }

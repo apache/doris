@@ -50,7 +50,7 @@ suite("regression_test_variant", "variant_type"){
         qt_sql """select count() from ${table_name}"""
     }
 
-    def create_table = { table_name, buckets="auto", key_type="DUPLICATE" ->
+    def create_table = { table_name, buckets="auto", key_type="DUPLICATE", sparse_ratio="1.0" ->
         sql "DROP TABLE IF EXISTS ${table_name}"
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name} (
@@ -59,7 +59,7 @@ suite("regression_test_variant", "variant_type"){
             )
             ${key_type} KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS ${buckets}
-            properties("replication_num" = "1", "disable_auto_compaction" = "false");
+            properties("replication_num" = "1", "disable_auto_compaction" = "false",  "variant.ratio_of_defaults_as_sparse_column" = "${sparse_ratio}");
         """
     }
 
@@ -75,12 +75,11 @@ suite("regression_test_variant", "variant_type"){
     }
 
     try {
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         def key_types = ["DUPLICATE", "UNIQUE"]
         for (int i = 0; i < key_types.size(); i++) {
             def table_name = "simple_variant_${key_types[i]}"
             // 1. simple cases
-            create_table.call(table_name, "auto", key_types[i])
+            create_table.call(table_name, "auto", key_types[i], "0.95")
             sql """insert into ${table_name} values (1,  '[1]'),(1,  '{"a" : 1}');"""
             sql """insert into ${table_name} values (2,  '[2]'),(1,  '{"a" : [[[1]]]}');"""
             sql """insert into ${table_name} values (3,  '3'),(1,  '{"a" : 1}'), (1,  '{"a" : [1]}');"""
@@ -274,7 +273,7 @@ suite("regression_test_variant", "variant_type"){
 
         // 13. sparse columns
         table_name = "sparse_columns"
-        create_table table_name
+        create_table.call(table_name, "auto", "DUPLICATE", "0.95")
         sql """insert into  sparse_columns select 0, '{"a": 11245, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}}'  as json_str
             union  all select 0, '{"a": 1123}' as json_str union all select 0, '{"a" : 1234, "xxxx" : "kaana"}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_30 """ select v from sparse_columns where json_extract(v, "\$") != "{}" order by cast(v as string) limit 10"""
@@ -286,24 +285,22 @@ suite("regression_test_variant", "variant_type"){
 
         // 12. streamload remote file
         table_name = "logdata"
-        create_table.call(table_name, "4")
-        // sql "set enable_two_phase_read_opt = false;"
         // no sparse columns
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1.0")
+        create_table.call(table_name, "4", "DUPLICATE", "1")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_32 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v, "\$.json.parseFailed") != 'null' order by k limit 1;"""
         qt_sql_32_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // 0.95 default ratio    
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+        sql """ALTER TABLE ${table_name} set ("variant.ratio_of_defaults_as_sparse_column" = "0.95")"""
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_33 """ select json_extract(v,"\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         qt_sql_33_1 """select cast(v:json.parseFailed as string) from  logdata where cast(v:json.parseFailed as string) is not null and k = 162 limit 1;"""
         sql "truncate table ${table_name}"
 
         // always sparse column
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+        sql """ALTER TABLE ${table_name} set ("variant.ratio_of_defaults_as_sparse_column" = "0")"""
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
         qt_sql_34 """ select json_extract(v, "\$.json.parseFailed") from logdata where  json_extract(v,"\$.json.parseFailed") != 'null' order by k limit 1;"""
         sql "truncate table ${table_name}"
@@ -312,7 +309,6 @@ suite("regression_test_variant", "variant_type"){
 
         // TODO add test case that some certain columns are materialized in some file while others are not materilized(sparse)
         // unique table
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "github_events"
         sql """DROP TABLE IF EXISTS ${table_name}"""
         sql """
@@ -322,7 +318,7 @@ suite("regression_test_variant", "variant_type"){
             )
             UNIQUE KEY(`k`)
             DISTRIBUTED BY HASH(k) BUCKETS 4
-            properties("replication_num" = "1", "disable_auto_compaction" = "true");
+            properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant.ratio_of_defaults_as_sparse_column" = "0.95");
         """
         load_json_data.call(table_name, """${getS3Url() + '/regression/gharchive.m/2015-01-01-0.json'}""")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a" : 1}')"""
@@ -362,13 +358,11 @@ suite("regression_test_variant", "variant_type"){
         // sql "select * from ${table_name}"
 
         // test all sparse columns
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         table_name = "all_sparse_columns"
-        create_table.call(table_name, "1")
+        create_table.call(table_name, "1", "DUPLICATE", "0")
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  "1"}')""" 
         sql """insert into ${table_name} values (1, '{"a" : 1}'), (1, '{"a":  ""}')""" 
         qt_sql_37 "select * from ${table_name} order by k, cast(v as string)"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
 
         // test mow with delete
         table_name = "variant_mow" 
@@ -389,15 +383,12 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_38 "select * from ${table_name} order by k limit 10"
 
         // read text from sparse col
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
+        sql """ALTER TABLE sparse_columns set ("variant.ratio_of_defaults_as_sparse_column" = "0.95")"""
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
         qt_sql_31 """select cast(v:xxxx as string) from sparse_columns where cast(v:xxxx as string) != 'null' order by k limit 1;"""
         sql "truncate table sparse_columns"
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     } finally {
         // reset flags
-        set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
-        set_be_config.call("variant_max_merged_tablet_schema_size", "2048")
     }
 }

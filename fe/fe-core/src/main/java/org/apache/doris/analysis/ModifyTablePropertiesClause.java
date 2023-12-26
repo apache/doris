@@ -282,6 +282,10 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_DECIMAL_TYPE)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_RATIO_OF_DEFAULTS_AS_SPARSE_COLUMN)
+                || properties.containsKey(PropertyAnalyzer.VARIANT_THRESHOLD_ROWS_TO_ESTIMATE_SPARSE_COLUMN)) {
+            // do nothing, will be alter in SchemaChangeHandler.updateVariantConfig
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }
