@@ -73,7 +73,7 @@ mysql> desc function mv_infos("database"="tpch100");
 * EnvInfo：物化视图创建时的环境信息.
 * MvProperties：物化视属性.
 * MvPartitionInfo：物化视图的分区信息
-* SyncWithBaseTables：是否和base表数据同步
+* SyncWithBaseTables：是否和base表数据同步，如需查看哪个分区不同步，请使用[SHOW PARTITIONS](../sql-reference/Show-Statements/SHOW-PARTITIONS.md)
 
 ### example
 
