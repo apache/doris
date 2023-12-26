@@ -52,7 +52,8 @@ public:
         const char* end = ipv4_str.c_str() + ipv4_str.size() - 1;
         while (std::isspace(*src)) ++src;
         while (std::isspace(*end)) --end;
-        if (!vectorized::parseIPv4whole(src, ++end, reinterpret_cast<unsigned char*>(&parse_value))) {
+        if (!vectorized::parseIPv4whole(src, ++end,
+                                        reinterpret_cast<unsigned char*>(&parse_value))) {
             return false;
         }
         value = static_cast<vectorized::IPv4>(parse_value);
@@ -63,7 +64,7 @@ public:
         char buf[IPV4_MAX_TEXT_LENGTH + 1];
         char* start = buf;
         char* end = buf;
-        const auto *src = reinterpret_cast<const unsigned char*>(&value);
+        const auto* src = reinterpret_cast<const unsigned char*>(&value);
         vectorized::formatIPv4(src, end);
         size_t len = end - start;
         return {buf, len};

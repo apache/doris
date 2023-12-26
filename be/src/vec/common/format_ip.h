@@ -216,7 +216,7 @@ void formatIPv6(const unsigned char* src, char*& dst, uint8_t zeroed_tail_bytes_
 * @return            - true if parsed successfully, false otherwise.
 */
 template <typename T, typename EOFfunction>
-requires(std::is_same<typename std::remove_cv<T>::type, char>::value)
+    requires(std::is_same<typename std::remove_cv<T>::type, char>::value)
 inline bool parseIPv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t first_block = -1) {
     const auto clear_dst = [dst]() {
         std::memset(dst, '\0', IPV6_BINARY_LENGTH);
@@ -335,7 +335,7 @@ inline bool parseIPv6(T*& src, EOFfunction eof, unsigned char* dst, int32_t firs
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parseIPv6(const char* src, const char* end, unsigned char* dst) {
     if (parseIPv6(
-            src, [&src, end]() { return src == end; }, dst))
+                src, [&src, end]() { return src == end; }, dst))
         return src;
     return nullptr;
 }
@@ -348,7 +348,7 @@ inline bool parseIPv6whole(const char* src, const char* end, unsigned char* dst)
 /// returns pointer to the right after parsed sequence or null on failed parsing
 inline const char* parseIPv6(const char* src, unsigned char* dst) {
     if (parseIPv6(
-            src, []() { return false; }, dst))
+                src, []() { return false; }, dst))
         return src;
     return nullptr;
 }
