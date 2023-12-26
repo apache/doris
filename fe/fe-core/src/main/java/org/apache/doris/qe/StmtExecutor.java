@@ -1158,11 +1158,7 @@ public class StmtExecutor {
 
             parsedStmt.rewriteExprs(rewriter);
             reAnalyze = rewriter.changed();
-            if (context.getSessionVariable().isEnableFoldConstantByBe()) {
-                // fold constant expr
-                parsedStmt.foldConstant(rewriter, tQueryOptions);
 
-            }
             if (analyzer.containSubquery()) {
                 parsedStmt = setParsedStmt(StmtRewriter.rewrite(analyzer, parsedStmt));
                 reAnalyze = true;
