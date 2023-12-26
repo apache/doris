@@ -146,6 +146,7 @@ import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
+import org.apache.doris.iot.InsertOverwriteTableManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.manager.JobManager;
@@ -512,6 +513,8 @@ public class Env {
 
     private MTMVService mtmvService;
 
+    private InsertOverwriteTableManager insertOverwriteTableManager;
+
     public List<TFrontendInfo> getFrontendInfos() {
         List<TFrontendInfo> res = new ArrayList<>();
 
@@ -742,6 +745,7 @@ public class Env {
         this.workloadActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
                 Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
+        this.insertOverwriteTableManager = new InsertOverwriteTableManager();
     }
 
     public static void destroyCheckpoint() {
@@ -2137,6 +2141,18 @@ public class Env {
     public long loadAnalysisManager(DataInputStream in, long checksum) throws IOException {
         this.analysisManager = AnalysisManager.readFields(in);
         LOG.info("finished replay AnalysisMgr from image");
+        return checksum;
+    }
+
+    public long loadIot(DataInputStream in, long checksum) throws IOException {
+        this.insertOverwriteTableManager = InsertOverwriteTableManager.read(in);
+        LOG.info("finished replay iot from image");
+        return checksum;
+    }
+
+    public long saveIot(CountingDataOutputStream out, long checksum) throws IOException {
+        insertOverwriteTableManager.write(out);
+        LOG.info("finished save iot to image");
         return checksum;
     }
 

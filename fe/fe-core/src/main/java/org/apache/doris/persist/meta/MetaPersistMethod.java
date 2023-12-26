@@ -240,6 +240,12 @@ public class MetaPersistMethod {
                 break;
             case "JobTaskManager":
                 break;
+            case "iot":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadIot", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveIot", CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }
