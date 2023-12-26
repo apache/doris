@@ -62,7 +62,7 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        Assertions.assertTrue(h1.isLogicCompatible(h2, constructContext(p1, p2)) != null);
+        Assertions.assertFalse(h1.isLogicCompatible(h2, constructContext(p1, p2)).isInvalid());
     }
 
     @Test
@@ -79,7 +79,7 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        Assertions.assertTrue(h1.isLogicCompatible(h2, constructContext(p1, p2)) != null);
+        Assertions.assertFalse(h1.isLogicCompatible(h2, constructContext(p1, p2)).isInvalid());
     }
 
     @Test
@@ -104,7 +104,7 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2)).getQueryExpressions();
         Assertions.assertEquals(1, exprList.size());
         Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
     }
@@ -132,7 +132,7 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2)).getQueryExpressions();
         Assertions.assertEquals(0, exprList.size());
     }
 
@@ -159,7 +159,7 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2)).getQueryExpressions();
         Assertions.assertEquals(1, exprList.size());
         Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
     }
@@ -187,8 +187,7 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
-        Assertions.assertEquals(null, exprList);
+        Assertions.assertTrue(h1.isLogicCompatible(h2, constructContext(p1, p2)).isInvalid());
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {

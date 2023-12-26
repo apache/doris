@@ -34,5 +34,7 @@ public interface TransientTaskExecutor {
      * Cancel the memory task.
      */
     void cancel() throws JobException;
+
+    Long getId();
 }
 

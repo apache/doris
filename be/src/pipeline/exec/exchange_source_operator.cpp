@@ -74,6 +74,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
             profile(), p.is_merging(), p.sub_plan_query_statistics_recvr());
+    stream_recvr->create_mem_limit_dependency(p.operator_id(), p.node_id(), state->get_query_ctx());
     auto* source_dependency = _dependency;
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());

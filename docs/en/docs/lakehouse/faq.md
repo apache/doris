@@ -27,6 +27,19 @@ under the License.
 
 # FAQ
 
+## Certificates
+
+1. If an error is reported: `curl 77: Problem with the SSL CA cert.`, need update your certificate.
+   - Download the latest certificate from `https://curl.haxx.se/docs/caextract.html`.
+   - Place the downloaded cacert-xxx.pem in the `/etc/ssl/certs/` directory. For example: `sudo cp cacert-xxx.pem  /etc/ssl/certs/ca-certificates.crt`.
+
+2. If an error is reported: `ERROR 1105 (HY000): errCode = 2, detailMessage = (x.x.x.x)[CANCELLED][INTERNAL_ERROR]error setting certificate verify locations:  CAfile: /etc/ssl/certs/ca-certificates.crt CApath: none`.
+
+```
+yum install -y ca-certificates
+ln -s /etc/pki/ca-trust/extracted/openssl/ca-bundle.trust.crt /etc/ssl/certs/ca-certificates.crt
+```
+
 ## Kerberos
 
 
@@ -58,6 +71,11 @@ under the License.
     - The principal used must exist in the klist, use `klist -kt your.keytab` to check.
     - Ensure the catalog configuration correct, such as missing the `yarn.resourcemanager.principal`.
     - If the preceding checks are correct, the JDK version installed by yum or other package-management utility in the current system maybe have an unsupported encryption algorithm. It is recommended to install JDK by yourself and set `JAVA_HOME` environment variable.
+    - Kerberos uses AES-256 by default for encryption. If you use Oracle JDK, you must install JCE. In the case of OpenJDK, some distributions of OpenJDK automatically provide the JCE Unlimited Strength Jurisdiction Policy Files, so it's not need to install JCE.
+    - The JCE version corresponds to the JDK version. You need to select the JCE according to the JDK version. Download the JCE zip package and decompress it into `$JAVA_HOME/jre/lib/security`:
+       - JDK6：[JCE6](http://www.oracle.com/technetwork/java/javase/downloads/jce-6-download-429243.html)
+       - JDK7：[JCE7](http://www.oracle.com/technetwork/java/embedded/embedded-se/downloads/jce-7-download-432124.html)
+       - JDK8：[JCE8](http://www.oracle.com/technetwork/java/javase/downloads/jce8-download-2133166.html)
 
 5. An error is reported when using KMS to access HDFS: `java.security.InvalidKeyException: Illegal key size`
    

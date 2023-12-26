@@ -212,6 +212,8 @@ Status PipelineXFragmentContext::prepare(const doris::TPipelineFragmentParams& r
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
 
+    _use_global_rf = request.__isset.parallel_instances && (request.__isset.per_node_shared_scans &&
+                                                            !request.per_node_shared_scans.empty());
     // 2. Build pipelines with operators in this fragment.
     auto root_pipeline = add_pipeline();
     RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_build_pipelines(
@@ -985,7 +987,7 @@ Status PipelineXFragmentContext::_create_operator(ObjectPool* pool, const TPlanN
 
         DataSinkOperatorXPtr sink;
         sink.reset(new HashJoinBuildSinkOperatorX(pool, next_sink_operator_id(), tnode, descs,
-                                                  request.__isset.parallel_instances));
+                                                  _use_global_rf));
         sink->set_dests_id({op->operator_id()});
         RETURN_IF_ERROR(build_side_pipe->set_sink(sink));
         RETURN_IF_ERROR(build_side_pipe->sink_x()->init(tnode, _runtime_state.get()));

@@ -37,7 +37,6 @@
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
-#include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer_v2.h"
@@ -153,8 +152,7 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    while (_memtable_writer->get_flush_token_stats().flush_running_count >=
-           config::memtable_flush_running_count_limit) {
+    while (_memtable_writer->flush_running_count() >= config::memtable_flush_running_count_limit) {
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);

@@ -85,6 +85,7 @@ SlotDescriptor::SlotDescriptor(const PSlotDescriptor& pdesc)
           _is_materialized(pdesc.is_materialized()),
           _is_key(pdesc.is_key()),
           _need_materialize(true),
+          _column_paths(pdesc.column_paths().begin(), pdesc.column_paths().end()),
           _is_auto_increment(pdesc.is_auto_increment()) {}
 
 void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
@@ -103,6 +104,9 @@ void SlotDescriptor::to_protobuf(PSlotDescriptor* pslot) const {
     pslot->set_is_key(_is_key);
     pslot->set_is_auto_increment(_is_auto_increment);
     pslot->set_col_type(_col_type);
+    for (const std::string& path : _column_paths) {
+        pslot->add_column_paths(path);
+    }
 }
 
 vectorized::MutableColumnPtr SlotDescriptor::get_empty_mutable_column() const {

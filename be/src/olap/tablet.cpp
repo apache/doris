@@ -3016,7 +3016,10 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
                                      segment_caches, &rowset_find);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
-            DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
+            // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
+            // while stress test
+            DCHECK(expected_st || st.is<MEM_LIMIT_EXCEEDED>())
+                    << "unexpected error status while lookup_row_key:" << st;
             if (!expected_st) {
                 return st;
             }
@@ -3196,6 +3199,7 @@ Status Tablet::generate_new_block_for_partial_update(
                     read_index_update[idx]);
         }
     }
+    output_block->set_columns(std::move(full_mutable_columns));
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
@@ -3241,6 +3245,7 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
             }
         }
     }
+    block.set_columns(std::move(mutable_columns));
     return Status::OK();
 }
 

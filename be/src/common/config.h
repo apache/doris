@@ -152,11 +152,6 @@ DECLARE_mInt32(max_fill_rate);
 
 DECLARE_mInt32(double_resize_threshold);
 
-// Expand the hash table before inserting data, the maximum expansion size.
-// There are fewer duplicate keys, reducing the number of resize hash tables
-// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
-DECLARE_mInt64(hash_table_pre_expanse_max_rows);
-
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
 // with large memory larger than 16G.
@@ -281,7 +276,7 @@ DECLARE_Bool(doris_enable_scanner_thread_pool_per_disk);
 DECLARE_mInt64(doris_blocking_priority_queue_wait_timeout_ms);
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
-DECLARE_Int32(doris_scanner_thread_pool_thread_num);
+DECLARE_mInt32(doris_scanner_thread_pool_thread_num);
 // max number of remote scanner thread pool size
 // if equal to -1, value is std::max(512, CpuInfo::num_cores() * 10)
 DECLARE_Int32(doris_max_remote_scanner_thread_pool_thread_num);
@@ -907,25 +902,11 @@ DECLARE_String(function_service_protocol);
 // use which load balancer to select server to connect
 DECLARE_String(rpc_load_balancer);
 
-// The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
-// An export will be triggered when the number of spans in the queue reaches half of the maximum.
-DECLARE_Int32(max_span_queue_size);
-
-// The maximum batch size of every export spans. It must be smaller or equal to max_queue_size.
-DECLARE_Int32(max_span_export_batch_size);
-
-// The time interval between two consecutive export spans.
-DECLARE_Int32(export_span_schedule_delay_millis);
-
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
 DECLARE_mInt32(string_type_length_soft_limit_bytes);
 
 DECLARE_mInt32(jsonb_type_length_soft_limit_bytes);
-
-// used for olap scanner to save memory, when the size of unused_object_pool
-// is greater than object_pool_buffer_size, release the object in the unused_object_pool.
-DECLARE_Int32(object_pool_buffer_size);
 
 // Threshold fo reading a small file into memory
 DECLARE_mInt32(in_memory_file_size);
@@ -940,6 +921,10 @@ DECLARE_mInt32(parquet_rowgroup_max_buffer_mb);
 DECLARE_mInt32(parquet_column_max_buffer_mb);
 // Merge small IO, the max amplified read ratio
 DECLARE_mDouble(max_amplified_read_ratio);
+// Equivalent min size of each IO that can reach the maximum storage speed limit
+// 1MB for oss, 8KB for hdfs
+DECLARE_mInt32(merged_oss_min_io_size);
+DECLARE_mInt32(merged_hdfs_min_io_size);
 
 // OrcReader
 DECLARE_mInt32(orc_natural_read_size_mb);

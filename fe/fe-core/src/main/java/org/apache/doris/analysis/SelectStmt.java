@@ -561,8 +561,14 @@ public class SelectStmt extends QueryStmt {
             // remove excepted columns
             resultExprs.removeIf(expr -> exceptCols.contains(expr.toColumnLabel()));
             colLabels.removeIf(exceptCols::contains);
+            if (needToSql) {
+                originalExpr = Expr.cloneList(resultExprs);
+            }
 
         } else {
+            if (needToSql) {
+                originalExpr = new ArrayList<>();
+            }
             List<SelectListItem> items = selectList.getItems();
             for (int i = 0; i < items.size(); i++) {
                 SelectListItem item = items.get(i);
@@ -574,6 +580,11 @@ public class SelectStmt extends QueryStmt {
                         expandStar(analyzer, tblName);
                     }
                 } else {
+                    // save originalExpr before being analyzed
+                    // because analyze may change the expr by adding cast or some other stuff
+                    if (needToSql) {
+                        originalExpr.add(item.getExpr().clone());
+                    }
                     // Analyze the resultExpr before generating a label to ensure enforcement
                     // of expr child and depth limits (toColumn() label may call toSql()).
                     item.getExpr().analyze(analyzer);
@@ -646,10 +657,6 @@ public class SelectStmt extends QueryStmt {
                 colLabels.add("col_" + colLabels.size());
                 subColPath.add(expr.toSubColumnLabel());
             }
-        }
-        // analyze valueList if exists
-        if (needToSql) {
-            originalExpr = Expr.cloneList(resultExprs);
         }
 
         // analyze selectListExprs
@@ -829,8 +836,7 @@ public class SelectStmt extends QueryStmt {
             LOG.debug("only support duplicate key or MOW model");
             return false;
         }
-        if (!olapTable.getEnableLightSchemaChange() || !Strings.isNullOrEmpty(olapTable.getStoragePolicy())
-                    || olapTable.hasVariantColumns()) {
+        if (!olapTable.getEnableLightSchemaChange()) {
             return false;
         }
         if (getOrderByElements() != null) {
@@ -1253,6 +1259,9 @@ public class SelectStmt extends QueryStmt {
             slot.setTable(desc.getTable());
             slot.setTupleId(desc.getId());
             resultExprs.add(rewriteQueryExprByMvColumnExpr(slot, analyzer));
+            if (needToSql) {
+                originalExpr.add(slot);
+            }
             colLabels.add(col.getName());
             // empty sub lables
             subColPath.add(Lists.newArrayList());
@@ -2602,6 +2611,9 @@ public class SelectStmt extends QueryStmt {
             tblRef.analyze(analyzer);
             leftTblRef = tblRef;
         }
+        if (needToSql) {
+            originalExpr = new ArrayList<>();
+        }
         // populate selectListExprs, aliasSMap, and colNames
         for (SelectListItem item : selectList.getItems()) {
             if (item.isStar()) {
@@ -2612,6 +2624,11 @@ public class SelectStmt extends QueryStmt {
                     expandStar(analyzer, tblName);
                 }
             } else {
+                if (needToSql) {
+                    // save originalExpr before being analyzed
+                    // because analyze may change the expr by adding cast or some other stuff
+                    originalExpr.add(item.getExpr().clone());
+                }
                 // to make sure the sortinfo's AnalyticExpr and resultExprs's AnalyticExpr analytic once
                 if (item.getExpr() instanceof AnalyticExpr) {
                     item.getExpr().analyze(analyzer);
@@ -2625,9 +2642,7 @@ public class SelectStmt extends QueryStmt {
                 resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
             }
         }
-        if (needToSql) {
-            originalExpr = Expr.cloneList(resultExprs);
-        }
+
         // substitute group by
         if (groupByClause != null) {
             boolean aliasFirst = false;

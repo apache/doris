@@ -71,11 +71,6 @@ statement
         (withRemoteStorageSystem)?
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                 #load
-    | LOAD LABEL lableName=identifier
-        LEFT_PAREN dataDescs+=dataDesc (COMMA dataDescs+=dataDesc)* RIGHT_PAREN
-        resourceDesc
-        (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
-        (commentSpec)?                                                 #resourceLoad
     | LOAD mysqlDataDesc
         (PROPERTIES LEFT_PAREN properties=propertyItemList RIGHT_PAREN)?
         (commentSpec)?                                                 #mysqlLoad
@@ -99,6 +94,8 @@ statement
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
     | DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier      #dropMTMV
+    | PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #pauseMTMV
+    | RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier      #resumeMTMV
     | ALTER TABLE table=relation
         ADD CONSTRAINT constraintName=errorCapturingIdentifier
         constraint                                                        #addConstraint
@@ -129,7 +126,7 @@ dataDesc
         (PARTITION partition=identifierList)?
         (COLUMNS TERMINATED BY comma=STRING_LITERAL)?
         (LINES TERMINATED BY separator=STRING_LITERAL)?
-        (FORMAT AS format=identifier)?
+        (FORMAT AS format=identifierOrStringLiteral)?
         (columns=identifierList)?
         (columnsFromPath=colFromPath)?
         (columnMapping=colMappingList)?
@@ -163,6 +160,11 @@ refreshSchedule
 
 refreshMethod
     : COMPLETE | AUTO
+    ;
+
+identifierOrStringLiteral
+    : identifier
+    | STRING_LITERAL
     ;
 
 identifierOrText
@@ -222,7 +224,8 @@ mappingExpr
     ;
 
 withRemoteStorageSystem
-    : WITH S3 LEFT_PAREN
+    : resourceDesc
+    | WITH S3 LEFT_PAREN
         brokerProperties=propertyItemList
         RIGHT_PAREN
     | WITH HDFS LEFT_PAREN
@@ -500,7 +503,7 @@ partitionsDef
     ;
     
 partitionDef
-    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) properties=propertyClause?
+    : (lessThanPartitionDef | fixedPartitionDef | stepPartitionDef | inPartitionDef) (LEFT_PAREN partitionProperties=propertyItemList RIGHT_PAREN)?
     ;
     
 lessThanPartitionDef

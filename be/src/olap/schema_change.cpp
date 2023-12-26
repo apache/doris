@@ -1339,10 +1339,10 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
                                                  const TabletColumn& column_schema,
                                                  const std::string& value) {
-    column_mapping->default_value = WrapperField::create(column_schema);
-
-    if (column_mapping->default_value == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("column_mapping->default_value is nullptr");
+    if (auto field = WrapperField::create(column_schema); field.has_value()) {
+        column_mapping->default_value = field.value();
+    } else {
+        return field.error();
     }
 
     if (column_schema.is_nullable() && value.length() == 0) {

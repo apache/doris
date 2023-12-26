@@ -689,7 +689,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `enable_memtable_on_sink_node`
 
   <version since="2.1.0">
-  Whether to enable MemTable on DataSink node when loading data, default is false.
+  Whether to enable MemTable on DataSink node when loading data, default is true.
   </version>
 
   Build MemTable on DataSink node, and send segments to other backends through brpc streaming.

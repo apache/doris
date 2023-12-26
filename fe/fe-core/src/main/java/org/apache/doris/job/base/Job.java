@@ -99,10 +99,33 @@ public interface Job<T extends AbstractTask, C> {
 
     /**
      * Cancels all running tasks of this job.
-     *
      * @throws JobException If cancelling a running task fails.
      */
     void cancelAllTasks() throws JobException;
+
+    /**
+     * register job
+     * @throws JobException If register job failed.
+     */
+    void onRegister() throws JobException;
+
+    /**
+     * register job failed
+     * @throws JobException If failed.
+     */
+    void onUnRegister() throws JobException;
+
+    /**
+     * replay create job
+     * @throws JobException  If replay create failed.
+     */
+    void onReplayCreate() throws JobException;
+
+    /**
+     * replay finished or cancelled job
+     * @throws JobException If replay end failed.
+     */
+    void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException;
 
     /**
      * Notifies the job when a task execution fails.

@@ -37,7 +37,7 @@ suite("test_size_function") {
                     `id` int(11) NULL,
                     `c_array1` array<int(11)> NULL,
                     `c_array2` array<varchar(20)> NULL,
-                    `c_map` map<int(11), string> NULL,
+                    `c_map` map<int(11), string> NULL
                 ) ENGINE=OLAP
             DUPLICATE KEY(`id`)
             DISTRIBUTED BY HASH(`id`) BUCKETS 1

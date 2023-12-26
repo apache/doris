@@ -187,6 +187,7 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
             }
         }
         DCHECK(mutable_block.rows() == rows);
+        output_block->set_columns(std::move(mutable_columns));
     }
 
     return Status::OK();
@@ -622,7 +623,7 @@ template class StatefulOperatorX<RepeatLocalState>;
 template class StatefulOperatorX<NestedLoopJoinProbeLocalState>;
 template class StatefulOperatorX<TableFunctionLocalState>;
 
-template class PipelineXSinkLocalState<HashJoinBuildSinkDependency>;
+template class PipelineXSinkLocalState<SharedHashTableDependency>;
 template class PipelineXSinkLocalState<SortSinkDependency>;
 template class PipelineXSinkLocalState<NestedLoopJoinBuildSinkDependency>;
 template class PipelineXSinkLocalState<AnalyticSinkDependency>;
@@ -635,6 +636,7 @@ template class PipelineXSinkLocalState<SetSinkDependency>;
 template class PipelineXSinkLocalState<SetProbeSinkDependency>;
 template class PipelineXSinkLocalState<LocalExchangeSinkDependency>;
 template class PipelineXSinkLocalState<AndDependency>;
+template class PipelineXSinkLocalState<ResultSinkDependency>;
 
 template class PipelineXLocalState<HashJoinProbeDependency>;
 template class PipelineXLocalState<SortSourceDependency>;
@@ -648,6 +650,7 @@ template class PipelineXLocalState<PartitionSortSourceDependency>;
 template class PipelineXLocalState<SetSourceDependency>;
 template class PipelineXLocalState<LocalExchangeSourceDependency>;
 template class PipelineXLocalState<AndDependency>;
+template class PipelineXLocalState<ScanDependency>;
 
 template class AsyncWriterSink<doris::vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
 template class AsyncWriterSink<doris::vectorized::VJdbcTableWriter, JdbcTableSinkOperatorX>;

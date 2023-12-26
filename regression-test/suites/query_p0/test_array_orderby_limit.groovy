@@ -22,7 +22,7 @@ suite("test_array_char_orderby", "query") {
     sql """
             CREATE TABLE IF NOT EXISTS ${testTable} (
               `k1` INT(11) NULL,
-              `k2` array<array<char(50)>> NULL,
+              `k2` array<array<char(50)>> NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             COMMENT 'OLAP'

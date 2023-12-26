@@ -423,8 +423,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // TODO: consider Null-safe hash condition when left and rigth is not nullable
         boolean isLeftUnique = left().getLogicalProperties()
                 .getFunctionalDependencies().isUnique(keys.first);
-        boolean isRightUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
+        boolean isRightUnique = right().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.second);
         Builder fdBuilder = new Builder();
         if (joinType.isInnerJoin()) {
             // inner join propagate uniforms slots

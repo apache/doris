@@ -121,15 +121,13 @@ bool ScanLocalState<Derived>::should_run_serial() const {
 
 template <typename Derived>
 Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    RETURN_IF_ERROR(PipelineXLocalState<ScanDependency>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
     RETURN_IF_ERROR(RuntimeFilterConsumer::init(state, p.ignore_data_distribution()));
 
-    _scan_dependency = ScanDependency::create_shared(PipelineXLocalState<>::_parent->operator_id(),
-                                                     PipelineXLocalState<>::_parent->node_id(),
-                                                     state->get_query_ctx());
+    _scan_dependency = dependency_sptr();
 
     set_scan_ranges(state, info.scan_ranges);
     _common_expr_ctxs_push_down.resize(p._common_expr_ctxs_push_down.size());
@@ -567,7 +565,8 @@ template <typename Derived>
 std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer, "{}, _eos = {}",
-                   PipelineXLocalState<>::debug_string(indentation_level), _eos.load());
+                   PipelineXLocalState<ScanDependency>::debug_string(indentation_level),
+                   _eos.load());
     if (_scanner_ctx) {
         fmt::format_to(debug_string_buffer, "");
         fmt::format_to(
@@ -1457,7 +1456,7 @@ Status ScanLocalState<Derived>::close(RuntimeState* state) {
     COUNTER_SET(_wait_for_finish_dependency_timer, _finish_dependency->watcher_elapse_time());
     COUNTER_SET(_wait_for_rf_timer, _filter_dependency->watcher_elapse_time());
 
-    return PipelineXLocalState<>::close(state);
+    return PipelineXLocalState<ScanDependency>::close(state);
 }
 
 template <typename LocalStateType>

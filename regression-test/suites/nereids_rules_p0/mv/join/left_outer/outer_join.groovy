@@ -224,7 +224,7 @@ suite("outer_join") {
     def query2_0 = "select lineitem.L_LINENUMBER " +
             "from lineitem " +
             "left join orders on lineitem.L_ORDERKEY = orders.O_ORDERKEY " +
-            "where lineitem.L_LINENUMBER > 10"
+            "where lineitem.L_LINENUMBER > 0"
     order_qt_query2_0_before "${query2_0}"
     check_not_match(mv2_0, query2_0, "mv2_0")
     order_qt_query2_0_after "${query2_0}"
