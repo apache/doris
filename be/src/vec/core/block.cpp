@@ -738,7 +738,7 @@ void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& col
         int last_column_index = 0;
         for (auto i = 0; i < block->columns(); i++) {
             if (block->get_by_position(i).column != nullptr) {
-                last_column_index = i;
+                last_column_index = i + 1;
             }
         }
         // If col > block_last_column_index and col < block->columns(), it means col is a column that
