@@ -79,7 +79,8 @@ class BuildStructInfoTest extends SqlTestBase {
                         .when(j -> {
                             HyperGraph structInfo = HyperGraph.toStructInfo(j).get(0);
                             Assertions.assertTrue(structInfo.getJoinEdge(0).getJoinType().isLeftOuterJoin());
-                            Assertions.assertEquals(1, structInfo.getFilterEdge(0).getLeftRejectEdge().size());
+                            Assertions.assertEquals(0, structInfo.getFilterEdge(0).getLeftRejectEdge().size());
+                            Assertions.assertEquals(1, structInfo.getFilterEdge(0).getRightRejectEdge().size());
                             return true;
                         }));
 
@@ -92,7 +93,6 @@ class BuildStructInfoTest extends SqlTestBase {
                         .when(j -> {
                             HyperGraph structInfo = HyperGraph.toStructInfo(j).get(0);
                             Assertions.assertTrue(structInfo.getJoinEdge(0).getJoinType().isLeftOuterJoin());
-                            Assertions.assertEquals(0, structInfo.getFilterEdge(0).getLeftRejectEdge().size());
                             return true;
                         }));
     }

@@ -102,10 +102,10 @@ public class HyperGraphComparator {
         Sets.difference(getViewFilterEdgeSet(), Sets.newHashSet(queryToView.values()))
                 .forEach(e -> pullUpViewExprWithEdge.put(e, e.getExpressions()));
 
-        return buildComparisionRes();
+        return buildComparisonRes();
     }
 
-    private ComparisonResult buildComparisionRes() {
+    private ComparisonResult buildComparisonRes() {
         ComparisonResult.Builder builder = new ComparisonResult.Builder();
         for (Entry<Edge, List<? extends Expression>> e : pullUpQueryExprWithEdge.entrySet()) {
             if (!e.getValue().isEmpty() && !canPullUp(e.getKey())) {
