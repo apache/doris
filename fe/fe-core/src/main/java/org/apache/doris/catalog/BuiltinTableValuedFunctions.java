@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.table.Frontends;
 import org.apache.doris.nereids.trees.expressions.functions.table.FrontendsDisks;
 import org.apache.doris.nereids.trees.expressions.functions.table.GroupCommit;
 import org.apache.doris.nereids.trees.expressions.functions.table.Hdfs;
+import org.apache.doris.nereids.trees.expressions.functions.table.HttpStream;
 import org.apache.doris.nereids.trees.expressions.functions.table.IcebergMeta;
 import org.apache.doris.nereids.trees.expressions.functions.table.Jobs;
 import org.apache.doris.nereids.trees.expressions.functions.table.Local;
@@ -51,6 +52,7 @@ public class BuiltinTableValuedFunctions implements FunctionHelper {
             tableValued(Local.class, "local"),
             tableValued(IcebergMeta.class, "iceberg_meta"),
             tableValued(Hdfs.class, "hdfs"),
+            tableValued(HttpStream.class, "http_stream"),
             tableValued(Numbers.class, "numbers"),
             tableValued(Queries.class, "queries"),
             tableValued(S3.class, "s3"),
