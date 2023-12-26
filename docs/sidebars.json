@@ -803,7 +803,6 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-RESOURCE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-SQL-BLOCK-RULE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-FUNCTION",
