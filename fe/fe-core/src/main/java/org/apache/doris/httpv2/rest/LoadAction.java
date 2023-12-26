@@ -85,11 +85,10 @@ public class LoadAction extends RestBaseController {
                              @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equals("true")) {
+        if (groupCommitStr != null && groupCommitStr.equals("async_mode")) {
             groupCommit = true;
             try {
                 String[] pair = new String[] {db, table};
-                LOG.info(pair[0] + ":" + pair[1]);
                 if (isGroupCommitBlock(pair)) {
                     String msg = "insert table " + pair[1] + " is blocked on schema change";
                     return new RestBaseResult(msg);
@@ -128,7 +127,7 @@ public class LoadAction extends RestBaseController {
         LOG.info("streaming load sql={}", sql);
         boolean groupCommit = false;
         String groupCommitStr = request.getHeader("group_commit");
-        if (groupCommitStr != null && groupCommitStr.equals("true")) {
+        if (groupCommitStr != null && groupCommitStr.equals("async_mode")) {
             groupCommit = true;
             try {
                 String[] pair = parseDbAndTb(sql);
