@@ -154,6 +154,7 @@ public class LoadLoadingTask extends LoadTask {
          * here we use exec_mem_limit to directly override the load_mem_limit property.
          */
         curCoordinator.setLoadMemLimit(execMemLimit);
+        curCoordinator.setMemTableOnSinkNode(enableMemTableOnSinkNode);
 
         long leftTimeMs = getLeftTimeMs();
         if (leftTimeMs <= 0) {
