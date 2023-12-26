@@ -107,5 +107,3 @@ table相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法�
 每个job可以有一个或多个task，用来记录物化视图的刷新记录及状态等信息
 
 具体的语法可查看[tasks("type"="mv")](../sql-manual/sql-functions/table-functions/tasks.md)
-
-注意：每个物化视图目前最多只保存100条记录，超过之后，会自动删除最老的数据

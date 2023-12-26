@@ -62,7 +62,7 @@ alter Materialized View mv1 rename mv2;
 同[创建异步物化视图](../Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 ##### SET
-修改物化视图特有的property,例如grace_period,待支持透明改写后，会有详细介绍
+修改物化视图特有的property
 
 例如修改mv1的grace_period为3000ms
 ```sql

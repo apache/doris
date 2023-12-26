@@ -32,7 +32,7 @@ REFRESH MATERIALIZED VIEW
 
 ### Description
 
-该语句用于手动刷新指定的多表物化视图
+该语句用于手动刷新指定的异步物化视图
 
 语法：
 
