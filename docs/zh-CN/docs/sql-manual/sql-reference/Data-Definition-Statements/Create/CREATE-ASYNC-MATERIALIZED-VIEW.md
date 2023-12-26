@@ -159,6 +159,14 @@ KEY(k1,k2)
 例如：基表是range分区，分区字段为`create_time`并按天分区，创建物化视图时指定`partition by(ct) as select create_time as ct from t1`
 那么物化视图也会是range分区，分区字段为`ct`,并且按天分区
 
+#### property
+物化视图既可以指定table的property，也可以指定物化视图特有的property。
+
+物化视图特有的property包括：
+`grace_period`：查询改写时允许物化视图数据的最大延迟时间
+`excluded_trigger_tables`：数据刷新时忽略的表名，逗号分割。例如`table1,table2`
+`refresh_partition_num`：单次insert语句刷新的分区数量，默认为1
+
 ##### query
 
 创建物化视图的查询语句，其结果即为物化视图中的数据
