@@ -122,6 +122,8 @@ Status ScannerScheduler::init(ExecEnv* env) {
     _remote_thread_pool_max_size = config::doris_max_remote_scanner_thread_pool_thread_num != -1
                                            ? config::doris_max_remote_scanner_thread_pool_thread_num
                                            : std::max(512, CpuInfo::num_cores() * 10);
+    _remote_thread_pool_max_size =
+            std::max(_remote_thread_pool_max_size, config::doris_scanner_thread_pool_thread_num);
     _remote_scan_thread_pool = std::make_unique<PriorityThreadPool>(
             _remote_thread_pool_max_size, config::doris_remote_scanner_thread_pool_queue_size,
             "RemoteScanThreadPool");
