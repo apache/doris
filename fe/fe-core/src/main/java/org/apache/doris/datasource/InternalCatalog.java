@@ -2294,7 +2294,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
                         new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
-                olapTable.setStorageMedium(dataProperty.getStorageMediumString());
+                olapTable.setStorageMedium(dataProperty.getStorageMedium());
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -2484,7 +2484,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
-                    olapTable.setStorageMedium(dataProperty.getStorageMediumString());
+                    olapTable.setStorageMedium(dataProperty.getStorageMedium());
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
