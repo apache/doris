@@ -33,6 +33,7 @@ import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TEtlState;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -51,6 +52,8 @@ import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * SparkEtlJobHandler is responsible for
@@ -73,9 +76,13 @@ public class SparkEtlJobHandler {
     private static final long EXEC_CMD_TIMEOUT_MS = 30000L;
     // yarn command
     private static final String YARN_STATUS_CMD = "%s --config %s application -status %s";
+    private static final String YARN_STATUS_CMD_NO_CLIENT_CONFIGS = "%s application -status %s";
     private static final String YARN_KILL_CMD = "%s --config %s application -kill %s";
 
     private static final String SPARK_ETL_JOB_CLASS = "org.apache.doris.load.loadv2.etl.SparkEtlJob";
+
+    // Security inject protect
+    private static final Pattern COMMAND_INJECT_CHAR_PATTERN = Pattern.compile("[|;&$><`]");
 
     public void submitEtlJob(long loadJobId, String loadLabel, EtlJobConfig etlJobConfig, SparkResource resource,
             BrokerDesc brokerDesc, SparkLoadAppHandle handle, SparkPendingTaskAttachment attachment)
@@ -215,7 +222,7 @@ public class SparkEtlJobHandler {
                 }
             }
             LOG.info("getEtlJobStatus,appId:{}, loadJobId:{}, env:{},resource:{}", appId, loadJobId, envp, resource);
-            CommandResult result = Util.executeCommand(yarnStatusCmd, envp, EXEC_CMD_TIMEOUT_MS);
+            CommandResult result = executeCommand(resource, yarnStatusCmd, envp, yarnClient, appId);
             if (result.getReturnCode() != 0) {
                 String stderr = result.getStderr();
                 if (stderr != null) {
@@ -282,6 +289,31 @@ public class SparkEtlJobHandler {
         }
 
         return status;
+    }
+
+    private CommandResult executeCommand(SparkResource resource, String yarnStatusCmd, String[] envp,
+                                         String yarnClient, String appId) {
+        CommandResult result;
+        String sparkTaskkeyTab = resource.getSparkConfigs().get("spark.yarn.keytab");
+        String sparkTaskPrincipal = resource.getSparkConfigs().get("spark.yarn.principal");
+        List<String> kinitArgv = Lists.newLinkedList();
+        if (sparkTaskkeyTab != null && sparkTaskkeyTab != null) {
+            // Not need client configs when enable keytab
+            yarnStatusCmd = String.format(YARN_STATUS_CMD_NO_CLIENT_CONFIGS, yarnClient, appId);
+            kinitArgv.add("export LD_LIBRARY_PATH=$LD_LIBRARY_PATH:$KRB_HOME/lib");
+            kinitArgv.add("export YARN_CLIENT_OPTS='-Djava.security.krb5.conf='" + System.getenv("KRBS_CONFIG")
+                    + ";");
+            kinitArgv.add(System.getenv("KRB_HOME") + "/bin/kinit");
+            kinitArgv.add(validateParam(sparkTaskPrincipal));
+            kinitArgv.add("-k");
+            kinitArgv.add("-t");
+            kinitArgv.add(validateParam(sparkTaskkeyTab) + ";");
+            yarnStatusCmd = Joiner.on(" ").join(kinitArgv) + yarnStatusCmd;
+            result = Util.executeCommandForSecuritySpark(yarnStatusCmd, envp, EXEC_CMD_TIMEOUT_MS);
+        } else {
+            result = Util.executeCommand(yarnStatusCmd, envp, EXEC_CMD_TIMEOUT_MS);
+        }
+        return result;
     }
 
     public void killEtlJob(SparkLoadAppHandle handle, String appId,
@@ -402,5 +434,13 @@ public class SparkEtlJobHandler {
                 // UNKNOWN CONNECTED SUBMITTED RUNNING
                 return TEtlState.RUNNING;
         }
+    }
+
+    private String validateParam(String sparkAppParam) {
+        Matcher m = COMMAND_INJECT_CHAR_PATTERN.matcher(sparkAppParam);
+        if (m.find()) {
+            throw new IllegalArgumentException("Illegal Argument : " + sparkAppParam);
+        }
+        return sparkAppParam;
     }
 }

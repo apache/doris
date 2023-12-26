@@ -66,6 +66,7 @@ public class Util {
 
     private static final List<String> REGEX_ESCAPES
             = Lists.newArrayList("\\", "$", "(", ")", "*", "+", ".", "[", "]", "?", "^", "{", "}", "|");
+    private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
 
     static {
         TYPE_STRING_MAP.put(PrimitiveType.TINYINT, "tinyint(4)");
@@ -185,35 +186,52 @@ public class Util {
 
         try {
             Process p = Runtime.getRuntime().exec(cmds, envp);
-            CmdWorker cmdWorker = new CmdWorker(p);
-            cmdWorker.start();
-
-            Integer exitValue = -1;
-            try {
-                cmdWorker.join(timeoutMs);
-                exitValue = cmdWorker.getExitValue();
-                if (exitValue == null) {
-                    // if we get this far then we never got an exit value from the worker thread
-                    // as a result of a timeout
-                    LOG.warn("exec command [{}] timed out.", cmd);
-                    exitValue = -1;
-                }
-            } catch (InterruptedException ex) {
-                cmdWorker.interrupt();
-                Thread.currentThread().interrupt();
-                throw ex;
-            } finally {
-                p.destroy();
-            }
-
-            result.setReturnCode(exitValue);
-            result.setStdout(cmdWorker.getStdOut());
-            result.setStderr(cmdWorker.getErrOut());
-        } catch (IOException e) {
-            LOG.warn("execute command error", e);
-        } catch (InterruptedException e) {
+            result = getProcessResult(p, timeoutMs, cmd);
+        } catch (IOException | InterruptedException e) {
             LOG.warn("execute command error", e);
         }
+
+        return result;
+    }
+
+    public static  CommandResult executeCommandForSecuritySpark(String cmd, String[] envp, long timeoutMs) {
+        CommandResult result = new CommandResult();
+        ProcessBuilder pb = new ProcessBuilder("sh", "-c", cmd);
+        try {
+            final Process p = pb.start();
+            result = getProcessResult(p, timeoutMs, cmd);
+        } catch (IOException | InterruptedException e) {
+            LOG.warn("execute comman error", e);
+        }
+        return result;
+    }
+
+    public static CommandResult getProcessResult(Process p, long timeoutMs, String cmd) throws InterruptedException {
+        CommandResult result = new CommandResult();
+        CmdWorker cmdWorker = new CmdWorker(p);
+        cmdWorker.start();
+
+        Integer exitValue = -1;
+        try {
+            cmdWorker.join(timeoutMs);
+            exitValue = cmdWorker.getExitValue();
+            if (exitValue == null) {
+                // if we get this far then we naver got an exit value from the worker thread
+                // as a result of a timeout
+                LOG.warn("exec command [{}] timed out.", cmd);
+                exitValue = -1;
+            }
+        } catch (InterruptedException ex) {
+            cmdWorker.interrupt();
+            Thread.currentThread().interrupt();
+            throw ex;
+        } finally {
+            p.destroy();
+        }
+
+        result.setReturnCode(exitValue);
+        result.setStdout(cmdWorker.getStdOut());
+        result.setStderr(cmdWorker.getErrOut());
 
         return result;
     }
@@ -522,8 +540,6 @@ public class Util {
         return false;
     }
 
-    private static final char[] HEX_ARRAY = "0123456789ABCDEF".toCharArray();
-
     public static String bytesToHex(byte[] bytes) {
         char[] hexChars = new char[bytes.length * 2];
         for (int j = 0; j < bytes.length; j++) {
@@ -533,7 +549,6 @@ public class Util {
         }
         return new String(hexChars);
     }
-
 
     @NotNull
     public static TFileFormatType getFileFormatTypeFromPath(String path) {
