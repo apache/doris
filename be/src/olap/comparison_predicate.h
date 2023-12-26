@@ -47,6 +47,10 @@ public:
         *to = cloned;
     }
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return input_type == Type || (is_string_type(input_type) && is_string_type(Type));
+    }
+
     bool need_to_clone() const override { return true; }
 
     PredicateType type() const override { return PT; }
@@ -76,13 +80,13 @@ public:
                                bitmap);
     }
 
-    Status evaluate(const Schema& schema, InvertedIndexIterator* iterator, uint32_t num_rows,
+    Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+                    InvertedIndexIterator* iterator, uint32_t num_rows,
                     roaring::Roaring* bitmap) const override {
         if (iterator == nullptr) {
             return Status::OK();
         }
-        auto column_desc = schema.column(_column_id);
-        std::string column_name = column_desc->name();
+        std::string column_name = name_with_type.first;
 
         InvertedIndexQueryType query_type = InvertedIndexQueryType::UNKNOWN_QUERY;
         switch (PT) {
@@ -117,11 +121,13 @@ public:
         // mask out null_bitmap, since NULL cmp VALUE will produce NULL
         //  and be treated as false in WHERE
         // keep it after query, since query will try to read null_bitmap and put it to cache
-        InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
-        RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
-        std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
-        if (null_bitmap) {
-            *bitmap -= *null_bitmap;
+        if (iterator->has_null()) {
+            InvertedIndexQueryCacheHandle null_bitmap_cache_handle;
+            RETURN_IF_ERROR(iterator->read_null_bitmap(&null_bitmap_cache_handle));
+            std::shared_ptr<roaring::Roaring> null_bitmap = null_bitmap_cache_handle.get_bitmap();
+            if (null_bitmap) {
+                *bitmap -= *null_bitmap;
+            }
         }
 
         if constexpr (PT == PredicateType::NE) {
@@ -298,10 +304,12 @@ public:
                     LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 }
             } else {
-                auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<
-                        PredicateEvaluateType<Type>>&>(nested_column)
-                                           .get_data()
-                                           .data();
+                auto* data_array =
+                        vectorized::check_and_get_column<
+                                const vectorized::PredicateColumnType<PredicateEvaluateType<Type>>>(
+                                nested_column)
+                                ->get_data()
+                                .data();
 
                 _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array, _value);
             }

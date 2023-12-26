@@ -31,6 +31,7 @@
 #include <string_view>
 #include <tuple>
 #include <type_traits>
+#include <utility>
 
 #include "util/hash_util.hpp"
 #include "util/time_lut.h"
@@ -507,9 +508,10 @@ public:
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
-    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
+    //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
     bool from_unixtime(int64_t, const std::string& timezone);
-    bool from_unixtime(int64_t, const cctz::time_zone& ctz);
+    void from_unixtime(int64_t, const cctz::time_zone& ctz);
 
     bool operator==(const VecDateTimeValue& other) const {
         // NOTE: This is not same with MySQL.
@@ -964,18 +966,19 @@ public:
     //it returns seconds of the value of date literal since '1970-01-01 00:00:00' UTC
     bool unix_timestamp(int64_t* timestamp, const std::string& timezone) const;
     bool unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const;
+    //the first arg is result of fixed point
     bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const std::string& timezone) const;
     bool unix_timestamp(std::pair<int64_t, int64_t>* timestamp, const cctz::time_zone& ctz) const;
 
     //construct datetime_value from timestamp and timezone
-    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC
+    //timestamp is an internal timestamp value representing seconds since '1970-01-01 00:00:00' UTC. negative avaliable.
+    //we don't do any check in it because it's hot path. any usage want ensure the time legality should check itself.
     bool from_unixtime(int64_t, const std::string& timezone);
-    bool from_unixtime(int64_t, const cctz::time_zone& ctz);
+    void from_unixtime(int64_t, const cctz::time_zone& ctz);
     bool from_unixtime(std::pair<int64_t, int64_t>, const std::string& timezone);
-    bool from_unixtime(std::pair<int64_t, int64_t>, const cctz::time_zone& ctz);
-
-    bool from_unixtime(int64_t, int32_t, const std::string& timezone, const int scale);
-    bool from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
+    void from_unixtime(std::pair<int64_t, int64_t>, const cctz::time_zone& ctz);
+    bool from_unixtime(int64_t, int32_t, const std::string& timezone, int scale);
+    void from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
 
     bool operator==(const DateV2Value<T>& other) const {
         // NOTE: This is not same with MySQL.

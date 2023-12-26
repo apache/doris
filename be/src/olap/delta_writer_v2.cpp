@@ -113,6 +113,7 @@ Status DeltaWriterV2::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
+    context.original_tablet_schema = _tablet_schema;
     context.newest_write_timestamp = UnixSeconds();
     context.tablet = nullptr;
     context.write_type = DataWriteType::TYPE_DIRECT;
@@ -139,8 +140,9 @@ Status DeltaWriterV2::append(const vectorized::Block* block) {
     return write(block, {}, true);
 }
 
-Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                             bool is_append) {
+    SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
     if (UNLIKELY(row_idxs.empty() && !is_append)) {
         return Status::OK();
     }
@@ -149,6 +151,9 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<in
     _lock_watch.stop();
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
+    }
+    while (_memtable_writer->flush_running_count() >= config::memtable_flush_running_count_limit) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
     return _memtable_writer->write(block, row_idxs, is_append);

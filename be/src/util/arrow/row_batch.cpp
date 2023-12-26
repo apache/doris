@@ -48,6 +48,9 @@ using strings::Substitute;
 
 Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::DataType>* result) {
     switch (type.type) {
+    case TYPE_NULL:
+        *result = arrow::null();
+        break;
     case TYPE_TINYINT:
         *result = arrow::int8();
         break;
@@ -79,6 +82,7 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DATETIMEV2:
     case TYPE_STRING:
     case TYPE_JSONB:
+    case TYPE_OBJECT:
         *result = arrow::utf8();
         break;
     case TYPE_DECIMALV2:
@@ -88,6 +92,15 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I:
         *result = std::make_shared<arrow::Decimal128Type>(type.precision, type.scale);
+        break;
+    case TYPE_IPV4:
+        *result = arrow::uint32();
+        break;
+    case TYPE_IPV6:
+        *result = arrow::utf8();
+        break;
+    case TYPE_DECIMAL256:
+        *result = std::make_shared<arrow::Decimal256Type>(type.precision, type.scale);
         break;
     case TYPE_BOOLEAN:
         *result = arrow::boolean();
@@ -125,7 +138,8 @@ Status convert_to_arrow_type(const TypeDescriptor& type, std::shared_ptr<arrow::
         break;
     }
     default:
-        return Status::InvalidArgument("Unknown primitive type({})", type.type);
+        return Status::InvalidArgument("Unknown primitive type({}) convert to Arrow type",
+                                       type.type);
     }
     return Status::OK();
 }
@@ -168,12 +182,13 @@ Status convert_to_arrow_schema(const RowDescriptor& row_desc,
 Status convert_expr_ctxs_arrow_schema(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
                                       std::shared_ptr<arrow::Schema>* result) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
-    for (auto expr_ctx : output_vexpr_ctxs) {
+    for (int i = 0; i < output_vexpr_ctxs.size(); i++) {
         std::shared_ptr<arrow::DataType> arrow_type;
-        auto root_expr = expr_ctx->root();
+        auto root_expr = output_vexpr_ctxs.at(i)->root();
         RETURN_IF_ERROR(convert_to_arrow_type(root_expr->type(), &arrow_type));
-        auto field_name = root_expr->is_slot_ref() ? root_expr->expr_name()
-                                                   : root_expr->data_type()->get_name();
+        auto field_name = root_expr->is_slot_ref() && !root_expr->expr_name().empty()
+                                  ? root_expr->expr_name()
+                                  : fmt::format("{}_{}", root_expr->data_type()->get_name(), i);
         fields.push_back(
                 std::make_shared<arrow::Field>(field_name, arrow_type, root_expr->is_nullable()));
     }

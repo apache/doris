@@ -64,8 +64,8 @@ using HashTableCtxVariants = std::variant<
 class HashJoinProbeDependency final : public Dependency {
 public:
     using SharedState = HashJoinSharedState;
-    HashJoinProbeDependency(int id, int node_id)
-            : Dependency(id, node_id, "HashJoinProbeDependency") {}
+    HashJoinProbeDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "HashJoinProbeDependency", query_ctx) {}
     ~HashJoinProbeDependency() override = default;
 };
 
@@ -97,8 +97,8 @@ public:
     vectorized::DataTypes right_table_data_types();
     vectorized::DataTypes left_table_data_types();
     bool* has_null_in_build_side() { return &_shared_state->_has_null_in_build_side; }
-    std::shared_ptr<std::vector<vectorized::Block>> build_blocks() const {
-        return _shared_state->build_blocks;
+    const std::shared_ptr<vectorized::Block>& build_block() const {
+        return _shared_state->build_block;
     }
 
 private:
@@ -114,9 +114,11 @@ private:
     friend struct vectorized::ProcessHashTableProbe;
 
     int _probe_index = -1;
+    uint32_t _build_index = 0;
     bool _ready_probe = false;
     bool _probe_eos = false;
     std::atomic<bool> _probe_inited = false;
+    int _last_probe_match;
 
     vectorized::Block _probe_block;
     vectorized::ColumnRawPtrs _probe_columns;
@@ -130,8 +132,6 @@ private:
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
     vectorized::ColumnUInt8::MutablePtr _null_map_column;
-    // for cases when a probe row matches more than batch size build rows.
-    bool _is_any_probe_match_row_output = false;
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
@@ -139,14 +139,14 @@ private:
     vectorized::HashTableIteratorVariants _outer_join_pull_visited_iter;
     vectorized::HashTableIteratorVariants _probe_row_match_iter;
 
-    RuntimeProfile::Counter* _probe_expr_call_timer;
-    RuntimeProfile::Counter* _probe_next_timer;
-    RuntimeProfile::Counter* _probe_side_output_timer;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer;
-    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
-    RuntimeProfile::Counter* _search_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_output_timer;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
+    RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
+    RuntimeProfile::Counter* _probe_next_timer = nullptr;
+    RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
+    RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
 };
 
 class HashJoinProbeOperatorX final : public JoinProbeOperatorX<HashJoinProbeLocalState> {
@@ -163,6 +163,18 @@ public:
                 SourceState& source_state) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
+    DataDistribution required_data_distribution() const override {
+        if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+            return {ExchangeType::NOOP};
+        }
+        return _is_broadcast_join
+                       ? DataDistribution(ExchangeType::PASSTHROUGH)
+                       : (_join_distribution == TJoinDistributionType::BUCKET_SHUFFLE ||
+                                          _join_distribution == TJoinDistributionType::COLOCATE
+                                  ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE,
+                                                     _partition_exprs)
+                                  : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs));
+    }
 
 private:
     Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
@@ -170,6 +182,9 @@ private:
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
 
+    const TJoinDistributionType::type _join_distribution;
+
+    const bool _is_broadcast_join;
     // other expr
     vectorized::VExprContextSPtrs _other_join_conjuncts;
     // probe expr
@@ -182,6 +197,7 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
     std::vector<std::string> _right_table_column_names;
+    std::vector<TExpr> _partition_exprs;
 };
 
 } // namespace pipeline

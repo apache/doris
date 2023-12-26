@@ -34,7 +34,6 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
@@ -64,12 +63,13 @@ public class ExecutionProfile {
     // Profile for load channels. Only for load job.
     private RuntimeProfile loadChannelProfile;
     // A countdown latch to mark the completion of each instance.
+    // use for old pipeline
     // instance id -> dummy value
     private MarkedCountDownLatch<TUniqueId, Long> profileDoneSignal;
 
-    private int waitCount = 0;
-
-    private TUniqueId queryId;
+    // A countdown latch to mark the completion of each fragment. use for pipelineX
+    // fragmentId -> dummy value
+    private MarkedCountDownLatch<Integer, Long> profileFragmentDoneSignal;
 
     public ExecutionProfile(TUniqueId queryId, int fragmentNum) {
         executionProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
@@ -82,10 +82,37 @@ public class ExecutionProfile {
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
         executionProfile.addChild(loadChannelProfile);
-        this.queryId = queryId;
     }
 
-    public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
+    private RuntimeProfile getPipelineXAggregatedProfile(Map<Integer, String> planNodeMap) {
+        RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
+        for (int i = 0; i < fragmentProfiles.size(); ++i) {
+            RuntimeProfile oldFragmentProfile = fragmentProfiles.get(i);
+            RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
+            fragmentsProfile.addChild(newFragmentProfile);
+            List<RuntimeProfile> allPipelines = new ArrayList<RuntimeProfile>();
+            for (Pair<RuntimeProfile, Boolean> runtimeProfile : oldFragmentProfile.getChildList()) {
+                allPipelines.add(runtimeProfile.first);
+            }
+            int pipelineIdx = 0;
+            for (RuntimeProfile pipeline : allPipelines) {
+                List<RuntimeProfile> allPipelineTask = new ArrayList<RuntimeProfile>();
+                for (Pair<RuntimeProfile, Boolean> runtimeProfile : pipeline.getChildList()) {
+                    allPipelineTask.add(runtimeProfile.first);
+                }
+                RuntimeProfile mergedpipelineProfile = new RuntimeProfile(
+                        "Pipeline : " + pipelineIdx + "(instance_num="
+                                + allPipelineTask.size() + ")",
+                        allPipelines.get(0).nodeId());
+                RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
+                newFragmentProfile.addChild(mergedpipelineProfile);
+                pipelineIdx++;
+            }
+        }
+        return fragmentsProfile;
+    }
+
+    private RuntimeProfile getNonPipelineXAggregatedProfile(Map<Integer, String> planNodeMap) {
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         for (int i = 0; i < fragmentProfiles.size(); ++i) {
             RuntimeProfile oldFragmentProfile = fragmentProfiles.get(i);
@@ -101,6 +128,54 @@ public class ExecutionProfile {
             RuntimeProfile.mergeProfiles(allInstanceProfiles, mergedInstanceProfile, planNodeMap);
         }
         return fragmentsProfile;
+    }
+
+    public RuntimeProfile getAggregatedFragmentsProfile(Map<Integer, String> planNodeMap) {
+        if (enablePipelineX()) {
+            /*
+             * Fragment 0
+             * ---Pipeline 0
+             * ------pipelineTask 0
+             * ------pipelineTask 0
+             * ------pipelineTask 0
+             * ---Pipeline 1
+             * ------pipelineTask 1
+             * ---Pipeline 2
+             * ------pipelineTask 2
+             * ------pipelineTask 2
+             * Fragment 1
+             * ---Pipeline 0
+             * ------......
+             * ---Pipeline 1
+             * ------......
+             * ---Pipeline 2
+             * ------......
+             * ......
+             */
+            return getPipelineXAggregatedProfile(planNodeMap);
+        } else {
+            /*
+             * Fragment 0
+             * ---Instance 0
+             * ------pipelineTask 0
+             * ------pipelineTask 1
+             * ------pipelineTask 2
+             * ---Instance 1
+             * ------pipelineTask 0
+             * ------pipelineTask 1
+             * ------pipelineTask 2
+             * ---Instance 2
+             * ------pipelineTask 0
+             * ------pipelineTask 1
+             * ------pipelineTask 2
+             * Fragment 1
+             * ---Instance 0
+             * ---Instance 1
+             * ---Instance 2
+             * ......
+             */
+            return getNonPipelineXAggregatedProfile(planNodeMap);
+        }
     }
 
     public RuntimeProfile getExecutionProfile() {
@@ -126,6 +201,17 @@ public class ExecutionProfile {
         }
     }
 
+    private boolean enablePipelineX() {
+        return profileFragmentDoneSignal != null;
+    }
+
+    public void markFragments(int fragments) {
+        profileFragmentDoneSignal = new MarkedCountDownLatch<>(fragments);
+        for (int fragmentId = 0; fragmentId < fragments; fragmentId++) {
+            profileFragmentDoneSignal.addMark(fragmentId, -1L /* value is meaningless */);
+        }
+    }
+
     public void update(long startTime, boolean isFinished) {
         if (startTime > 0) {
             executionProfile.getCounterTotalTime().setValue(TUnit.TIME_MS, TimeUtils.getElapsedTimeMs(startTime));
@@ -134,6 +220,14 @@ public class ExecutionProfile {
         if (isFinished && profileDoneSignal != null) {
             try {
                 profileDoneSignal.await(2, TimeUnit.SECONDS);
+            } catch (InterruptedException e1) {
+                LOG.warn("signal await error", e1);
+            }
+        }
+
+        if (isFinished && profileFragmentDoneSignal != null) {
+            try {
+                profileFragmentDoneSignal.await(2, TimeUnit.SECONDS);
             } catch (InterruptedException e1) {
                 LOG.warn("signal await error", e1);
             }
@@ -148,17 +242,24 @@ public class ExecutionProfile {
         if (profileDoneSignal != null) {
             // count down to zero to notify all objects waiting for this
             profileDoneSignal.countDownToZero(new Status());
-            LOG.info("Query {} unfinished instance: {}", DebugUtil.printId(queryId),  profileDoneSignal.getLeftMarks()
-                    .stream().map(e -> DebugUtil.printId(e.getKey())).toArray());
+        }
+        if (profileFragmentDoneSignal != null) {
+            profileFragmentDoneSignal.countDownToZero(new Status());
         }
     }
 
     public void markOneInstanceDone(TUniqueId fragmentInstanceId) {
         if (profileDoneSignal != null) {
-            if (profileDoneSignal.markedCountDown(fragmentInstanceId, -1L)) {
-                LOG.info("Mark instance {} done succeed", DebugUtil.printId(fragmentInstanceId));
-            } else {
+            if (!profileDoneSignal.markedCountDown(fragmentInstanceId, -1L)) {
                 LOG.warn("Mark instance {} done failed", DebugUtil.printId(fragmentInstanceId));
+            }
+        }
+    }
+
+    public void markOneFragmentDone(int fragmentId) {
+        if (profileFragmentDoneSignal != null) {
+            if (!profileFragmentDoneSignal.markedCountDown(fragmentId, -1L)) {
+                LOG.warn("Mark fragment {} done failed", fragmentId);
             }
         }
     }
@@ -167,17 +268,14 @@ public class ExecutionProfile {
         if (profileDoneSignal == null) {
             return true;
         }
-
-        waitCount++;
-
-        for (Entry<TUniqueId, Long> entry : profileDoneSignal.getLeftMarks()) {
-            if (waitCount > 2) {
-                LOG.info("Query {} waiting instance {}, waitCount: {}",
-                        DebugUtil.printId(queryId), DebugUtil.printId(entry.getKey()), waitCount);
-            }
-        }
-
         return profileDoneSignal.await(waitTimeS, TimeUnit.SECONDS);
+    }
+
+    public boolean awaitAllFragmentsDone(long waitTimeS) throws InterruptedException {
+        if (profileFragmentDoneSignal == null) {
+            return true;
+        }
+        return profileFragmentDoneSignal.await(waitTimeS, TimeUnit.SECONDS);
     }
 
     public boolean isAllInstancesDone() {
@@ -187,9 +285,16 @@ public class ExecutionProfile {
         return profileDoneSignal.getCount() == 0;
     }
 
-    public void addInstanceProfile(int instanceIdx, RuntimeProfile instanceProfile) {
-        Preconditions.checkArgument(instanceIdx < fragmentProfiles.size(),
-                instanceIdx + " vs. " + fragmentProfiles.size());
-        fragmentProfiles.get(instanceIdx).addChild(instanceProfile);
+    public boolean isAllFragmentsDone() {
+        if (profileFragmentDoneSignal == null) {
+            return true;
+        }
+        return profileFragmentDoneSignal.getCount() == 0;
+    }
+
+    public void addInstanceProfile(int fragmentId, RuntimeProfile instanceProfile) {
+        Preconditions.checkArgument(fragmentId < fragmentProfiles.size(),
+                fragmentId + " vs. " + fragmentProfiles.size());
+        fragmentProfiles.get(fragmentId).addChild(instanceProfile);
     }
 }

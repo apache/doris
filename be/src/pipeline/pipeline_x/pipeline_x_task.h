@@ -46,20 +46,23 @@ namespace doris::pipeline {
 
 class TaskQueue;
 class PriorityTaskQueue;
+struct LocalExchangeSinkDependency;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineXTask : public PipelineTask {
 public:
     PipelineXTask(PipelinePtr& pipeline, uint32_t task_id, RuntimeState* state,
                   PipelineFragmentContext* fragment_context, RuntimeProfile* parent_profile,
-                  std::shared_ptr<LocalExchangeSharedState> local_exchange_state, int task_idx);
+                  std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                                          std::shared_ptr<LocalExchangeSinkDependency>>>
+                          le_state_map,
+                  int task_idx);
 
     Status prepare(RuntimeState* state) override {
         return Status::InternalError("Should not reach here!");
     }
 
-    Status prepare(RuntimeState* state, const TPipelineInstanceParams& local_params,
-                   const TDataSink& tsink);
+    Status prepare(const TPipelineInstanceParams& local_params, const TDataSink& tsink);
 
     Status execute(bool* eos) override;
 
@@ -70,6 +73,7 @@ public:
     // must be call after all pipeline task is finish to release resource
     Status close(Status exec_status) override;
 
+    Status close_sink(Status exec_status);
     bool source_can_read() override {
         if (_dry_run) {
             return true;
@@ -84,7 +88,9 @@ public:
 
     bool sink_can_write() override { return _write_blocked_dependency() == nullptr; }
 
-    Status finalize() override;
+    void finalize() override;
+
+    bool is_finished() const { return _finished.load(); }
 
     std::string debug_string() override;
 
@@ -103,13 +109,6 @@ public:
         }
     }
 
-    void release_dependency() override {
-        std::vector<DependencySPtr> {}.swap(_downstream_dependency);
-        DependencyMap {}.swap(_upstream_dependency);
-
-        _local_exchange_state = nullptr;
-    }
-
     std::vector<DependencySPtr>& get_upstream_dependency(int id) {
         if (_upstream_dependency.find(id) == _upstream_dependency.end()) {
             _upstream_dependency.insert({id, {DependencySPtr {}}});
@@ -119,7 +118,7 @@ public:
 
     bool is_pipelineX() const override { return true; }
 
-    void try_wake_up(Dependency* wake_up_dep);
+    void wake_up();
 
     DataSinkOperatorXPtr sink() const { return _sink; }
 
@@ -127,27 +126,29 @@ public:
 
     OperatorXs operatorXs() { return _operators; }
 
-    bool push_blocked_task_to_queue() const override {
-        /**
-         * Push task into blocking queue if:
-         * 1. `_use_blocking_queue` is true.
-         * 2. Or this task is blocked by FE two phase execution (BLOCKED_FOR_DEPENDENCY).
-         */
-        return _use_blocking_queue || get_state() == PipelineTaskState::BLOCKED_FOR_DEPENDENCY;
-    }
-    void set_use_blocking_queue() {
-        if (_blocked_dep->push_to_blocking_queue()) {
-            _use_blocking_queue = true;
-            return;
+    int task_id() const { return _index; };
+
+    void clear_blocking_state() {
+        if (!is_final_state(get_state()) && get_state() != PipelineTaskState::PENDING_FINISH &&
+            _blocked_dep) {
+            _blocked_dep->set_ready();
+            _blocked_dep = nullptr;
         }
-        _use_blocking_queue = false;
+    }
+
+    bool has_dependency() override {
+        _blocked_dep = _execution_dep->is_blocked_by(this);
+        if (_blocked_dep != nullptr) {
+            static_cast<Dependency*>(_blocked_dep)->start_watcher();
+            return true;
+        }
+        return false;
     }
 
 private:
     Dependency* _write_blocked_dependency() {
         _blocked_dep = _write_dependencies->is_blocked_by(this);
         if (_blocked_dep != nullptr) {
-            set_use_blocking_queue();
             static_cast<Dependency*>(_blocked_dep)->start_watcher();
             return _blocked_dep;
         }
@@ -158,7 +159,6 @@ private:
         for (auto* fin_dep : _finish_dependencies) {
             _blocked_dep = fin_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
-                set_use_blocking_queue();
                 _blocked_dep->start_watcher();
                 return _blocked_dep;
             }
@@ -170,7 +170,6 @@ private:
         for (auto* op_dep : _read_dependencies) {
             _blocked_dep = op_dep->is_blocked_by(this);
             if (_blocked_dep != nullptr) {
-                set_use_blocking_queue();
                 _blocked_dep->start_watcher();
                 return _blocked_dep;
             }
@@ -179,7 +178,6 @@ private:
     }
 
     Status _extract_dependencies();
-    void _make_run();
     void set_close_pipeline_time() override {}
     void _init_profile() override;
     void _fresh_profile_counter() override;
@@ -198,13 +196,18 @@ private:
     DependencyMap _upstream_dependency;
     std::map<int, DependencySPtr> _source_dependency;
     std::vector<DependencySPtr> _downstream_dependency;
-    std::shared_ptr<LocalExchangeSharedState> _local_exchange_state;
+    std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>,
+                            std::shared_ptr<LocalExchangeSinkDependency>>>
+            _le_state_map;
     int _task_idx;
     bool _dry_run = false;
 
-    Dependency* _blocked_dep {nullptr};
+    Dependency* _blocked_dep = nullptr;
 
-    std::atomic<bool> _use_blocking_queue {true};
+    Dependency* _execution_dep = nullptr;
+
+    std::atomic<bool> _finished {false};
+    std::mutex _release_lock;
 };
 
 } // namespace doris::pipeline

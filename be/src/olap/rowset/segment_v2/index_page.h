@@ -147,7 +147,7 @@ public:
     const PagePointer& current_page_pointer() const { return _reader->get_value(_pos); }
 
 private:
-    const IndexPageReader* _reader;
+    const IndexPageReader* _reader = nullptr;
 
     size_t _pos;
 };

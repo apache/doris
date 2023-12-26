@@ -19,6 +19,7 @@ package org.apache.doris.utframe;
 
 import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.DiskInfo;
+import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -26,7 +27,7 @@ import org.apache.doris.proto.PBackendServiceGrpc;
 import org.apache.doris.proto.Types;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
-import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.FrontendService.Client;
 import org.apache.doris.thrift.HeartbeatService;
 import org.apache.doris.thrift.TAgentPublishRequest;
 import org.apache.doris.thrift.TAgentResult;
@@ -64,6 +65,7 @@ import org.apache.doris.thrift.TScanOpenResult;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TStorageMediumMigrateReq;
 import org.apache.doris.thrift.TStreamLoadRecordResult;
 import org.apache.doris.thrift.TTabletInfo;
 import org.apache.doris.thrift.TTabletStatResult;
@@ -171,7 +173,7 @@ public class MockedBackendFactory {
                 public void run() {
                     while (true) {
                         boolean ok = false;
-                        FrontendService.Client client = null;
+                        Client client = null;
                         TNetworkAddress address = null;
                         try {
                             // ATTR: backend.getFeAddress must after taskQueue.take, because fe addr thread race
@@ -196,6 +198,9 @@ public class MockedBackendFactory {
                                     break;
                                 case CLONE:
                                     handleCloneTablet(request, finishTaskRequest);
+                                    break;
+                                case STORAGE_MEDIUM_MIGRATE:
+                                    handleStorageMediumMigrate(request, finishTaskRequest);
                                     break;
                                 default:
                                     break;
@@ -243,13 +248,41 @@ public class MockedBackendFactory {
                     }
 
                     List<TTabletInfo> tabletInfos = Lists.newArrayList();
-                    TTabletInfo tabletInfo = new TTabletInfo(req.tablet_id, req.schema_hash, req.committed_version,
-                            req.committed_version_hash, 1, dataSize);
+                    TTabletInfo tabletInfo = new TTabletInfo(req.tablet_id, req.schema_hash, req.version,
+                            0L, 1, dataSize);
                     tabletInfo.setStorageMedium(req.storage_medium);
                     tabletInfo.setPathHash(pathHash);
                     tabletInfo.setUsed(true);
                     tabletInfos.add(tabletInfo);
                     finishTaskRequest.setFinishTabletInfos(tabletInfos);
+                }
+
+                private void handleStorageMediumMigrate(TAgentTaskRequest request, TFinishTaskRequest finishTaskRequest) {
+                    TStorageMediumMigrateReq req = request.getStorageMediumMigrateReq();
+                    long dataSize = Math.max(1, CatalogTestUtil.getTabletDataSize(req.tablet_id));
+
+                    long srcDataPath = CatalogTestUtil.getReplicaPathHash(req.tablet_id, backendInFe.getId());
+                    DiskInfo srcDiskInfo = getDisk(srcDataPath);
+                    if (srcDiskInfo != null) {
+                        srcDiskInfo.setDataUsedCapacityB(Math.min(srcDiskInfo.getTotalCapacityB(),
+                                srcDiskInfo.getDataUsedCapacityB() - dataSize));
+                        srcDiskInfo.setAvailableCapacityB(Math.max(0L,
+                                srcDiskInfo.getAvailableCapacityB() + dataSize));
+                        srcDiskInfo.setState(DiskState.ONLINE);
+                    }
+
+                    DiskInfo destDiskInfo = getDisk(req.data_dir);
+                    if (destDiskInfo != null) {
+                        destDiskInfo.setDataUsedCapacityB(Math.min(destDiskInfo.getTotalCapacityB(),
+                                destDiskInfo.getDataUsedCapacityB() + dataSize));
+                        destDiskInfo.setAvailableCapacityB(Math.max(0L,
+                                destDiskInfo.getAvailableCapacityB() - dataSize));
+                        destDiskInfo.setState(DiskState.ONLINE);
+                    }
+                }
+
+                private DiskInfo getDisk(String dataDir) {
+                    return backendInFe.getDisks().get(dataDir);
                 }
 
                 private DiskInfo getDisk(long pathHash) {

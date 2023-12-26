@@ -202,18 +202,17 @@ void MemTrackerLimiter::make_type_snapshots(std::vector<MemTracker::Snapshot>* s
 
 void MemTrackerLimiter::make_top_consumption_snapshots(std::vector<MemTracker::Snapshot>* snapshots,
                                                        int top_num) {
-    std::priority_queue<std::pair<int64_t, MemTrackerLimiter*>> max_pq;
+    std::priority_queue<MemTracker::Snapshot> max_pq;
     // not include global type.
     for (unsigned i = 1; i < mem_tracker_limiter_pool.size(); ++i) {
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
-        for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
-            max_pq.emplace(tracker->consumption(), tracker);
+        for (auto* tracker : mem_tracker_limiter_pool[i].trackers) {
+            max_pq.emplace(tracker->make_snapshot());
         }
     }
 
     while (!max_pq.empty() && top_num > 0) {
-        auto tracker = max_pq.top().second;
-        (*snapshots).emplace_back(tracker->make_snapshot());
+        (*snapshots).emplace_back(max_pq.top());
         top_num--;
         max_pq.pop();
     }

@@ -53,16 +53,16 @@ struct SchemaScannerCommonParam {
               ip(nullptr),
               port(0),
               catalog(nullptr) {}
-    const std::string* db;
-    const std::string* table;
-    const std::string* wild;
-    const std::string* user;                 // deprecated
-    const std::string* user_ip;              // deprecated
-    const TUserIdentity* current_user_ident; // to replace the user and user ip
-    const std::string* ip;                   // frontend ip
-    int32_t port;                            // frontend thrift port
+    const std::string* db = nullptr;
+    const std::string* table = nullptr;
+    const std::string* wild = nullptr;
+    const std::string* user = nullptr;                 // deprecated
+    const std::string* user_ip = nullptr;              // deprecated
+    const TUserIdentity* current_user_ident = nullptr; // to replace the user and user ip
+    const std::string* ip = nullptr;                   // frontend ip
+    int32_t port;                                      // frontend thrift port
     int64_t thread_id;
-    const std::string* catalog;
+    const std::string* catalog = nullptr;
 };
 
 // scanner parameter from frontend
@@ -79,7 +79,7 @@ class SchemaScanner {
 
 public:
     struct ColumnDesc {
-        const char* name;
+        const char* name = nullptr;
         PrimitiveType type;
         int size;
         bool is_null;
@@ -107,7 +107,7 @@ protected:
 
     bool _is_init;
     // this is used for sub class
-    SchemaScannerParam* _param;
+    SchemaScannerParam* _param = nullptr;
     // schema table's column desc
     std::vector<ColumnDesc> _columns;
 

@@ -47,6 +47,7 @@
 #include "olap/rowset/segment_v2/page_io.h"
 #include "olap/rowset/segment_v2/page_pointer.h" // for PagePointer
 #include "olap/rowset/segment_v2/row_ranges.h"
+#include "olap/rowset/segment_v2/segment.h"
 #include "olap/rowset/segment_v2/zone_map_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/types.h" // for TypeInfo
@@ -61,10 +62,12 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_object.h"
 #include "vec/columns/column_struct.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
+#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
@@ -169,6 +172,14 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
                 map_reader->_sub_readers[3] = std::move(null_reader);
             }
             *reader = std::move(map_reader);
+            return Status::OK();
+        }
+        case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+            // Read variant only root data using a single ColumnReader
+            std::unique_ptr<ColumnReader> reader_local(
+                    new ColumnReader(opts, meta, num_rows, file_reader));
+            RETURN_IF_ERROR(reader_local->init(&meta));
+            *reader = std::move(reader_local);
             return Status::OK();
         }
         default:
@@ -541,7 +552,6 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
             try {
                 _inverted_index = FullTextIndexReader::create_shared(
                         _file_reader->fs(), _file_reader->path().native(), index_meta);
-                return Status::OK();
             } catch (const CLuceneError& e) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
                         "create FullTextIndexReader error: {}", e.what());
@@ -566,7 +576,6 @@ Status ColumnReader::_load_inverted_index_index(const TabletIndex* index_meta) {
     } else {
         _inverted_index.reset();
     }
-
     return Status::OK();
 }
 
@@ -666,6 +675,10 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             }
             *iterator = new MapFileColumnIterator(this, null_iterator, ofcIter, key_iterator,
                                                   val_iterator);
+            return Status::OK();
+        }
+        case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+            *iterator = new VariantRootColumnIterator(new FileColumnIterator(this));
             return Status::OK();
         }
         default:
@@ -1435,6 +1448,10 @@ void DefaultValueColumnIterator::insert_default_data(const TypeInfo* type_info, 
         }
         break;
     }
+    case FieldType::OLAP_FIELD_TYPE_VARIANT: {
+        dst->insert_many_defaults(n);
+        break;
+    }
     default: {
         char* data_ptr = (char*)mem_value;
         size_t data_len = type_size;
@@ -1462,6 +1479,74 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     } else {
         insert_default_data(_type_info.get(), _type_size, _mem_value.data(), dst, n);
     }
+}
+
+Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                             bool* has_null) {
+    size_t size = dst->size();
+    auto& obj =
+            dst->is_nullable()
+                    ? assert_cast<vectorized::ColumnObject&>(
+                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+                    : assert_cast<vectorized::ColumnObject&>(*dst);
+    if (obj.is_null_root()) {
+        obj.create_root();
+    }
+    auto root_column = obj.get_root();
+    RETURN_IF_ERROR(_inner_iter->next_batch(n, root_column, has_null));
+    obj.incr_num_rows(*n);
+    for (auto& entry : obj.get_subcolumns()) {
+        if (entry->data.size() != size + *n) {
+            entry->data.insertManyDefaults(*n);
+        }
+    }
+    // fill nullmap
+    if (root_column->is_nullable()) {
+        DCHECK(dst->is_nullable());
+        vectorized::ColumnUInt8& dst_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
+        vectorized::ColumnUInt8& src_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
+        dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+    }
+#ifndef NDEBUG
+    obj.check_consistency();
+#endif
+    return Status::OK();
+}
+
+Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                                 vectorized::MutableColumnPtr& dst) {
+    size_t size = dst->size();
+    auto& obj =
+            dst->is_nullable()
+                    ? assert_cast<vectorized::ColumnObject&>(
+                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
+                    : assert_cast<vectorized::ColumnObject&>(*dst);
+    if (obj.is_null_root()) {
+        obj.create_root();
+    }
+    auto root_column = obj.get_root();
+    RETURN_IF_ERROR(_inner_iter->read_by_rowids(rowids, count, root_column));
+    obj.incr_num_rows(count);
+    for (auto& entry : obj.get_subcolumns()) {
+        if (entry->data.size() != size + count) {
+            entry->data.insertManyDefaults(count);
+        }
+    }
+    // fill nullmap
+    if (root_column->is_nullable()) {
+        DCHECK(dst->is_nullable());
+        vectorized::ColumnUInt8& dst_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
+        vectorized::ColumnUInt8& src_null_map =
+                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
+        dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
+    }
+#ifndef NDEBUG
+    obj.check_consistency();
+#endif
+    return Status::OK();
 }
 
 } // namespace segment_v2

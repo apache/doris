@@ -428,27 +428,27 @@ suite ("sub_query_correlated") {
     """
 
     order_qt_hash_join_with_other_conjuncts1 """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1,k2;
     """
 
     order_qt_hash_join_with_other_conjuncts2 """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 10 ORDER BY k1,k2;
     """
 
     order_qt_hash_join_with_other_conjuncts3 """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1,k2;
     """
 
     order_qt_hash_join_with_other_conjuncts4 """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3 WHERE sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.k3) OR k1 < 11 ORDER BY k1,k2;
     """
 
     order_qt_same_subquery_in_conjuncts """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1,k2;
     """
 
     order_qt_two_subquery_in_one_conjuncts """
-        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k3 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1;
+        SELECT * FROM sub_query_correlated_subquery1 WHERE k1 IN (SELECT k1 FROM sub_query_correlated_subquery3) OR k1 IN (SELECT k3 FROM sub_query_correlated_subquery3) OR k1 < 10 ORDER BY k1,k2;
     """
 
     order_qt_multi_subquery_in_and_scalry """

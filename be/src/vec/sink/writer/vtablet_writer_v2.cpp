@@ -42,6 +42,8 @@
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/threadpool.h"
 #include "util/thrift_util.h"
@@ -53,9 +55,7 @@
 #include "vec/sink/vtablet_block_convertor.h"
 #include "vec/sink/vtablet_finder.h"
 
-namespace doris {
-
-namespace vectorized {
+namespace doris::vectorized {
 
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs)
         : AsyncResultWriter(output_exprs), _t_sink(t_sink) {
@@ -121,31 +121,24 @@ Status VTabletWriterV2::_incremental_open_streams(
 }
 
 Status VTabletWriterV2::_init_row_distribution() {
-    VRowDistributionContext ctx;
+    _row_distribution.init({.state = _state,
+                            .block_convertor = _block_convertor.get(),
+                            .tablet_finder = _tablet_finder.get(),
+                            .vpartition = _vpartition,
+                            .add_partition_request_timer = _add_partition_request_timer,
+                            .txn_id = _txn_id,
+                            .pool = _pool,
+                            .location = _location,
+                            .vec_output_expr_ctxs = &_vec_output_expr_ctxs,
+                            .schema = _schema,
+                            .caller = (void*)this,
+                            .create_partition_callback = &vectorized::on_partitions_created});
 
-    ctx.state = _state;
-    ctx.block_convertor = _block_convertor.get();
-    ctx.tablet_finder = _tablet_finder.get();
-    ctx.vpartition = _vpartition;
-    ctx.add_partition_request_timer = _add_partition_request_timer;
-    ctx.txn_id = _txn_id;
-    ctx.pool = _pool;
-    ctx.location = _location;
-    ctx.vec_output_expr_ctxs = &_vec_output_expr_ctxs;
-    ctx.on_partitions_created = &vectorized::on_partitions_created;
-    ctx.caller = (void*)this;
-    ctx.schema = _schema;
-
-    _row_distribution.init(&ctx);
-
-    RETURN_IF_ERROR(_row_distribution.open(_output_row_desc));
-
-    return Status::OK();
+    return _row_distribution.open(_output_row_desc);
 }
 
-Status VTabletWriterV2::init_properties(ObjectPool* pool, bool group_commit) {
+Status VTabletWriterV2::init_properties(ObjectPool* pool) {
     _pool = pool;
-    _group_commit = group_commit;
     return Status::OK();
 }
 
@@ -187,16 +180,15 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _stream_per_node = state->load_stream_per_node();
     _total_streams = state->total_load_streams();
     _num_local_sink = state->num_local_sink();
+    LOG(INFO) << "init olap tablet sink, load_id: " << print_id(_load_id)
+              << ", num senders: " << _num_senders << ", stream per node: " << _stream_per_node
+              << ", total_streams " << _total_streams << ", num_local_sink: " << _num_local_sink;
     DCHECK(_stream_per_node > 0) << "load stream per node should be greator than 0";
     DCHECK(_total_streams > 0) << "total load streams should be greator than 0";
     DCHECK(_num_local_sink > 0) << "num local sink should be greator than 0";
-    LOG(INFO) << "num senders: " << _num_senders << ", stream per node: " << _stream_per_node
-              << ", total_streams " << _total_streams << ", num_local_sink: " << _num_local_sink;
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
-
-    // profile must add to state's object pool
-    _profile = state->obj_pool()->add(new RuntimeProfile("VTabletWriterV2"));
+    DBUG_EXECUTE_IF("VTabletWriterV2._init.is_high_priority", { _is_high_priority = true; });
     _mem_tracker =
             std::make_shared<MemTracker>("VTabletWriterV2:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
@@ -208,6 +200,16 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
         return Status::InternalError("unknown destination tuple descriptor, id = {}",
                                      _tuple_desc_id);
     }
+    if (_vec_output_expr_ctxs.size() > 0 &&
+        _output_tuple_desc->slots().size() != _vec_output_expr_ctxs.size()) {
+        LOG(WARNING) << "output tuple slot num should be equal to num of output exprs, "
+                     << "output_tuple_slot_num " << _output_tuple_desc->slots().size()
+                     << " output_expr_num " << _vec_output_expr_ctxs.size();
+        return Status::InvalidArgument(
+                "output_tuple_slot_num {} should be equal to output_expr_num {}",
+                _output_tuple_desc->slots().size(), _vec_output_expr_ctxs.size());
+    }
+
     _block_convertor = std::make_unique<OlapTableBlockConvertor>(_output_tuple_desc);
     _block_convertor->init_autoinc_info(_schema->db_id(), _schema->table_id(),
                                         _state->batch_size());
@@ -242,7 +244,7 @@ Status VTabletWriterV2::open(RuntimeState* state, RuntimeProfile* profile) {
     SCOPED_TIMER(_open_timer);
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
-    _build_tablet_node_mapping();
+    RETURN_IF_ERROR(_build_tablet_node_mapping());
     RETURN_IF_ERROR(_open_streams(_backend_id));
     RETURN_IF_ERROR(_init_row_distribution());
 
@@ -281,13 +283,17 @@ Status VTabletWriterV2::_open_streams_to_backend(int64_t dst_id,
     return Status::OK();
 }
 
-void VTabletWriterV2::_build_tablet_node_mapping() {
+Status VTabletWriterV2::_build_tablet_node_mapping() {
     std::unordered_set<int64_t> known_indexes;
     for (const auto& partition : _vpartition->get_partitions()) {
         for (const auto& index : partition->indexes) {
             for (const auto& tablet_id : index.tablets) {
-                auto nodes = _location->find_tablet(tablet_id)->node_ids;
-                for (auto& node : nodes) {
+                auto tablet_location = _location->find_tablet(tablet_id);
+                if (tablet_location == nullptr) {
+                    return Status::InternalError("unknown tablet location, tablet id = {}",
+                                                 tablet_id);
+                }
+                for (auto& node : tablet_location->node_ids) {
                     PTabletID tablet;
                     tablet.set_partition_id(partition->id);
                     tablet.set_index_id(index.index_id);
@@ -302,6 +308,7 @@ void VTabletWriterV2::_build_tablet_node_mapping() {
             }
         }
     }
+    return Status::OK();
 }
 
 void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& row_part_tablet_ids,
@@ -330,11 +337,11 @@ void VTabletWriterV2::_generate_rows_for_tablet(std::vector<RowPartTabletIds>& r
 
 Status VTabletWriterV2::_select_streams(int64_t tablet_id, int64_t partition_id, int64_t index_id,
                                         Streams& streams) {
-    auto location = _location->find_tablet(tablet_id);
+    const auto* location = _location->find_tablet(tablet_id);
     if (location == nullptr) {
         return Status::InternalError("unknown tablet location, tablet id = {}", tablet_id);
     }
-    for (auto& node_id : location->node_ids) {
+    for (const auto& node_id : location->node_ids) {
         PTabletID tablet;
         tablet.set_partition_id(partition_id);
         tablet.set_index_id(index_id);
@@ -354,6 +361,9 @@ Status VTabletWriterV2::append_block(Block& input_block) {
     if (_state->query_options().dry_run_query) {
         return status;
     }
+
+    // check out of limit
+    RETURN_IF_ERROR(_send_new_partition_batch());
 
     auto input_rows = input_block.rows();
     auto input_bytes = input_block.bytes();
@@ -378,7 +388,8 @@ Status VTabletWriterV2::append_block(Block& input_block) {
 
     std::shared_ptr<vectorized::Block> block;
     RETURN_IF_ERROR(_row_distribution.generate_rows_distribution(
-            input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids));
+            input_block, block, filtered_rows, has_filtered_rows, _row_part_tablet_ids,
+            _number_input_rows));
     RowsForTablet rows_for_tablet;
     _generate_rows_for_tablet(_row_part_tablet_ids, rows_for_tablet);
 
@@ -408,7 +419,7 @@ Status VTabletWriterV2::_write_memtable(std::shared_ptr<vectorized::Block> block
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = _write_file_cache,
         };
-        for (auto& index : _schema->indexes()) {
+        for (const auto& index : _schema->indexes()) {
             if (index->index_id == rows.index_id) {
                 req.slots = &index->slots;
                 req.schema_hash = index->schema_hash;
@@ -439,6 +450,26 @@ Status VTabletWriterV2::_cancel(Status status) {
     return Status::OK();
 }
 
+Status VTabletWriterV2::_send_new_partition_batch() {
+    if (_row_distribution.need_deal_batching()) { // maybe try_close more than 1 time
+        RETURN_IF_ERROR(_row_distribution.automatic_create_partition());
+
+        Block tmp_block = _row_distribution._batching_block->to_block(); // Borrow out, for lval ref
+
+        // these order is only.
+        //  1. clear batching stats(and flag goes true) so that we won't make a new batching process in dealing batched block.
+        //  2. deal batched block
+        //  3. now reuse the column of lval block. cuz append_block doesn't real adjust it. it generate a new block from that.
+        _row_distribution.clear_batching_stats();
+        RETURN_IF_ERROR(this->append_block(tmp_block));
+        _row_distribution._batching_block->set_mutable_columns(
+                tmp_block.mutate_columns()); // Recovery back
+        _row_distribution._batching_block->clear_column_data();
+        _row_distribution._deal_batched = false;
+    }
+    return Status::OK();
+}
+
 Status VTabletWriterV2::close(Status exec_status) {
     std::lock_guard<std::mutex> close_lock(_close_mutex);
     if (_is_closed) {
@@ -446,6 +477,13 @@ Status VTabletWriterV2::close(Status exec_status) {
     }
     SCOPED_TIMER(_close_timer);
     Status status = exec_status;
+
+    if (status.ok()) {
+        SCOPED_TIMER(_profile->total_time_counter());
+        _row_distribution._deal_batched = true;
+        status = _send_new_partition_batch();
+    }
+
     if (status.ok()) {
         // only if status is ok can we call this _profile->total_time_counter().
         // if status is not ok, this sink may not be prepared, so that _profile is null
@@ -459,10 +497,12 @@ Status VTabletWriterV2::close(Status exec_status) {
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
 
-        // release streams from the pool first, to prevent memory leak
-        for (const auto& [_, streams] : _streams_for_node) {
-            streams->release();
-        }
+        // defer stream release to prevent memory leak
+        Defer defer([&] {
+            for (const auto& [_, streams] : _streams_for_node) {
+                streams->release();
+            }
+        });
 
         {
             SCOPED_TIMER(_close_writer_timer);
@@ -537,5 +577,4 @@ Status VTabletWriterV2::_close_load(const Streams& streams) {
     return Status::OK();
 }
 
-} // namespace vectorized
-} // namespace doris
+} // namespace doris::vectorized

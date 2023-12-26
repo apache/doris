@@ -36,7 +36,7 @@ enum TDataSinkType {
     RESULT_FILE_SINK,
     JDBC_TABLE_SINK,
     MULTI_CAST_DATA_STREAM_SINK,
-    GROUP_COMMIT_OLAP_TABLE_SINK,
+    GROUP_COMMIT_OLAP_TABLE_SINK, // deprecated
     GROUP_COMMIT_BLOCK_SINK,
 }
 
@@ -235,6 +235,12 @@ struct TExportSink {
     7: optional string header
 }
 
+enum TGroupCommitMode {
+    SYNC_MODE,
+    ASYNC_MODE,
+    OFF_MODE
+}
+
 struct TOlapTableSink {
     1: required Types.TUniqueId load_id
     2: required i64 txn_id
@@ -256,7 +262,11 @@ struct TOlapTableSink {
     18: optional Descriptors.TOlapTableLocationParam slave_location
     19: optional i64 txn_timeout_s // timeout of load txn in second
     20: optional bool write_file_cache
+
+    // used by GroupCommitBlockSink
     21: optional i64 base_schema_version
+    22: optional TGroupCommitMode group_commit_mode
+    23: optional double max_filter_ratio
 }
 
 struct TDataSink {

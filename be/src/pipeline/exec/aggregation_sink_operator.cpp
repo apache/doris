@@ -79,8 +79,9 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
     Base::_shared_state->init_spill_partition_helper(p._spill_partition_count_bits);
     for (auto& evaluator : p._aggregate_evaluators) {
         Base::_shared_state->aggregate_evaluators.push_back(evaluator->clone(state, p._pool));
-        Base::_shared_state->aggregate_evaluators.back()->set_timer(_exec_timer, _merge_timer,
-                                                                    _expr_timer);
+    }
+    if (p._is_streaming) {
+        Base::_shared_state->data_queue->set_sink_dependency(Base::_dependency, 0);
     }
     Base::_shared_state->probe_expr_ctxs.resize(p._probe_expr_ctxs.size());
     for (size_t i = 0; i < Base::_shared_state->probe_expr_ctxs.size(); i++) {
@@ -106,6 +107,10 @@ Status AggSinkLocalState<DependencyType, Derived>::init(RuntimeState* state,
     _hash_table_input_counter = ADD_COUNTER(Base::profile(), "HashTableInputCount", TUnit::UNIT);
     _max_row_size_counter = ADD_COUNTER(Base::profile(), "MaxRowSizeInBytes", TUnit::UNIT);
     COUNTER_SET(_max_row_size_counter, (int64_t)0);
+
+    for (auto& evaluator : Base::_shared_state->aggregate_evaluators) {
+        evaluator->set_timer(_merge_timer, _expr_timer);
+    }
 
     Base::_shared_state->agg_profile_arena = std::make_unique<vectorized::Arena>();
 
@@ -240,10 +245,9 @@ void AggSinkLocalState<DependencyType, Derived>::_update_memusage_with_serialize
                         _agg_arena_pool->size() +
                         Base::_shared_state->aggregate_data_container->memory_usage() -
                         Base::_shared_state->mem_usage_record.used_in_arena;
-                Base::_shared_state->mem_tracker->consume(arena_memory_usage);
-                Base::_shared_state->mem_tracker->consume(
-                        data.get_buffer_size_in_bytes() -
-                        Base::_shared_state->mem_usage_record.used_in_state);
+                Base::_mem_tracker->consume(arena_memory_usage);
+                Base::_mem_tracker->consume(data.get_buffer_size_in_bytes() -
+                                            Base::_shared_state->mem_usage_record.used_in_state);
                 _serialize_key_arena_memory_usage->add(arena_memory_usage);
                 COUNTER_UPDATE(_hash_table_memory_usage,
                                data.get_buffer_size_in_bytes() -
@@ -435,7 +439,7 @@ template <typename DependencyType, typename Derived>
 void AggSinkLocalState<DependencyType, Derived>::_update_memusage_without_key() {
     auto arena_memory_usage =
             _agg_arena_pool->size() - Base::_shared_state->mem_usage_record.used_in_arena;
-    Base::_shared_state->mem_tracker->consume(arena_memory_usage);
+    Base::_mem_tracker->consume(arena_memory_usage);
     _serialize_key_arena_memory_usage->add(arena_memory_usage);
     Base::_shared_state->mem_usage_record.used_in_arena = _agg_arena_pool->size();
 }
@@ -717,7 +721,7 @@ Status AggSinkLocalState<DependencyType, Derived>::try_spill_disk(bool eos) {
 template <typename LocalStateType>
 AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operator_id,
                                                    const TPlanNode& tnode,
-                                                   const DescriptorTbl& descs)
+                                                   const DescriptorTbl& descs, bool is_streaming)
         : DataSinkOperatorX<LocalStateType>(operator_id, tnode.node_id),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
@@ -725,11 +729,13 @@ AggSinkOperatorX<LocalStateType>::AggSinkOperatorX(ObjectPool* pool, int operato
           _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_merge(false),
+          _is_first_phase(tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase),
           _pool(pool),
           _limit(tnode.limit),
-          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()) {
-    _is_first_phase = tnode.agg_node.__isset.is_first_phase && tnode.agg_node.is_first_phase;
-}
+          _have_conjuncts(tnode.__isset.vconjunct && !tnode.vconjunct.nodes.empty()),
+          _is_streaming(is_streaming),
+          _partition_exprs(tnode.agg_node.grouping_exprs),
+          _is_colocate(tnode.agg_node.__isset.is_colocate && tnode.agg_node.is_colocate) {}
 
 template <typename LocalStateType>
 Status AggSinkOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState* state) {
@@ -873,7 +879,8 @@ Status AggSinkLocalState<DependencyType, Derived>::close(RuntimeState* state, St
 
     std::vector<char> tmp_deserialize_buffer;
     _deserialize_buffer.swap(tmp_deserialize_buffer);
-
+    Base::_mem_tracker->release(Base::_shared_state->mem_usage_record.used_in_state +
+                                Base::_shared_state->mem_usage_record.used_in_arena);
     return Base::close(state, exec_status);
 }
 

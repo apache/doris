@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -66,7 +67,7 @@ public class CreateJobStmt extends DdlStmt {
     private StatementBase doStmt;
 
     @Getter
-    private AbstractJob<?> jobInstance;
+    private AbstractJob jobInstance;
 
     private final LabelName labelName;
 
@@ -83,11 +84,12 @@ public class CreateJobStmt extends DdlStmt {
     private final String comment;
     private JobExecuteType executeType;
 
-    private String timezone = TimeUtils.DEFAULT_TIME_ZONE;
+    // exclude job name prefix, which is used by inner job
+    private final String excludeJobNamePrefix = "inner_";
 
     private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
             = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
-            .add(UpdateStmt.class).build();
+            .build();
 
     private static final HashSet<String> supportStmtClassNamesCache = new HashSet<>(16);
 
@@ -114,11 +116,9 @@ public class CreateJobStmt extends DdlStmt {
         Env.getCurrentInternalCatalog().getDbOrAnalysisException(dbName);
         analyzerSqlStmt();
         // check its insert stmt,currently only support insert stmt
-        //todo used InsertIntoCommand if job is InsertJob
-        InsertJob job = new InsertJob();
+        //todo when support other stmt,need to check stmt type and generate jobInstance
         JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
         jobExecutionConfiguration.setExecuteType(executeType);
-        job.setCreateTimeMs(System.currentTimeMillis());
         TimerDefinition timerDefinition = new TimerDefinition();
 
         if (null != onceJobStartTimestamp) {
@@ -128,7 +128,15 @@ public class CreateJobStmt extends DdlStmt {
             timerDefinition.setInterval(interval);
         }
         if (null != intervalTimeUnit) {
-            timerDefinition.setIntervalUnit(IntervalUnit.valueOf(intervalTimeUnit.toUpperCase()));
+            IntervalUnit intervalUnit = IntervalUnit.fromString(intervalTimeUnit.toUpperCase());
+            if (null == intervalUnit) {
+                throw new AnalysisException("interval time unit can not be " + intervalTimeUnit);
+            }
+            if (intervalUnit.equals(IntervalUnit.SECOND)
+                    && !Config.enable_job_schedule_second_for_test) {
+                throw new AnalysisException("interval time unit can not be second");
+            }
+            timerDefinition.setIntervalUnit(intervalUnit);
         }
         if (null != startsTimeStamp) {
             timerDefinition.setStartTimeMs(TimeUtils.timeStringToLong(startsTimeStamp));
@@ -136,19 +144,31 @@ public class CreateJobStmt extends DdlStmt {
         if (null != endsTimeStamp) {
             timerDefinition.setEndTimeMs(TimeUtils.timeStringToLong(endsTimeStamp));
         }
+        checkJobName(labelName.getLabelName());
         jobExecutionConfiguration.setTimerDefinition(timerDefinition);
-        job.setJobConfig(jobExecutionConfiguration);
-
-        job.setComment(comment);
-        job.setCurrentDbName(labelName.getDbName());
-        job.setJobName(labelName.getLabelName());
-        job.setCreateUser(ConnectContext.get().getCurrentUserIdentity());
-        job.setJobStatus(JobStatus.RUNNING);
-        job.checkJobParams();
         String originStmt = getOrigStmt().originStmt;
         String executeSql = parseExecuteSql(originStmt);
-        job.setExecuteSql(executeSql);
+        // create job use label name as its job name
+        String jobName = labelName.getLabelName();
+        InsertJob job = new InsertJob(jobName,
+                JobStatus.RUNNING,
+                labelName.getDbName(),
+                comment,
+                ConnectContext.get().getCurrentUserIdentity(),
+                jobExecutionConfiguration,
+                System.currentTimeMillis(),
+                executeSql);
+        //job.checkJobParams();
         jobInstance = job;
+    }
+
+    private void checkJobName(String jobName) throws AnalysisException {
+        if (StringUtils.isBlank(jobName)) {
+            throw new AnalysisException("job name can not be null");
+        }
+        if (jobName.startsWith(excludeJobNamePrefix)) {
+            throw new AnalysisException("job name can not start with " + excludeJobNamePrefix);
+        }
     }
 
     protected static void checkAuth() throws AnalysisException {
@@ -167,7 +187,7 @@ public class CreateJobStmt extends DdlStmt {
                 return;
             }
         }
-        throw new AnalysisException("Not support this stmt type");
+        throw new AnalysisException("Not support " + doStmt.getClass().getSimpleName() + " type in job");
     }
 
     private void analyzerSqlStmt() throws UserException {
@@ -175,9 +195,13 @@ public class CreateJobStmt extends DdlStmt {
         doStmt.analyze(analyzer);
     }
 
+    /**
+     * parse execute sql from create job stmt
+     * Some stmt not implement toSql method,so we need to parse sql from originStmt
+     */
     private String parseExecuteSql(String sql) throws AnalysisException {
-        sql = sql.toLowerCase();
-        int executeSqlIndex = sql.indexOf(" do ");
+        String lowerCaseSql = sql.toLowerCase();
+        int executeSqlIndex = lowerCaseSql.indexOf(" do ");
         String executeSql = sql.substring(executeSqlIndex + 4).trim();
         if (StringUtils.isBlank(executeSql)) {
             throw new AnalysisException("execute sql has invalid format");

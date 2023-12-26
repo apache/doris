@@ -34,7 +34,6 @@
 #include "task_queue.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
-#include "vec/core/future_block.h"
 
 namespace doris {
 class RuntimeState;
@@ -59,10 +58,11 @@ PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* 
           _root(_operators.back()),
           _sink(sink) {
     _pipeline_task_watcher.start();
-    _query_statistics.reset(new QueryStatistics());
+    _query_statistics.reset(new QueryStatistics(state->query_options().query_type));
     _sink->set_query_statistics(_query_statistics);
     _collect_query_statistics_with_every_batch =
             _pipeline->collect_query_statistics_with_every_batch();
+    fragment_context->set_query_statistics(_query_statistics);
 }
 
 PipelineTask::PipelineTask(PipelinePtr& pipeline, uint32_t index, RuntimeState* state,
@@ -113,7 +113,6 @@ void PipelineTask::_init_profile() {
     _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
     _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
     _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
-    _finalize_timer = ADD_CHILD_TIMER(_task_profile, "FinalizeTime", exec_time);
     _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
 
     _wait_source_timer = ADD_TIMER(_task_profile, "WaitSourceTime");
@@ -167,8 +166,7 @@ Status PipelineTask::prepare(RuntimeState* state) {
     fmt::format_to(operator_ids_str, "]");
     _task_profile->add_info_string("OperatorIds(source2root)", fmt::to_string(operator_ids_str));
 
-    _block = _fragment_context->is_group_commit() ? doris::vectorized::FutureBlock::create_unique()
-                                                  : doris::vectorized::Block::create_unique();
+    _block = doris::vectorized::Block::create_unique();
 
     // We should make sure initial state for task are runnable so that we can do some preparation jobs (e.g. initialize runtime filters).
     set_state(PipelineTaskState::RUNNABLE);
@@ -257,16 +255,6 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     auto status = Status::OK();
-    auto handle_group_commit = [&]() {
-        if (UNLIKELY(_fragment_context->is_group_commit() && !status.ok() && _block != nullptr)) {
-            auto* future_block = dynamic_cast<vectorized::FutureBlock*>(_block.get());
-            std::unique_lock<doris::Mutex> l(*(future_block->lock));
-            if (!future_block->is_handled()) {
-                future_block->set_result(status, 0, 0);
-                future_block->cv->notify_all();
-            }
-        }
-    };
 
     this->set_begin_execute_time();
     while (!_fragment_context->is_canceled()) {
@@ -291,11 +279,7 @@ Status PipelineTask::execute(bool* eos) {
         {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            status = _root->get_block(_state, block, _data_state);
-            if (UNLIKELY(!status.ok())) {
-                handle_group_commit();
-                return status;
-            }
+            RETURN_IF_ERROR(_root->get_block(_state, block, _data_state));
         }
         *eos = _data_state == SourceState::FINISHED;
 
@@ -306,7 +290,6 @@ Status PipelineTask::execute(bool* eos) {
                 RETURN_IF_ERROR(_collect_query_statistics());
             }
             status = _sink->sink(_state, block, _data_state);
-            handle_group_commit();
             if (!status.is<ErrorCode::END_OF_FILE>()) {
                 RETURN_IF_ERROR(status);
             }
@@ -318,18 +301,6 @@ Status PipelineTask::execute(bool* eos) {
     }
 
     return Status::OK();
-}
-
-Status PipelineTask::finalize() {
-    SCOPED_TIMER(_task_profile->total_time_counter());
-    SCOPED_CPU_TIMER(_task_cpu_timer);
-    Defer defer {[&]() {
-        if (_task_queue) {
-            _task_queue->update_statistics(this, _finalize_timer->value());
-        }
-    }};
-    SCOPED_TIMER(_finalize_timer);
-    return _sink->finalize(_state);
 }
 
 Status PipelineTask::_collect_query_statistics() {

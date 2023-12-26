@@ -175,10 +175,12 @@ public class RoutineLoadManager implements Writable {
 
         routineLoadJob.setOrigStmt(createRoutineLoadStmt.getOrigStmt());
         routineLoadJob.setComment(createRoutineLoadStmt.getComment());
-        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName());
+        addRoutineLoadJob(routineLoadJob, createRoutineLoadStmt.getDBName(),
+                    createRoutineLoadStmt.getTableName());
     }
 
-    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName) throws DdlException {
+    public void addRoutineLoadJob(RoutineLoadJob routineLoadJob, String dbName, String tableName)
+                    throws DdlException {
         writeLock();
         try {
             // check if db.routineLoadName has been used
@@ -195,10 +197,12 @@ public class RoutineLoadManager implements Writable {
 
             unprotectedAddJob(routineLoadJob);
             Env.getCurrentEnv().getEditLog().logCreateRoutineLoadJob(routineLoadJob);
-            LOG.info("create routine load job: id: {}, name: {}", routineLoadJob.getId(), routineLoadJob.getName());
         } finally {
             writeUnlock();
         }
+
+        LOG.info("create routine load job: id: {}, job name: {}, db name: {}, table name: {}",
+                 routineLoadJob.getId(), routineLoadJob.getName(), dbName, tableName);
     }
 
     private void unprotectedAddJob(RoutineLoadJob routineLoadJob) {
@@ -445,8 +449,8 @@ public class RoutineLoadManager implements Writable {
     // check if the specified BE is available for running task
     // return true if it is available. return false if otherwise.
     // throw exception if unrecoverable errors happen.
-    public long getAvailableBeForTask(long jobId, long previousBeId, String clusterName) throws LoadException {
-        List<Long> availableBeIds = getAvailableBackendIds(jobId, clusterName);
+    public long getAvailableBeForTask(long jobId, long previousBeId) throws LoadException {
+        List<Long> availableBeIds = getAvailableBackendIds(jobId);
 
         // check if be has idle slot
         readLock();
@@ -511,7 +515,7 @@ public class RoutineLoadManager implements Writable {
      * @return
      * @throws LoadException
      */
-    private List<Long> getAvailableBackendIds(long jobId, String cluster) throws LoadException {
+    private List<Long> getAvailableBackendIds(long jobId) throws LoadException {
         RoutineLoadJob job = getJob(jobId);
         if (job == null) {
             throw new LoadException("job " + jobId + " does not exist");
@@ -715,10 +719,10 @@ public class RoutineLoadManager implements Writable {
             if (job != null) {
                 unprotectedRemoveJobFromDb(job);
             }
-            LOG.info("replay remove routine load job: {}", operation.getId());
         } finally {
             writeUnlock();
         }
+        LOG.info("replay remove routine load job: {}", operation.getId());
     }
 
     private void unprotectedRemoveJobFromDb(RoutineLoadJob routineLoadJob) {

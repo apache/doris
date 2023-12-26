@@ -376,6 +376,18 @@ Is it a configuration item unique to the Master FE node: true
 
 Whether to enable the multi-tags function of a single BE
 
+#### `initial_root_password`
+
+Set root user initial 2-staged SHA-1 encrypted password, default as '', means no root password. Subsequent `set password` operations for root user will overwrite the initial root password.
+
+Example: If you want to configure a plaintext password `root@123`. You can execute Doris SQL `select password('root@123')` to generate encrypted password `*A00C34073A26B40AB4307650BFB9309D6BFA6999`.
+
+Default: empty string
+
+Is it possible to dynamically configure: false
+
+Is it a configuration item unique to the Master FE node: true
+
 ### Service
 
 #### `query_port`
@@ -429,7 +441,7 @@ If enable_https is true, you need to configure ssl certificate information in fe
 
 Default：true
 
-If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+If set to true, doris will establish an encrypted channel based on the SSL protocol with mysql.
 
 #### `qe_max_connection`
 
@@ -575,6 +587,16 @@ Is it possible to configure dynamically: true
 
 Whether it is a configuration item unique to the Master FE node: true
 
+### `abort_txn_after_lost_heartbeat_time_second`
+
+Abort transaction time after lost heartbeat. The default value is 300, which means transactions of be will be aborted after lost heartbeat 300s.
+
+Default: 300(s)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
 #### `enable_access_file_without_broker`
 
 Default：false
@@ -627,7 +649,7 @@ Cluster token used for internal authentication.
 
 Default：The default is true after the official 0.14.0 version is released, and the default is false before
 
-HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when httpv2 is enabled can users use the new front-end UI interface.
+HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separates the front and back ends. Only when HTTPv2 is enabled can users use the new front-end UI interface.
 
 #### `http_api_extra_base_path`
 
@@ -894,9 +916,9 @@ This may reduce network transmission in following case:
 
 -  The data has N replicas.
 
--  High concurrency queries are syyuyuient to all Frontends evenly
+-  High concurrency queries are evenly sent to all Frontends evenly
 
-In this case, all Frontends can only use local replicas to do the query. If you want to allow fallback to nonlocal replicas when no local replicas available, set enable_local_replica_selection_fallback to true.
+In this case, all Frontends can only use local replicas to do the query. If you want to allow fallback to non-local replicas when no local replicas available, set enable_local_replica_selection_fallback to true.
 
 #### `enable_local_replica_selection_fallback`
 
@@ -904,7 +926,7 @@ Default：false
 
 IsMutable：true
 
-Used with enable_local_replica_selection. If the local replicas is not available, fallback to the nonlocal replicas.
+Used with enable_local_replica_selection. If the local replicas is not available, fallback to the non-local replicas.
 
 #### `expr_depth_limit`
 
@@ -975,7 +997,7 @@ Default：1
 
 IsMutable：true
 
-colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
+Colocote join PlanFragment instance的memory_limit = exec_mem_limit / min (query_colocate_join_memory_limit_penalty_factor, instance_num)
 
 #### `rewrite_count_distinct_to_bitmap_hll`
 
@@ -984,7 +1006,7 @@ Default: true
 This variable is a session variable, and the session level takes effect.
 
 - Type: boolean
-- Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distnct will be rewritten It is bitmap_union_count(c1). When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1) If the variable is false, no overwriting occurs..
+- Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distinct will be rewritten It is bitmap_union_count(c1). When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1) If the variable is false, no overwriting occurs..
 
 ### Load And Export
 
@@ -1340,6 +1362,17 @@ IsMutable：true
 MasterOnly：true
 
 Default stream load pre-submission timeout
+
+#### `stream_load_default_memtable_on_sink_node`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：true
+
+Enable memtable on sink node for stream load by default.
+When HTTP header `memtable_on_sink_node` is not set.
 
 #### `insert_load_default_timeout_second`
 
@@ -1717,6 +1750,12 @@ Default: false
 
 If true, will compress fe.audit.log by gzip
 
+#### `nereids_trace_log_dir`
+
+Default: DorisFE.DORIS_HOME_DIR + "/log/nereids_trace"
+
+Used to specify the directory of the nereids trace log
+
 ### Storage
 
 #### `min_replication_num_per_tablet`
@@ -1983,7 +2022,7 @@ Dynamically configured: true
 Only for Master FE: true
 
 The relocation of a colocation group may involve a large number of tablets moving within the cluster. Therefore, we should use a more conservative strategy to avoid relocation of colocation groups as much as possible.
-Reloaction usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
+Relocation usually occurs after a BE node goes offline or goes down. This parameter is used to delay the determination of BE node unavailability. The default is 30 minutes, i.e., if a BE node recovers within 30 minutes, relocation of the colocation group will not be triggered.
 
 ####` allow_replica_on_same_host`
 
@@ -2140,7 +2179,7 @@ When create a table(or partition), you can specify its storage medium(HDD or SSD
 
 Default：HDD
 
-When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when creat.
+When create a table(or partition), you can specify its storage medium(HDD or SSD). If not set, this specifies the default medium when create.
 
 #### `enable_storage_policy`
 
@@ -2223,6 +2262,16 @@ MasterOnly：true
 
 Same meaning as *tablet_create_timeout_second*, but used when delete a tablet.
 
+#### `delete_job_max_timeout_second`
+
+Default: 300(s)
+
+Mutable: true
+
+Master only: true
+
+Maximal timeout for delete job, in seconds.
+
 #### `alter_table_timeout_second`
 
 Default：86400 * 30（1 month）
@@ -2285,60 +2334,15 @@ MasterOnly：false
 
 multi catalog concurrent file scan size
 
-#### `enable_odbc_table`
+#### `enable_odbc_mysql_broker_table`
 
 Default：false
 
 IsMutable：true
 
-MasterOnly：true
-
-Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it.
-
-This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
-
-**Note:** This parameter has been deleted in version 1.2. The ODBC External Table is enabled by default, and the ODBC External Table will be deleted in a later version. It is recommended to use the JDBC External Table
-
-#### `disable_iceberg_hudi_table`
-
-Default：true
-
-IsMutable：true
-
 MasterOnly：false
 
-Starting from version 1.2, we no longer support create hudi and iceberg External Table. Please use the multi catalog.
-
-#### `iceberg_table_creation_interval_second`
-
-Default：10 (s)
-
-IsMutable：true
-
-MasterOnly：false
-
-fe will create iceberg table every iceberg_table_creation_interval_second
-
-#### `iceberg_table_creation_strict_mode`
-
-Default：true
-
-IsMutable：true
-
-MasterOnly：true
-
-If set to TRUE, the column definitions of iceberg table and the doris table must be consistent
-If set to FALSE, Doris only creates columns of supported data types.
-
-#### `max_iceberg_table_creation_record_size`
-
-Default max number of recent iceberg database table creation record that can be stored in memory.
-
-Default：2000
-
-IsMutable：true
-
-MasterOnly：true
+Starting from version 2.1, we no longer support create ODBC, JDBC and broker external table. For odbc and mysql external table, use JDBC table or JDBC catalog instead. For broker table, use table valued function instead.
 
 #### `max_hive_partition_cache_num`
 
@@ -2563,6 +2567,26 @@ MasterOnly：true
 
 default timeout of backup job
 
+#### `backup_upload_task_num_per_be`
+
+Default：3
+
+IsMutable：true
+
+MasterOnly：true
+
+The max number of upload tasks assigned to each be during the backup process, the default value is 3.
+
+#### `restore_download_task_num_per_be`
+
+Default：3
+
+IsMutable：true
+
+MasterOnly：true
+
+The max number of download tasks assigned to each be during the restore process, the default value is 3.
+
 #### `max_backup_restore_job_num_per_db`
 
 Default: 10
@@ -2615,7 +2639,7 @@ IsMutable：true
 
 MasterOnly：false
 
-Whether to push the filter conditions with functions down to MYSQL, when exectue query of ODBC、JDBC external tables
+Whether to push the filter conditions with functions down to MYSQL, when execute query of ODBC、JDBC external tables
 
 #### `jdbc_drivers_dir`
 

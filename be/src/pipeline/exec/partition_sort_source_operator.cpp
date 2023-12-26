@@ -33,7 +33,6 @@ Status PartitionSortSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     RETURN_IF_ERROR(PipelineXLocalState<PartitionSortSourceDependency>::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _get_next_timer = ADD_TIMER(profile(), "GetResultTime");
     _get_sorted_timer = ADD_TIMER(profile(), "GetSortedTime");
     _shared_state->previous_row = std::make_unique<vectorized::SortCursorCmp>();
     return Status::OK();
@@ -44,18 +43,23 @@ Status PartitionSortSourceOperatorX::get_block(RuntimeState* state, vectorized::
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
-    SCOPED_TIMER(local_state._get_next_timer);
     output_block->clear_column_data();
     {
         std::lock_guard<std::mutex> lock(local_state._shared_state->buffer_mutex);
         if (local_state._shared_state->blocks_buffer.empty() == false) {
             local_state._shared_state->blocks_buffer.front().swap(*output_block);
             local_state._shared_state->blocks_buffer.pop();
-            //if buffer have no data, block reading and wait for signal again
+            //if buffer have no data and sink not eos, block reading and wait for signal again
             RETURN_IF_ERROR(vectorized::VExprContext::filter_block(
                     local_state._conjuncts, output_block, output_block->columns()));
-            if (local_state._shared_state->blocks_buffer.empty()) {
-                local_state._dependency->block();
+            if (local_state._shared_state->blocks_buffer.empty() &&
+                local_state._shared_state->sink_eos == false) {
+                // add this mutex to check, as in some case maybe is doing block(), and the sink is doing set eos.
+                // so have to hold mutex to set block(), avoid to sink have set eos and set ready, but here set block() by mistake
+                std::unique_lock<std::mutex> lc(local_state._shared_state->sink_eos_lock);
+                if (local_state._shared_state->sink_eos == false) {
+                    local_state._dependency->block();
+                }
             }
             return Status::OK();
         }

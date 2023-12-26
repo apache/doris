@@ -194,6 +194,7 @@ protected:
         std::shared_ptr<DataDir> data_dir = std::make_shared<DataDir>(lTestDir);
         TabletMetaSharedPtr tablet_meta = std::make_shared<TabletMeta>();
         tablet_meta->_tablet_id = 1;
+        tablet_meta->set_partition_id(10000);
         tablet_meta->_schema = tablet_schema;
         auto tablet = std::make_shared<Tablet>(tablet_meta, data_dir.get(), "test_str");
         char* tmp_str = (char*)malloc(20);

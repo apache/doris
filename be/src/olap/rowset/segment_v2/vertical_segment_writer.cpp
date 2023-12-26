@@ -26,7 +26,6 @@
 #include <unordered_map>
 #include <utility>
 
-#include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
 #include "common/logging.h" // LOG
@@ -45,6 +44,7 @@
 #include "olap/short_key_index.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "service/point_query_executor.h"
 #include "util/coding.h"
@@ -106,12 +106,18 @@ VerticalSegmentWriter::~VerticalSegmentWriter() {
 void VerticalSegmentWriter::_init_column_meta(ColumnMetaPB* meta, uint32_t column_id,
                                               const TabletColumn& column) {
     meta->set_column_id(column_id);
-    meta->set_unique_id(column.unique_id());
     meta->set_type(int(column.type()));
     meta->set_length(column.length());
     meta->set_encoding(DEFAULT_ENCODING);
     meta->set_compression(_opts.compression_type);
     meta->set_is_nullable(column.is_nullable());
+    meta->set_default_value(column.default_value());
+    meta->set_precision(column.precision());
+    meta->set_frac(column.frac());
+    if (!column.path_info().empty()) {
+        column.path_info().to_protobuf(meta->mutable_column_path_info(), column.parent_unique_id());
+    }
+    meta->set_unique_id(column.unique_id());
     for (uint32_t i = 0; i < column.get_subtype_count(); ++i) {
         _init_column_meta(meta->add_children_columns(), column_id, column.get_sub_column(i));
     }
@@ -124,9 +130,8 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
     _init_column_meta(opts.meta, cid, column);
 
     // now we create zone map for key columns in AGG_KEYS or all column in UNIQUE_KEYS or DUP_KEYS
-    // and not support zone map for array type and jsonb type.
-    opts.need_zone_map = (column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS) &&
-                         column.type() != FieldType::OLAP_FIELD_TYPE_OBJECT;
+    // except for columns whose type don't support zone map.
+    opts.need_zone_map = column.is_key() || _tablet_schema->keys_type() != KeysType::AGG_KEYS;
     opts.need_bloom_filter = column.is_bf_column();
     auto* tablet_index = _tablet_schema->get_ngram_bf_index(column.unique_id());
     if (tablet_index) {
@@ -148,7 +153,12 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
         skip_inverted_index = true;
     }
     // indexes for this column
-    opts.indexes = _tablet_schema->get_indexes_for_column(column.unique_id());
+    opts.indexes = _tablet_schema->get_indexes_for_column(column);
+    if (column.is_variant_type() || (column.is_extracted_column() && column.is_jsonb_type()) ||
+        (column.is_extracted_column() && column.is_array_type())) {
+        // variant and jsonb type skip write index
+        opts.indexes.clear();
+    }
     for (auto index : opts.indexes) {
         if (!skip_inverted_index && index && index->index_type() == IndexType::INVERTED) {
             opts.inverted_index = index;
@@ -156,57 +166,34 @@ Status VerticalSegmentWriter::_create_column_writer(uint32_t cid, const TabletCo
             break;
         }
     }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for struct type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for struct type");
-        }
+
+#define CHECK_FIELD_TYPE(TYPE, type_name)                                                      \
+    if (column.type() == FieldType::OLAP_FIELD_TYPE_##TYPE) {                                  \
+        opts.need_zone_map = false;                                                            \
+        if (opts.need_bloom_filter) {                                                          \
+            return Status::NotSupported("Do not support bloom filter for " type_name " type"); \
+        }                                                                                      \
+        if (opts.need_bitmap_index) {                                                          \
+            return Status::NotSupported("Do not support bitmap index for " type_name " type"); \
+        }                                                                                      \
     }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for array type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for array type");
-        }
-    }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_JSONB) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for jsonb type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for jsonb type");
-        }
-    }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_AGG_STATE) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for agg_state type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for agg_state type");
-        }
-    }
-    if (column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
-        opts.need_zone_map = false;
-        if (opts.need_bloom_filter) {
-            return Status::NotSupported("Do not support bloom filter for map type");
-        }
-        if (opts.need_bitmap_index) {
-            return Status::NotSupported("Do not support bitmap index for map type");
-        }
-    }
+
+    CHECK_FIELD_TYPE(STRUCT, "struct")
+    CHECK_FIELD_TYPE(ARRAY, "array")
+    CHECK_FIELD_TYPE(JSONB, "jsonb")
+    CHECK_FIELD_TYPE(AGG_STATE, "agg_state")
+    CHECK_FIELD_TYPE(MAP, "map")
+    CHECK_FIELD_TYPE(VARIANT, "variant")
+    CHECK_FIELD_TYPE(OBJECT, "object")
+    CHECK_FIELD_TYPE(HLL, "hll")
+    CHECK_FIELD_TYPE(QUANTILE_STATE, "quantile_state")
+
+#undef CHECK_FIELD_TYPE
 
     if (column.is_row_store_column()) {
         // smaller page size for row store column
         opts.data_page_size = config::row_column_page_size;
     }
-
     std::unique_ptr<ColumnWriter> writer;
     RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
     RETURN_IF_ERROR(writer->init());
@@ -231,7 +218,14 @@ Status VerticalSegmentWriter::init() {
             seq_col_length =
                     _tablet_schema->column(_tablet_schema->sequence_col_idx()).length() + 1;
         }
-        _primary_key_index_builder.reset(new PrimaryKeyIndexBuilder(_file_writer, seq_col_length));
+        size_t rowid_length = 0;
+        if (!_tablet_schema->cluster_key_idxes().empty()) {
+            rowid_length = PrimaryKeyIndexReader::ROW_ID_LENGTH;
+            _short_key_index_builder.reset(
+                    new ShortKeyIndexBuilder(_segment_id, _opts.num_rows_per_block));
+        }
+        _primary_key_index_builder.reset(
+                new PrimaryKeyIndexBuilder(_file_writer, seq_col_length, rowid_length));
         RETURN_IF_ERROR(_primary_key_index_builder->init());
     } else {
         _short_key_index_builder.reset(
@@ -291,10 +285,11 @@ void VerticalSegmentWriter::_serialize_block_to_row_column(vectorized::Block& bl
 //       2.3 fill block
 // 3. set columns to data convertor and then write all columns
 Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& data) {
-    if (config::cloud_mode) {
-        // TODO(plat1ko)
+    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        // TODO(plat1ko): CloudStorageEngine
         return Status::NotSupported("append_block_with_partial_content");
     }
+
     DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write);
     DCHECK(_opts.rowset_ctx->partial_update_info != nullptr);
 
@@ -351,6 +346,20 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
     {
         std::shared_lock rlock(tablet->get_header_lock());
         specified_rowsets = tablet->get_rowset_by_ids(&_mow_context->rowset_ids);
+        if (_opts.rowset_ctx->partial_update_info->is_strict_mode &&
+            specified_rowsets.size() != _mow_context->rowset_ids.size()) {
+            // Only when this is a strict mode partial update that missing rowsets here will lead to problems.
+            // In other case, the missing rowsets will be calculated in later phases(commit phase/publish phase)
+            LOG(WARNING) << fmt::format(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction(specified_rowsets.size()={}, but rowset_ids.size()={}) in strict "
+                    "mode partial update. tablet_id: {}, cur max_version: {}, transaction_id: {}",
+                    specified_rowsets.size(), _mow_context->rowset_ids.size(), _tablet->tablet_id(),
+                    _mow_context->max_version, _mow_context->txn_id);
+            return Status::InternalError<false>(
+                    "[Memtable Flush] some rowsets have been deleted due to "
+                    "compaction in strict mode partial update");
+        }
     }
     std::vector<std::unique_ptr<SegmentCacheHandle>> segment_caches(specified_rowsets.size());
     // locate rows in base data
@@ -503,7 +512,8 @@ Status VerticalSegmentWriter::_fill_missing_columns(
         vectorized::MutableColumns& mutable_full_columns,
         const std::vector<bool>& use_default_or_null_flag, bool has_default_or_nullable,
         const size_t& segment_start_pos) {
-    if (config::cloud_mode) [[unlikely]] {
+    if constexpr (!std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        // TODO(plat1ko): CloudStorageEngine
         return Status::NotSupported("fill_missing_columns");
     }
     auto tablet = static_cast<Tablet*>(_tablet.get());

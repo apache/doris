@@ -32,82 +32,19 @@ under the License.
 
 The Auto Partitioning feature supports automatic detection of whether the corresponding partition exists during the data import process. If it does not exist, the partition will be created automatically and imported normally.
 
-## Grammer
+## Usage Scenarios
 
-When building a table, use the following syntax to populate [CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) with the `partition_info` section:
+The auto partition function mainly solves the problem that the user expects to partition the table based on a certain column, but the data distribution of the column is scattered or unpredictable, so it is difficult to accurately create the required partitions when building or adjusting the structure of the table, or the number of partitions is so large that it is too cumbersome to create them manually.
 
-1. AUTO RANGE PARTITION:
+Take the time type partition column as an example, in the [Dynamic Partition](./dynamic-partition) function, we support the automatic creation of new partitions to accommodate real-time data at specific time periods. For real-time user behaviour logs and other scenarios, this feature basically meets the requirements. However, in more complex scenarios, such as dealing with non-real-time data, the partition column is independent of the current system time and contains a large number of discrete values. At this time to improve efficiency we want to partition the data based on this column, but the data may actually involve the partition can not be grasped in advance, or the expected number of required partitions is too large. In this case, dynamic partitioning or manually created partitions can not meet our needs, automatic partitioning function is very good to cover such needs.
 
-  ```SQL
-  AUTO PARTITION BY RANGE FUNC_CALL_EXPR
-  (
-  )
-  ```
-  where
-  ```SQL
-  FUNC_CALL_EXPR ::= date_trunc ( <partition_column>, '<interval>' )
-  ```
-
-2. AUTO LIST PARTITION:
-
-  ```SQL
-  AUTO PARTITION BY LIST(`partition_col`)
-  (
-  )
-  ```
-
-### Usage example
-
-1. AUTO RANGE PARTITION
-
-  ```SQL
-  CREATE TABLE `${tblDate}` (
-      `TIME_STAMP` datev2 NOT NULL COMMENT 'Date of collection'
-  ) ENGINE=OLAP
-  DUPLICATE KEY(`TIME_STAMP`)
-  AUTO PARTITION BY RANGE date_trunc(`TIME_STAMP`, 'month')
-  (
-  )
-  DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
-  PROPERTIES (
-  "replication_allocation" = "tag.location.default: 1"
-  );
-  ```
-
-2. AUTO LIST PARTITION
-
-  ```SQL
-  CREATE TABLE `${tblName1}` (
-      `str` varchar not null
-  ) ENGINE=OLAP
-  DUPLICATE KEY(`str`)
-  AUTO PARTITION BY LIST (`str`)
-  (
-  )
-  DISTRIBUTED BY HASH(`str`) BUCKETS 10
-  PROPERTIES (
-  "replication_allocation" = "tag.location.default: 1"
-  );
-  ```
-
-### Using constraints
-
-1. Currently the AUTO RANGE PARTITION function supports only one partition column;
-2. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATEV2` or `DATETIMEV2` format;
-3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support BOOLEAN, TINYINT, SMALLINT, INT, BIGINT, LARGEINT, DATE, DATETIME, CHAR, VARCHAR datatypes, and partitioned values are enum values.
-4. In AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
-
-## Sample Scenarios
-
-In the [Dynamic Partitioning](./dynamic-partition.md) feature, we support the automatic creation of new partitions to accommodate real-time data at specific time periods. However, in more complex scenarios, such as processing non-real-time data, the partition columns are independent of the current system time. In this case, if you need to partition the data, you need to manually organise the partitions you belong to and create them before importing the data. This is cumbersome when the number of partition columns is large. The automatic partition function solves this problem.
-
-For example, we have a table as follows:
+Suppose our table DDL is as follows:
 
 ```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
-    `TRADE_DATE`              datev2 NULL
-    `TRADE_ID`                varchar(40) NULL,
+    `TRADE_DATE`              datev2 NULL COMMENT '交易日期',
+    `TRADE_ID`                varchar(40) NULL COMMENT '交易编号',
     ......
 )
 UNIQUE KEY(`TRADE_DATE`, `TRADE_ID`)
@@ -142,9 +79,78 @@ PROPERTIES (
 );
 ```
 
-The table stores a large amount of business history data, partitioned based on the date the transaction occurred. As you can see when building the table, we need to manually create the partitions in advance. If the data range of the partitioned columns changes, for example, 2022 is added to the above table, we need to create a partition by [ALTER-TABLE-PARTITION](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION.md) to make changes to the table partition. After using AUTO PARTITION, the table DDL can be changed to:
+The table stores a large amount of business history data, partitioned based on the date the transaction occurred. As you can see when building the table, we need to manually create the partitions in advance. If the data range of the partitioned columns changes, for example, 2022 is added to the above table, we need to create a partition by [ALTER-TABLE-PARTITION](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION) to make changes to the table partition. If such partitions need to be changed, or subdivided at a finer level of granularity, it is very tedious to modify them. At this point we can rewrite the table DDL using AUTO PARTITION.
 
-```SQL
+## Grammar
+
+When building a table, use the following syntax to populate [CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE) with the `partition_info` section:
+
+1. AUTO RANGE PARTITION:
+
+  ```sql
+  AUTO PARTITION BY RANGE FUNC_CALL_EXPR
+  (
+  )
+  ```
+  where
+  ```sql
+  FUNC_CALL_EXPR ::= date_trunc ( <partition_column>, '<interval>' )
+  ```
+
+2. AUTO LIST PARTITION:
+
+  ```sql
+  AUTO PARTITION BY LIST(`partition_col`)
+  (
+  )
+  ```
+
+### Usage example
+
+1. AUTO RANGE PARTITION
+
+  ```sql
+  CREATE TABLE `${tblDate}` (
+      `TIME_STAMP` datev2 NOT NULL COMMENT 'Date of collection'
+  ) ENGINE=OLAP
+  DUPLICATE KEY(`TIME_STAMP`)
+  AUTO PARTITION BY RANGE date_trunc(`TIME_STAMP`, 'month')
+  (
+  )
+  DISTRIBUTED BY HASH(`TIME_STAMP`) BUCKETS 10
+  PROPERTIES (
+  "replication_allocation" = "tag.location.default: 1"
+  );
+  ```
+
+2. AUTO LIST PARTITION
+
+  ```sql
+  CREATE TABLE `${tblName1}` (
+      `str` varchar not null
+  ) ENGINE=OLAP
+  DUPLICATE KEY(`str`)
+  AUTO PARTITION BY LIST (`str`)
+  (
+  )
+  DISTRIBUTED BY HASH(`str`) BUCKETS 10
+  PROPERTIES (
+  "replication_allocation" = "tag.location.default: 1"
+  );
+  ```
+
+### Using constraints
+
+1. Currently the AUTO RANGE PARTITION function supports only one partition column;
+2. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATEV2` or `DATETIMEV2` format;
+3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` data-types, and partitioned values are enum values.
+4. In AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
+
+## Sample Scenarios
+
+In the example in the Usage Scenarios section, the table DDL can be rewritten after using AUTO PARTITION:
+
+```sql
 CREATE TABLE `DAILY_TRADE_VALUE`
 (
     `TRADE_DATE`              datev2 NULL,
@@ -162,16 +168,15 @@ PROPERTIES (
 ```
 
 At this point the new table does not have a default partition:
-```SQL
+```sql
 mysql> show partitions from `DAILY_TRADE_VALUE`;
 Empty set (0.12 sec)
 ```
 
 After inserting the data and then viewing it again, we could found that the table has been created with corresponding partitions:
-```SQL
+```sql
 mysql> insert into `DAILY_TRADE_VALUE` values ('2012-12-13', 1), ('2008-02-03', 2), ('2014-11-11', 3);
 Query OK, 3 rows affected (0.88 sec)
-{'label':'insert_754e2a3926a345ea_854793fb2638f0ec', 'status':'VISIBLE', 'txnId':'20014'}
 
 mysql> show partitions from `DAILY_TRADE_VALUE`;
 +-------------+-----------------+----------------+---------------------+--------+--------------+--------------------------------------------------------------------------------+-----------------+---------+----------------+---------------+---------------------+---------------------+--------------------------+----------+------------+-------------------------+-----------+
@@ -184,7 +189,12 @@ mysql> show partitions from `DAILY_TRADE_VALUE`;
 3 rows in set (0.12 sec)
 ```
 
+A partition created by the AUTO PARTITION function has the exact same functional properties as a manually created partition.
+
 ## caveat
 
-- If a partition is created during the insertion or importation of data and the process eventually fails, the created partition is not automatically deleted.
+- If a partition is created during the insertion or import of data and the entire import process does not complete (fails or is cancelled), the created partition is not automatically deleted.
 - Tables that use AUTO PARTITION only have their partitions created automatically instead of manually. The original use of the table and the partitions it creates is the same as for non-AUTO PARTITION tables or partitions.
+- To prevent accidental creation of too many partitions, we use the [FE Configuration](../../admin-manual/config/fe-config) `max_auto_partition_num` controls the maximum number of partitions an AUTO PARTITION table can hold. This value can be adjusted if necessary
+- When importing data to a table with AUTO PARTITION enabled, the polling interval for data sent by the Coordinator is different from that of a normal table. For details, see `olap_table_sink_send_interval_auto_partition_factor` in [BE Configuration](../../admin-manual/config/be-config).
+- In the case of inserting data with [insert-overwrite](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE) command, if an overwrite partition is specified, the AUTO PARTITION table behaves as a normal table during this process and no new partitions will be created.

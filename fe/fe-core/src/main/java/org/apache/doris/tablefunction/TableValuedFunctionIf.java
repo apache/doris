@@ -66,10 +66,18 @@ public abstract class TableValuedFunctionIf {
                 return new WorkloadGroupsTableValuedFunction(params);
             case CatalogsTableValuedFunction.NAME:
                 return new CatalogsTableValuedFunction(params);
+            case MvInfosTableValuedFunction.NAME:
+                return new MvInfosTableValuedFunction(params);
+            case JobsTableValuedFunction.NAME:
+                return new JobsTableValuedFunction(params);
+            case TasksTableValuedFunction.NAME:
+                return new TasksTableValuedFunction(params);
             case GroupCommitTableValuedFunction.NAME:
                 return new GroupCommitTableValuedFunction(params);
             case QueriesTableValuedFunction.NAME:
                 return new QueriesTableValuedFunction(params);
+            case WorkloadSchedPolicyTableValuedFunction.NAME:
+                return new WorkloadSchedPolicyTableValuedFunction(params);
             default:
                 throw new AnalysisException("Could not find table function " + funcName);
         }

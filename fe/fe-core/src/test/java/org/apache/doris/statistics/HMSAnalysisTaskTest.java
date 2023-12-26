@@ -21,6 +21,7 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.Pair;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
 import com.google.common.collect.Lists;
@@ -85,7 +86,7 @@ public class HMSAnalysisTaskTest {
         new MockUp<HMSExternalTable>() {
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return 1000;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
             }
         };
         HMSAnalysisTask task = new HMSAnalysisTask();
@@ -136,6 +137,27 @@ public class HMSAnalysisTaskTest {
         TableSample tableSample = task.getTableSample();
         Assertions.assertNotNull(tableSample);
         Assertions.assertEquals(1000, tableSample.getSampleValue());
+    }
+
+    @Test
+    public void testGetSampleInfo(@Mocked HMSExternalTable tableIf)
+            throws Exception {
+        new MockUp<HMSExternalTable>() {
+            @Mock
+            public List<Long> getChunkSizes() {
+                return Lists.newArrayList();
+            }
+        };
+        HMSAnalysisTask task = new HMSAnalysisTask();
+        task.setTable(tableIf);
+        task.tableSample = null;
+        Pair<Double, Long> info1 = task.getSampleInfo();
+        Assertions.assertEquals(1.0, info1.first);
+        Assertions.assertEquals(0, info1.second);
+        task.tableSample = new TableSample(false, 100L);
+        Pair<Double, Long> info2 = task.getSampleInfo();
+        Assertions.assertEquals(1.0, info2.first);
+        Assertions.assertEquals(0, info2.second);
     }
 
 }

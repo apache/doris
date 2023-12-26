@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -32,7 +32,7 @@ import java.util.Objects;
 /**
  * create multi table materialized view
  */
-public class CreateMTMVCommand extends Command implements ForwardWithSync {
+public class CreateMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
 
     public static final Logger LOG = LogManager.getLogger(CreateMTMVCommand.class);
     private final CreateMTMVInfo createMTMVInfo;
@@ -48,7 +48,7 @@ public class CreateMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         createMTMVInfo.analyze(ctx);
-        throw new AnalysisException("current not support.");
+        Env.getCurrentEnv().createTable(createMTMVInfo.translateToLegacyStmt());
     }
 
     @Override

@@ -97,10 +97,8 @@ public class AnalysisInfo implements Writable {
     public final long tblId;
 
     // TODO: Map here is wired, List is enough
-    @SerializedName("colToPartitions")
     public final Map<String, Set<String>> colToPartitions;
 
-    @SerializedName("partitionNames")
     public final Set<String> partitionNames;
 
     @SerializedName("colName")
@@ -184,6 +182,9 @@ public class AnalysisInfo implements Writable {
 
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
+
+    @SerializedName("startTime")
+    public long startTime;
 
     @SerializedName("endTime")
     public long endTime;
@@ -328,6 +329,10 @@ public class AnalysisInfo implements Writable {
             }
         }
         return analysisInfo;
+    }
+
+    public void markStartTime(long startTime) {
+        this.startTime = startTime;
     }
 
     public void markFinished() {

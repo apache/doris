@@ -16,6 +16,8 @@
 // under the License.
 
 suite("test_always_nullable_window_function") {
+    sql """ set enable_nereids_planner = true; """
+    sql """ set enable_fallback_to_original_planner = false; """
     def tableName = "test_always_nullable_window_function_table"
     def nullableTableName = "test_always_nullable_window_function_table"
 

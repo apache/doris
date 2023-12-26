@@ -44,6 +44,7 @@ under the License.
 | 1.2.1    | 1.15  | 1.0+   | 8    | -         |
 | 1.3.0     | 1.16  | 1.0+   | 8    | -         |
 | 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
+| 1.5.0 | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## USE
 
@@ -309,16 +310,18 @@ ON a.city = c.city
 
 ### General configuration items
 
-| Key                              | Default Value | Required | Comment                                                                                                                                                 |
-|----------------------------------|---------------|----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
-| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas                                                                            |
+| Key                              | Default Value | Required | Comment                                                      |
+| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| fenodes                          | --            | Y        | Doris FE http address, multiple addresses are supported, separated by commas |
 | benodes                          | --            | N        | Doris BE http address, multiple addresses are supported, separated by commas. refer to [#187](https://github.com/apache/doris-flink-connector/pull/187) |
-| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                                                                                                                       |
-| username                         | --            | Y        | username to access Doris                                                                                                                                |
-| password                         | --            | Y        | Password to access Doris                                                                                                                                |
-| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                                                                                                             |
-| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris                                                                                                        |
-| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                                                                                                              |
+| jdbc-url                         | --            | N        | jdbc connection information, such as: jdbc:mysql://127.0.0.1:9030 |
+| table.identifier                 | --            | Y        | Doris table name, such as: db.tbl                            |
+| username                         | --            | Y        | username to access Doris                                     |
+| password                         | --            | Y        | Password to access Doris                                     |
+| auto-redirect                    | false         | N        | Whether to redirect StreamLoad requests. After being turned on, StreamLoad will be written through FE, and BE information will no longer be displayed. At the same time, it can also be written to SelectDB Cloud by turning on this parameter. |
+| doris.request.retries            | 3             | N        | Number of retries to send requests to Doris                  |
+| doris.request.connect.timeout.ms | 30000         | N        | Connection timeout for sending requests to Doris             |
+| doris.request.read.timeout.ms    | 30000         | N        | Read timeout for sending requests to Doris                   |
 
 ### Source configuration item
 
@@ -335,21 +338,27 @@ ON a.city = c.city
 
 ### Sink configuration items
 
-| Key                | Default Value | Required | Comment                                                      |
-| ------------------ | ------------- | -------- | ------------------------------------------------------------ |
-| sink.label-prefix  | --            | Y        | The label prefix used by Stream load import. In the 2pc scenario, global uniqueness is required to ensure Flink's EOS semantics. |
-| sink.properties.*  | --            | N        | Import parameters for Stream Load. <br/>For example: 'sink.properties.column_separator' = ', ' defines column delimiters, 'sink.properties.escape_delimiters' = 'true' special characters as delimiters, '\x01' will be converted to binary 0x01 <br/><br/>JSON format import<br/>'sink.properties.format' = 'json' 'sink.properties. read_json_by_line' = 'true'<br/>Detailed parameters refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
-| sink.enable-delete | TRUE          | N        | Whether to enable delete. This option requires the Doris table to enable the batch delete function (Doris 0.15+ version is enabled by default), and only supports the Unique model. |
-| sink.enable-2pc    | TRUE          | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
-| sink.buffer-size   | 1MB           | N        | The size of the write data cache buffer, in bytes. It is not recommended to modify, the default configuration is enough |
-| sink.buffer-count  | 3             | N        | The number of write data buffers. It is not recommended to modify, the default configuration is enough |
-| sink.max-retries   | 3             | N        | Maximum number of retries after Commit failure, default 3    |
+| Key                         | Default Value | Required | Comment                                                      |
+| --------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| sink.label-prefix           | --            | Y        | The label prefix used by Stream load import. In the 2pc scenario, global uniqueness is required to ensure Flink's EOS semantics. |
+| sink.properties.*           | --            | N        | Import parameters for Stream Load. <br/>For example: 'sink.properties.column_separator' = ', ' defines column delimiters, 'sink.properties.escape_delimiters' = 'true' special characters as delimiters, '\x01' will be converted to binary 0x01 <br/><br/>JSON format import<br/>'sink.properties.format' = 'json' 'sink.properties. read_json_by_line' = 'true'<br/>Detailed parameters refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
+| sink.enable-delete          | TRUE          | N        | Whether to enable delete. This option requires the Doris table to enable the batch delete function (Doris 0.15+ version is enabled by default), and only supports the Unique model. |
+| sink.enable-2pc             | TRUE          | N        | Whether to enable two-phase commit (2pc), the default is true, to ensure Exactly-Once semantics. For two-phase commit, please refer to [here](../data-operate/import/import-way/stream-load-manual.md). |
+| sink.buffer-size            | 1MB           | N        | The size of the write data cache buffer, in bytes. It is not recommended to modify, the default configuration is enough |
+| sink.buffer-count           | 3             | N        | The number of write data buffers. It is not recommended to modify, the default configuration is enough |
+| sink.max-retries            | 3             | N        | Maximum number of retries after Commit failure, default 3    |
+| sink.use-cache              | false         | N        | In case of an exception, whether to use the memory cache for recovery. When enabled, the data during the Checkpoint period will be retained in the cache. |
+| sink.enable.batch-mode      | false         | N        | Whether to use the batch mode to write to Doris. After it is enabled, the writing timing does not depend on Checkpoint. The writing is controlled through the sink.buffer-flush.max-rows/sink.buffer-flush.max-bytes/sink.buffer-flush.interval parameter. Enter the opportunity. <br />After being turned on at the same time, Exactly-once semantics will not be guaranteed. Uniq model can be used to achieve idempotence. |
+| sink.flush.queue-size       | 2             | N        | In batch mode, the cached column size.                       |
+| sink.buffer-flush.max-rows  | 50000         | N        | In batch mode, the maximum number of data rows written in a single batch. |
+| sink.buffer-flush.max-bytes | 10MB          | N        | In batch mode, the maximum number of bytes written in a single batch. |
+| sink.buffer-flush.interval  | 10s           | N        | In batch mode, the interval for asynchronously refreshing the cache |
+| sink.ignore.update-before   | true          | N        | Whether to ignore the update-before event, ignored by default. |
 
 ### Lookup Join configuration item
 
 | Key                               | Default Value | Required | Comment                                                      |
 | --------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
-| jdbc-url                          | --            | Y        | jdbc connection information                                  |
 | lookup.cache.max-rows             | -1            | N        | The maximum number of rows in the lookup cache, the default value is -1, and the cache is not enabled |
 | lookup.cache.ttl                  | 10s           | N        | The maximum time of lookup cache, the default is 10s         |
 | lookup.max-retries                | 1             | N        | The number of retries after a lookup query fails             |
@@ -376,6 +385,7 @@ ON a.city = c.city
 | CHAR       | STRING             |
 | LARGEINT   | STRING             |
 | VARCHAR    | STRING            |
+| STRING     | STRING            |
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
@@ -417,7 +427,53 @@ WITH (
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
 
-## Use FlinkCDC to access multi-table or whole database example
+## Example of using FlinkSQL to access and implement partial column updates through CDC
+
+```sql
+-- enable checkpoint
+SET 'execution.checkpointing.interval' = '10s';
+
+CREATE TABLE cdc_mysql_source (
+   id int
+  ,name STRING
+  ,bank STRING
+  ,age int
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+CREATE TABLE doris_sink (
+    id INT,
+    name STRING,
+    bank STRING,
+    age int
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.read_json_by_line' = 'true',
+  'sink.properties.columns' = 'id,name,bank,age',
+  'sink.properties.partial.columns' = 'true' --Enable partial column updates
+);
+
+
+insert into doris_sink select id,name,bank,age from cdc_mysql_source;
+
+```
+
+## Use FlinkCDC to access multiple tables or the entire database (Supports MySQL, Oracle, PostgreSQL, SQLServer)
+
 
 ### grammar
 
@@ -440,20 +496,25 @@ insert into doris_sink select id,name from cdc_mysql_source;
      [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
 ```
 
-- **--job-name** Flink job name, not required.
-- **--database** Synchronize to the database name of Doris.
-- **--table-prefix** Doris table prefix name, for example --table-prefix ods_.
-- **--table-suffix** Same as above, the suffix name of the Doris table.
-- **--including-tables** MySQL tables that need to be synchronized, you can use "|" to separate multiple tables, and support regular expressions. For example --including-tables table1|tbl.* is to synchronize table1 and all tables beginning with tbl.
-- **--excluding-tables** Tables that do not need to be synchronized, the usage is the same as above.
-- **--mysql-conf** MySQL CDCSource configuration, eg --mysql-conf hostname=127.0.0.1 , you can see all configuration MySQL-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html), where hostname/username/password/database-name is required.To synchronize tables without primary keys, you must configure `scan.incremental.snapshot.chunk.key-column` the option, and specify only one non-null field. For example, `scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1.column...`,columns are separated by `,`.
-- **--oracle-conf** Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can view all configurations of Oracle-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html), where hostname/username/password/database-name/schema-name is required.
-- **--postgres-conf** Postgres CDCSource configuration，for example --postgres-conf hostname=127.0.0.1 ，you can see all configuration of Postgres-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)，where hostname/username/password/database-name/schema-name/slot.name  is required.
-- **--sqlserver-conf** SQLServer CDCSource configuration，for example --sqlserver-conf hostname=127.0.0.1 ，you can see all configuration of SQLServer-CDC in [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)，where hostname/username/password/database-name/schema-name is required.
-- **--sink-conf** All configurations of Doris Sink, you can view the complete configuration items in [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9).
-- **--table-conf** The configuration item of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1
-- **--ignore-default-value** Turn off the default for synchronizing mysql table structures. It is suitable for synchronizing mysql data to doris, the field has a default value, but the actual inserted data is null. refer to[#152](https://github.com/apache/doris-flink-connector/pull/152)
-- **--use-new-schema-change** The new schema change supports synchronous mysql multi-column changes and default values. refer to[#167](https://github.com/apache/doris-flink-connector/pull/167)
+| Key                     | Comment                                                      |
+| ----------------------- | ------------------------------------------------------------ |
+| --job-name              | Flink task name, optional                                    |
+| --database              | Database name synchronized to Doris                          |
+| --table-prefix          | Doris table prefix name, such as --table-prefix ods_.        |
+| --table-suffix          | Same as above, the suffix name of the Doris table.           |
+| --including-tables      | For MySQL tables that need to be synchronized, you can use "｜" to separate multiple tables and support regular expressions. For example --including-tables table1 |
+| --excluding-tables      | For tables that do not need to be synchronized, the usage is the same as above. |
+| --mysql-conf            | MySQL CDCSource configuration, for example --mysql-conf hostname=127.0.0.1, you can find it [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)  View all configurations MySQL-CDC, where hostname/username/password/database-name is required. When the synchronized library table contains a non-primary key table, `scan.incremental.snapshot.chunk.key-column` must be set, and only one field of non-null type can be selected. <br/>For example: `scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1:column...`, different database table columns are separated by `,`. |
+| --oracle-conf           | Oracle CDCSource configuration, for example --oracle-conf hostname=127.0.0.1, you can find [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html) View all configurations Oracle-CDC, where hostname/username/password/database-name/schema-name is required. |
+| --postgres-conf         | Postgres CDCSource configuration, e.g. --postgres-conf hostname=127.0.0.1, you can find [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html) View all configurations Postgres-CDC where hostname/username/password/database-name/schema-name/slot.name is required. |
+| --sqlserver-conf        | SQLServer CDCSource configuration, for example --sqlserver-conf hostname=127.0.0.1, you can find it [here](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html) View all configurations SQLServer-CDC, where hostname/username/password/database-name/schema-name is required. |
+| --sink-conf             | All configurations of Doris Sink can be found [here](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9) View the complete configuration items. |
+| --table-conf            | The configuration items of the Doris table, that is, the content contained in properties. For example --table-conf replication_num=1 |
+| --ignore-default-value  | Turn off the default value of synchronizing mysql table structure. It is suitable for synchronizing mysql data to doris when the field has a default value but the actual inserted data is null. Reference [here](https://github.com/apache/doris-flink-connector/pull/152) |
+| --use-new-schema-change | Whether to use the new schema change to support synchronization of MySQL multi-column changes and default values. Reference [here](https://github.com/apache/doris-flink-connector/pull/167) |
+| --single-sink           | Whether to use a single Sink to synchronize all tables. When turned on, newly created tables in the upstream can also be automatically recognized and tables automatically created. |
+| --multi-to-one-origin   | When writing multiple upstream tables into the same table, the configuration of the source table, for example: --multi-to-one-origin="a\_.\*｜b_.\*"， Reference [here](https://github.com/apache/doris-flink-connector/pull/208) |
+| --multi-to-one-target   | Used with multi-to-one-origin, the configuration of the target table, such as：--multi-to-one-target="a\|b" |
 
 >Note: When synchronizing, you need to add the corresponding Flink CDC dependencies in the $FLINK_HOME/lib directory, such as flink-sql-connector-mysql-cdc-${version}.jar, flink-sql-connector-oracle-cdc-${version}.jar
 
@@ -697,3 +758,7 @@ You can search for the log `abort transaction response` in TaskManager and deter
 14. **org.apache.flink.table.api.SqlParserException when using doris.filter.query: SQL parsing failed. "xx" encountered at row x, column xx**
 
 This problem is mainly caused by the conditional varchar/string type, which needs to be quoted. The correct way to write it is xxx = ''xxx''. In this way, the Flink SQL parser will interpret two consecutive single quotes as one single quote character instead of The end of the string, and the concatenated string is used as the value of the attribute.
+
+15. **Failed to connect to backend: http://host:webserver_port, and Be is still alive**
+
+The issue may have occurred due to configuring the IP address of `be`, which is not reachable by the external Flink cluster.This is mainly because when connecting to `fe`, the address of `be` is resolved through fe. For instance, if you add a be address as '127.0.0.1', the be address obtained by the Flink cluster through fe will be '127.0.0.1:webserver_port', and Flink will connect to that address. When this issue arises, you can resolve it by adding the actual corresponding external IP address of the be to the "with" attribute:`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`.For the entire database synchronization, the following properties are available`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。

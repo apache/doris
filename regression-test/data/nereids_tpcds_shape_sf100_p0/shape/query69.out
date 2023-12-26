@@ -48,9 +48,8 @@ PhysicalResultSink
 --------------------------------------------PhysicalOlapScan[date_dim]
 --------------------------------PhysicalDistribute
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((c.c_current_addr_sk = ca.ca_address_sk)) otherCondition=() build RFs:RF0 ca_address_sk->[c_current_addr_sk]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter(ca_state IN ('MI', 'TX', 'VA'))

@@ -53,8 +53,8 @@ public:
 class PartitionSortSinkDependency final : public Dependency {
 public:
     using SharedState = PartitionSortNodeSharedState;
-    PartitionSortSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "PartitionSortSinkDependency", true) {}
+    PartitionSortSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSinkDependency", true, query_ctx) {}
     ~PartitionSortSinkDependency() override = default;
 };
 
@@ -82,13 +82,11 @@ private:
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     int _partition_exprs_num = 0;
 
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _emplace_key_timer;
-    RuntimeProfile::Counter* _partition_sort_timer;
-    RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _selector_block_timer;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _emplace_key_timer = nullptr;
+    RuntimeProfile::Counter* _selector_block_timer = nullptr;
 
-    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     void _init_hash_method();
 };
 
@@ -107,10 +105,16 @@ public:
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+    DataDistribution required_data_distribution() const override {
+        if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
+            return DataSinkOperatorX<PartitionSortSinkLocalState>::required_data_distribution();
+        }
+        return {ExchangeType::PASSTHROUGH};
+    }
 
 private:
     friend class PartitionSortSinkLocalState;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     const RowDescriptor _row_descriptor;
     int64_t _limit = -1;
     int _partition_exprs_num = 0;

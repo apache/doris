@@ -24,6 +24,7 @@
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
 #include "olap/schema.h"
 #include "olap/selection_vector.h"
+#include "runtime/define_primitive_type.h"
 #include "vec/columns/column.h"
 
 using namespace doris::segment_v2;
@@ -173,8 +174,9 @@ public:
                             roaring::Roaring* roaring) const = 0;
 
     //evaluate predicate on inverted
-    virtual Status evaluate(const Schema& schema, InvertedIndexIterator* iterator,
-                            uint32_t num_rows, roaring::Roaring* bitmap) const {
+    virtual Status evaluate(const vectorized::NameAndTypePair& name_with_type,
+                            InvertedIndexIterator* iterator, uint32_t num_rows,
+                            roaring::Roaring* bitmap) const {
         return Status::NotSupported(
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
@@ -189,6 +191,8 @@ public:
                               bool* flags) const {}
     virtual void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
                              bool* flags) const {}
+
+    virtual bool support_zonemap() const { return true; }
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         return true;
@@ -209,6 +213,11 @@ public:
     }
 
     virtual bool can_do_bloom_filter(bool ngram) const { return false; }
+
+    // Check input type could apply safely.
+    // Note: Currenly ColumnPredicate is not include complex type, so use PrimitiveType
+    // is simple and intuitive
+    virtual bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const = 0;
 
     // used to evaluate pre read column in lazy materialization
     // now only support integer/float

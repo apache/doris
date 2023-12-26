@@ -488,14 +488,10 @@ public class MaterializedViewHandler extends AlterHandler {
                 // check b.1
                 throw new DdlException("The materialized view of unique table must not has grouping columns");
             }
-            addMVClause.setMVKeysType(olapTable.getKeysType());
 
             for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && !mvColumnItem.isKey()) {
-                    mvColumnItem.setAggregationType(AggregateType.REPLACE, true);
-                }
-
                 if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+                    mvColumnItem.setIsKey(false);
                     for (String slotName : mvColumnItem.getBaseColumnNames()) {
                         if (!addMVClause.isReplay()
                                 && olapTable
@@ -504,6 +500,9 @@ public class MaterializedViewHandler extends AlterHandler {
                                         .isKey()) {
                             mvColumnItem.setIsKey(true);
                         }
+                    }
+                    if (!mvColumnItem.isKey()) {
+                        mvColumnItem.setAggregationType(AggregateType.REPLACE, true);
                     }
                 }
 
@@ -1210,7 +1209,7 @@ public class MaterializedViewHandler extends AlterHandler {
     }
 
     @Override
-    public void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+    public void process(String rawSql, List<AlterClause> alterClauses, Database db,
                         OlapTable olapTable)
             throws DdlException, AnalysisException, MetaNotFoundException {
         if (olapTable.isDuplicateWithoutKey()) {

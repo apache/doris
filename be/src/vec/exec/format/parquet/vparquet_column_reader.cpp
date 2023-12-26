@@ -447,7 +447,7 @@ Status ScalarColumnReader::read_dict_values_to_column(MutableColumnPtr& doris_co
                                                       bool* has_dict) {
     bool loaded;
     RETURN_IF_ERROR(_try_load_dict_page(&loaded, has_dict));
-    if (loaded && has_dict) {
+    if (loaded && *has_dict) {
         return _chunk_reader->read_dict_values_to_column(doris_column);
     }
     return Status::OK();
@@ -482,7 +482,8 @@ Status ScalarColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr
                                             ColumnSelectVector& select_vector, size_t batch_size,
                                             size_t* read_rows, bool* eof, bool is_dict_filter) {
     bool need_convert = false;
-    auto& parquet_physical_type = _chunk_meta.meta_data.type;
+    auto parquet_physical_type =
+            !is_dict_filter ? _chunk_meta.meta_data.type : tparquet::Type::INT32;
     auto& show_type = _field_schema->type.type;
 
     ColumnPtr src_column = ParquetConvert::get_column(parquet_physical_type, show_type,

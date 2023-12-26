@@ -55,7 +55,7 @@ struct JdbcConnectorParam {
     bool use_transaction;
     TOdbcTableType::type table_type;
 
-    const TupleDescriptor* tuple_desc;
+    const TupleDescriptor* tuple_desc = nullptr;
 };
 
 class JdbcConnector : public TableConnector {
@@ -64,8 +64,8 @@ public:
         int64_t _load_jar_timer = 0;
         int64_t _init_connector_timer = 0;
         int64_t _get_data_timer = 0;
-        int64_t _call_jni_next_timer = 0;
-        int64_t _convert_batch_timer = 0;
+        int64_t _get_block_address_timer = 0;
+        int64_t _fill_block_timer = 0;
         int64_t _check_type_timer = 0;
         int64_t _execte_read_timer = 0;
         int64_t _connector_close_timer = 0;

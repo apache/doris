@@ -63,6 +63,14 @@ Status OlapScanLocalState::_init_profile() {
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
     _block_init_seek_counter = ADD_COUNTER(_segment_profile, "BlockInitSeekCount", TUnit::UNIT);
     _block_conditions_filtered_timer = ADD_TIMER(_segment_profile, "BlockConditionsFilteredTime");
+    _block_conditions_filtered_bf_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredBloomFilterTime");
+    _block_conditions_filtered_zonemap_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapTime");
+    _block_conditions_filtered_zonemap_rp_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredZonemapRuntimePredicateTime");
+    _block_conditions_filtered_dict_timer =
+            ADD_TIMER(_segment_profile, "BlockConditionsFilteredDictTime");
 
     _rows_vec_cond_filtered_counter =
             ADD_COUNTER(_segment_profile, "RowsVectorPredFiltered", TUnit::UNIT);
@@ -87,6 +95,8 @@ Status OlapScanLocalState::_init_profile() {
     _output_col_timer = ADD_TIMER(_segment_profile, "OutputColumnTime");
 
     _stats_filtered_counter = ADD_COUNTER(_segment_profile, "RowsStatsFiltered", TUnit::UNIT);
+    _stats_rp_filtered_counter =
+            ADD_COUNTER(_segment_profile, "RowsZonemapRuntimePredicateFiltered", TUnit::UNIT);
     _bf_filtered_counter = ADD_COUNTER(_segment_profile, "RowsBloomFilterFiltered", TUnit::UNIT);
     _dict_filtered_counter = ADD_COUNTER(_segment_profile, "RowsDictFiltered", TUnit::UNIT);
     _del_filtered_counter = ADD_COUNTER(_scanner_profile, "RowsDelFiltered", TUnit::UNIT);
@@ -127,13 +137,14 @@ Status OlapScanLocalState::_init_profile() {
     _filtered_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentFiltered", TUnit::UNIT);
     _total_segment_counter = ADD_COUNTER(_segment_profile, "NumSegmentTotal", TUnit::UNIT);
     _tablet_counter = ADD_COUNTER(_runtime_profile, "TabletNum", TUnit::UNIT);
+    _runtime_filter_info = ADD_LABEL_COUNTER_WITH_LEVEL(_runtime_profile, "RuntimeFilterInfo", 1);
     return Status::OK();
 }
 
 Status OlapScanLocalState::_process_conjuncts() {
     SCOPED_TIMER(_process_conjunct_timer);
     RETURN_IF_ERROR(ScanLocalState::_process_conjuncts());
-    if (ScanLocalState::_scan_dependency->eos()) {
+    if (ScanLocalState::_eos) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
@@ -213,12 +224,13 @@ bool OlapScanLocalState::_storage_no_merge() {
 
 Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
     if (_scan_ranges.empty()) {
-        ScanLocalState::_scan_dependency->set_eos();
+        _eos = true;
+        _scan_dependency->set_ready();
         return Status::OK();
     }
     SCOPED_TIMER(_scanner_init_timer);
 
-    if (!_conjuncts.empty()) {
+    if (!_conjuncts.empty() && RuntimeFilterConsumer::_state->enable_profile()) {
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
@@ -296,7 +308,7 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     return Status::OK();
 }
 
-TOlapScanNode& OlapScanLocalState::olap_scan_node() {
+TOlapScanNode& OlapScanLocalState::olap_scan_node() const {
     return _parent->cast<OlapScanOperatorX>()._olap_scan_node;
 }
 
@@ -408,7 +420,8 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                     iter->second));
         }
         if (eos) {
-            ScanLocalState::_scan_dependency->set_eos();
+            _eos = true;
+            _scan_dependency->set_ready();
         }
 
         for (auto& iter : _colname_to_value_range) {
@@ -475,11 +488,21 @@ void OlapScanLocalState::add_filter_info(int id, const PredicateFilterInfo& upda
 
     // add info
     _segment_profile->add_info_string(filter_name, info_str);
+
+    const std::string rf_name = "filter id = " + std::to_string(id) + " ";
+
+    // add counter
+    auto* input_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "input",
+                                                     TUnit::UNIT, "RuntimeFilterInfo", 1);
+    auto* filtered_count = ADD_CHILD_COUNTER_WITH_LEVEL(_runtime_profile, rf_name + "filtered",
+                                                        TUnit::UNIT, "RuntimeFilterInfo", 1);
+    COUNTER_UPDATE(input_count, info.input_row);
+    COUNTER_UPDATE(filtered_count, info.filtered_row);
 }
 
 OlapScanOperatorX::OlapScanOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                                     const DescriptorTbl& descs)
-        : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs),
+                                     const DescriptorTbl& descs, int parallel_tasks)
+        : ScanOperatorX<OlapScanLocalState>(pool, tnode, operator_id, descs, parallel_tasks),
           _olap_scan_node(tnode.olap_scan_node) {
     _output_tuple_id = tnode.olap_scan_node.tuple_id;
     _col_distribute_ids = tnode.olap_scan_node.distribute_column_ids;

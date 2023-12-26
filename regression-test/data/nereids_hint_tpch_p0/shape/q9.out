@@ -20,9 +20,8 @@ PhysicalResultSink
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((part.p_partkey = lineitem.l_partkey)) otherCondition=() build RFs:RF1 p_partkey->[l_partkey]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2 RF4 RF5
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2 RF4 RF5
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((p_name like '%green%'))

@@ -194,6 +194,7 @@ Status VSortedRunMerger::get_next(Block* output_block, bool* eos) {
                 break;
             }
         }
+        output_block->set_columns(std::move(merged_columns));
 
         if (merged_rows == 0) {
             *eos = true;

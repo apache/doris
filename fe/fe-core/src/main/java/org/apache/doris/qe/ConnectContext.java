@@ -104,7 +104,7 @@ public class ConnectContext {
     protected volatile long backendId;
     protected volatile LoadTaskInfo streamLoadInfo;
 
-    protected volatile TUniqueId queryId;
+    protected volatile TUniqueId queryId = null;
     protected volatile String traceId;
     // id for this connection
     protected volatile int connectionId;
@@ -112,6 +112,7 @@ public class ConnectContext {
     protected volatile long loginTime;
     // for arrow flight
     protected volatile String peerIdentity;
+    private final Map<String, String> preparedQuerys = new HashMap<>();
     private String runningQuery;
     private TNetworkAddress resultFlightServerAddr;
     private TNetworkAddress resultInternalServiceAddr;
@@ -134,8 +135,7 @@ public class ConnectContext {
     protected volatile long currentDbId = -1;
     // Transaction
     protected volatile TransactionEntry txnEntry = null;
-    // cluster name
-    protected volatile String clusterName = "";
+
     // username@host of current login user
     protected volatile String qualifiedUser;
     // LDAP authenticated but the Doris account does not exist,
@@ -611,6 +611,18 @@ public class ConnectContext {
         this.loginTime = System.currentTimeMillis();
     }
 
+    public void addPreparedQuery(String preparedStatementId, String preparedQuery) {
+        preparedQuerys.put(preparedStatementId, preparedQuery);
+    }
+
+    public String getPreparedQuery(String preparedStatementId) {
+        return preparedQuerys.get(preparedStatementId);
+    }
+
+    public void removePreparedQuery(String preparedStatementId) {
+        preparedQuerys.remove(preparedStatementId);
+    }
+
     public void setRunningQuery(String runningQuery) {
         this.runningQuery = runningQuery;
     }
@@ -784,14 +796,6 @@ public class ConnectContext {
 
     public TUniqueId queryId() {
         return queryId;
-    }
-
-    public String getClusterName() {
-        return clusterName;
-    }
-
-    public void setCluster(String clusterName) {
-        this.clusterName = clusterName;
     }
 
     public String getSqlHash() {

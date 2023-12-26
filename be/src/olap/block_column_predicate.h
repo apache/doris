@@ -72,6 +72,13 @@ public:
     virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const {
     }
 
+    virtual bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const {
+        LOG(FATAL) << "should not reach here";
+        return true;
+    }
+
+    virtual bool support_zonemap() const { return true; }
+
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         LOG(FATAL) << "should not reach here";
         return true;
@@ -92,7 +99,7 @@ public:
     //evaluate predicate on inverted
     virtual Status evaluate(const std::string& column_name, InvertedIndexIterator* iterator,
                             uint32_t num_rows, roaring::Roaring* bitmap) const {
-        return Status::NotSupported(
+        return Status::Error<ErrorCode::INVERTED_INDEX_NOT_IMPLEMENTED>(
                 "Not Implemented evaluate with inverted index, please check the predicate");
     }
 };
@@ -113,6 +120,7 @@ public:
                       uint16_t selected_size) const override;
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
                       bool* flags) const override;
+    bool support_zonemap() const override { return _predicate->support_zonemap(); }
     bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const override;
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override;
     bool evaluate_and(const StringRef* dict_words, const size_t dict_num) const override;
@@ -125,8 +133,12 @@ public:
         return _predicate->can_do_bloom_filter(ngram);
     }
 
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        return _predicate->can_do_apply_safely(input_type, is_null);
+    }
+
 private:
-    const ColumnPredicate* _predicate;
+    const ColumnPredicate* _predicate = nullptr;
 };
 
 class MutilColumnBlockPredicate : public BlockColumnPredicate {
@@ -137,6 +149,16 @@ public:
         for (auto ptr : _block_column_predicate_vec) {
             delete ptr;
         }
+    }
+
+    bool support_zonemap() const override {
+        for (const auto* child_block_predicate : _block_column_predicate_vec) {
+            if (!child_block_predicate->support_zonemap()) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     void add_column_predicate(const BlockColumnPredicate* column_predicate) {
@@ -193,6 +215,15 @@ public:
     bool can_do_bloom_filter(bool ngram) const override {
         for (auto& pred : _block_column_predicate_vec) {
             if (!pred->can_do_bloom_filter(ngram)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    bool can_do_apply_safely(PrimitiveType input_type, bool is_null) const override {
+        for (auto& pred : _block_column_predicate_vec) {
+            if (!pred->can_do_apply_safely(input_type, is_null)) {
                 return false;
             }
         }

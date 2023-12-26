@@ -117,9 +117,13 @@ public:
             if (config::enable_write_index_searcher_cache) {
                 // open index searcher into cache
                 auto index_file_name = InvertedIndexDescriptor::get_index_file_name(
-                        _segment_file_name, _index_meta->index_id());
-                static_cast<void>(InvertedIndexSearcherCache::instance()->insert(_fs, _directory,
-                                                                                 index_file_name));
+                        _segment_file_name, _index_meta->index_id(),
+                        _index_meta->get_index_suffix());
+                auto st = InvertedIndexSearcherCache::instance()->insert(
+                        _fs, _directory, index_file_name, InvertedIndexReaderType::FULLTEXT);
+                if (!st.ok()) {
+                    LOG(ERROR) << "insert inverted index searcher cache error:" << st;
+                }
             }
         }
     }
@@ -139,9 +143,9 @@ public:
         bool create = true;
 
         auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                _directory + "/" + _segment_file_name, _index_meta->index_id());
+                _directory + "/" + _segment_file_name, _index_meta->index_id(),
+                _index_meta->get_index_suffix());
 
-        // LOG(INFO) << "inverted index path: " << index_path;
         bool exists = false;
         auto st = _fs->exists(index_path.c_str(), &exists);
         if (!st.ok()) {
@@ -151,12 +155,7 @@ public:
         }
         if (exists) {
             LOG(ERROR) << "try to init a directory:" << index_path << " already exists";
-            return Status::InternalError("init_fulltext_index a directory already exists");
-            //st = _fs->delete_directory(index_path.c_str());
-            //if (!st.ok()) {
-            //    LOG(ERROR) << "delete directory:" << index_path << " error:" << st;
-            //    return st;
-            //}
+            return Status::InternalError("init_fulltext_index directory already exists");
         }
 
         _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();
@@ -192,6 +191,12 @@ public:
         } else {
             // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
             _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+        }
+        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+        if (lowercase == "true") {
+            _analyzer->set_lowercase(true);
+        } else if (lowercase == "false") {
+            _analyzer->set_lowercase(false);
         }
         _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
                                                                      create, true);
@@ -231,6 +236,17 @@ public:
         return Status::OK();
     }
 
+    Status add_null_document() {
+        try {
+            _index_writer->addNullDocument(_doc.get());
+        } catch (const CLuceneError& e) {
+            _dir->deleteDirectory();
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError add_null_document: {}", e.what());
+        }
+        return Status::OK();
+    }
+
     Status add_nulls(uint32_t count) override {
         _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
@@ -242,8 +258,7 @@ public:
             }
 
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(empty_value.c_str(), 0);
-                RETURN_IF_ERROR(add_document());
+                RETURN_IF_ERROR(add_null_document());
             }
         }
         return Status::OK();
@@ -285,9 +300,19 @@ public:
                         "field or index writer is null in inverted index writer");
             }
             auto* v = (Slice*)values;
+            auto ignore_above_value =
+                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
+            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(v->get_data(), v->get_size());
-                RETURN_IF_ERROR(add_document());
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
+                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                     v->get_size() > ignore_above) ||
+                    (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                    RETURN_IF_ERROR(add_null_document());
+                } else {
+                    new_fulltext_field(v->get_data(), v->get_size());
+                    RETURN_IF_ERROR(add_document());
+                }
                 ++v;
                 _rid++;
             }
@@ -310,6 +335,9 @@ public:
                 return Status::InternalError(
                         "field or index writer is null in inverted index writer");
             }
+            auto ignore_above_value =
+                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
+            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
                 // offsets[i+1] is now row element count
                 std::vector<std::string> strings;
@@ -326,9 +354,16 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                new_fulltext_field(value.c_str(), value.length());
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
+                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                     value.length() > ignore_above) ||
+                    (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
+                    RETURN_IF_ERROR(add_null_document());
+                } else {
+                    new_fulltext_field(value.c_str(), value.length());
+                    RETURN_IF_ERROR(add_document());
+                }
                 _rid++;
-                _index_writer->addDocument(_doc.get());
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
             for (int i = 0; i < count; ++i) {
@@ -429,8 +464,8 @@ public:
     int64_t file_size() const override {
         std::filesystem::path dir(_directory);
         dir /= _segment_file_name;
-        auto file_name =
-                InvertedIndexDescriptor::get_index_file_name(dir.string(), _index_meta->index_id());
+        auto file_name = InvertedIndexDescriptor::get_index_file_name(
+                dir.string(), _index_meta->index_id(), _index_meta->get_index_suffix());
         int64_t size = -1;
         auto st = _fs->file_size(file_name.c_str(), &size);
         if (!st.ok()) {
@@ -465,7 +500,8 @@ public:
             // write bkd file
             if constexpr (field_is_numeric_type(field_type)) {
                 auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
-                        _directory + "/" + _segment_file_name, _index_meta->index_id());
+                        _directory + "/" + _segment_file_name, _index_meta->index_id(),
+                        _index_meta->get_index_suffix());
                 dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
                 write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;

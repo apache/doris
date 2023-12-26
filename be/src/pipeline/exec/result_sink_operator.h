@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -45,23 +46,24 @@ public:
 
 class ResultSinkDependency final : public Dependency {
 public:
+    using SharedState = BasicSharedState;
     ENABLE_FACTORY_CREATOR(ResultSinkDependency);
-    ResultSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "ResultSinkDependency", true) {}
+    ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
     ~ResultSinkDependency() override = default;
 };
 
-class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
+class ResultSinkLocalState final : public PipelineXSinkLocalState<ResultSinkDependency> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
+    using Base = PipelineXSinkLocalState<ResultSinkDependency>;
 
 public:
     ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<>(parent, state) {}
+            : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Dependency* dependency() override { return _result_sink_dependency.get(); }
     RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
     RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
@@ -72,7 +74,6 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    std::shared_ptr<ResultSinkDependency> _result_sink_dependency;
     RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
     RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
@@ -93,7 +94,7 @@ private:
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<vectorized::ResultFileOptions> _file_opts = nullptr;
 
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;

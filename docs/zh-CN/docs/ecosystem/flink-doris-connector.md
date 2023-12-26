@@ -46,6 +46,7 @@ under the License.
 | 1.2.1     | 1.15  | 1.0+   | 8    | -         |
 | 1.3.0     | 1.16  | 1.0+   | 8    | -         |
 | 1.4.0     | 1.15,1.16,1.17  | 1.0+   | 8   |- |
+| 1.5.0 | 1.15,1.16,1.17,1.18 | 1.0+ | 8 |- |
 
 ## 使用
 
@@ -312,16 +313,18 @@ ON a.city = c.city
 
 ### 通用配置项
 
-| Key                              | Default Value | Required | Comment                                                                                            |
-|----------------------------------|---------------|----------|----------------------------------------------------------------------------------------------------|
-| fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔                                                                    |
+| Key                              | Default Value | Required | Comment                                                      |
+| -------------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| fenodes                          | --            | Y        | Doris FE http 地址， 支持多个地址，使用逗号分隔              |
 | benodes                          | --            | N        | Doris BE http 地址， 支持多个地址，使用逗号分隔，参考[#187](https://github.com/apache/doris-flink-connector/pull/187) |
-| table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                                                                                  |
-| username                         | --            | Y        | 访问 Doris 的用户名                                                                                      |
-| password                         | --            | Y        | 访问 Doris 的密码                                                                                       |
-| doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                                                                                  |
-| doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                                                                                |
-| doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                                                                                |
+| jdbc-url                         | --            | N        | jdbc连接信息，如: jdbc:mysql://127.0.0.1:9030                |
+| table.identifier                 | --            | Y        | Doris 表名，如：db.tbl                                       |
+| username                         | --            | Y        | 访问 Doris 的用户名                                          |
+| password                         | --            | Y        | 访问 Doris 的密码                                            |
+| auto-redirect                    | false         | N        | 是否重定向StreamLoad请求。开启后StreamLoad将通过FE写入，不再显示获取BE信息，同时也可通过开启该参数写入SelectDB Cloud |
+| doris.request.retries            | 3             | N        | 向 Doris 发送请求的重试次数                                  |
+| doris.request.connect.timeout.ms | 30000         | N        | 向 Doris 发送请求的连接超时时间                              |
+| doris.request.read.timeout.ms    | 30000         | N        | 向 Doris 发送请求的读取超时时间                              |
 
 ### Source 配置项
 
@@ -338,21 +341,27 @@ ON a.city = c.city
 
 ### Sink 配置项
 
-| Key                | Default Value | Required | Comment                                                      |
-| ------------------ | ------------- | -------- | ------------------------------------------------------------ |
-| sink.label-prefix  | --            | Y        | Stream load导入使用的label前缀。2pc场景下要求全局唯一 ，用来保证Flink的EOS语义。 |
-| sink.properties.*  | --            | N        | Stream Load 的导入参数。<br/>例如:  'sink.properties.column_separator' = ', ' 定义列分隔符，  'sink.properties.escape_delimiters' = 'true' 特殊字符作为分隔符,'\x01'会被转换为二进制的0x01  <br/><br/>JSON格式导入<br/>'sink.properties.format' = 'json' 'sink.properties.read_json_by_line' = 'true'<br/>详细参数参考[这里](../data-operate/import/import-way/stream-load-manual.md)。 |
-| sink.enable-delete | TRUE          | N        | 是否启用删除。此选项需要 Doris 表开启批量删除功能(Doris0.15+版本默认开启)，只支持 Unique 模型。 |
-| sink.enable-2pc    | TRUE          | N        | 是否开启两阶段提交(2pc)，默认为true，保证Exactly-Once语义。关于两阶段提交可参考[这里](../data-operate/import/import-way/stream-load-manual.md)。 |
-| sink.buffer-size   | 1MB           | N        | 写数据缓存buffer大小，单位字节。不建议修改，默认配置即可     |
-| sink.buffer-count  | 3             | N        | 写数据缓存buffer个数。不建议修改，默认配置即可               |
-| sink.max-retries   | 3             | N        | Commit失败后的最大重试次数，默认3次                          |
+| Key                         | Default Value | Required | Comment                                                      |
+| --------------------------- | ------------- | -------- | ------------------------------------------------------------ |
+| sink.label-prefix           | --            | Y        | Stream load导入使用的label前缀。2pc场景下要求全局唯一 ，用来保证Flink的EOS语义。 |
+| sink.properties.*           | --            | N        | Stream Load 的导入参数。<br/>例如:  'sink.properties.column_separator' = ', ' 定义列分隔符，  'sink.properties.escape_delimiters' = 'true' 特殊字符作为分隔符,'\x01'会被转换为二进制的0x01  <br/><br/>JSON格式导入<br/>'sink.properties.format' = 'json' 'sink.properties.read_json_by_line' = 'true'<br/>详细参数参考[这里](../data-operate/import/import-way/stream-load-manual.md)。 |
+| sink.enable-delete          | TRUE          | N        | 是否启用删除。此选项需要 Doris 表开启批量删除功能(Doris0.15+版本默认开启)，只支持 Unique 模型。 |
+| sink.enable-2pc             | TRUE          | N        | 是否开启两阶段提交(2pc)，默认为true，保证Exactly-Once语义。关于两阶段提交可参考[这里](../data-operate/import/import-way/stream-load-manual.md)。 |
+| sink.buffer-size            | 1MB           | N        | 写数据缓存buffer大小，单位字节。不建议修改，默认配置即可     |
+| sink.buffer-count           | 3             | N        | 写数据缓存buffer个数。不建议修改，默认配置即可               |
+| sink.max-retries            | 3             | N        | Commit失败后的最大重试次数，默认3次                          |
+| sink.use-cache              | false         | N        | 异常时，是否使用内存缓存进行恢复，开启后缓存中会保留Checkpoint期间的数据 |
+| sink.enable.batch-mode      | false         | N        | 是否使用攒批模式写入Doris，开启后写入时机不依赖Checkpoint，通过sink.buffer-flush.max-rows/sink.buffer-flush.max-bytes/sink.buffer-flush.interval 参数来控制写入时机。<br />同时开启后将不保证Exactly-once语义，可借助Uniq模型做到幂等 |
+| sink.flush.queue-size       | 2             | N        | 攒批模式下，缓存的对列大小。                                 |
+| sink.buffer-flush.max-rows  | 50000         | N        | 攒批模式下，单个批次最多写入的数据行数。                     |
+| sink.buffer-flush.max-bytes | 10MB          | N        | 攒批模式下，单个批次最多写入的字节数。                       |
+| sink.buffer-flush.interval  | 10s           | N        | 攒批模式下，异步刷新缓存的间隔                               |
+| sink.ignore.update-before   | true          | N        | 是否忽略update-before事件，默认忽略。                        |
 
 ### Lookup Join 配置项
 
 | Key                               | Default Value | Required | Comment                                    |
 | --------------------------------- | ------------- | -------- | ------------------------------------------ |
-| jdbc-url                          | --            | Y        | jdbc连接信息                               |
 | lookup.cache.max-rows             | -1            | N        | lookup缓存的最大行数，默认值-1，不开启缓存 |
 | lookup.cache.ttl                  | 10s           | N        | lookup缓存的最大时间，默认10s              |
 | lookup.max-retries                | 1             | N        | lookup查询失败后的重试次数                 |
@@ -379,6 +388,7 @@ ON a.city = c.city
 | CHAR       | STRING             |
 | LARGEINT   | STRING             |
 | VARCHAR    | STRING            |
+| STRING     | STRING            |
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |
@@ -421,8 +431,52 @@ WITH (
 
 insert into doris_sink select id,name from cdc_mysql_source;
 ```
+## 使用FlinkSQL通过CDC接入并实现部分列更新示例
 
-## 使用FlinkCDC接入多表或整库示例
+```sql
+-- enable checkpoint
+SET 'execution.checkpointing.interval' = '10s';
+
+CREATE TABLE cdc_mysql_source (
+   id int
+  ,name STRING
+  ,bank STRING
+  ,age int
+  ,PRIMARY KEY (id) NOT ENFORCED
+) WITH (
+ 'connector' = 'mysql-cdc',
+ 'hostname' = '127.0.0.1',
+ 'port' = '3306',
+ 'username' = 'root',
+ 'password' = 'password',
+ 'database-name' = 'database',
+ 'table-name' = 'table'
+);
+
+CREATE TABLE doris_sink (
+    id INT,
+    name STRING,
+    bank STRING,
+    age int
+) 
+WITH (
+  'connector' = 'doris',
+  'fenodes' = '127.0.0.1:8030',
+  'table.identifier' = 'database.table',
+  'username' = 'root',
+  'password' = '',
+  'sink.properties.format' = 'json',
+  'sink.properties.read_json_by_line' = 'true',
+  'sink.properties.columns' = 'id,name,bank,age',
+  'sink.properties.partial.columns' = 'true' -- 开启部分列更新
+);
+
+
+insert into doris_sink select id,name,bank,age from cdc_mysql_source;
+
+```
+
+## 使用FlinkCDC接入多表或整库(支持MySQL,Oracle,PostgreSQL,SQLServer)
 ### 语法
 ```shell
 <FLINK_HOME>bin/flink run \
@@ -443,25 +497,31 @@ insert into doris_sink select id,name from cdc_mysql_source;
     [--table-conf <doris-table-conf> [--table-conf <doris-table-conf> ...]]
 ```
 
-- **--job-name** Flink任务名称, 非必需。
-- **--database** 同步到Doris的数据库名。
-- **--table-prefix**  Doris表前缀名，例如 --table-prefix ods_。
-- **--table-suffix** 同上，Doris表的后缀名。
-- **--including-tables** 需要同步的MySQL表，可以使用"|" 分隔多个表，并支持正则表达式。 比如--including-tables table1|tbl.*就是同步table1和所有以tbl开头的表。
-- **--excluding-tables** 不需要同步的表，用法同上。
-- **--mysql-conf** MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。同步的库表中含有非主键表时，必须设置 `scan.incremental.snapshot.chunk.key-column`，且只能选择非空类型的一个字段。
-例如：`scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1:column...`，不同的库表列之间用`,`隔开。
-- **--oracle-conf** Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
-- **--postgres-conf** Postgres CDCSource 配置，例如--postgres-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)查看所有配置Postgres-CDC，其中hostname/username/password/database-name/schema-name/slot.name 是必需的。
-- **--sqlserver-conf** SQLServer CDCSource 配置，例如--sqlserver-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)查看所有配置SQLServer-CDC，其中hostname/username/password/database-name/schema-name 是必需的。
-- **--sink-conf** Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。
-- **--table-conf** Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1
-- **--ignore-default-value** 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152)
-- **--use-new-schema-change** 新的schema change支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167)
+
+
+| Key                     | Comment                                                      |
+| ----------------------- | ------------------------------------------------------------ |
+| --job-name              | Flink任务名称, 非必需                                        |
+| --database              | 同步到Doris的数据库名                                        |
+| --table-prefix          | Doris表前缀名，例如 --table-prefix ods_。                    |
+| --table-suffix          | 同上，Doris表的后缀名。                                      |
+| --including-tables      | 需要同步的MySQL表，可以使用"\|" 分隔多个表，并支持正则表达式。 比如--including-tables table1 |
+| --excluding-tables      | 不需要同步的表，用法同上。                                   |
+| --mysql-conf            | MySQL CDCSource 配置，例如--mysql-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/mysql-cdc.html)查看所有配置MySQL-CDC，其中hostname/username/password/database-name 是必需的。同步的库表中含有非主键表时，必须设置 `scan.incremental.snapshot.chunk.key-column`，且只能选择非空类型的一个字段。<br/>例如：`scan.incremental.snapshot.chunk.key-column=database.table:column,database.table1:column...`，不同的库表列之间用`,`隔开。 |
+| --oracle-conf           | Oracle CDCSource 配置，例如--oracle-conf hostname=127.0.0.1，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/oracle-cdc.html)查看所有配置Oracle-CDC，其中hostname/username/password/database-name/schema-name 是必需的。 |
+| --postgres-conf         | Postgres CDCSource 配置，例如--postgres-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/postgres-cdc.html)查看所有配置Postgres-CDC，其中hostname/username/password/database-name/schema-name/slot.name 是必需的。 |
+| --sqlserver-conf        | SQLServer CDCSource 配置，例如--sqlserver-conf hostname=127.0.0.1 ，您可以在[这里](https://ververica.github.io/flink-cdc-connectors/master/content/connectors/sqlserver-cdc.html)查看所有配置SQLServer-CDC，其中hostname/username/password/database-name/schema-name 是必需的。 |
+| --sink-conf             | Doris Sink 的所有配置，可以在[这里](https://doris.apache.org/zh-CN/docs/dev/ecosystem/flink-doris-connector/#%E9%80%9A%E7%94%A8%E9%85%8D%E7%BD%AE%E9%A1%B9)查看完整的配置项。 |
+| --table-conf            | Doris表的配置项，即properties中包含的内容。 例如 --table-conf replication_num=1 |
+| --ignore-default-value  | 关闭同步mysql表结构的默认值。适用于同步mysql数据到doris时，字段有默认值，但实际插入数据为null情况。参考[#152](https://github.com/apache/doris-flink-connector/pull/152) |
+| --use-new-schema-change | 是否使用新的schema change，支持同步mysql多列变更、默认值。参考[#167](https://github.com/apache/doris-flink-connector/pull/167) |
+| --single-sink           | 是否使用单个Sink同步所有表，开启后也可自动识别上游新创建的表，自动创建表。 |
+| --multi-to-one-origin   | 将上游多张表写入同一张表时，源表的配置，比如：--multi-to-one-origin="a\_.\*\|b_.\*"， 具体参考[这里](https://github.com/apache/doris-flink-connector/pull/208) |
+| --multi-to-one-target   | 与multi-to-one-origin搭配使用，目标表的配置，比如：--multi-to-one-target="a\|b" |
 
 >注：同步时需要在$FLINK_HOME/lib 目录下添加对应的Flink CDC依赖，比如 flink-sql-connector-mysql-cdc-${version}.jar，flink-sql-connector-oracle-cdc-${version}.jar
 
-### MySQL同步示例
+### MySQL多表同步示例
 ```shell
 <FLINK_HOME>bin/flink run \
     -Dexecution.checkpointing.interval=10s \
@@ -484,7 +544,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
     --table-conf replication_num=1 
 ```
 
-### Oracle同步示例
+### Oracle多表同步示例
 
 ```shell
 <FLINK_HOME>bin/flink run \
@@ -509,7 +569,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --table-conf replication_num=1
 ```
 
-### PostgreSQL同步示例
+### PostgreSQL多表同步示例
 
 ```shell
 <FLINK_HOME>/bin/flink run \
@@ -536,7 +596,7 @@ insert into doris_sink select id,name from cdc_mysql_source;
      --table-conf replication_num=1
 ```
 
-### SQLServer同步示例
+### SQLServer多表同步示例
 
 ```shell
 <FLINK_HOME>/bin/flink run \
@@ -700,3 +760,7 @@ Flink在数据导入时，如果有脏数据，比如字段格式、长度等问
 14. **使用doris.filter.query出现org.apache.flink.table.api.SqlParserException: SQL parse failed. Encountered "xx" at line x, column xx**
 
 出现这个问题主要是条件varchar/string类型，需要加引号导致的，正确写法是 xxx = ''xxx'',这样Flink SQL 解析器会将两个连续的单引号解释为一个单引号字符,而不是字符串的结束，并将拼接后的字符串作为属性的值。
+
+15. **如果出现Failed to connect to backend: http://host:webserver_port, 并且Be还是活着的**
+
+可能是因为你配置的be的ip，外部的Flink集群无法访问。这主要是因为当连接fe时，会通过fe解析出be的地址。例如，当你添加的be 地址为`127.0.0.1`,那么flink通过fe获取的be地址就为`127.0.0.1:webserver_port`, 此时Flink就会去访问这个地址。当出现这个问题时，可以通过在with属性中增加实际对应的be外部ip地`'benodes'="be_ip:webserver_port,be_ip:webserver_port..."`,整库同步则可增加`--sink-conf benodes=be_ip:webserver,be_ip:webserver...`。

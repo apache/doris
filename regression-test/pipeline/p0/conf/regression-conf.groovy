@@ -85,6 +85,7 @@ mariadb_10_port=3326
 enableHiveTest=false
 hms_port=7141
 hiveServerPort=10000
+hive_pg_port=5432
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container

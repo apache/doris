@@ -49,8 +49,8 @@ public:
 class AnalyticSourceDependency final : public Dependency {
 public:
     using SharedState = AnalyticSharedState;
-    AnalyticSourceDependency(int id, int node_id)
-            : Dependency(id, node_id, "AnalyticSourceDependency") {}
+    AnalyticSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AnalyticSourceDependency", query_ctx) {}
     ~AnalyticSourceDependency() override = default;
 };
 
@@ -120,9 +120,9 @@ private:
     std::unique_ptr<vectorized::Arena> _agg_arena_pool;
     std::vector<vectorized::AggFnEvaluator*> _agg_functions;
 
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _evaluation_timer;
-    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _evaluation_timer = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _blocks_memory_usage = nullptr;
 
     using vectorized_execute = std::function<void(int64_t peer_group_start, int64_t peer_group_end,
                                                   int64_t frame_start, int64_t frame_end)>;
@@ -169,8 +169,8 @@ private:
 
     vectorized::AnalyticFnScope _fn_scope;
 
-    TupleDescriptor* _intermediate_tuple_desc;
-    TupleDescriptor* _output_tuple_desc;
+    TupleDescriptor* _intermediate_tuple_desc = nullptr;
+    TupleDescriptor* _output_tuple_desc = nullptr;
 
     /// The offset of the n-th functions.
     std::vector<size_t> _offsets_of_aggregate_states;

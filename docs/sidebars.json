@@ -91,7 +91,8 @@
                                 "data-operate/import/import-way/mysql-load-manual",
                                 "data-operate/import/import-way/s3-load-manual",
                                 "data-operate/import/import-way/insert-into-manual",
-                                "data-operate/import/import-way/load-json-format"
+                                "data-operate/import/import-way/load-json-format",
+                                "data-operate/import/import-way/group-commit-manual"
                             ]
                         },
                         {
@@ -347,6 +348,7 @@
                                 "sql-manual/sql-functions/date-time-functions/from-days",
                                 "sql-manual/sql-functions/date-time-functions/last-day",
                                 "sql-manual/sql-functions/date-time-functions/to-monday",
+                                "sql-manual/sql-functions/date-time-functions/from-second",
                                 "sql-manual/sql-functions/date-time-functions/from-unixtime",
                                 "sql-manual/sql-functions/date-time-functions/unix-timestamp",
                                 "sql-manual/sql-functions/date-time-functions/utc-timestamp",
@@ -785,7 +787,9 @@
                                 "sql-manual/sql-functions/ip-functions/ipv4-string-to-num",
                                 "sql-manual/sql-functions/ip-functions/inet-aton",
                                 "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-default",
-                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null"
+                                "sql-manual/sql-functions/ip-functions/ipv4-string-to-num-or-null",
+                                "sql-manual/sql-functions/ip-functions/ipv6-num-to-string",
+                                "sql-manual/sql-functions/ip-functions/inet6-ntoa"
                             ]
                         },
                         {
@@ -865,7 +869,8 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
                                 "sql-manual/sql-reference/Database-Administration-Statements/KILL",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK",
+                                "sql-manual/sql-reference/Database-Administration-Statements/UNSET-VARIABLE"
                             ]
                         },
                         {
@@ -909,7 +914,6 @@
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-LIKE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE-AS-SELECT",
-                                        "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-EXTERNAL-TABLE",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-INDEX",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-VIEW",
                                         "sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW",
@@ -1067,6 +1071,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WHITE-LIST",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-WARNING",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-TABLET",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-TABLETS-BELONG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-VARIABLES",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-PLUGINS",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-ROLES",
@@ -1261,6 +1266,7 @@
                                 "admin-manual/http-actions/fe/show-meta-info-action",
                                 "admin-manual/http-actions/fe/show-proc-action",
                                 "admin-manual/http-actions/fe/show-runtime-info-action",
+                                "admin-manual/http-actions/fe/show-table-data-action",
                                 "admin-manual/http-actions/fe/statement-execution-action",
                                 "admin-manual/http-actions/fe/table-query-plan-action",
                                 "admin-manual/http-actions/fe/table-row-count-action",
@@ -1322,6 +1328,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-2.0.3",
                 "releasenotes/release-2.0.2",
                 "releasenotes/release-2.0.1",
                 "releasenotes/release-2.0.0",

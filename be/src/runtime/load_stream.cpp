@@ -18,15 +18,22 @@
 #include "runtime/load_stream.h"
 
 #include <brpc/stream.h>
+#include <bthread/bthread.h>
+#include <bthread/condition_variable.h>
+#include <bthread/mutex.h>
 #include <olap/rowset/rowset_factory.h>
 #include <olap/rowset/rowset_meta.h>
 #include <olap/storage_engine.h>
 #include <olap/tablet_manager.h>
 #include <runtime/exec_env.h>
 
+#include <memory>
+
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/tablet_fwd.h"
+#include "olap/tablet_schema.h"
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
@@ -38,11 +45,12 @@ namespace doris {
 
 TabletStream::TabletStream(PUniqueId load_id, int64_t id, int64_t txn_id,
                            LoadStreamMgr* load_stream_mgr, RuntimeProfile* profile)
-        : _id(id), _next_segid(0), _load_id(load_id), _txn_id(txn_id) {
-    for (int i = 0; i < 10; i++) {
-        _flush_tokens.emplace_back(load_stream_mgr->new_token());
-    }
-
+        : _id(id),
+          _next_segid(0),
+          _load_id(load_id),
+          _txn_id(txn_id),
+          _load_stream_mgr(load_stream_mgr) {
+    load_stream_mgr->create_tokens(_flush_tokens);
     _failed_st = std::make_shared<Status>();
     _profile = profile->create_child(fmt::format("TabletStream {}", id), true, true);
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
@@ -121,7 +129,8 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
     butil::IOBuf buf = data->movable();
     auto flush_func = [this, new_segid, eos, buf, header]() {
-        auto st = _load_stream_writer->append_data(new_segid, buf);
+        signal::set_signal_task_id(_load_id);
+        auto st = _load_stream_writer->append_data(new_segid, header.offset(), buf);
         if (eos && st.ok()) {
             st = _load_stream_writer->close_segment(new_segid);
         }
@@ -130,13 +139,22 @@ Status TabletStream::append_data(const PStreamHeader& header, butil::IOBuf* data
             LOG(INFO) << "write data failed " << *this;
         }
     };
-    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(flush_func);
+    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
+        bthread_usleep(10 * 1000); // 10ms
+    }
+    return flush_token->submit_func(flush_func);
 }
 
 Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data) {
     SCOPED_TIMER(_add_segment_timer);
     DCHECK(header.has_segment_statistics());
     SegmentStatistics stat(header.segment_statistics());
+    TabletSchemaSPtr flush_schema;
+    if (header.has_flush_schema()) {
+        flush_schema = std::make_shared<TabletSchema>();
+        flush_schema->init_from_pb(header.flush_schema());
+    }
 
     int64_t src_id = header.src_id();
     uint32_t segid = header.segment_id();
@@ -152,25 +170,61 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     }
     DCHECK(new_segid != std::numeric_limits<uint32_t>::max());
 
-    auto add_segment_func = [this, new_segid, stat]() {
-        auto st = _load_stream_writer->add_segment(new_segid, stat);
+    auto add_segment_func = [this, new_segid, stat, flush_schema]() {
+        signal::set_signal_task_id(_load_id);
+        auto st = _load_stream_writer->add_segment(new_segid, stat, flush_schema);
         if (!st.ok() && _failed_st->ok()) {
             _failed_st = std::make_shared<Status>(st);
             LOG(INFO) << "add segment failed " << *this;
         }
     };
-    return _flush_tokens[new_segid % _flush_tokens.size()]->submit_func(add_segment_func);
+    auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
+    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
+        bthread_usleep(10 * 1000); // 10ms
+    }
+    return flush_token->submit_func(add_segment_func);
 }
 
 Status TabletStream::close() {
     SCOPED_TIMER(_close_wait_timer);
-    for (auto& token : _flush_tokens) {
-        token->wait();
+    bthread::Mutex mu;
+    std::unique_lock<bthread::Mutex> lock(mu);
+    bthread::ConditionVariable cv;
+    auto wait_func = [this, &mu, &cv] {
+        signal::set_signal_task_id(_load_id);
+        for (auto& token : _flush_tokens) {
+            token->wait();
+        }
+        std::lock_guard<bthread::Mutex> lock(mu);
+        cv.notify_one();
+    };
+    bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(wait_func);
+    if (ret) {
+        cv.wait(lock);
+    } else {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "there is not enough thread resource for close load");
     }
+
     if (!_failed_st->ok()) {
         return *_failed_st;
     }
-    return _load_stream_writer->close();
+
+    Status st = Status::OK();
+    auto close_func = [this, &mu, &cv, &st]() {
+        signal::set_signal_task_id(_load_id);
+        st = _load_stream_writer->close();
+        std::lock_guard<bthread::Mutex> lock(mu);
+        cv.notify_one();
+    };
+    ret = _load_stream_mgr->heavy_work_pool()->try_offer(close_func);
+    if (ret) {
+        cv.wait(lock);
+    } else {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "there is not enough thread resource for close load");
+    }
+    return st;
 }
 
 IndexStream::IndexStream(PUniqueId load_id, int64_t id, int64_t txn_id,
@@ -227,20 +281,23 @@ Status IndexStream::close(const std::vector<PTabletID>& tablets_to_commit,
         }
     }
 
-    for (auto& it : _tablet_streams_map) {
-        auto st = it.second->close();
+    for (auto& [_, tablet_stream] : _tablet_streams_map) {
+        auto st = tablet_stream->close();
         if (st.ok()) {
-            success_tablet_ids->push_back(it.second->id());
+            success_tablet_ids->push_back(tablet_stream->id());
         } else {
-            LOG(INFO) << "close tablet stream " << *it.second << ", status=" << st;
-            failed_tablet_ids->push_back(it.second->id());
+            LOG(INFO) << "close tablet stream " << *tablet_stream << ", status=" << st;
+            failed_tablet_ids->push_back(tablet_stream->id());
         }
     }
     return Status::OK();
 }
 
+// TODO: Profile is temporary disabled, because:
+// 1. It's not being processed by the upstream for now
+// 2. There are some problems in _profile->to_thrift()
 LoadStream::LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile)
-        : _load_id(load_id), _enable_profile(enable_profile), _load_stream_mgr(load_stream_mgr) {
+        : _load_id(load_id), _enable_profile(false), _load_stream_mgr(load_stream_mgr) {
     _profile = std::make_unique<RuntimeProfile>("LoadStream");
     _append_data_timer = ADD_TIMER(_profile, "AppendDataTime");
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
@@ -288,43 +345,19 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
         return Status::OK();
     }
 
-    Status st = Status::OK();
-    {
-        bthread::Mutex mutex;
-        std::unique_lock<bthread::Mutex> lock(mutex);
-        bthread::ConditionVariable cond;
-        bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(
-                [this, &success_tablet_ids, &failed_tablet_ids, &mutex, &cond, &st]() {
-                    signal::set_signal_task_id(_load_id);
-                    for (auto& it : _index_streams_map) {
-                        st = it.second->close(_tablets_to_commit, success_tablet_ids,
-                                              failed_tablet_ids);
-                        if (!st.ok()) {
-                            std::unique_lock<bthread::Mutex> lock(mutex);
-                            cond.notify_one();
-                            return;
-                        }
-                    }
-                    LOG(INFO) << "close load " << *this
-                              << ", failed_tablet_num=" << failed_tablet_ids->size()
-                              << ", success_tablet_num=" << success_tablet_ids->size();
-                    std::unique_lock<bthread::Mutex> lock(mutex);
-                    cond.notify_one();
-                });
-        if (ret) {
-            cond.wait(lock);
-        } else {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "there is not enough thread resource for close load");
-        }
+    for (auto& [_, index_stream] : _index_streams_map) {
+        RETURN_IF_ERROR(
+                index_stream->close(_tablets_to_commit, success_tablet_ids, failed_tablet_ids));
     }
-    return st;
+    LOG(INFO) << "close load " << *this << ", success_tablet_num=" << success_tablet_ids->size()
+              << ", failed_tablet_num=" << failed_tablet_ids->size();
+    return Status::OK();
 }
 
 void LoadStream::_report_result(StreamId stream, const Status& st,
                                 const std::vector<int64_t>& success_tablet_ids,
                                 const std::vector<int64_t>& failed_tablet_ids) {
-    LOG(INFO) << "report result, success tablet num " << success_tablet_ids.size()
+    LOG(INFO) << "report result " << *this << ", success tablet num " << success_tablet_ids.size()
               << ", failed tablet num " << failed_tablet_ids.size();
     butil::IOBuf buf;
     PWriteStreamSinkResponse response;
@@ -336,7 +369,7 @@ void LoadStream::_report_result(StreamId stream, const Status& st,
         response.add_failed_tablet_ids(id);
     }
 
-    if (_enable_profile) {
+    if (_enable_profile && _close_load_cnt == _total_streams) {
         TRuntimeProfileTree tprofile;
         ThriftSerializer ser(false, 4096);
         uint8_t* buf = nullptr;
@@ -404,26 +437,7 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
         index_stream = it->second;
     }
 
-    Status st = Status::OK();
-    {
-        bthread::Mutex mutex;
-        std::unique_lock<bthread::Mutex> lock(mutex);
-        bthread::ConditionVariable cond;
-        bool ret = _load_stream_mgr->heavy_work_pool()->try_offer(
-                [this, &index_stream, &header, &data, &mutex, &cond, &st] {
-                    signal::set_signal_task_id(_load_id);
-                    st = index_stream->append_data(header, data);
-                    std::unique_lock<bthread::Mutex> lock(mutex);
-                    cond.notify_one();
-                });
-        if (ret) {
-            cond.wait(lock);
-        } else {
-            return Status::Error<ErrorCode::INTERNAL_ERROR>(
-                    "there is not enough thread resource for append data");
-        }
-    }
-    return st;
+    return index_stream->append_data(header, data);
 }
 
 int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[], size_t size) {
@@ -456,9 +470,8 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
-        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid load id {}, expected {}",
-                                                               UniqueId(hdr.load_id()).to_string(),
-                                                               UniqueId(_load_id).to_string());
+        Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
+                "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));
         _report_failure(id, st, hdr);
         return;
     }

@@ -18,9 +18,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF0 i_item_sk->[ss_item_sk]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+------------------------------------PhysicalProject
+--------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[item]
@@ -45,7 +44,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 --------------------PhysicalDistribute
 ----------------------PhysicalProject
-------------------------filter((if((avg_monthly_sales > 0.0000), (abs((cast(sum_sales as DOUBLE) - cast(avg_monthly_sales as DOUBLE))) / cast(avg_monthly_sales as DOUBLE)), NULL) > 0.1) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 2001))
+------------------------filter((if((avg_monthly_sales > 0.0000), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000) and (v2.avg_monthly_sales > 0.0000) and (v2.d_year = 2001))
 --------------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ----------------PhysicalDistribute
 ------------------PhysicalProject

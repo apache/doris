@@ -26,4 +26,4 @@
 	branch = clucene
 [submodule ".github/actions/create-or-update-comment"]
 	path = .github/actions/create-or-update-comment
-	url = https://github.com/peter-evans/create-or-update-comment
+	url = https://github.com/peter-evans/create-or-update-comment.git

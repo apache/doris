@@ -80,7 +80,8 @@ public:
         int64_t request_io = 0;
         int64_t merged_io = 0;
         int64_t request_bytes = 0;
-        int64_t read_bytes = 0;
+        int64_t merged_bytes = 0;
+        int64_t apply_bytes = 0;
     };
 
     struct RangeCachedData {
@@ -130,8 +131,6 @@ public:
     static constexpr size_t READ_SLICE_SIZE = 8 * 1024 * 1024;      // 8MB
     static constexpr size_t BOX_SIZE = 1 * 1024 * 1024;             // 1MB
     static constexpr size_t SMALL_IO = 2 * 1024 * 1024;             // 2MB
-    static constexpr size_t HDFS_MIN_IO_SIZE = 4 * 1024;            // 4KB
-    static constexpr size_t OSS_MIN_IO_SIZE = 512 * 1024;           // 512KB
     static constexpr size_t NUM_BOX = TOTAL_BUFFER_SIZE / BOX_SIZE; // 128
 
     MergeRangeFileReader(RuntimeProfile* profile, io::FileReaderSPtr reader,
@@ -145,8 +144,12 @@ public:
         _is_oss = typeid_cast<io::S3FileReader*>(_reader.get()) != nullptr;
         _max_amplified_ratio = config::max_amplified_read_ratio;
         // Equivalent min size of each IO that can reach the maximum storage speed limit:
-        // 512KB for oss, 4KB for hdfs
-        _equivalent_io_size = _is_oss ? OSS_MIN_IO_SIZE : HDFS_MIN_IO_SIZE;
+        // 1MB for oss, 8KB for hdfs
+        _equivalent_io_size =
+                _is_oss ? config::merged_oss_min_io_size : config::merged_hdfs_min_io_size;
+        for (const PrefetchRange& range : _random_access_ranges) {
+            _statistics.apply_bytes += range.end_offset - range.start_offset;
+        }
         if (_profile != nullptr) {
             const char* random_profile = "MergedSmallIO";
             ADD_TIMER_WITH_LEVEL(_profile, random_profile, 1);
@@ -158,15 +161,15 @@ public:
                                                       random_profile, 1);
             _request_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "RequestBytes", TUnit::BYTES,
                                                           random_profile, 1);
-            _read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
-                                                       random_profile, 1);
+            _merged_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "MergedBytes", TUnit::BYTES,
+                                                         random_profile, 1);
+            _apply_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(_profile, "ApplyBytes", TUnit::BYTES,
+                                                        random_profile, 1);
         }
     }
 
     ~MergeRangeFileReader() override {
-        if (_read_slice != nullptr) {
-            delete[] _read_slice;
-        }
+        delete[] _read_slice;
         for (char* box : _boxes) {
             delete[] box;
         }
@@ -184,7 +187,8 @@ public:
                 COUNTER_UPDATE(_request_io, _statistics.request_io);
                 COUNTER_UPDATE(_merged_io, _statistics.merged_io);
                 COUNTER_UPDATE(_request_bytes, _statistics.request_bytes);
-                COUNTER_UPDATE(_read_bytes, _statistics.read_bytes);
+                COUNTER_UPDATE(_merged_bytes, _statistics.merged_bytes);
+                COUNTER_UPDATE(_apply_bytes, _statistics.apply_bytes);
             }
         }
         return Status::OK();
@@ -215,12 +219,13 @@ protected:
                         const IOContext* io_ctx) override;
 
 private:
-    RuntimeProfile::Counter* _copy_time;
-    RuntimeProfile::Counter* _read_time;
-    RuntimeProfile::Counter* _request_io;
-    RuntimeProfile::Counter* _merged_io;
-    RuntimeProfile::Counter* _request_bytes;
-    RuntimeProfile::Counter* _read_bytes;
+    RuntimeProfile::Counter* _copy_time = nullptr;
+    RuntimeProfile::Counter* _read_time = nullptr;
+    RuntimeProfile::Counter* _request_io = nullptr;
+    RuntimeProfile::Counter* _merged_io = nullptr;
+    RuntimeProfile::Counter* _request_bytes = nullptr;
+    RuntimeProfile::Counter* _merged_bytes = nullptr;
+    RuntimeProfile::Counter* _apply_bytes = nullptr;
 
     int _search_read_range(size_t start_offset, size_t end_offset);
     void _clean_cached_data(RangeCachedData& cached_data);
@@ -281,7 +286,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
               _reader(reader),
               _io_ctx(io_ctx),
               _buf(new char[buffer_size]),
-              _sync_profile(sync_profile) {}
+              _sync_profile(std::move(sync_profile)) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)
             : _offset(other._offset),
@@ -305,8 +310,8 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer> {
     size_t _size {0};
     size_t _len {0};
     size_t _whole_buffer_size;
-    io::FileReader* _reader;
-    const IOContext* _io_ctx;
+    io::FileReader* _reader = nullptr;
+    const IOContext* _io_ctx = nullptr;
     std::unique_ptr<char[]> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
@@ -383,8 +388,8 @@ public:
 
     void set_random_access_ranges(const std::vector<PrefetchRange>* random_access_ranges) {
         _random_access_ranges = random_access_ranges;
-        for (int i = 0; i < _pre_buffers.size(); i++) {
-            _pre_buffers[i]->set_random_access_ranges(random_access_ranges);
+        for (auto& _pre_buffer : _pre_buffers) {
+            _pre_buffer->set_random_access_ranges(random_access_ranges);
         }
     }
 
@@ -414,7 +419,7 @@ private:
     io::FileReaderSPtr _reader;
     PrefetchRange _file_range;
     const std::vector<PrefetchRange>* _random_access_ranges = nullptr;
-    const IOContext* _io_ctx;
+    const IOContext* _io_ctx = nullptr;
     int64_t s_max_pre_buffer_size = 4 * 1024 * 1024; // 4MB
     std::vector<std::shared_ptr<PrefetchBuffer>> _pre_buffers;
     int64_t _whole_pre_buffer_size;
@@ -451,7 +456,7 @@ protected:
 private:
     Status _close_internal();
     io::FileReaderSPtr _reader;
-    std::unique_ptr<char[]> _data = nullptr;
+    std::unique_ptr<char[]> _data;
     size_t _size;
     bool _closed = false;
 };

@@ -115,12 +115,12 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
         DCHECK(deps.size() == 1);
         DCHECK(deps.front() == nullptr);
         //child_count == 0 , we need to creat a  UnionDependency
-        deps.front() =
-                std::make_shared<UnionSourceDependency>(_parent->operator_id(), _parent->node_id());
+        deps.front() = std::make_shared<UnionSourceDependency>(
+                _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
         ((UnionSourceDependency*)deps.front().get())->set_shared_state(ss);
     }
     RETURN_IF_ERROR(Base::init(state, info));
-    ss->data_queue.set_dependency(_dependency, info.upstream_dependencies.front().get());
+    ss->data_queue.set_source_dependency(_dependency);
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     // Const exprs materialized by this node. These exprs don't refer to any children.
@@ -141,6 +141,9 @@ Status UnionSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
             RETURN_IF_ERROR(clone_expr_list(_const_expr_list, other_expr_list));
         }
     }
+    if (child_count == 0) {
+        _dependency->set_ready();
+    }
     return Status::OK();
 }
 
@@ -151,20 +154,29 @@ std::shared_ptr<UnionSharedState> UnionSourceLocalState::create_shared_state() {
     return data_queue;
 }
 
+std::string UnionSourceLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, ", data_queue: (is_all_finish = {}, has_data = {})",
+                   _shared_state->data_queue.is_all_finish(),
+                   _shared_state->data_queue.remaining_has_data());
+    return fmt::to_string(debug_string_buffer);
+}
+
 Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
                                        SourceState& source_state) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
-            static_cast<void>(get_next_const(state, block));
+            RETURN_IF_ERROR(get_next_const(state, block));
         }
         local_state._need_read_for_const_expr = has_more_const(state);
     } else {
         std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
         int child_idx = 0;
-        static_cast<void>(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
-                                                                                     &child_idx));
+        RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
+                                                                                   &child_idx));
         if (!output_block) {
             return Status::OK();
         }

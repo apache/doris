@@ -174,62 +174,62 @@
 1331481600
 
 -- !sql_unix_timestamp_Varchar_Varchar --
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 
 -- !sql_unix_timestamp_Varchar_Varchar_notnull --
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 
 -- !sql_unix_timestamp_String_String --
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 
 -- !sql_unix_timestamp_String_String_notnull --
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
-0
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
+\N
 
 -- !sql_upper_Varchar --
 NULL

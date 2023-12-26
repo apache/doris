@@ -89,7 +89,9 @@ Status HashJoinProbeLocalState::open(RuntimeState* state) {
 
 void HashJoinProbeLocalState::prepare_for_next() {
     _probe_index = 0;
+    _build_index = 0;
     _ready_probe = false;
+    _last_probe_match = -1;
     _prepare_probe_block();
 }
 
@@ -220,6 +222,10 @@ void HashJoinProbeLocalState::_prepare_probe_block() {
 HashJoinProbeOperatorX::HashJoinProbeOperatorX(ObjectPool* pool, const TPlanNode& tnode,
                                                int operator_id, const DescriptorTbl& descs)
         : JoinProbeOperatorX<HashJoinProbeLocalState>(pool, tnode, operator_id, descs),
+          _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
+                                                                    : TJoinDistributionType::NONE),
+          _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
+                             tnode.hash_join_node.is_broadcast_join),
           _hash_output_slot_ids(tnode.hash_join_node.__isset.hash_output_slot_ids
                                         ? tnode.hash_join_node.hash_output_slot_ids
                                         : std::vector<SlotId> {}) {}
@@ -250,9 +256,7 @@ Status HashJoinProbeOperatorX::pull(doris::RuntimeState* state, vectorized::Bloc
         vectorized::Block temp_block;
         //get probe side output column
         for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            if (_left_output_slot_flags[i]) {
-                temp_block.insert(local_state._probe_block.get_by_position(i));
-            }
+            temp_block.insert(local_state._probe_block.get_by_position(i));
         }
         auto mark_column =
                 vectorized::ColumnNullable::create(vectorized::ColumnUInt8::create(block_rows, 0),
@@ -549,6 +553,7 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     for (const auto& eq_join_conjunct : eq_join_conjuncts) {
         vectorized::VExprContextSPtr ctx;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(eq_join_conjunct.left, ctx));
+        _partition_exprs.push_back(eq_join_conjunct.left);
         _probe_expr_ctxs.push_back(ctx);
         bool null_aware = eq_join_conjunct.__isset.opcode &&
                           eq_join_conjunct.opcode == TExprOpcode::EQ_FOR_NULL;
@@ -577,7 +582,11 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
         DCHECK(!_build_unique);
         DCHECK(_have_other_join_conjunct);
     }
+    return Status::OK();
+}
 
+Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
+    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::prepare(state));
     // init left/right output slots flags, only column of slot_id in _hash_output_slot_ids need
     // insert to output block of hash join.
     // _left_output_slots_flags : column of left table need to output set flag = true
@@ -596,11 +605,6 @@ Status HashJoinProbeOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
     init_output_slots_flags(_child_x->row_desc().tuple_descriptors(), _left_output_slot_flags);
     init_output_slots_flags(_build_side_child->row_desc().tuple_descriptors(),
                             _right_output_slot_flags);
-    return Status::OK();
-}
-
-Status HashJoinProbeOperatorX::prepare(RuntimeState* state) {
-    RETURN_IF_ERROR(JoinProbeOperatorX<HashJoinProbeLocalState>::prepare(state));
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_expr_ctxs, state, *_intermediate_row_desc));
     // _other_join_conjuncts are evaluated in the context of the rows produced by this node
     for (auto& conjunct : _other_join_conjuncts) {

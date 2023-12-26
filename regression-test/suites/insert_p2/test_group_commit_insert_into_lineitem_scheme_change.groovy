@@ -63,14 +63,14 @@ String[] getFiles(String dirName, int num) {
 suite("test_group_commit_insert_into_lineitem_scheme_change") {
     String[] file_array;
     def prepare = {
-        def dataDir = "${context.config.cacheDataPath}/lineitem/"
+        def dataDir = "${context.config.cacheDataPath}/insert_into_lineitem_scheme_change/"
         File dir = new File(dataDir)
         if (!dir.exists()) {
-            new File("${context.config.cacheDataPath}/lineitem/").mkdir()
+            new File("${context.config.cacheDataPath}/insert_into_lineitem_scheme_change/").mkdir()
             for (int i = 1; i <= 10; i++) {
                 logger.info("download lineitem.tbl.${i}")
                 def download_file = """/usr/bin/curl ${getS3Url()}/regression/tpch/sf1/lineitem.tbl.${i}
---output ${context.config.cacheDataPath}/lineitem/lineitem.tbl.${i}""".execute().getText()
+--output ${context.config.cacheDataPath}/insert_into_lineitem_scheme_change/lineitem.tbl.${i}""".execute().getText()
             }
         }
         file_array = getFiles(dataDir, 10)
@@ -130,7 +130,7 @@ PROPERTIES (
     "replication_num" = "1"
 );
         """
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
     }
 
@@ -163,7 +163,7 @@ PROPERTIES (
     "replication_num" = "1"
 );
         """
-        sql """ set enable_insert_group_commit = true; """
+        sql """ set group_commit = async_mode; """
         sql """ set enable_nereids_dml = false; """
 
     }
@@ -417,7 +417,7 @@ PROPERTIES (
 
 
     def process = { table_name ->
-        for (int i = 1; i <= 5; i++) {
+        for (int i = 1; i <= 4; i++) {
             switch (i) {
                 case SC.TRUNCATE_TABLE.value:
                     truncate(table_name)

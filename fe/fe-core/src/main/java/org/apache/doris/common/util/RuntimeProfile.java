@@ -51,6 +51,7 @@ public class RuntimeProfile {
     public static String MAX_TIME_PRE = "max ";
     public static String MIN_TIME_PRE = "min ";
     public static String AVG_TIME_PRE = "avg ";
+    public static String SUM_TIME_PRE = "sum ";
     private Counter counterTotalTime;
     private double localTimePercent;
 
@@ -448,7 +449,12 @@ public class RuntimeProfile {
     private static List<RuntimeProfile> getChildListFromLists(String profileName, List<RuntimeProfile> profiles) {
         List<RuntimeProfile> ret = new ArrayList<RuntimeProfile>();
         for (RuntimeProfile profile : profiles) {
-            ret.add(profile.getChildMap().get(profileName));
+            RuntimeProfile tmp = profile.getChildMap().get(profileName);
+            if (tmp != null) {
+                ret.add(profile.getChildMap().get(profileName));
+            } else {
+                LOG.debug("could not find {} from {}", profileName, profile.toString());
+            }
         }
         return ret;
     }
@@ -479,27 +485,32 @@ public class RuntimeProfile {
         }
     }
 
-    private static void mergeCounters(String counterName, List<RuntimeProfile> profiles,
+    private static void mergeCounters(String parentCounterName, List<RuntimeProfile> profiles,
             RuntimeProfile simpleProfile) {
         if (profiles.size() == 0) {
             return;
         }
         RuntimeProfile templateProfile = profiles.get(0);
-        Set<String> childCounterSet = templateProfile.childCounterMap.get(counterName);
+        Set<String> childCounterSet = templateProfile.childCounterMap.get(parentCounterName);
         if (childCounterSet == null) {
             return;
         }
         for (String childCounterName : childCounterSet) {
             Counter counter = templateProfile.counterMap.get(childCounterName);
-            mergeCounters(childCounterName, profiles, simpleProfile);
             if (counter.getLevel() == 1) {
-                AggCounter aggCounter = new AggCounter(profiles.get(0).counterMap.get(childCounterName).getType(), 0);
+                Counter oldCounter = profiles.get(0).counterMap.get(childCounterName);
+                AggCounter aggCounter = new AggCounter(oldCounter.getType());
                 for (RuntimeProfile profile : profiles) {
                     Counter orgCounter = profile.counterMap.get(childCounterName);
                     aggCounter.addCounter(orgCounter);
                 }
-                simpleProfile.addCounter(childCounterName, aggCounter, ROOT_COUNTER);
+                if (simpleProfile.counterMap.containsKey(parentCounterName)) {
+                    simpleProfile.addCounter(childCounterName, aggCounter, parentCounterName);
+                } else {
+                    simpleProfile.addCounter(childCounterName, aggCounter, ROOT_COUNTER);
+                }
             }
+            mergeCounters(childCounterName, profiles, simpleProfile);
         }
     }
 

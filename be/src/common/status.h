@@ -8,8 +8,8 @@
 #include <gen_cpp/Status_types.h> // for TStatus
 #include <gen_cpp/types.pb.h>
 #include <glog/logging.h>
-#include <stdint.h>
 
+#include <cstdint>
 #include <iostream>
 #include <memory>
 #include <string>
@@ -51,7 +51,7 @@ namespace ErrorCode {
     TStatusError(TOO_MANY_TASKS, true);                  \
     TStatusError(UNINITIALIZED, false);                  \
     TStatusError(ABORTED, true);                         \
-    TStatusError(DATA_QUALITY_ERROR, true);              \
+    TStatusError(DATA_QUALITY_ERROR, false);             \
     TStatusError(LABEL_ALREADY_EXISTS, true);            \
     TStatusError(NOT_AUTHORIZED, true);                  \
     TStatusError(HTTP_ERROR, true);
@@ -78,6 +78,7 @@ namespace ErrorCode {
     E(COPY_FILE_ERROR, -121, true);                          \
     E(FILE_ALREADY_EXIST, -122, true);                       \
     E(BAD_CAST, -123, true);                                 \
+    E(ARITHMETIC_OVERFLOW_ERRROR, -124, false);              \
     E(CALL_SEQUENCE_ERROR, -202, true);                      \
     E(BUFFER_OVERFLOW, -204, true);                          \
     E(CONFIG_ERROR, -205, true);                             \
@@ -92,7 +93,8 @@ namespace ErrorCode {
     E(VERSION_NOT_EXIST, -214, false);                       \
     E(TABLE_NOT_FOUND, -215, true);                          \
     E(TRY_LOCK_FAILED, -216, false);                         \
-    E(OUT_OF_BOUND, -218, true);                             \
+    E(EXCEEDED_LIMIT, -217, false);                          \
+    E(OUT_OF_BOUND, -218, false);                            \
     E(INVALID_ROOT_PATH, -222, true);                        \
     E(NO_AVAILABLE_ROOT_PATH, -223, true);                   \
     E(CHECK_LINES_ERROR, -224, true);                        \
@@ -268,9 +270,10 @@ namespace ErrorCode {
     E(INVERTED_INDEX_RENAME_FILE_FAILED, -6006, true);       \
     E(INVERTED_INDEX_EVALUATE_SKIPPED, -6007, false);        \
     E(INVERTED_INDEX_BUILD_WAITTING, -6008, false);          \
-    E(KEY_NOT_FOUND, -6009, false);                          \
-    E(KEY_ALREADY_EXISTS, -6010, false);                     \
-    E(ENTRY_NOT_FOUND, -6011, false);
+    E(INVERTED_INDEX_NOT_IMPLEMENTED, -6009, false);         \
+    E(KEY_NOT_FOUND, -7000, false);                          \
+    E(KEY_ALREADY_EXISTS, -7001, false);                     \
+    E(ENTRY_NOT_FOUND, -7002, false);
 
 // Define constexpr int error_code_name = error_code_value
 #define M(NAME, ERRORCODE, ENABLESTACKTRACE) constexpr int NAME = ERRORCODE;
@@ -447,6 +450,7 @@ public:
     void to_protobuf(PStatus* status) const;
 
     std::string to_string() const;
+    std::string to_string_no_stack() const;
 
     /// @return A json representation of this status.
     std::string to_json() const;
@@ -519,12 +523,27 @@ inline std::string Status::to_string() const {
     return ss.str();
 }
 
+inline std::string Status::to_string_no_stack() const {
+    std::stringstream ss;
+    ss << '[' << code_as_string() << ']';
+    ss << msg();
+    return ss.str();
+}
+
 // some generally useful macros
 #define RETURN_IF_ERROR(stmt)           \
     do {                                \
         Status _status_ = (stmt);       \
         if (UNLIKELY(!_status_.ok())) { \
             return _status_;            \
+        }                               \
+    } while (false)
+
+#define THROW_IF_ERROR(stmt)            \
+    do {                                \
+        Status _status_ = (stmt);       \
+        if (UNLIKELY(!_status_.ok())) { \
+            throw Exception(_status_);  \
         }                               \
     } while (false)
 

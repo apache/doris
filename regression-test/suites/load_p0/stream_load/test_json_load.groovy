@@ -128,6 +128,27 @@ suite("test_json_load", "p0") {
         assertTrue(result1[0].size() == 1)
         assertTrue(result1[0][0] == 0, "Create table should update 0 rows")
     }
+
+    def create_json_test_table = { testTablex ->
+                    sql """
+                        CREATE TABLE `${testTablex}` (
+                            `name` varchar(48) NULL,
+                            `age` bigint(20) NULL,
+                            `agent_id` varchar(256) NULL
+                            ) ENGINE=OLAP
+                            DUPLICATE KEY(`name`)
+                            COMMENT 'OLAP'
+                            DISTRIBUTED BY RANDOM BUCKETS 10
+                            PROPERTIES (
+                            "replication_allocation" = "tag.location.default: 1",
+                            "is_being_synced" = "false",
+                            "storage_format" = "V2",
+                            "light_schema_change" = "true",
+                            "disable_auto_compaction" = "false",
+                            "enable_single_replica_compaction" = "false"
+                            ); 
+                        """
+    }
     
     def load_json_data = {table_name, label, strip_flag, read_flag, format_flag, exprs, json_paths, 
                         json_root, where_expr, fuzzy_flag, file_name, ignore_failure=false,
@@ -703,6 +724,78 @@ suite("test_json_load", "p0") {
 
     } finally {
         set_be_param.call("enable_simdjson_reader", "true")
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // test jsonpaths error
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_json_test_table.call(testTable)
+        streamLoad {
+            table "${testTable}"
+            set 'jsonpaths', '[\"Name\", \"Age\", \"Agent_id\"]'
+            set 'format', 'json'
+            file 'test_json_error.json' // import json file
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                def url = json.ErrorURL.toString();
+                assertEquals("fail", json.Status.toLowerCase())
+
+                def command = "curl ${url}"
+                log.info("command: ${command}".toString())
+                def process = command.execute()
+                def code = process.waitFor()
+                def out = process.text
+                log.info("result: ${out}".toString())
+                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[name, age, agent_id, ], please check columns and jsonpaths:[\"Name\", \"Age\", \"Agent_id\"]. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
+                assertEquals("${reason}", "${out}")
+            }
+        }
+
+    } finally {
+        try_sql("DROP TABLE IF EXISTS ${testTable}")
+    }
+
+    // test colunms error
+    try {
+        sql "DROP TABLE IF EXISTS ${testTable}"
+
+        create_json_test_table.call(testTable)
+        streamLoad {
+            table "${testTable}"
+            set 'columns', 'Name, Age, Agent_id'
+            set 'format', 'json'
+            file 'test_json_error.json' // import json file
+            time 10000 // limit inflight 10s
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                def url = json.ErrorURL.toString();
+                assertEquals("fail", json.Status.toLowerCase())
+
+                def command = "curl ${url}"
+                log.info("command: ${command}".toString())
+                def process = command.execute()
+                def code = process.waitFor()
+                def out = process.text
+                log.info("result: ${out}".toString())
+                def reason = "Reason: There is no column matching jsonpaths in the json file, columns:[Name, Age, Agent_id, ], please check columns and jsonpaths:. src line [{\"name\":\"Name1\",\"age\":21,\"agent_id\":\"1\"}]; \n"
+                assertEquals("${reason}", "${out}")
+            }
+        }
+
+    } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 }

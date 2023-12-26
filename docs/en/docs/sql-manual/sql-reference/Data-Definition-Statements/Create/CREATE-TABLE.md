@@ -58,7 +58,7 @@ Column definition list:
 
     Column definition:
 
-    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [column_comment]`
+    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [on update current_timestamp] [column_comment]`
 
     * `column_type`
 
@@ -142,6 +142,10 @@ Column definition list:
             dt DATETIME DEFAULT CURRENT_TIMESTAMP
         ```
 
+    * `on update current_timestamp`
+
+        To indicate that whether the value of this column should be updated to the current timestamp (`current_timestamp`) when there is an update on the row. The feature is only available on unique table with merge-on-write enabled. Columns with this feature enabled must declare a default value, and the default value must be `current_timestamp`. If the precision of the timestamp is declared here, the timestamp precision in the default value of the column must be the same as the precision declared here."
+
     Example:
 
         ```
@@ -152,6 +156,7 @@ Column definition list:
         v2 BITMAP BITMAP_UNION,
         v3 HLL HLL_UNION,
         v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
+        dt datetime(6) default current_timestamp(6) on update current_timestamp(6)
         ```
 
 #### index_definition_list
@@ -377,6 +382,12 @@ Set table properties. The following attributes are currently supported:
    The default compression method for Doris tables is LZ4. After version 1.1, it is supported to specify the compression method as ZSTD to obtain a higher compression ratio.
 
    `"compression"="zstd"`
+
+* `enable_unique_key_merge_on_write`
+
+    <version since="1.2" type="inline"> Wheather the unique table use merge-on-write implementation. </version>
+
+    The property is disabled by default before version 2.1 and is enabled by default since version 2.1.
 
 * `light_schema_change`
 

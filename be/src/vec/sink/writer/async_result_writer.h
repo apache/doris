@@ -78,8 +78,6 @@ public:
         return _data_queue_is_available() || _is_finished();
     }
 
-    pipeline::Dependency* write_blocked_by(pipeline::PipelineXTask* task);
-
     [[nodiscard]] bool is_pending_finish() const { return !_writer_thread_closed; }
 
     void process_block(RuntimeState* state, RuntimeProfile* profile);
@@ -105,7 +103,6 @@ private:
     [[nodiscard]] bool _is_finished() const { return !_writer_status.ok() || _eos; }
 
     std::unique_ptr<Block> _get_block_from_queue();
-    void _return_block_to_queue(std::unique_ptr<Block>);
 
     static constexpr auto QUEUE_SIZE = 3;
     std::mutex _m;

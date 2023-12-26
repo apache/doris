@@ -341,7 +341,7 @@ Status StreamingAggSinkLocalState::_pre_agg_with_serialized_key(
 StreamingAggSinkOperatorX::StreamingAggSinkOperatorX(ObjectPool* pool, int operator_id,
                                                      const TPlanNode& tnode,
                                                      const DescriptorTbl& descs)
-        : AggSinkOperatorX<StreamingAggSinkLocalState>(pool, operator_id, tnode, descs) {}
+        : AggSinkOperatorX<StreamingAggSinkLocalState>(pool, operator_id, tnode, descs, true) {}
 
 Status StreamingAggSinkOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(AggSinkOperatorX<StreamingAggSinkLocalState>::init(tnode, state));

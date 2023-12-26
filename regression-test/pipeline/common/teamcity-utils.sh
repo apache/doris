@@ -241,7 +241,7 @@ trigger_build() {
         -u OneMoreChance:OneMoreChance \
         -H "Content-Type:text/plain" \
         -H "Accept: application/json" \
-        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
+        "http://43.132.222.7:8111/httpAuth/action.html?add2Queue=${PIPELINE}&branchName=pull/${PULL_REQUEST_NUM}&name=env.pr_num_from_trigger&value=${PULL_REQUEST_NUM:-}&name=env.commit_id_from_trigger&value=${COMMIT_ID_FROM_TRIGGER:-}&name=env.repeat_times_from_trigger&value=${COMMENT_REPEAT_TIMES:-1}"; then
         set +x
         echo "INFO: Add new build to PIPELINE ${PIPELINE} of PR ${PULL_REQUEST_NUM} with COMMENT_REPEAT_TIMES ${COMMENT_REPEAT_TIMES:-1}"
     else
@@ -271,6 +271,13 @@ trigger_or_skip_build() {
         trigger_build "${PULL_REQUEST_NUM}" "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}" "${COMMENT_REPEAT_TIMES}"
     else
         skip_build "${COMMIT_ID_FROM_TRIGGER}" "${COMMENT_TRIGGER_TYPE}"
+        if [[ ${COMMENT_TRIGGER_TYPE} == "compile" ]]; then
+            # skip compile 的时候，也把 p0 p1 external pipelinex_p0 都 skip 了
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "p0"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "p1"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "external"
+            skip_build "${COMMIT_ID_FROM_TRIGGER}" "pipelinex_p0"
+        fi
     fi
 }
 # trigger_or_skip_build "$1" "$2" "$3" "$4" "$5"

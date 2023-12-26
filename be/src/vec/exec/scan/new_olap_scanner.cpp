@@ -53,10 +53,12 @@
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/runtime_profile.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/exec/scan/new_olap_scan_node.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vexpr_context.h"
+#include "vec/json/path_in_data.h"
 #include "vec/olap/block_reader.h"
 
 namespace doris::vectorized {
@@ -143,7 +145,8 @@ Status NewOlapScanner::init() {
                 _parent ? parent->_olap_scan_node : local_state->olap_scan_node();
         if (olap_scan_node.__isset.schema_version && olap_scan_node.__isset.columns_desc &&
             !olap_scan_node.columns_desc.empty() &&
-            olap_scan_node.columns_desc[0].col_unique_id >= 0) {
+            olap_scan_node.columns_desc[0].col_unique_id >= 0 &&
+            tablet->tablet_schema()->num_variant_columns() == 0) {
             schema_key = SchemaCache::get_schema_key(
                     tablet->tablet_id(), olap_scan_node.columns_desc, olap_scan_node.schema_version,
                     SchemaCache::Type::TABLET_SCHEMA);
@@ -256,6 +259,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
                                              push_down_agg_type != TPushAggOp::COUNT_ON_INDEX);
     }
 
+    RETURN_IF_ERROR(_init_variant_columns());
     RETURN_IF_ERROR(_init_return_columns());
 
     _tablet_reader_params.reader_type = ReaderType::READER_QUERY;
@@ -277,7 +281,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.output_columns =
             _parent ? ((NewOlapScanNode*)_parent)->_maybe_read_column_ids
                     : ((pipeline::OlapScanLocalState*)_local_state)->_maybe_read_column_ids;
-
+    _tablet_reader_params.target_cast_type_for_variants =
+            _parent ? ((NewOlapScanNode*)_parent)->_cast_types_for_variants
+                    : ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants;
     // Condition
     for (auto& filter : filters) {
         _tablet_reader_params.conditions.push_back(filter);
@@ -406,6 +412,31 @@ Status NewOlapScanner::_init_tablet_reader_params(
     return Status::OK();
 }
 
+Status NewOlapScanner::_init_variant_columns() {
+    auto& tablet_schema = _tablet_reader_params.tablet_schema;
+    // Parent column has path info to distinction from each other
+    for (auto slot : _output_tuple_desc->slots()) {
+        if (!slot->is_materialized()) {
+            continue;
+        }
+        if (!slot->need_materialize()) {
+            continue;
+        }
+        if (slot->type().is_variant_type()) {
+            // Such columns are not exist in frontend schema info, so we need to
+            // add them into tablet_schema for later column indexing.
+            TabletColumn subcol = TabletColumn::create_materialized_variant_column(
+                    tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
+                    slot->column_paths(), slot->col_unique_id());
+            if (tablet_schema->field_index(subcol.path_info()) < 0) {
+                tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
+            }
+        }
+        schema_util::inherit_tablet_index(tablet_schema);
+    }
+    return Status::OK();
+}
+
 Status NewOlapScanner::_init_return_columns() {
     for (auto* slot : _output_tuple_desc->slots()) {
         if (!slot->is_materialized()) {
@@ -414,10 +445,18 @@ Status NewOlapScanner::_init_return_columns() {
         if (!slot->need_materialize()) {
             continue;
         }
+
+        // variant column using path to index a column
+        int32_t index = 0;
         auto& tablet_schema = _tablet_reader_params.tablet_schema;
-        int32_t index = slot->col_unique_id() >= 0
-                                ? tablet_schema->field_index(slot->col_unique_id())
-                                : tablet_schema->field_index(slot->col_name());
+        if (slot->type().is_variant_type()) {
+            index = tablet_schema->field_index(PathInData(
+                    tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
+                    slot->column_paths()));
+        } else {
+            index = slot->col_unique_id() >= 0 ? tablet_schema->field_index(slot->col_unique_id())
+                                               : tablet_schema->field_index(slot->col_name());
+        }
 
         if (index < 0) {
             return Status::InternalError(
@@ -537,6 +576,14 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(Parent->_block_init_seek_timer, stats.block_init_seek_ns);                     \
     COUNTER_UPDATE(Parent->_block_init_seek_counter, stats.block_init_seek_num);                  \
     COUNTER_UPDATE(Parent->_block_conditions_filtered_timer, stats.block_conditions_filtered_ns); \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_bf_timer,                                   \
+                   stats.block_conditions_filtered_bf_ns);                                        \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_timer,                              \
+                   stats.block_conditions_filtered_zonemap_ns);                                   \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_zonemap_rp_timer,                           \
+                   stats.block_conditions_filtered_zonemap_rp_ns);                                \
+    COUNTER_UPDATE(Parent->_block_conditions_filtered_dict_timer,                                 \
+                   stats.block_conditions_filtered_dict_ns);                                      \
     COUNTER_UPDATE(Parent->_first_read_timer, stats.first_read_ns);                               \
     COUNTER_UPDATE(Parent->_second_read_timer, stats.second_read_ns);                             \
     COUNTER_UPDATE(Parent->_first_read_seek_timer, stats.block_first_read_seek_ns);               \
@@ -555,6 +602,7 @@ void NewOlapScanner::_update_counters_before_close() {
         Parent->add_filter_info(id, info);                                                        \
     }                                                                                             \
     COUNTER_UPDATE(Parent->_stats_filtered_counter, stats.rows_stats_filtered);                   \
+    COUNTER_UPDATE(Parent->_stats_rp_filtered_counter, stats.rows_stats_rp_filtered);             \
     COUNTER_UPDATE(Parent->_dict_filtered_counter, stats.rows_dict_filtered);                     \
     COUNTER_UPDATE(Parent->_bf_filtered_counter, stats.rows_bf_filtered);                         \
     COUNTER_UPDATE(Parent->_del_filtered_counter, stats.rows_del_filtered);                       \

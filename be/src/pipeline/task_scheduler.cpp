@@ -48,12 +48,13 @@
 
 namespace doris::pipeline {
 
-BlockedTaskScheduler::BlockedTaskScheduler() : _started(false), _shutdown(false) {}
+BlockedTaskScheduler::BlockedTaskScheduler(std::string name)
+        : _name(name), _started(false), _shutdown(false) {}
 
-Status BlockedTaskScheduler::start(std::string sche_name) {
+Status BlockedTaskScheduler::start() {
     LOG(INFO) << "BlockedTaskScheduler start";
     RETURN_IF_ERROR(Thread::create(
-            "BlockedTaskScheduler", sche_name, [this]() { this->_schedule(); }, &_thread));
+            "BlockedTaskScheduler", _name, [this]() { this->_schedule(); }, &_thread));
     while (!this->_started.load()) {
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
@@ -77,7 +78,7 @@ Status BlockedTaskScheduler::add_blocked_task(PipelineTask* task) {
         return Status::InternalError("BlockedTaskScheduler shutdown");
     }
     std::unique_lock<std::mutex> lock(_task_mutex);
-    if (!static_cast<PipelineXTask*>(task)->push_blocked_task_to_queue()) {
+    if (task->is_pipelineX()) {
         // put this task into current dependency's blocking queue and wait for event notification
         // instead of using a separate BlockedTaskScheduler.
         task->set_running(false);
@@ -121,9 +122,9 @@ void BlockedTaskScheduler::_schedule() {
             if (state == PipelineTaskState::PENDING_FINISH) {
                 // should cancel or should finish
                 if (task->is_pending_finish()) {
+                    VLOG_DEBUG << "Task pending" << task->debug_string();
                     iter++;
                 } else {
-                    VLOG_DEBUG << "Task pending" << task->debug_string();
                     _make_task_run(local_blocked_tasks, iter, PipelineTaskState::PENDING_FINISH);
                 }
             } else if (task->query_context()->is_cancelled()) {
@@ -144,11 +145,6 @@ void BlockedTaskScheduler::_schedule() {
             } else if (state == PipelineTaskState::BLOCKED_FOR_SOURCE) {
                 if (task->source_can_read()) {
                     _make_task_run(local_blocked_tasks, iter);
-                } else if (!task->push_blocked_task_to_queue()) {
-                    // TODO(gabriel): This condition means this task is in blocking queue now and we should
-                    //  remove it because this new dependency should not be put into blocking queue. We
-                    //  will delete this strange behavior after ScanDependency and UnionDependency done.
-                    local_blocked_tasks.erase(iter++);
                 } else {
                     iter++;
                 }
@@ -313,23 +309,15 @@ void TaskScheduler::_do_work(size_t index) {
             task->set_eos_time();
             // TODO: pipeline parallel need to wait the last task finish to call finalize
             //  and find_p_dependency
-            status = task->finalize();
-            if (!status.ok()) {
-                // execute failed，cancel all fragment
-                fragment_ctx->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                     "finalize fail:" + status.msg());
-            } else {
-                VLOG_DEBUG << fmt::format(
-                        "Try close task: {}, fragment_ctx->is_canceled(): {}",
-                        PrintInstanceStandardInfo(
-                                task->query_context()->query_id(),
-                                task->fragment_context()->get_fragment_instance_id()),
-                        fragment_ctx->is_canceled());
-                _try_close_task(task,
-                                fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
-                                                            : PipelineTaskState::FINISHED,
-                                status);
-            }
+            VLOG_DEBUG << fmt::format(
+                    "Try close task: {}, fragment_ctx->is_canceled(): {}",
+                    PrintInstanceStandardInfo(task->query_context()->query_id(),
+                                              task->fragment_context()->get_fragment_instance_id()),
+                    fragment_ctx->is_canceled());
+            _try_close_task(task,
+                            fragment_ctx->is_canceled() ? PipelineTaskState::CANCELED
+                                                        : PipelineTaskState::FINISHED,
+                            status);
             VLOG_DEBUG << fmt::format(
                     "Task {} is eos, status {}.",
                     PrintInstanceStandardInfo(task->query_context()->query_id(),
@@ -360,6 +348,10 @@ void TaskScheduler::_do_work(size_t index) {
 
 void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
                                     Status exec_status) {
+    // close_a_pipeline may delete fragment context and will core in some defer
+    // code, because the defer code will access fragment context it self.
+    std::shared_ptr<TaskExecutionContext> lock_for_context =
+            task->fragment_context()->shared_from_this();
     auto status = task->try_close(exec_status);
     auto cancel = [&]() {
         task->query_context()->cancel(true, status.to_string(),
@@ -373,6 +365,9 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     }
     if (!task->is_pipelineX() && task->is_pending_finish()) {
         task->set_state(PipelineTaskState::PENDING_FINISH);
+        // After the task is added to the block queue, it maybe run by another thread
+        // and the task maybe released in the other thread. And will core at
+        // task set running.
         static_cast<void>(_blocked_task_scheduler->add_blocked_task(task));
         task->set_running(false);
         return;
@@ -388,12 +383,8 @@ void TaskScheduler::_try_close_task(PipelineTask* task, PipelineTaskState state,
     }
     task->set_state(state);
     task->set_close_pipeline_time();
-    task->release_dependency();
+    task->finalize();
     task->set_running(false);
-    // close_a_pipeline may delete fragment context and will core in some defer
-    // code, because the defer code will access fragment context it self.
-    std::shared_ptr<PipelineFragmentContext> lock_for_context =
-            task->fragment_context()->shared_from_this();
     task->fragment_context()->close_a_pipeline();
 }
 

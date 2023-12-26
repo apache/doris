@@ -44,8 +44,8 @@ public:
 class MultiCastSinkDependency final : public Dependency {
 public:
     using SharedState = MultiCastSharedState;
-    MultiCastSinkDependency(int id, int node_id)
-            : Dependency(id, node_id, "MultiCastSinkDependency", true) {}
+    MultiCastSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "MultiCastSinkDependency", true, query_ctx) {}
     ~MultiCastSinkDependency() override = default;
 };
 
@@ -60,7 +60,7 @@ class MultiCastDataStreamSinkLocalState final
     using Base = PipelineXSinkLocalState<MultiCastSinkDependency>;
     using Parent = MultiCastDataStreamSinkOperatorX;
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-    std::string id_name() override;
+    std::string name_suffix() override;
 
 private:
     std::shared_ptr<pipeline::MultiCastDataStreamer> _multi_cast_data_streamer;

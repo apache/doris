@@ -23,6 +23,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/status.h"
 #include "http/http_channel.h"
 #include "http/http_headers.h"
 #include "http/http_request.h"
@@ -209,7 +210,9 @@ Status TabletMigrationAction::_check_migrate_request(int64_t tablet_id, int32_t 
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
         LOG(WARNING) << "reach the capacity limit of path: " << (*dest_store)->path()
                      << ", tablet size: " << tablet_size;
-        return Status::InternalError("Insufficient disk capacity");
+        return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                "reach the capacity limit of path {}, tablet_size={}", (*dest_store)->path(),
+                tablet_size);
     }
 
     return Status::OK();
@@ -221,7 +224,7 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     int32_t schema_hash = tablet->schema_hash();
     string dest_disk = dest_store->path();
     EngineStorageMigrationTask engine_task(tablet, dest_store);
-    Status res = StorageEngine::instance()->execute_task(&engine_task);
+    Status res = engine_task.execute();
     if (!res.ok()) {
         LOG(WARNING) << "tablet migrate failed. tablet_id=" << tablet_id
                      << ", schema_hash=" << schema_hash << ", dest_disk=" << dest_disk

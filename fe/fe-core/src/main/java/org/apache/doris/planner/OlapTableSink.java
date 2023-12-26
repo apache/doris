@@ -105,7 +105,7 @@ public class OlapTableSink extends DataSink {
     private HashSet<String> partialUpdateInputColumns;
 
     // set after init called
-    private TDataSink tDataSink;
+    protected TDataSink tDataSink;
 
     private boolean singleReplicaLoad;
 
@@ -170,6 +170,10 @@ public class OlapTableSink extends DataSink {
 
     public void updateLoadId(TUniqueId newLoadId) {
         tDataSink.getOlapTableSink().setLoadId(newLoadId);
+    }
+
+    public void setAutoPartition(boolean var) {
+        tDataSink.getOlapTableSink().getPartition().setEnableAutomaticPartition(var);
     }
 
     // must called after tupleDescriptor is computed
@@ -350,8 +354,13 @@ public class OlapTableSink extends DataSink {
                     }
                     tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partitionId));
                     if (partition.getDistributionInfo().getType() == DistributionInfoType.RANDOM) {
-                        int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
-                                .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                        int tabletIndex;
+                        if (tDataSink != null && tDataSink.type == TDataSinkType.GROUP_COMMIT_BLOCK_SINK) {
+                            tabletIndex = 0;
+                        } else {
+                            tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                                    .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                        }
                         tPartition.setLoadTabletIdx(tabletIndex);
                     }
 
@@ -368,23 +377,31 @@ public class OlapTableSink extends DataSink {
                         }
                     }
                 }
-                boolean  enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
+                boolean enableAutomaticPartition = partitionInfo.enableAutomaticPartition();
                 // for auto create partition by function expr, there is no any partition firstly,
                 // But this is required in thrift struct.
                 if (enableAutomaticPartition && partitionIds.isEmpty()) {
                     partitionParam.setDistributedColumns(getDistColumns(table.getDefaultDistributionInfo()));
                     partitionParam.setPartitions(new ArrayList<TOlapTablePartition>());
                 }
-                ArrayList<Expr> exprs = partitionInfo.getPartitionExprs();
-                if (enableAutomaticPartition && exprs != null && analyzer != null) {
+
+                ArrayList<Expr> exprSource = partitionInfo.getPartitionExprs();
+                if (enableAutomaticPartition && exprSource != null && analyzer != null) {
                     Analyzer funcAnalyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
                     tupleDescriptor.setTable(table);
                     funcAnalyzer.registerTupleDescriptor(tupleDescriptor);
+                    // we must clone the exprs. otherwise analyze will influence the origin exprs.
+                    ArrayList<Expr> exprs = new ArrayList<Expr>();
+                    for (Expr e : exprSource) {
+                        exprs.add(e.clone());
+                    }
                     for (Expr e : exprs) {
+                        e.reset();
                         e.analyze(funcAnalyzer);
                     }
                     partitionParam.setPartitionFunctionExprs(Expr.treesToThrift(exprs));
                 }
+
                 partitionParam.setEnableAutomaticPartition(enableAutomaticPartition);
                 break;
             }
@@ -411,8 +428,13 @@ public class OlapTableSink extends DataSink {
                 }
 
                 if (partition.getDistributionInfo().getType() == DistributionInfoType.RANDOM) {
-                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
-                            .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                    int tabletIndex;
+                    if (tDataSink != null && tDataSink.type == TDataSinkType.GROUP_COMMIT_BLOCK_SINK) {
+                        tabletIndex = 0;
+                    } else {
+                        tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                                .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                    }
                     tPartition.setLoadTabletIdx(tabletIndex);
                 }
                 partitionParam.addToPartitions(tPartition);

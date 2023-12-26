@@ -18,42 +18,65 @@
 package org.apache.doris.job.task;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
+import org.apache.doris.job.exception.JobException;
 
+import com.google.gson.annotations.SerializedName;
 import lombok.Data;
-import lombok.extern.slf4j.Slf4j;
+import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.RandomUtils;
 
 @Data
-@Slf4j
+@Log4j2
 public abstract class AbstractTask implements Task {
 
+    @SerializedName(value = "jid")
     private Long jobId;
-
+    @SerializedName(value = "tid")
     private Long taskId;
 
+    @SerializedName(value = "st")
     private TaskStatus status;
-
+    @SerializedName(value = "ctm")
     private Long createTimeMs;
-
+    @SerializedName(value = "stm")
     private Long startTimeMs;
-
+    @SerializedName(value = "ftm")
     private Long finishTimeMs;
 
+    @SerializedName(value = "tt")
     private TaskType taskType;
 
+    @SerializedName(value = "emg")
+    private String errMsg;
+
+    public AbstractTask() {
+        taskId = getNextTaskId();
+    }
+
+    private static long getNextTaskId() {
+        // do not use Env.getNextId(), just generate id without logging
+        return System.nanoTime() + RandomUtils.nextInt();
+    }
+
     @Override
-    public void onFail(String msg) {
+    public void onFail(String msg) throws JobException {
+        status = TaskStatus.FAILED;
         if (!isCallable()) {
             return;
         }
         Env.getCurrentEnv().getJobManager().getJob(jobId).onTaskFail(this);
-        status = TaskStatus.FAILD;
     }
 
     @Override
-    public void onFail() {
+    public void onFail() throws JobException {
+        if (TaskStatus.CANCELED.equals(status)) {
+            return;
+        }
+        status = TaskStatus.FAILED;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
             return;
@@ -63,7 +86,7 @@ public abstract class AbstractTask implements Task {
     }
 
     private boolean isCallable() {
-        if (status.equals(TaskStatus.CANCEL)) {
+        if (status.equals(TaskStatus.CANCELED)) {
             return false;
         }
         if (null != Env.getCurrentEnv().getJobManager().getJob(jobId)) {
@@ -73,7 +96,10 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void onSuccess() {
+    public void onSuccess() throws JobException {
+        if (TaskStatus.CANCELED.equals(status)) {
+            return;
+        }
         status = TaskStatus.SUCCESS;
         setFinishTimeMs(System.currentTimeMillis());
         if (!isCallable()) {
@@ -88,29 +114,43 @@ public abstract class AbstractTask implements Task {
     }
 
     @Override
-    public void cancel() {
-        status = TaskStatus.CANCEL;
+    public void cancel() throws JobException {
+        status = TaskStatus.CANCELED;
     }
 
     @Override
-    public void before() {
+    public void before() throws JobException {
         status = TaskStatus.RUNNING;
         setStartTimeMs(System.currentTimeMillis());
     }
 
-    public void runTask() {
+    public void runTask() throws JobException {
         try {
             before();
             run();
             onSuccess();
         } catch (Exception e) {
+            this.errMsg = e.getMessage();
             onFail();
-            log.warn("execute task error, job id is {},task id is {}", jobId, taskId, e);
+            log.warn("execute task error, job id is {}, task id is {}", jobId, taskId, e);
         }
     }
 
     public boolean isCancelled() {
-        return status.equals(TaskStatus.CANCEL);
+        return status.equals(TaskStatus.CANCELED);
+    }
+
+    public String getJobName() {
+        AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(jobId);
+        return job == null ? "" : job.getJobName();
+    }
+
+    public Job getJobOrJobException() throws JobException {
+        AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(jobId);
+        if (job == null) {
+            throw new JobException("job not exist, jobId:" + jobId);
+        }
+        return job;
     }
 
 }

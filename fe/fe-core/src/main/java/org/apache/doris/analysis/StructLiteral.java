@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
@@ -32,6 +34,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 public class StructLiteral extends LiteralExpr {
     // only for persist
@@ -44,8 +47,8 @@ public class StructLiteral extends LiteralExpr {
         type = new StructType();
         children = new ArrayList<>();
         for (LiteralExpr expr : exprs) {
-            if (!expr.getType().isNull() && !type.supportSubType(expr.getType())) {
-                throw new AnalysisException("Invalid element type in STRUCT.");
+            if (!StructType.STRUCT.supportSubType(expr.getType())) {
+                throw new AnalysisException("Invalid element type in STRUCT: " + expr.getType());
             }
             ((StructType) type).addField(new StructField(expr.getType()));
             children.add(expr);
@@ -70,21 +73,46 @@ public class StructLiteral extends LiteralExpr {
         return "STRUCT(" + StringUtils.join(list, ", ") + ")";
     }
 
+    private String getStringValue(Expr expr) {
+        String stringValue = expr.getStringValue();
+        if (stringValue.isEmpty()) {
+            return "''";
+        }
+        if (expr instanceof StringLiteral) {
+            return "\"" + stringValue + "\"";
+        }
+        return stringValue;
+    }
+
     @Override
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValue()));
+        children.forEach(v -> list.add(getStringValue(v)));
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 
     @Override
     public String getStringValueForArray() {
-        return null;
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(v.getStringValueForArray()));
+        return "{" + StringUtils.join(list, ", ") + "}";
+    }
+
+    @Override
+    public String getStringValueInFe() {
+        List<String> list = new ArrayList<>(children.size());
+        children.forEach(v -> list.add(getStringLiteralForComplexType(v)));
+        return "{" + StringUtils.join(list, ", ") + "}";
     }
 
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.STRUCT_LITERAL;
+        ((StructType) type).getFields().forEach(v -> msg.setChildType(v.getType().getPrimitiveType().toThrift()));
+        TTypeDesc container = new TTypeDesc();
+        container.setTypes(new ArrayList<TTypeNode>());
+        type.toThrift(container);
+        msg.setType(container);
     }
 
     @Override
@@ -163,5 +191,22 @@ public class StructLiteral extends LiteralExpr {
         for (Expr e : children) {
             e.checkValueValid();
         }
+    }
+
+    public int hashCode() {
+        return Objects.hashCode(children);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (!(o instanceof StructLiteral)) {
+            return false;
+        }
+        if (this == o) {
+            return true;
+        }
+
+        StructLiteral that = (StructLiteral) o;
+        return Objects.equals(children, that.children);
     }
 }

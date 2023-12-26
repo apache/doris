@@ -26,7 +26,6 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -56,6 +55,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -213,8 +213,8 @@ public class LoadManager implements Writable {
      * Record finished load job by editLog.
      **/
     public void recordFinishedLoadJob(String label, long transactionId, String dbName, long tableId, EtlJobType jobType,
-            long createTimestamp, String failMsg, String trackingUrl,
-            UserIdentity userInfo) throws MetaNotFoundException {
+                                      long createTimestamp, String failMsg, String trackingUrl,
+                                      UserIdentity userInfo, long jobId) throws MetaNotFoundException {
 
         // get db id
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
@@ -224,6 +224,10 @@ public class LoadManager implements Writable {
             case INSERT:
                 loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
                         trackingUrl, userInfo);
+                break;
+            case INSERT_JOB:
+                loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
+                        trackingUrl, userInfo, jobId);
                 break;
             default:
                 return;
@@ -274,7 +278,7 @@ public class LoadManager implements Writable {
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
         // List of load jobs waiting to be cancelled
-        List<LoadJob> uncompletedLoadJob = Lists.newArrayList();
+        List<LoadJob> unfinishedLoadJob;
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
@@ -289,15 +293,15 @@ public class LoadManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
             // check state here
-            uncompletedLoadJob =
+            unfinishedLoadJob =
                     matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
-            if (uncompletedLoadJob.isEmpty()) {
+            if (unfinishedLoadJob.isEmpty()) {
                 throw new DdlException("There is no uncompleted job");
             }
         } finally {
             readUnlock();
         }
-        for (LoadJob loadJob : uncompletedLoadJob) {
+        for (LoadJob loadJob : unfinishedLoadJob) {
             try {
                 loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
             } catch (DdlException e) {
@@ -504,16 +508,16 @@ public class LoadManager implements Writable {
     /**
      * This method will return the jobs info which can meet the condition of input param.
      *
-     * @param dbId used to filter jobs which belong to this db
-     * @param labelValue used to filter jobs which's label is or like labelValue.
+     * @param dbId          used to filter jobs which belong to this db
+     * @param labelValue    used to filter jobs which's label is or like labelValue.
      * @param accurateMatch true: filter jobs which's label is labelValue. false: filter jobs which's label like itself.
-     * @param statesValue used to filter jobs which's state within the statesValue set.
+     * @param statesValue   used to filter jobs which's state within the statesValue set.
      * @return The result is the list of jobInfo.
      * JobInfo is a list which includes the comparable object: jobId, label, state etc.
      * The result is unordered.
      */
     public List<List<Comparable>> getLoadJobInfosByDb(long dbId, String labelValue, boolean accurateMatch,
-            Set<String> statesValue) throws AnalysisException {
+                                                      Set<String> statesValue) throws AnalysisException {
         LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
         if (!dbIdToLabelToLoadJobs.containsKey(dbId)) {
             return loadJobInfos;
@@ -567,8 +571,9 @@ public class LoadManager implements Writable {
                     }
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
-                } catch (DdlException e) {
-                    continue;
+                } catch (RuntimeException | DdlException e) {
+                    // ignore this load job
+                    LOG.warn("get load job info failed. job id: {}", loadJob.getId(), e);
                 }
             }
             return loadJobInfos;
@@ -615,7 +620,7 @@ public class LoadManager implements Writable {
      * Get load job info.
      **/
     public void getLoadJobInfo(Load.JobInfo info) throws DdlException {
-        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
+        String fullDbName = info.dbName;
         info.dbName = fullDbName;
         Database database = checkDb(info.dbName);
         readLock();
@@ -639,6 +644,19 @@ public class LoadManager implements Writable {
 
     public LoadJob getLoadJob(long jobId) {
         return idToLoadJob.get(jobId);
+    }
+
+    public List<LoadJob> queryLoadJobsByJobIds(List<Long> jobIds) {
+        if (CollectionUtils.isEmpty(jobIds)) {
+            return new ArrayList<>();
+        }
+        List<LoadJob> jobs = new ArrayList<>();
+        jobIds.forEach(id -> {
+            if (null != idToLoadJob.get(id)) {
+                jobs.add(idToLoadJob.get(id));
+            }
+        });
+        return jobs;
     }
 
     public void prepareJobs() {
@@ -797,7 +815,7 @@ public class LoadManager implements Writable {
      * Init.
      **/
     public void initJobProgress(Long jobId, TUniqueId loadId, Set<TUniqueId> fragmentIds,
-            List<Long> relatedBackendIds) {
+                                List<Long> relatedBackendIds) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
             job.initLoadProgress(loadId, fragmentIds, relatedBackendIds);
@@ -808,7 +826,7 @@ public class LoadManager implements Writable {
      * Update.
      **/
     public void updateJobProgress(Long jobId, Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
-            long scannedBytes, boolean isDone) {
+                                  long scannedBytes, boolean isDone) {
         LoadJob job = idToLoadJob.get(jobId);
         if (job != null) {
             job.updateProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);

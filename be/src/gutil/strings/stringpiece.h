@@ -127,7 +127,7 @@
 
 class StringPiece {
 private:
-    const char* ptr_;
+    const char* ptr_ = nullptr;
     int length_;
 
 public:

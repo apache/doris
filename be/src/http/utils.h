@@ -42,4 +42,6 @@ void do_file_response(const std::string& dir_path, HttpRequest* req,
 void do_dir_response(const std::string& dir_path, HttpRequest* req);
 
 std::string get_content_type(const std::string& file_name);
+
+bool load_size_smaller_than_wal_limit(HttpRequest* req);
 } // namespace doris

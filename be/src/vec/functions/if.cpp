@@ -119,6 +119,7 @@ struct NumIfImpl<A, B, NumberTraits::Error> {
 private:
     [[noreturn]] static void throw_error() {
         LOG(FATAL) << "Internal logic error: invalid types of arguments 2 and 3 of if";
+        __builtin_unreachable();
     }
 
 public:
@@ -321,23 +322,25 @@ public:
                                                       else_col.type->get_type_id(), call);
     }
 
-    bool execute_for_null_then_else(FunctionContext* context, Block& block,
-                                    const ColumnWithTypeAndName& arg_cond,
-                                    const ColumnWithTypeAndName& arg_then,
-                                    const ColumnWithTypeAndName& arg_else, size_t result,
-                                    size_t input_rows_count, Status& status) const {
+    Status execute_for_null_then_else(FunctionContext* context, Block& block,
+                                      const ColumnWithTypeAndName& arg_cond,
+                                      const ColumnWithTypeAndName& arg_then,
+                                      const ColumnWithTypeAndName& arg_else, size_t result,
+                                      size_t input_rows_count, bool& handled) const {
         bool then_is_null = arg_then.column->only_null();
         bool else_is_null = arg_else.column->only_null();
 
+        handled = false;
         if (!then_is_null && !else_is_null) {
-            return false;
+            return Status::OK();
         }
 
         if (then_is_null && else_is_null) {
             block.get_by_position(result).column =
                     block.get_by_position(result).type->create_column_const_with_default_value(
                             input_rows_count);
-            return true;
+            handled = true;
+            return Status::OK();
         }
 
         const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());
@@ -369,16 +372,12 @@ public:
                             make_nullable_column_if_not(arg_else.column);
                 }
             } else {
-                status = Status::InternalError(
+                return Status::InternalError(
                         "Illegal column {} of first argument of function {}. Must be ColumnUInt8 "
                         "or ColumnConstUInt8.",
                         arg_cond.column->get_name(), get_name());
             }
-            return true;
-        }
-
-        /// If else is NULL, we create Nullable column with null mask OR-ed with negated condition.
-        if (else_is_null) {
+        } else { /// If else is NULL, we create Nullable column with null mask OR-ed with negated condition.
             if (cond_col) {
                 size_t size = input_rows_count;
 
@@ -414,33 +413,33 @@ public:
                                     input_rows_count);
                 }
             } else {
-                status = Status::InternalError(
+                return Status::InternalError(
                         "Illegal column {} of first argument of function {}. Must be ColumnUInt8 "
                         "or ColumnConstUInt8.",
                         arg_cond.column->get_name(), get_name());
             }
-            return true;
         }
-
-        return false;
+        handled = true;
+        return Status::OK();
     }
 
-    bool execute_for_nullable_then_else(FunctionContext* context, Block& block,
-                                        const ColumnWithTypeAndName& arg_cond,
-                                        const ColumnWithTypeAndName& arg_then,
-                                        const ColumnWithTypeAndName& arg_else, size_t result,
-                                        size_t input_rows_count) const {
+    Status execute_for_nullable_then_else(FunctionContext* context, Block& block,
+                                          const ColumnWithTypeAndName& arg_cond,
+                                          const ColumnWithTypeAndName& arg_then,
+                                          const ColumnWithTypeAndName& arg_else, size_t result,
+                                          size_t input_rows_count, bool& handled) const {
         auto then_type_is_nullable = arg_then.type->is_nullable();
         auto else_type_is_nullable = arg_else.type->is_nullable();
+        handled = false;
         if (!then_type_is_nullable && !else_type_is_nullable) {
-            return false;
+            return Status::OK();
         }
 
         auto* then_is_nullable = check_and_get_column<ColumnNullable>(*arg_then.column);
         auto* else_is_nullable = check_and_get_column<ColumnNullable>(*arg_else.column);
         bool then_column_is_const_nullable = false;
         bool else_column_is_const_nullable = false;
-        if (then_type_is_nullable == true && then_is_nullable == nullptr) {
+        if (then_type_is_nullable && then_is_nullable == nullptr) {
             //this case is a const(nullable column)
             auto& const_column = assert_cast<const ColumnConst&>(*arg_then.column);
             then_is_nullable =
@@ -448,7 +447,7 @@ public:
             then_column_is_const_nullable = true;
         }
 
-        if (else_type_is_nullable == true && else_is_nullable == nullptr) {
+        if (else_type_is_nullable && else_is_nullable == nullptr) {
             //this case is a const(nullable column)
             auto& const_column = assert_cast<const ColumnConst&>(*arg_else.column);
             else_is_nullable =
@@ -460,13 +459,13 @@ public:
           */
         ColumnPtr result_null_mask;
         {
-            // get nullmap from column:
+            // get null map from column:
             // a. get_null_map_column_ptr() : it's a real nullable column, so could get it from nullable column
             // b. create a const_nullmap_column: it's a not nullable column or a const nullable column, contain a const value
             Block temporary_block;
             temporary_block.insert(arg_cond);
             auto then_nested_null_map =
-                    (then_type_is_nullable == true && then_column_is_const_nullable == false)
+                    (then_type_is_nullable && !then_column_is_const_nullable)
                             ? then_is_nullable->get_null_map_column_ptr()
                             : DataTypeUInt8().create_column_const_with_default_value(
                                       input_rows_count);
@@ -474,7 +473,7 @@ public:
                                     "then_column_null_map"});
 
             auto else_nested_null_map =
-                    (else_type_is_nullable == true && else_column_is_const_nullable == false)
+                    (else_type_is_nullable && !else_column_is_const_nullable)
                             ? else_is_nullable->get_null_map_column_ptr()
                             : DataTypeUInt8().create_column_const_with_default_value(
                                       input_rows_count);
@@ -483,8 +482,8 @@ public:
             temporary_block.insert(
                     {nullptr, std::make_shared<DataTypeUInt8>(), "result_column_null_map"});
 
-            static_cast<void>(_execute_impl_internal(context, temporary_block, {0, 1, 2}, 3,
-                                                     temporary_block.rows()));
+            RETURN_IF_ERROR(_execute_impl_internal(context, temporary_block, {0, 1, 2}, 3,
+                                                   temporary_block.rows()));
 
             result_null_mask = temporary_block.get_by_position(3).column;
         }
@@ -498,8 +497,8 @@ public:
                      {get_nested_column(arg_else.column), remove_nullable(arg_else.type), ""},
                      {nullptr, remove_nullable(block.get_by_position(result).type), ""}});
 
-            static_cast<void>(_execute_impl_internal(context, temporary_block, {0, 1, 2}, 3,
-                                                     temporary_block.rows()));
+            RETURN_IF_ERROR(_execute_impl_internal(context, temporary_block, {0, 1, 2}, 3,
+                                                   temporary_block.rows()));
 
             result_nested_column = temporary_block.get_by_position(3).column;
         }
@@ -507,26 +506,30 @@ public:
         auto column = ColumnNullable::create(materialize_column_if_const(result_nested_column),
                                              materialize_column_if_const(result_null_mask));
         block.replace_by_position(result, std::move(column));
-        return true;
+        handled = true;
+        return Status::OK();
     }
 
-    bool execute_for_null_condition(FunctionContext* context, Block& block,
-                                    const ColumnNumbers& arguments,
-                                    const ColumnWithTypeAndName& arg_cond,
-                                    const ColumnWithTypeAndName& arg_then,
-                                    const ColumnWithTypeAndName& arg_else, size_t result) const {
+    Status execute_for_null_condition(FunctionContext* context, Block& block,
+                                      const ColumnNumbers& arguments,
+                                      const ColumnWithTypeAndName& arg_cond,
+                                      const ColumnWithTypeAndName& arg_then,
+                                      const ColumnWithTypeAndName& arg_else, size_t result,
+                                      bool& handled) const {
         bool cond_is_null = arg_cond.column->only_null();
+        handled = false;
 
         if (cond_is_null) {
             block.replace_by_position(result,
                                       arg_else.column->clone_resized(arg_cond.column->size()));
-            return true;
+            handled = true;
+            return Status::OK();
         }
 
         if (const auto* nullable = check_and_get_column<ColumnNullable>(*arg_cond.column)) {
             DCHECK(remove_nullable(arg_cond.type)->get_type_id() == TypeIndex::UInt8);
 
-            // update neseted column by nullmap
+            // update nested column by null map
             const auto* __restrict null_map = nullable->get_null_map_data().data();
             auto* __restrict nested_bool_data =
                     ((ColumnVector<UInt8>&)(nullable->get_nested_column())).get_data().data();
@@ -538,11 +541,11 @@ public:
             block.insert({nullable->get_nested_column_ptr(), remove_nullable(arg_cond.type),
                           arg_cond.name});
 
-            static_cast<void>(_execute_impl_internal(
-                    context, block, {column_size, arguments[1], arguments[2]}, result, rows));
-            return true;
+            handled = true;
+            return _execute_impl_internal(context, block, {column_size, arguments[1], arguments[2]},
+                                          result, rows);
         }
-        return false;
+        return Status::OK();
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -594,13 +597,23 @@ public:
         const ColumnWithTypeAndName& arg_cond = block.get_by_position(arguments[0]);
 
         Status ret = Status::OK();
-        if (execute_for_null_condition(context, block, arguments, arg_cond, arg_then, arg_else,
-                                       result) ||
-            execute_for_null_then_else(context, block, arg_cond, arg_then, arg_else, result,
-                                       input_rows_count, ret) ||
-            execute_for_nullable_then_else(context, block, arg_cond, arg_then, arg_else, result,
-                                           input_rows_count)) {
-            return ret;
+        bool handled = false;
+        RETURN_IF_ERROR(execute_for_null_condition(context, block, arguments, arg_cond, arg_then,
+                                                   arg_else, result, handled));
+
+        if (!handled) {
+            RETURN_IF_ERROR(execute_for_null_then_else(context, block, arg_cond, arg_then, arg_else,
+                                                       result, input_rows_count, handled));
+        }
+
+        if (!handled) {
+            RETURN_IF_ERROR(execute_for_nullable_then_else(context, block, arg_cond, arg_then,
+                                                           arg_else, result, input_rows_count,
+                                                           handled));
+        }
+
+        if (handled) {
+            return Status::OK();
         }
 
         const auto* cond_col = typeid_cast<const ColumnUInt8*>(arg_cond.column.get());

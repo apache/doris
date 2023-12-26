@@ -32,8 +32,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------------------PhysicalCteConsumer ( cteId=CTEId#0 )
 ------------------PhysicalDistribute
 --------------------hashJoin[INNER_JOIN] hashCondition=((customer_address.ca_address_sk = customer.c_current_addr_sk)) otherCondition=() build RFs:RF2 ca_address_sk->[c_current_addr_sk]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[customer] apply RFs: RF2
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[customer] apply RFs: RF2
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------filter((customer_address.ca_state = 'CA'))

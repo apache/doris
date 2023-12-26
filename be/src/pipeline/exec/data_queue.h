@@ -25,6 +25,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "util/spinlock.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -60,10 +61,15 @@ public:
     int64_t max_size_of_queue() const { return _max_size_of_queue; }
 
     bool data_exhausted() const { return _data_exhausted; }
-    void set_dependency(Dependency* source_dependency, Dependency* sink_dependency) {
+    void set_source_dependency(Dependency* source_dependency) {
         _source_dependency = source_dependency;
-        _sink_dependency = sink_dependency;
     }
+    void set_sink_dependency(Dependency* sink_dependency, int child_idx) {
+        _sink_dependencies[child_idx] = sink_dependency;
+    }
+
+    void set_source_ready();
+    void set_source_block();
 
 private:
     friend class AggSourceDependency;
@@ -80,10 +86,13 @@ private:
     //how many deque will be init, always will be one
     int _child_count = 0;
     std::vector<std::atomic_bool> _is_finished;
+    std::atomic_uint32_t _un_finished_counter;
+    std::atomic_bool _is_all_finished = false;
     std::vector<std::atomic_bool> _is_canceled;
     // int64_t just for counter of profile
     std::vector<std::atomic_int64_t> _cur_bytes_in_queue;
     std::vector<std::atomic_uint32_t> _cur_blocks_nums_in_queue;
+    std::atomic_uint32_t _cur_blocks_total_nums = 0;
 
     //this will be indicate which queue has data, it's useful when have many queues
     std::atomic_int _flag_queue_idx = 0;
@@ -95,8 +104,10 @@ private:
     int64_t _max_size_of_queue = 0;
     static constexpr int64_t MAX_BYTE_OF_QUEUE = 1024l * 1024 * 1024 / 10;
 
+    // data queue is multi sink one source
     Dependency* _source_dependency = nullptr;
-    Dependency* _sink_dependency = nullptr;
+    std::vector<Dependency*> _sink_dependencies;
+    SpinLock _source_lock;
 };
 
 } // namespace pipeline

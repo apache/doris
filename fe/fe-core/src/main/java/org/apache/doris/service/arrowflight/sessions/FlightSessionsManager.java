@@ -20,12 +20,8 @@ package org.apache.doris.service.arrowflight.sessions;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
-import org.apache.doris.system.SystemInfoService;
-
-import org.apache.arrow.flight.CallStatus;
 
 /**
  * Manages Flight User Session ConnectContext.
@@ -53,7 +49,6 @@ public interface FlightSessionsManager {
         ConnectContext connectContext = new FlightSqlConnectContext(peerIdentity);
         connectContext.setEnv(Env.getCurrentEnv());
         connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         connectContext.getSessionVariable().setEnablePipelineEngine(false); // TODO
         connectContext.getSessionVariable().setEnablePipelineXEngine(false); // TODO
         connectContext.setQualifiedUser(userIdentity.getQualifiedUser());
@@ -65,11 +60,6 @@ public interface FlightSessionsManager {
                 connectContext.getEnv().getAuth().getInsertTimeout(connectContext.getQualifiedUser()));
 
         connectContext.setConnectScheduler(ExecuteEnv.getInstance().getScheduler());
-        if (!ExecuteEnv.getInstance().getScheduler().registerConnection(connectContext)) {
-            connectContext.getState().setError(ErrorCode.ERR_TOO_MANY_USER_CONNECTIONS,
-                    "Reach limit of connections");
-            throw CallStatus.UNAUTHENTICATED.withDescription("Reach limit of connections").toRuntimeException();
-        }
         return connectContext;
     }
 }

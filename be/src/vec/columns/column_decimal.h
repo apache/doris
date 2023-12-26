@@ -119,14 +119,14 @@ public:
         data.push_back(assert_cast<const Self&>(src).get_data()[n]);
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         auto origin_size = size();
         auto new_size = indices_end - indices_begin;
         data.resize(origin_size + new_size);
-        const T* src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
+        const T* __restrict src_data = reinterpret_cast<const T*>(src.get_raw_data().data);
 
-        for (int i = 0; i < new_size; ++i) {
+        for (uint32_t i = 0; i < new_size; ++i) {
             data[origin_size + i] = src_data[indices_begin[i]];
         }
     }
@@ -260,6 +260,8 @@ public:
         DCHECK(size() > self_row);
         data[self_row] = T();
     }
+
+    void replace_column_null_data(const uint8_t* __restrict null_map) override;
 
     void sort_column(const ColumnSorter* sorter, EqualFlags& flags, IColumn::Permutation& perms,
                      EqualRange& range, bool last_column) const override;

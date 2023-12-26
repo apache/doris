@@ -53,6 +53,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/exec/format/arrow/arrow_stream_reader.h"
 #include "vec/exec/format/avro/avro_jni_reader.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
@@ -448,7 +449,7 @@ Status VFileScanner::_cast_to_input_block(Block* block) {
         auto return_type = slot_desc->get_data_type_ptr();
         // remove nullable here, let the get_function decide whether nullable
         auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                remove_nullable(return_type)->get_type_id());
+                remove_nullable(return_type)->get_type_as_type_descriptor());
         ColumnsWithTypeAndName arguments {
                 arg, {data_type->create_column(), data_type, slot_desc->col_name()}};
         auto func_cast =
@@ -713,11 +714,11 @@ void VFileScanner::_truncate_char_or_varchar_column(Block* block, int idx, int l
 Status VFileScanner::_get_next_reader() {
     while (true) {
         if (_cur_reader) {
-            _cur_reader->close();
+            RETURN_IF_ERROR(_cur_reader->close());
         }
         _cur_reader.reset(nullptr);
         _src_block_init = false;
-        if (_next_range >= _ranges.size()) {
+        if (_next_range >= _ranges.size() || _should_stop) {
             _scanner_eof = true;
             _state->update_num_finished_scan_range(1);
             return Status::OK();
@@ -745,13 +746,13 @@ Status VFileScanner::_get_next_reader() {
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
-            if (_real_tuple_desc->table_desc()->table_type() ==
-                ::doris::TTableType::type::MAX_COMPUTE_TABLE) {
-                const MaxComputeTableDescriptor* mc_desc =
-                        static_cast<const MaxComputeTableDescriptor*>(
-                                _real_tuple_desc->table_desc());
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "max_compute") {
+                const auto* mc_desc = static_cast<const MaxComputeTableDescriptor*>(
+                        _real_tuple_desc->table_desc());
                 std::unique_ptr<MaxComputeJniReader> mc_reader = MaxComputeJniReader::create_unique(
-                        mc_desc, _file_slot_descs, range, _state, _profile);
+                        mc_desc, range.table_format_params.max_compute_params, _file_slot_descs,
+                        range, _state, _profile);
                 init_status = mc_reader->init_reader(_colname_to_value_range);
                 _cur_reader = std::move(mc_reader);
             } else if (range.__isset.table_format_params &&
@@ -873,6 +874,12 @@ Status VFileScanner::_get_next_reader() {
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader();
             break;
         }
+        case TFileFormatType::FORMAT_ARROW: {
+            _cur_reader = ArrowStreamReader::create_unique(_state, _profile, &_counter, *_params,
+                                                           range, _file_slot_descs, _io_ctx.get());
+            init_status = ((ArrowStreamReader*)(_cur_reader.get()))->init_reader();
+            break;
+        }
         default:
             return Status::InternalError("Not supported file format: {}", _params->format_type);
         }
@@ -893,7 +900,7 @@ Status VFileScanner::_get_next_reader() {
 
         _name_to_col_type.clear();
         _missing_cols.clear();
-        static_cast<void>(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
+        RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
         _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
         RETURN_IF_ERROR(_generate_fill_columns());
         if (VLOG_NOTICE_IS_ON && !_missing_cols.empty() && _is_load) {
@@ -1096,11 +1103,18 @@ Status VFileScanner::close(RuntimeState* state) {
     }
 
     if (_cur_reader) {
-        _cur_reader->close();
+        RETURN_IF_ERROR(_cur_reader->close());
     }
 
     RETURN_IF_ERROR(VScanner::close(state));
     return Status::OK();
+}
+
+void VFileScanner::try_stop() {
+    VScanner::try_stop();
+    if (_io_ctx) {
+        _io_ctx->should_stop = true;
+    }
 }
 
 } // namespace doris::vectorized

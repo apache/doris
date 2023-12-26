@@ -168,6 +168,9 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_sort_type(SortType::LEXICAL);
     }
     schema->set_sort_col_num(tablet_schema.sort_col_num);
+    for (const auto& i : tablet_schema.cluster_key_idxes) {
+        schema->add_cluster_key_idxes(i);
+    }
     tablet_meta_pb.set_in_restore_mode(false);
 
     // set column information
@@ -281,7 +284,6 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     }
 
     init_from_pb(tablet_meta_pb);
-    LOG(INFO) << "init tablet meta from pb: " << tablet_meta_pb.ShortDebugString();
 }
 
 TabletMeta::TabletMeta(const TabletMeta& b)
@@ -676,7 +678,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
             time_series_compaction_time_threshold_seconds());
 }
 
-uint32_t TabletMeta::mem_size() const {
+int64_t TabletMeta::mem_size() const {
     auto size = sizeof(TabletMeta);
     size += _schema->mem_size();
     return size;

@@ -48,7 +48,8 @@ public:
 class SortSourceDependency final : public Dependency {
 public:
     using SharedState = SortSharedState;
-    SortSourceDependency(int id, int node_id) : Dependency(id, node_id, "SortSourceDependency") {}
+    SortSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SortSourceDependency", query_ctx) {}
     ~SortSourceDependency() override = default;
 };
 

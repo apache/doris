@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join2", "query,p0") {
+suite("test_join2", "query,p0,arrow_flight_sql") {
     def DBname = "regression_test_join2"
     def TBname1 = "J1_TBL"
     def TBname2 = "J2_TBL"
@@ -84,7 +84,7 @@ suite("test_join2", "query,p0") {
             FROM ${TBname1} NATURAL JOIN ${TBname2}
             ORDER BY 1,2,3,4,5,6;
         """
-        exception "errCode = 2, detailMessage = natural join is not supported, please use inner join instead."
+        exception "ParseException"
     }
     
     qt_join4 """

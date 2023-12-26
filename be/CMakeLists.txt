@@ -184,12 +184,8 @@ set(ZLIB_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(Roaring_ROOT "$ENV{DORIS_THIRDPARTY}/installed")
 set(USE_STAT64 0)
 
-if (USE_BTHREAD_SCANNER)
-    set(USE_BTHREAD ON)
-else()
-    set(USE_BTHREAD OFF)
-endif()
-
+# disable clucene bthread supported.
+set(USE_BTHREAD OFF)
 
 add_subdirectory(${SRC_DIR}/clucene EXCLUDE_FROM_ALL)
 
@@ -341,12 +337,6 @@ if (USE_UNWIND)
     if (COMPILER_CLANG)
         add_compile_options(-gdwarf-aranges)
     endif()
-endif()
-
-# Use Bthread to separate computation and IO
-# Adding the option `USE_BTHREAD_SCANNER=ON sh build.sh` when comliling can enable this feature
-if (USE_BTHREAD_SCANNER)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_BTHREAD_SCANNER")
 endif()
 
 if (ENABLE_STACKTRACE)
@@ -659,7 +649,7 @@ set(BUILD_SHARED_LIBS OFF)
 
 option(ENABLE_CLANG_COVERAGE "coverage option" OFF)
 if (ENABLE_CLANG_COVERAGE AND ENABLE_CLANG_COVERAGE STREQUAL ON AND COMPILER_CLANG)
-    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+    SET(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping -DLLVM_PROFILE")
 endif ()
 
 if (MAKE_TEST)

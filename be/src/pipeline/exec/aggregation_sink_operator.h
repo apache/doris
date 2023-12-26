@@ -48,7 +48,8 @@ public:
 class AggSinkDependency final : public Dependency {
 public:
     using SharedState = AggSharedState;
-    AggSinkDependency(int id, int node_id) : Dependency(id, node_id, "AggSinkDependency", true) {}
+    AggSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AggSinkDependency", true, query_ctx) {}
     ~AggSinkDependency() override = default;
 
     void set_ready() override {
@@ -297,21 +298,21 @@ protected:
     int _get_slot_column_id(const vectorized::AggFnEvaluator* evaluator);
     size_t _memory_usage() const;
 
-    RuntimeProfile::Counter* _hash_table_compute_timer;
-    RuntimeProfile::Counter* _hash_table_emplace_timer;
-    RuntimeProfile::Counter* _hash_table_input_counter;
-    RuntimeProfile::Counter* _build_timer;
-    RuntimeProfile::Counter* _expr_timer;
-    RuntimeProfile::Counter* _exec_timer;
-    RuntimeProfile::Counter* _build_table_convert_timer;
-    RuntimeProfile::Counter* _serialize_key_timer;
-    RuntimeProfile::Counter* _merge_timer;
-    RuntimeProfile::Counter* _serialize_data_timer;
-    RuntimeProfile::Counter* _deserialize_data_timer;
-    RuntimeProfile::Counter* _max_row_size_counter;
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _hash_table_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage;
+    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _build_timer = nullptr;
+    RuntimeProfile::Counter* _expr_timer = nullptr;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _build_table_convert_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_key_timer = nullptr;
+    RuntimeProfile::Counter* _merge_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _max_row_size_counter = nullptr;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
 
     bool _should_limit_output = false;
     bool _reach_limit = false;
@@ -321,8 +322,8 @@ protected:
 
     vectorized::Block _preagg_block = vectorized::Block();
 
-    vectorized::AggregatedDataVariants* _agg_data;
-    vectorized::Arena* _agg_arena_pool;
+    vectorized::AggregatedDataVariants* _agg_data = nullptr;
+    vectorized::Arena* _agg_arena_pool = nullptr;
 
     using vectorized_execute = std::function<Status(vectorized::Block* block)>;
     using vectorized_update_memusage = std::function<void()>;
@@ -350,7 +351,7 @@ template <typename LocalStateType = BlockingAggSinkLocalState>
 class AggSinkOperatorX : public DataSinkOperatorX<LocalStateType> {
 public:
     AggSinkOperatorX(ObjectPool* pool, int operator_id, const TPlanNode& tnode,
-                     const DescriptorTbl& descs);
+                     const DescriptorTbl& descs, bool is_streaming = false);
     ~AggSinkOperatorX() override = default;
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TPlanNode",
@@ -364,6 +365,17 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
+
+    DataDistribution required_data_distribution() const override {
+        if (_probe_expr_ctxs.empty()) {
+            return _needs_finalize || DataSinkOperatorX<LocalStateType>::_child_x
+                                              ->ignore_data_distribution()
+                           ? DataDistribution(ExchangeType::PASSTHROUGH)
+                           : DataSinkOperatorX<LocalStateType>::required_data_distribution();
+        }
+        return _is_colocate ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                            : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+    }
 
     using DataSinkOperatorX<LocalStateType>::id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
@@ -380,14 +392,14 @@ protected:
 
     // may be we don't have to know the tuple id
     TupleId _intermediate_tuple_id;
-    TupleDescriptor* _intermediate_tuple_desc;
+    TupleDescriptor* _intermediate_tuple_desc = nullptr;
 
     TupleId _output_tuple_id;
-    TupleDescriptor* _output_tuple_desc;
+    TupleDescriptor* _output_tuple_desc = nullptr;
 
     bool _needs_finalize;
     bool _is_merge;
-    bool _is_first_phase;
+    const bool _is_first_phase;
 
     size_t _align_aggregate_states = 1;
     /// The offset to the n-th aggregate function in a row of aggregate functions.
@@ -398,11 +410,15 @@ protected:
     size_t _external_agg_bytes_threshold;
     // group by k1,k2
     vectorized::VExprContextSPtrs _probe_expr_ctxs;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<size_t> _make_nullable_keys;
     size_t _spill_partition_count_bits;
     int64_t _limit; // -1: no limit
     bool _have_conjuncts;
+    const bool _is_streaming;
+
+    const std::vector<TExpr> _partition_exprs;
+    const bool _is_colocate;
 };
 
 } // namespace pipeline

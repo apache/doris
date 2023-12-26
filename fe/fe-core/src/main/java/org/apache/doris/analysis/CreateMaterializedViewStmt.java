@@ -39,6 +39,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -46,6 +47,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Materialized view is performed to materialize the results of query.
@@ -144,10 +146,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return dbName;
     }
 
-    public void setMVKeysType(KeysType type) {
-        mvKeysType = type;
-    }
-
     public KeysType getMVKeysType() {
         return mvKeysType;
     }
@@ -207,11 +205,11 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         analyzer = new Analyzer(analyzer.getEnv(), analyzer.getContext());
         selectStmt.analyze(analyzer);
 
+        analyzeSelectClause(analyzer);
+        analyzeFromClause();
         if (selectStmt.getAggInfo() != null) {
             mvKeysType = KeysType.AGG_KEYS;
         }
-        analyzeSelectClause(analyzer);
-        analyzeFromClause();
         if (selectStmt.getWhereClause() != null) {
             if (!isReplay && selectStmt.getWhereClause().hasAggregateSlot()) {
                 throw new AnalysisException(
@@ -260,14 +258,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
             }
-            List<SlotRef> slots = new ArrayList<>();
-            selectListItemExpr.collect(SlotRef.class, slots);
-            if (!isReplay && slots.size() == 0) {
-                throw new AnalysisException(
-                        "The materialized view contain constant expr is disallowed, expr: "
-                                + selectListItemExpr.toSql());
-            }
-
 
             if (selectListItemExpr instanceof FunctionCallExpr
                     && ((FunctionCallExpr) selectListItemExpr).isAggregateFunction()) {
@@ -280,6 +270,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // build mv column item
                 mvColumnItemList.add(buildMVColumnItem(analyzer, functionCallExpr));
             } else {
+                List<SlotRef> slots = new ArrayList<>();
+                selectListItemExpr.collect(SlotRef.class, slots);
+                if (!isReplay && slots.size() == 0) {
+                    throw new AnalysisException(
+                            "The materialized view contain constant expr is disallowed, expr: "
+                                    + selectListItemExpr.toSql());
+                }
                 if (meetAggregate) {
                     throw new AnalysisException("The aggregate column should be after the single column");
                 }
@@ -301,6 +298,12 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         if (!isReplay && tableRefList.get(0).hasExplicitAlias()) {
             throw new AnalysisException("The materialized view not support table with alias.");
         }
+        if (!isReplay && !(tableRefList.get(0).getTable() instanceof OlapTable)) {
+            throw new AnalysisException("The materialized view only support olap table.");
+        }
+        OlapTable olapTable = (OlapTable) tableRefList.get(0).getTable();
+        mvKeysType = olapTable.getKeysType();
+
         TableName tableName = tableRefList.get(0).getName();
         if (tableName == null) {
             throw new AnalysisException("table in from clause is invalid, please check if it's single table "
@@ -342,19 +345,19 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             }
         }
 
-        for (Expr groupExpr : groupingExprs) {
-            boolean match = false;
-            String rhs = selectStmt.getExprFromAliasSMap(groupExpr).toSqlWithoutTbl();
-            for (Expr expr : selectExprs) {
-                String lhs = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
-                if (lhs.equalsIgnoreCase(rhs)) {
-                    match = true;
-                    break;
-                }
+        Set<String> selectExprNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
+        for (Expr expr : selectExprs) {
+            String selectExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (selectExprNames.contains(selectExprName)) {
+                throw new AnalysisException("The select expr " + selectExprName + " is duplicated.");
             }
+            selectExprNames.add(selectExprName);
+        }
 
-            if (!match) {
-                throw new AnalysisException("The grouping expr " + rhs + " not in select list.");
+        for (Expr expr : groupingExprs) {
+            String groupExprName = selectStmt.getExprFromAliasSMap(expr).toSqlWithoutTbl();
+            if (!selectExprNames.contains(groupExprName)) {
+                throw new AnalysisException("The grouping expr " + groupExprName + " not in select list.");
             }
         }
     }
@@ -410,14 +413,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
          * The keys type of Materialized view is aggregation.
          * All of group by columns are keys of materialized view.
          */
-        if (mvKeysType == KeysType.AGG_KEYS) {
-            for (MVColumnItem mvColumnItem : mvColumnItemList) {
-                if (mvColumnItem.getAggregationType() != null) {
-                    break;
-                }
-                mvColumnItem.setIsKey(true);
-            }
-        } else if (mvKeysType == KeysType.DUP_KEYS) {
+        if (mvKeysType == KeysType.DUP_KEYS) {
             /**
              * There is no aggregation function in materialized view.
              * Supplement key of MV columns
@@ -460,6 +456,13 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             for (; theBeginIndexOfValue < mvColumnItemList.size(); theBeginIndexOfValue++) {
                 MVColumnItem mvColumnItem = mvColumnItemList.get(theBeginIndexOfValue);
                 mvColumnItem.setAggregationType(AggregateType.NONE, true);
+            }
+        } else {
+            for (MVColumnItem mvColumnItem : mvColumnItemList) {
+                if (mvColumnItem.getAggregationType() != null) {
+                    break;
+                }
+                mvColumnItem.setIsKey(true);
             }
         }
     }

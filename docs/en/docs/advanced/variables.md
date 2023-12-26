@@ -689,7 +689,7 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 * `enable_memtable_on_sink_node`
 
   <version since="2.1.0">
-  Whether to enable MemTable on DataSink node when loading data, default is false.
+  Whether to enable MemTable on DataSink node when loading data, default is true.
   </version>
 
   Build MemTable on DataSink node, and send segments to other backends through brpc streaming.
@@ -700,6 +700,10 @@ Note that the comment must start with /*+ and can only follow the SELECT.
   <version since="2.0.2">
   Whether to enable partial columns update semantics for native insert into statement, default is false. Please note that the default value of the session variable `enable_insert_strict`, which controls whether the insert statement operates in strict mode, is true. In other words, the insert statement is in strict mode by default, and in this mode, updating non-existing keys in partial column updates is not allowed. Therefore, when using the insert statement for partial columns update and wishing to insert non-existing keys, you need to set `enable_unique_key_partial_update` to true and simultaneously set `enable_insert_strict` to false.
   </version>
+
+* `describe_extend_variant_column`
+
+  Controls whether to extend variant column in desc table_name. The default value is false.
 
 ***
 

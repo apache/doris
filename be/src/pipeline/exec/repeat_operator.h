@@ -67,7 +67,7 @@ private:
     SourceState _child_source_state;
     bool _child_eos;
     int _repeat_id_idx;
-    std::unique_ptr<vectorized::Block> _intermediate_block {};
+    std::unique_ptr<vectorized::Block> _intermediate_block;
     vectorized::VExprContextSPtrs _expr_ctxs;
 };
 
@@ -98,7 +98,7 @@ private:
     std::vector<int64_t> _repeat_id_list;
     std::vector<std::vector<int64_t>> _grouping_list;
     TupleId _output_tuple_id;
-    const TupleDescriptor* _output_tuple_desc;
+    const TupleDescriptor* _output_tuple_desc = nullptr;
 
     std::vector<SlotDescriptor*> _output_slots;
 

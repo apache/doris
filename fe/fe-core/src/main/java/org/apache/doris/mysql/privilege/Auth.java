@@ -54,13 +54,12 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapManager;
 import org.apache.doris.ldap.LdapUserInfo;
-import org.apache.doris.load.DppConfig;
+import org.apache.doris.mysql.MysqlPassword;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
 import org.apache.doris.persist.PrivInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
 import com.google.common.base.Joiner;
@@ -70,6 +69,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -865,7 +865,7 @@ public class Auth implements Writable {
 
     // create role
     public void createRole(CreateRoleStmt stmt) throws DdlException {
-        createRoleInternal(stmt.getQualifiedRole(), stmt.isSetIfNotExists(), false);
+        createRoleInternal(stmt.getRole(), stmt.isSetIfNotExists(), false);
     }
 
     public void replayCreateRole(PrivInfo info) {
@@ -899,7 +899,7 @@ public class Auth implements Writable {
 
     // drop role
     public void dropRole(DropRoleStmt stmt) throws DdlException {
-        dropRoleInternal(stmt.getQualifiedRole(), stmt.isSetIfExists(), false);
+        dropRoleInternal(stmt.getRole(), stmt.isSetIfExists(), false);
     }
 
     public void replayDropRole(PrivInfo info) {
@@ -953,12 +953,18 @@ public class Auth implements Writable {
             throws UserException {
         writeLock();
         try {
-            propertyMgr.updateUserProperty(user, properties);
+            propertyMgr.updateUserProperty(user, properties, isReplay);
             if (!isReplay) {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
             }
             LOG.info("finished to set properties for user: {}", user);
+        } catch (DdlException e) {
+            if (isReplay && e.getMessage().contains("Unknown user property")) {
+                LOG.warn("ReplayUpdateUserProperty failed, maybe FE rolled back version, " + e.getMessage());
+            } else {
+                throw e;
+            }
         } finally {
             writeUnlock();
         }
@@ -995,6 +1001,15 @@ public class Auth implements Writable {
         readLock();
         try {
             return propertyMgr.getMaxQueryInstances(qualifiedUser);
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public int getParallelFragmentExecInstanceNum(String qualifiedUser) {
+        readLock();
+        try {
+            return propertyMgr.getParallelFragmentExecInstanceNum(qualifiedUser);
         } finally {
             readUnlock();
         }
@@ -1113,7 +1128,7 @@ public class Auth implements Writable {
             // ============== Password ==============
             userAuthInfo.add(ldapUserInfo.isSetPasswd() ? "Yes" : "No");
             // ============== Roles ==============
-            userAuthInfo.add(ldapUserInfo.getPaloRoles().stream().map(role -> role.getRoleName())
+            userAuthInfo.add(ldapUserInfo.getRoles().stream().map(role -> role.getRoleName())
                     .collect(Collectors.joining(",")));
         } else {
             User user = userManager.getUserByUserIdentity(userIdent);
@@ -1293,47 +1308,6 @@ public class Auth implements Writable {
         }
     }
 
-    public void dropUserOfCluster(String clusterName, boolean isReplay) throws DdlException {
-        writeLock();
-        try {
-            Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
-            for (List<User> users : nameToUsers.values()) {
-                for (User user : users) {
-                    if (user.getUserIdentity().getQualifiedUser().startsWith(clusterName)) {
-                        dropUserInternal(user.getUserIdentity(), false, isReplay);
-                    }
-                }
-            }
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {
-        readLock();
-        try {
-            return propertyMgr.getLoadClusterInfo(qualifiedUser, cluster);
-        } finally {
-            readUnlock();
-        }
-    }
-
-    // user can enter a cluster, if it has any privs of database or table in this cluster.
-    public boolean checkCanEnterCluster(ConnectContext ctx, String clusterName) {
-        readLock();
-        try {
-            Set<String> roles = userRoleManager.getRolesByUser(ctx.getCurrentUserIdentity());
-            for (String roleName : roles) {
-                if (roleManager.getRole(roleName).checkCanEnterCluster(clusterName)) {
-                    return true;
-                }
-            }
-            return false;
-        } finally {
-            readUnlock();
-        }
-    }
-
     private void initUser() {
         try {
             UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
@@ -1346,6 +1320,29 @@ public class Auth implements Writable {
                     false /* ignore if exists */, PasswordOptions.UNSET_OPTION, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
+        }
+    }
+
+    public void setInitialRootPassword(String initialRootPassword) {
+        // Skip set root password if `initial_root_password` set to empty string
+        if (StringUtils.isEmpty(initialRootPassword)) {
+            return;
+        }
+        byte[] scramble;
+        try {
+            scramble = MysqlPassword.checkPassword(initialRootPassword);
+        } catch (AnalysisException e) {
+            // Skip set root password if `initial_root_password` is not valid 2-staged SHA-1 encrypted
+            LOG.warn("initial_root_password [{}] is not valid 2-staged SHA-1 encrypted, ignore it",
+                    initialRootPassword);
+            return;
+        }
+        UserIdentity rootUser = new UserIdentity(ROOT_USER, "%");
+        rootUser.setIsAnalyzed();
+        try {
+            setPasswordInternal(rootUser, scramble, null, false, false, false);
+        } catch (DdlException e) {
+            LOG.warn("Fail to set initial root password, ignore it", e);
         }
     }
 
@@ -1712,8 +1709,7 @@ public class Auth implements Writable {
             CatalogPrivEntry catalogPrivEntry = (CatalogPrivEntry) privEntry;
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(catalogPrivEntry.origCtl),
                     "*", "*");
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(catalogPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(catalogPrivEntry.userIdentity),
                     tablePattern, catalogPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);
@@ -1724,8 +1720,7 @@ public class Auth implements Writable {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) privEntry;
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(dbPrivEntry.origCtl),
                     ClusterNamespace.getNameFromFullName(dbPrivEntry.origDb), "*");
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(dbPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(dbPrivEntry.userIdentity),
                     tablePattern, dbPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);
@@ -1737,8 +1732,7 @@ public class Auth implements Writable {
             TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(tblPrivEntry.origCtl),
                     ClusterNamespace.getNameFromFullName(tblPrivEntry.origDb),
                     ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigTbl()));
-            String clusterName = ClusterNamespace.getClusterNameFromFullName(tblPrivEntry.origCtl);
-            tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
+            tablePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(tblPrivEntry.userIdentity),
                     tablePattern, tblPrivEntry.privSet);
             roleManager.addOrMergeRole(newRole, false);

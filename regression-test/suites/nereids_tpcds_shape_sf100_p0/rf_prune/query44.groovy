@@ -24,20 +24,13 @@ suite("query44") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    sql 'set enable_runtime_filter_prune=true'
 
-    qt_ds_shape_44 '''
-    explain shape plan
-
-
-
-
-select  asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing
+    def ds = """select  asceding.rnk, i1.i_product_name best_performing, i2.i_product_name worst_performing
 from(select *
      from (select item_sk,rank() over (order by rank_col asc) rnk
            from (select ss_item_sk item_sk,avg(ss_net_profit) rank_col 
@@ -68,7 +61,9 @@ where asceding.rnk = descending.rnk
   and i1.i_item_sk=asceding.item_sk
   and i2.i_item_sk=descending.item_sk
 order by asceding.rnk
-limit 100;
-
-    '''
+limit 100"""
+    qt_ds_shape_44 """
+    explain shape plan
+    ${ds}
+    """
 }

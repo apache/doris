@@ -185,14 +185,10 @@ void ColumnMap::insert_from(const IColumn& src_, size_t n) {
     get_offsets().push_back(get_offsets().back() + size);
 }
 
-void ColumnMap::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                    const int* indices_end) {
-    for (auto x = indices_begin; x != indices_end; ++x) {
-        if (*x == -1) {
-            ColumnMap::insert_default();
-        } else {
-            ColumnMap::insert_from(src, *x);
-        }
+void ColumnMap::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                    const uint32_t* indices_end) {
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        ColumnMap::insert_from(src, *x);
     }
 }
 
@@ -221,7 +217,7 @@ StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char con
 
 const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
     size_t array_size = unaligned_load<size_t>(pos);
-    pos += 2 * sizeof(array_size);
+    pos += sizeof(array_size);
 
     for (size_t i = 0; i < array_size; ++i) {
         pos = get_keys().deserialize_and_insert_from_arena(pos);

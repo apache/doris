@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.rules.exploration.MergeProjectsCBO;
-import org.apache.doris.nereids.rules.exploration.OrExpansion;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoin;
 import org.apache.doris.nereids.rules.exploration.TransposeAggSemiJoinProject;
 import org.apache.doris.nereids.rules.exploration.join.InnerJoinLAsscom;
@@ -36,10 +35,20 @@ import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssoc;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinAssocProject;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscom;
 import org.apache.doris.nereids.rules.exploration.join.OuterJoinLAsscomProject;
-import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughInnerOuterJoin;
-import org.apache.doris.nereids.rules.exploration.join.PushdownProjectThroughSemiJoin;
+import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughInnerOuterJoin;
+import org.apache.doris.nereids.rules.exploration.join.PushDownProjectThroughSemiJoin;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewFilterProjectJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewOnlyJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterAggregateRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectFilterJoinRule;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewProjectJoinRule;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalCTEAnchorToPhysicalCTEAnchor;
@@ -80,18 +89,18 @@ import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.PushdownAliasThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushdownExpressionsInHashCondition;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughAggregation;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughJoin;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughPartitionTopN;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughRepeat;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSetOperation;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughSort;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughWindow;
-import org.apache.doris.nereids.rules.rewrite.PushdownJoinOtherCondition;
-import org.apache.doris.nereids.rules.rewrite.PushdownProjectThroughLimit;
+import org.apache.doris.nereids.rules.rewrite.PushDownAliasThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughAggregation;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughJoin;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughPartitionTopN;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughRepeat;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSetOperation;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughSort;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughWindow;
+import org.apache.doris.nereids.rules.rewrite.PushDownJoinOtherCondition;
+import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -115,33 +124,32 @@ public class RuleSet {
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
             .add(LogicalJoinSemiJoinTranspose.INSTANCE)
             .add(LogicalJoinSemiJoinTransposeProject.INSTANCE)
-            .add(PushdownProjectThroughInnerOuterJoin.INSTANCE)
-            .add(PushdownProjectThroughSemiJoin.INSTANCE)
+            .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
+            .add(PushDownProjectThroughSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoin.INSTANCE)
             .add(TransposeAggSemiJoinProject.INSTANCE)
-            .add(OrExpansion.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
             new CreatePartitionTopNFromWindow(),
-            new PushdownFilterThroughProject(),
-            new PushdownFilterThroughSort(),
-            new PushdownJoinOtherCondition(),
-            new PushdownFilterThroughJoin(),
-            new PushdownExpressionsInHashCondition(),
-            new PushdownFilterThroughAggregation(),
-            new PushdownFilterThroughRepeat(),
-            new PushdownFilterThroughSetOperation(),
-            new PushdownProjectThroughLimit(),
+            new PushDownFilterThroughProject(),
+            new PushDownFilterThroughSort(),
+            new PushDownJoinOtherCondition(),
+            new PushDownFilterThroughJoin(),
+            new PushDownExpressionsInHashCondition(),
+            new PushDownFilterThroughAggregation(),
+            new PushDownFilterThroughRepeat(),
+            new PushDownFilterThroughSetOperation(),
+            new PushDownProjectThroughLimit(),
             new EliminateOuterJoin(),
             new ConvertOuterJoinToAntiJoin(),
             new MergeProjects(),
             new MergeFilters(),
             new MergeGenerates(),
             new MergeLimits(),
-            new PushdownAliasThroughJoin(),
-            new PushdownFilterThroughWindow(),
-            new PushdownFilterThroughPartitionTopN()
+            new PushDownAliasThroughJoin(),
+            new PushDownFilterThroughWindow(),
+            new PushDownFilterThroughPartitionTopN()
     );
 
     public static final List<Rule> IMPLEMENTATION_RULES = planRuleFactories()
@@ -220,6 +228,19 @@ public class RuleSet {
             .add(JoinCommute.BUSHY.build())
             .build();
 
+    public static final List<Rule> MATERIALIZED_VIEW_RULES = planRuleFactories()
+            .add(MaterializedViewOnlyJoinRule.INSTANCE)
+            .add(MaterializedViewProjectJoinRule.INSTANCE)
+            .add(MaterializedViewFilterJoinRule.INSTANCE)
+            .add(MaterializedViewFilterProjectJoinRule.INSTANCE)
+            .add(MaterializedViewProjectFilterJoinRule.INSTANCE)
+            .add(MaterializedViewAggregateRule.INSTANCE)
+            .add(MaterializedViewProjectAggregateRule.INSTANCE)
+            .add(MaterializedViewFilterAggregateRule.INSTANCE)
+            .add(MaterializedViewProjectFilterAggregateRule.INSTANCE)
+            .add(MaterializedViewFilterProjectAggregateRule.INSTANCE)
+            .build();
+
     public List<Rule> getDPHypReorderRules() {
         return DPHYP_REORDER_RULES;
     }
@@ -238,6 +259,10 @@ public class RuleSet {
 
     public List<Rule> getImplementationRules() {
         return IMPLEMENTATION_RULES;
+    }
+
+    public List<Rule> getMaterializedViewRules() {
+        return MATERIALIZED_VIEW_RULES;
     }
 
     public static RuleFactories planRuleFactories() {

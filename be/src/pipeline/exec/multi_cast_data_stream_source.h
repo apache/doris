@@ -95,8 +95,8 @@ private:
 class MultiCastSourceDependency final : public Dependency {
 public:
     using SharedState = MultiCastSharedState;
-    MultiCastSourceDependency(int id, int node_id)
-            : Dependency(id, node_id, "MultiCastSourceDependency") {}
+    MultiCastSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "MultiCastSourceDependency", query_ctx) {}
     ~MultiCastSourceDependency() override = default;
 };
 
@@ -120,8 +120,11 @@ public:
 
     friend class MultiCastDataStreamerSourceOperatorX;
 
+    RuntimeFilterDependency* filterdependency() override { return _filter_dependency.get(); }
+
 private:
     vectorized::VExprContextSPtrs _output_expr_contexts;
+    std::shared_ptr<RuntimeFilterDependency> _filter_dependency;
 };
 
 class MultiCastDataStreamerSourceOperatorX final

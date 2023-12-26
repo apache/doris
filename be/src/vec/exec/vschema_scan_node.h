@@ -69,7 +69,7 @@ private:
     TupleId _tuple_id;
 
     // Descriptor of dest tuples
-    const TupleDescriptor* _dest_tuple_desc;
+    const TupleDescriptor* _dest_tuple_desc = nullptr;
     // Tuple index in tuple row.
     int _tuple_idx;
     // slot num need to fill in and return

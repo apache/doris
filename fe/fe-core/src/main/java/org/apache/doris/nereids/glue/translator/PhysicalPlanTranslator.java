@@ -202,6 +202,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -309,6 +310,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         DataPartition dataPartition = toDataPartition(distribute.getDistributionSpec(), validOutputIds, context);
+        exchangeNode.setPartitionType(dataPartition.getType());
         PlanFragment parentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
         exchangeNode.setNumInstances(inputFragment.getPlanRoot().getNumInstances());
         if (distribute.getDistributionSpec() instanceof DistributionSpecGather) {
@@ -379,30 +381,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         HashSet<String> partialUpdateCols = new HashSet<>();
         boolean isPartialUpdate = olapTableSink.isPartialUpdate();
         if (isPartialUpdate) {
-            OlapTable olapTable = olapTableSink.getTargetTable();
-            if (!olapTable.getEnableUniqueKeyMergeOnWrite()) {
-                throw new AnalysisException("Partial update is only allowed in"
-                        + "unique table with merge-on-write enabled.");
-            }
-            for (Column col : olapTable.getFullSchema()) {
-                boolean exists = false;
-                for (Column insertCol : olapTableSink.getCols()) {
-                    if (insertCol.getName() != null && insertCol.getName().equals(col.getName())) {
-                        exists = true;
-                        break;
-                    }
-                }
-                if (col.isKey() && !exists) {
-                    throw new AnalysisException("Partial update should include all key columns, missing: "
-                            + col.getName());
-                }
-            }
             for (Column col : olapTableSink.getCols()) {
                 partialUpdateCols.add(col.getName());
-            }
-            if (olapTable.hasSequenceCol() && olapTable.getSequenceMapCol() != null
-                        && partialUpdateCols.contains(olapTable.getSequenceMapCol())) {
-                partialUpdateCols.add(Column.SEQUENCE_COL);
             }
         }
         TupleDescriptor olapTuple = context.generateTupleDesc();
@@ -608,7 +588,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         OlapScanNode olapScanNode = new OlapScanNode(olapScan.translatePlanNodeId(), tupleDescriptor, "OlapScanNode");
         // TODO: move all node set cardinality into one place
         if (olapScan.getStats() != null) {
-            olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
+            // NOTICE: we should not set stats row count
+            //   because it is whole table cardinality and will break block rules.
+            // olapScanNode.setCardinality((long) olapScan.getStats().getRowCount());
             if (context.getSessionVariable() != null && context.getSessionVariable().forbidUnknownColStats) {
                 for (int i = 0; i < slots.size(); i++) {
                     SlotReference slot = (SlotReference) slots.get(i);
@@ -880,6 +862,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 && inputPlanFragment.getDataPartition().getType() != TPartitionType.RANDOM
                 && aggregate.getAggregateParam().aggMode != AggMode.INPUT_TO_BUFFER) {
             inputPlanFragment.setHasColocatePlanNode(true);
+            // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
+            // local exchanger will be used.
+            aggregationNode.setColocate(true);
+
+            if (aggregate.getAggMode().isFinalPhase) {
+                inputPlanFragment.setHasColocateFinalizeAggNode(true);
+            }
         }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
@@ -1151,6 +1140,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 null, null, null, hashJoin.isMarkJoin());
 
         PlanFragment currentFragment = connectJoinNode(hashJoinNode, leftFragment, rightFragment, context, hashJoin);
+
+        if (joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN) {
+            currentFragment.setHasNullAwareLeftAntiJoin(true);
+        }
         if (JoinUtils.shouldColocateJoin(physicalHashJoin)) {
             // TODO: add reason
             hashJoinNode.setColocate(true, "");
@@ -1772,6 +1765,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (!setOperation.getPhysicalProperties().equals(PhysicalProperties.ANY)
                 && findOlapScanNodesByPassExchangeAndJoinNode(setOperationFragment.getPlanRoot())) {
             setOperationFragment.setHasColocatePlanNode(true);
+            setOperationNode.setColocate(true);
         }
 
         return setOperationFragment;
@@ -1817,6 +1811,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
             SortNode sortNode = (SortNode) inputFragment.getPlanRoot().getChild(0);
             ((ExchangeNode) inputFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfo());
+            sortNode.setMergeByExchange();
         }
         return inputFragment;
     }
@@ -1871,6 +1866,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             exchangeNode.setMergeInfo(((SortNode) exchangeNode.getChild(0)).getSortInfo());
             exchangeNode.setLimit(topN.getLimit());
             exchangeNode.setOffset(topN.getOffset());
+            ((SortNode) exchangeNode.getChild(0)).setMergeByExchange();
         }
         updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), topN);
         return inputFragment;
@@ -2037,6 +2033,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // TODO: nereids forbid all parallel scan under PhysicalSetOperation temporary
         if (findOlapScanNodesByPassExchangeAndJoinNode(inputPlanFragment.getPlanRoot())) {
             inputPlanFragment.setHasColocatePlanNode(true);
+            analyticEvalNode.setColocate(true);
         }
         return inputPlanFragment;
     }
@@ -2355,17 +2352,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (sortExprs.size() > olapTable.getDataSortInfo().getColNum()) {
             return false;
         }
+        List<Column> sortKeyColumns = olapTable.getFullSchema();
+        if (olapTable.getEnableUniqueKeyMergeOnWrite()) {
+            Map<Integer, Column> clusterKeyMap = new TreeMap<>();
+            for (Column column : olapTable.getFullSchema()) {
+                if (column.getClusterKeyId() != -1) {
+                    clusterKeyMap.put(column.getClusterKeyId(), column);
+                }
+            }
+            if (!clusterKeyMap.isEmpty()) {
+                sortKeyColumns.clear();
+                sortKeyColumns.addAll(clusterKeyMap.values());
+            }
+        }
         for (int i = 0; i < sortExprs.size(); i++) {
-            // table key.
-            Column tableKey = olapTable.getFullSchema().get(i);
+            // sort key.
+            Column sortColumn = sortKeyColumns.get(i);
             // sort slot.
             Expr sortExpr = sortExprs.get(i);
             if (sortExpr instanceof SlotRef) {
                 SlotRef slotRef = (SlotRef) sortExpr;
-                if (tableKey.equals(slotRef.getColumn())) {
+                if (sortColumn.equals(slotRef.getColumn())) {
                     // ORDER BY DESC NULLS FIRST can not be optimized to only read file tail,
                     // since NULLS is at file head but data is at tail
-                    if (tableKey.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
+                    if (sortColumn.isAllowNull() && nullsFirsts.get(i) && !isAscOrders.get(i)) {
                         return false;
                     }
                 } else {

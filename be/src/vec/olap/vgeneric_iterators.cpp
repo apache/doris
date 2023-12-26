@@ -51,7 +51,8 @@ Status VStatisticsIterator::init(const StorageReadOptions& opts) {
             auto unique_id = _schema.column(cid)->unique_id();
             if (_column_iterators_map.count(unique_id) < 1) {
                 RETURN_IF_ERROR(_segment->new_column_iterator(opts.tablet_schema->column(cid),
-                                                              &_column_iterators_map[unique_id]));
+                                                              &_column_iterators_map[unique_id],
+                                                              nullptr));
             }
             _column_iterators.push_back(_column_iterators_map[unique_id].get());
         }
@@ -74,14 +75,15 @@ Status VStatisticsIterator::next_batch(Block* block) {
                               : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
-            for (int i = 0; i < block->columns(); ++i) {
+            for (int i = 0; i < columns.size(); ++i) {
                 columns[i]->resize(size);
             }
         } else {
-            for (int i = 0; i < block->columns(); ++i) {
+            for (int i = 0; i < columns.size(); ++i) {
                 RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
             }
         }
+        block->set_columns(std::move(columns));
         _output_rows += size;
         return Status::OK();
     }

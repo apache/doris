@@ -83,7 +83,7 @@ struct ParsedPage {
     bool has_null;
     Slice null_bitmap;
     RleDecoder<bool> null_decoder;
-    std::unique_ptr<PageDecoder> data_decoder = nullptr;
+    std::unique_ptr<PageDecoder> data_decoder;
 
     // ordinal of the first value in this page
     ordinal_t first_ordinal = 0;

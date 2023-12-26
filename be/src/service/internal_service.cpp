@@ -25,6 +25,8 @@
 #include <butil/errno.h>
 #include <butil/iobuf.h>
 #include <fcntl.h>
+#include <fmt/core.h>
+#include <gen_cpp/MasterService_types.h>
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <gen_cpp/Status_types.h>
@@ -45,6 +47,7 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -72,6 +75,7 @@
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/rowset/segment_v2/segment_iterator.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
@@ -95,6 +99,7 @@
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
+#include "service/backend_options.h"
 #include "service/point_query_executor.h"
 #include "util/arrow/row_batch.h"
 #include "util/async_io.h"
@@ -113,6 +118,7 @@
 #include "util/uid_util.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/schema_util.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -359,8 +365,8 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::StreamOptions stream_options;
 
-        LOG(INFO) << "open load stream, load_id = " << request->load_id()
-                  << ", src_id = " << request->src_id();
+        LOG(INFO) << "open load stream, load_id=" << request->load_id()
+                  << ", src_id=" << request->src_id();
 
         for (const auto& req : request->tablets()) {
             TabletManager* tablet_mgr = StorageEngine::instance()->tablet_manager();
@@ -404,45 +410,26 @@ void PInternalServiceImpl::open_load_stream(google::protobuf::RpcController* con
     }
 }
 
+void PInternalServiceImpl::tablet_writer_add_block_by_http(
+        google::protobuf::RpcController* controller, const ::doris::PEmptyRequest* request,
+        PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
+    PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
+    google::protobuf::Closure* new_done =
+            new NewHttpClosure<PTabletWriterAddBlockRequest>(new_request, done);
+    brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+    Status st = attachment_extract_request_contain_block<PTabletWriterAddBlockRequest>(new_request,
+                                                                                       cntl);
+    if (st.ok()) {
+        tablet_writer_add_block(controller, new_request, response, new_done);
+    } else {
+        st.to_protobuf(response->mutable_status());
+    }
+}
+
 void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcController* controller,
                                                    const PTabletWriterAddBlockRequest* request,
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, request, response, done]() {
-        _tablet_writer_add_block(controller, request, response, done);
-    });
-    if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
-        return;
-    }
-}
-
-void PInternalServiceImpl::tablet_writer_add_block_by_http(
-        google::protobuf::RpcController* controller, const ::doris::PEmptyRequest* request,
-        PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([this, controller, response, done]() {
-        PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
-        google::protobuf::Closure* new_done =
-                new NewHttpClosure<PTabletWriterAddBlockRequest>(new_request, done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        Status st = attachment_extract_request_contain_block<PTabletWriterAddBlockRequest>(
-                new_request, cntl);
-        if (st.ok()) {
-            _tablet_writer_add_block(controller, new_request, response, new_done);
-        } else {
-            st.to_protobuf(response->mutable_status());
-        }
-    });
-    if (!ret) {
-        offer_failed(response, done, _heavy_work_pool);
-        return;
-    }
-}
-
-void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcController* controller,
-                                                    const PTabletWriterAddBlockRequest* request,
-                                                    PTabletWriterAddBlockResult* response,
-                                                    google::protobuf::Closure* done) {
     int64_t submit_task_time_ns = MonotonicNanos();
     bool ret = _heavy_work_pool.try_offer([request, response, done, submit_task_time_ns, this]() {
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
@@ -521,6 +508,9 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
             uint32_t len = ser_request.size();
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
+        const auto& fragment_list = t_request.paramsList;
+        MonotonicStopWatch timer;
+        timer.start();
 
         for (const TExecPlanFragmentParams& params : t_request.paramsList) {
             if (cb) {
@@ -529,6 +519,15 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
                 RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
             }
         }
+
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().params.query_id),
+                        cost_secs);
+        }
+
         return Status::OK();
     } else if (version == PFragmentRequestVersion::VERSION_3) {
         TPipelineFragmentParamsList t_request;
@@ -538,13 +537,23 @@ Status PInternalServiceImpl::_exec_plan_fragment_impl(
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
 
-        for (const TPipelineFragmentParams& params : t_request.params_list) {
+        const auto& fragment_list = t_request.params_list;
+        MonotonicStopWatch timer;
+        timer.start();
+        for (const TPipelineFragmentParams& fragment : fragment_list) {
             if (cb) {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params, cb));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment, cb));
             } else {
-                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
+                RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(fragment));
             }
         }
+        timer.stop();
+        double cost_secs = static_cast<double>(timer.elapsed_time()) / 1000000000ULL;
+        if (cost_secs > 5) {
+            LOG_WARNING("Prepare {} fragments of query {} costs {} seconds, it costs too much",
+                        fragment_list.size(), print_id(fragment_list.front().query_id), cost_secs);
+        }
+
         return Status::OK();
     } else {
         return Status::InternalError("invalid version");
@@ -568,10 +577,19 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
                                  has_cancel_reason
                                          ? PPlanFragmentCancelReason_Name(request->cancel_reason())
                                          : "INTERNAL_ERROR");
-
-        _exec_env->fragment_mgr()->cancel_instance(
-                tid, has_cancel_reason ? request->cancel_reason()
-                                       : PPlanFragmentCancelReason::INTERNAL_ERROR);
+        if (request->has_fragment_id()) {
+            TUniqueId query_id;
+            query_id.__set_hi(request->query_id().hi());
+            query_id.__set_lo(request->query_id().lo());
+            _exec_env->fragment_mgr()->cancel_fragment(
+                    query_id, request->fragment_id(),
+                    has_cancel_reason ? request->cancel_reason()
+                                      : PPlanFragmentCancelReason::INTERNAL_ERROR);
+        } else {
+            _exec_env->fragment_mgr()->cancel_instance(
+                    tid, has_cancel_reason ? request->cancel_reason()
+                                           : PPlanFragmentCancelReason::INTERNAL_ERROR);
+        }
 
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
@@ -725,6 +743,9 @@ void PInternalServiceImpl::fetch_arrow_flight_schema(google::protobuf::RpcContro
         auto st = serialize_arrow_schema(&schema, &schema_str);
         if (st.ok()) {
             result->set_schema(std::move(schema_str));
+            if (config::public_access_ip != "") {
+                result->set_be_arrow_flight_ip(config::public_access_ip);
+            }
         }
         st.to_protobuf(result->mutable_status());
     });
@@ -825,6 +846,115 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
         }
     }
     response->mutable_status()->set_status_code(TStatusCode::OK);
+}
+
+template <class RPCResponse>
+struct AsyncRPCContext {
+    RPCResponse response;
+    brpc::Controller cntl;
+    brpc::CallId cid;
+};
+
+void PInternalServiceImpl::fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                                      const PFetchRemoteSchemaRequest* request,
+                                                      PFetchRemoteSchemaResponse* response,
+                                                      google::protobuf::Closure* done) {
+    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        Status st = Status::OK();
+        if (request->is_coordinator()) {
+            // Spawn rpc request to none coordinator nodes, and finally merge them all
+            PFetchRemoteSchemaRequest remote_request(*request);
+            // set it none coordinator to get merged schema
+            remote_request.set_is_coordinator(false);
+            using PFetchRemoteTabletSchemaRpcContext = AsyncRPCContext<PFetchRemoteSchemaResponse>;
+            std::vector<PFetchRemoteTabletSchemaRpcContext> rpc_contexts(
+                    request->tablet_location_size());
+            for (int i = 0; i < request->tablet_location_size(); ++i) {
+                std::string host = request->tablet_location(i).host();
+                int32_t brpc_port = request->tablet_location(i).brpc_port();
+                std::shared_ptr<PBackendService_Stub> stub(
+                        ExecEnv::GetInstance()->brpc_internal_client_cache()->get_client(
+                                host, brpc_port));
+                rpc_contexts[i].cid = rpc_contexts[i].cntl.call_id();
+                stub->fetch_remote_tablet_schema(&rpc_contexts[i].cntl, &remote_request,
+                                                 &rpc_contexts[i].response, brpc::DoNothing());
+            }
+            std::vector<TabletSchemaSPtr> schemas;
+            for (auto& rpc_context : rpc_contexts) {
+                brpc::Join(rpc_context.cid);
+                if (!st.ok()) {
+                    // make sure all flying rpc request is joined
+                    continue;
+                }
+                if (rpc_context.cntl.Failed()) {
+                    LOG(WARNING) << "fetch_remote_tablet_schema rpc err:"
+                                 << rpc_context.cntl.ErrorText();
+                    ExecEnv::GetInstance()->brpc_internal_client_cache()->erase(
+                            rpc_context.cntl.remote_side());
+                    st = Status::InternalError("fetch_remote_tablet_schema rpc err: {}",
+                                               rpc_context.cntl.ErrorText());
+                }
+                if (rpc_context.response.status().status_code() != 0) {
+                    st = Status::create(rpc_context.response.status());
+                }
+                if (rpc_context.response.has_merged_schema()) {
+                    TabletSchemaSPtr schema = std::make_shared<TabletSchema>();
+                    schema->init_from_pb(rpc_context.response.merged_schema());
+                    schemas.push_back(schema);
+                }
+            }
+            if (!schemas.empty() && st.ok()) {
+                // merge all
+                TabletSchemaSPtr merged_schema;
+                static_cast<void>(vectorized::schema_util::get_least_common_schema(schemas, nullptr,
+                                                                                   merged_schema));
+                VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
+                merged_schema->reserve_extracted_columns();
+                merged_schema->to_schema_pb(response->mutable_merged_schema());
+            }
+            st.to_protobuf(response->mutable_status());
+            return;
+        } else {
+            // This is not a coordinator, get it's tablet and merge schema
+            std::vector<int64_t> target_tablets;
+            for (int i = 0; i < request->tablet_location_size(); ++i) {
+                const auto& location = request->tablet_location(i);
+                auto backend = BackendOptions::get_local_backend();
+                // If this is the target backend
+                if (backend.host == location.host() && config::brpc_port == location.brpc_port()) {
+                    target_tablets.assign(location.tablet_id().begin(), location.tablet_id().end());
+                    break;
+                }
+            }
+            if (!target_tablets.empty()) {
+                std::vector<TabletSchemaSPtr> tablet_schemas;
+                for (int64_t tablet_id : target_tablets) {
+                    TabletSharedPtr tablet =
+                            StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id,
+                                                                                    false);
+                    if (tablet == nullptr) {
+                        // just ignore
+                        LOG(WARNING) << "tablet does not exist, tablet id is " << tablet_id;
+                        continue;
+                    }
+                    tablet_schemas.push_back(tablet->tablet_schema());
+                }
+                if (!tablet_schemas.empty()) {
+                    // merge all
+                    TabletSchemaSPtr merged_schema;
+                    static_cast<void>(vectorized::schema_util::get_least_common_schema(
+                            tablet_schemas, nullptr, merged_schema));
+                    merged_schema->to_schema_pb(response->mutable_merged_schema());
+                    VLOG_DEBUG << "dump schema:" << merged_schema->dump_structure();
+                }
+            }
+            st.to_protobuf(response->mutable_status());
+        }
+    });
+    if (!ret) {
+        offer_failed(response, done, _heavy_work_pool);
+    }
 }
 
 void PInternalServiceImpl::report_stream_load_status(google::protobuf::RpcController* controller,
@@ -1422,14 +1552,16 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
                 for (auto index_size : segment_indices_size.index_sizes()) {
                     auto index_id = index_size.indexid();
                     auto size = index_size.size();
+                    auto suffix_path = index_size.suffix_path();
                     std::string remote_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(remote_file_path,
-                                                                         index_id);
+                            InvertedIndexDescriptor::get_index_file_name(remote_file_path, index_id,
+                                                                         suffix_path);
                     std::string remote_inverted_index_file_url = construct_url(
                             get_host_port(host, http_port), token, remote_inverted_index_file);
 
                     std::string local_inverted_index_file =
-                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id);
+                            InvertedIndexDescriptor::get_index_file_name(local_file_path, index_id,
+                                                                         suffix_path);
                     st = download_file_action(remote_inverted_index_file_url,
                                               local_inverted_index_file, estimate_timeout, size);
                     if (!st.ok()) {
@@ -1582,6 +1714,38 @@ auto scope_timer_run(Func fn, int64_t* cost) -> decltype(fn()) {
     return res;
 }
 
+struct IteratorKey {
+    int64_t tablet_id;
+    RowsetId rowset_id;
+    uint64_t segment_id;
+    int slot_id;
+
+    // unordered map std::equal_to
+    bool operator==(const IteratorKey& rhs) const {
+        return tablet_id == rhs.tablet_id && rowset_id == rhs.rowset_id &&
+               segment_id == rhs.segment_id && slot_id == rhs.slot_id;
+    }
+};
+
+struct HashOfIteratorKey {
+    size_t operator()(const IteratorKey& key) const {
+        size_t seed = 0;
+        seed = HashUtil::hash64(&key.tablet_id, sizeof(key.tablet_id), seed);
+        seed = HashUtil::hash64(&key.rowset_id.hi, sizeof(key.rowset_id.hi), seed);
+        seed = HashUtil::hash64(&key.rowset_id.mi, sizeof(key.rowset_id.mi), seed);
+        seed = HashUtil::hash64(&key.rowset_id.lo, sizeof(key.rowset_id.lo), seed);
+        seed = HashUtil::hash64(&key.segment_id, sizeof(key.segment_id), seed);
+        seed = HashUtil::hash64(&key.slot_id, sizeof(key.slot_id), seed);
+        return seed;
+    }
+};
+
+struct IteratorItem {
+    std::unique_ptr<ColumnIterator> iterator;
+    // for holding the reference of segment to avoid use after release
+    SegmentSharedPtr segment;
+};
+
 Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                                         PMultiGetResponse* response) {
     OlapReaderStatistics stats;
@@ -1606,6 +1770,7 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         full_read_schema.append_column(TabletColumn(column_pb));
     }
 
+    std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey> iterator_map;
     // read row by row
     for (size_t i = 0; i < request.row_locs_size(); ++i) {
         const auto& row_loc = request.row_locs(i);
@@ -1644,8 +1809,8 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                 },
                 &acquire_segments_ms));
         // find segment
-        auto it = std::find_if(segment_cache.get_segments().begin(),
-                               segment_cache.get_segments().end(),
+        auto it = std::find_if(segment_cache.get_segments().cbegin(),
+                               segment_cache.get_segments().cend(),
                                [&row_loc](const segment_v2::SegmentSharedPtr& seg) {
                                    return seg->id() == row_loc.segment_id();
                                });
@@ -1673,35 +1838,28 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
         if (result_block.is_empty_column()) {
             result_block = vectorized::Block(desc.slots(), request.row_locs().size());
         }
+        VLOG_DEBUG << "Read row location "
+                   << fmt::format("{}, {}, {}, {}", row_location.tablet_id,
+                                  row_location.row_location.rowset_id.to_string(),
+                                  row_location.row_location.segment_id,
+                                  row_location.row_location.row_id);
         for (int x = 0; x < desc.slots().size(); ++x) {
-            int index = -1;
-            if (desc.slots()[x]->col_unique_id() >= 0) {
-                // light sc enabled
-                index = full_read_schema.field_index(desc.slots()[x]->col_unique_id());
-            } else {
-                index = full_read_schema.field_index(desc.slots()[x]->col_name());
-            }
-            if (index < 0) {
-                std::stringstream ss;
-                ss << "field name is invalid. field=" << desc.slots()[x]->col_name()
-                   << ", field_name_to_index=" << full_read_schema.get_all_field_names();
-                return Status::InternalError(ss.str());
-            }
-            std::unique_ptr<segment_v2::ColumnIterator> column_iterator;
+            auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
             vectorized::MutableColumnPtr column =
                     result_block.get_by_position(x).column->assume_mutable();
-            RETURN_IF_ERROR(
-                    segment->new_column_iterator(full_read_schema.column(index), &column_iterator));
-            segment_v2::ColumnIteratorOptions opt {
-                    .use_page_cache = !config::disable_storage_page_cache,
-                    .file_reader = segment->file_reader().get(),
-                    .stats = &stats,
-                    .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
-            };
-            static_cast<void>(column_iterator->init(opt));
-            std::vector<segment_v2::rowid_t> single_row_loc {
-                    static_cast<segment_v2::rowid_t>(row_loc.ordinal_id())};
-            RETURN_IF_ERROR(column_iterator->read_by_rowids(single_row_loc.data(), 1, column));
+            IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
+                                      .rowset_id = rowset_id,
+                                      .segment_id = row_loc.segment_id(),
+                                      .slot_id = desc.slots()[x]->id()};
+            IteratorItem& iterator_item = iterator_map[iterator_key];
+            if (iterator_item.segment == nullptr) {
+                // hold the reference
+                iterator_map[iterator_key].segment = segment;
+            }
+            segment = iterator_item.segment;
+            RETURN_IF_ERROR(segment->seek_and_read_by_rowid(full_read_schema, desc.slots()[x],
+                                                            row_id, column, stats,
+                                                            iterator_item.iterator));
         }
     }
     // serialize block if not empty
@@ -1721,11 +1879,13 @@ Status PInternalServiceImpl::_multi_get(const PMultiGetRequest& request,
                          "hit_cached_pages:{}, total_pages_read:{}, compressed_bytes_read:{}, "
                          "io_latency:{}ns, "
                          "uncompressed_bytes_read:{},"
+                         "bytes_read:{},"
                          "acquire_tablet_ms:{}, acquire_rowsets_ms:{}, acquire_segments_ms:{}, "
                          "lookup_row_data_ms:{}",
                          stats.cached_pages_num, stats.total_pages_num, stats.compressed_bytes_read,
-                         stats.io_ns, stats.uncompressed_bytes_read, acquire_tablet_ms,
-                         acquire_rowsets_ms, acquire_segments_ms, lookup_row_data_ms);
+                         stats.io_ns, stats.uncompressed_bytes_read, stats.bytes_read,
+                         acquire_tablet_ms, acquire_rowsets_ms, acquire_segments_ms,
+                         lookup_row_data_ms);
     return Status::OK();
 }
 
@@ -1734,6 +1894,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([request, response, done, this]() {
+        signal::set_signal_task_id(request->query_id());
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
@@ -1796,8 +1957,8 @@ void PInternalServiceImpl::group_commit_insert(google::protobuf::RpcController* 
         ctx->pipe = pipe;
         Status st = _exec_env->new_load_stream_mgr()->put(load_id, ctx);
         if (st.ok()) {
-            doris::Mutex mutex;
-            doris::ConditionVariable cv;
+            std::mutex mutex;
+            std::condition_variable cv;
             bool handled = false;
             try {
                 st = _exec_plan_fragment_impl(

@@ -310,24 +310,19 @@ public class SchemaChangeHandler extends AlterHandler {
          */
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType()) {
             List<Column> baseSchema = indexSchemaMap.get(baseIndexId);
-            boolean isKey = false;
             for (Column column : baseSchema) {
-                if (column.isKey() && column.getName().equalsIgnoreCase(dropColName)) {
-                    lightSchemaChange = false;
-                    isKey = true;
-                    break;
+                if (column.getName().equalsIgnoreCase(dropColName)) {
+                    if (column.isKey()) {
+                        throw new DdlException("Can not drop key column in Unique data model table");
+                    } else if (column.isClusterKey()) {
+                        throw new DdlException("Can not drop cluster key column in Unique data model table");
+                    }
                 }
             }
-
-            if (isKey) {
-                throw new DdlException("Can not drop key column in Unique data model table");
-            }
-
             if (olapTable.hasSequenceCol() && dropColName.equalsIgnoreCase(olapTable.getSequenceMapCol())) {
                 throw new DdlException("Can not drop sequence mapping column[" + dropColName
                         + "] in Unique data model table[" + olapTable.getName() + "]");
             }
-
         } else if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (null == targetIndexName) {
                 // drop column in base table
@@ -593,7 +588,16 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (columnPos == null && col.getDataType() == PrimitiveType.VARCHAR
                             && modColumn.getDataType() == PrimitiveType.VARCHAR) {
                         col.checkSchemaChangeAllowed(modColumn);
-                        lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                        // If col and modColumn is not key, it allow light schema change,
+                        // of course, olapTable has been enable light schema change
+                        if (modColumn.isKey() || col.isKey()) {
+                            lightSchemaChange = false;
+                        } else {
+                            lightSchemaChange = olapTable.getEnableLightSchemaChange();
+                        }
+                    }
+                    if (col.isClusterKey()) {
+                        throw new DdlException("Can not modify cluster key column: " + col.getName());
                     }
                 }
             }
@@ -808,6 +812,9 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (!column.isVisible()) {
                     newSchema.add(column);
                 }
+                if (column.isClusterKey()) {
+                    throw new DdlException("Can not modify column order in Unique data model table");
+                }
             }
         }
         if (newSchema.size() != targetIndexSchema.size()) {
@@ -942,6 +949,10 @@ public class SchemaChangeHandler extends AlterHandler {
             } else if (olapTable.isDuplicateWithoutKey()) {
                 throw new DdlException("Duplicate table without keys do not support add key column!");
             }
+        }
+
+        if (newColumn.getType().isTime() || newColumn.getType().isTimeV2()) {
+            throw new DdlException("Time type is not supported for olap table");
         }
 
         // hll must be used in agg_keys
@@ -1761,7 +1772,7 @@ public class SchemaChangeHandler extends AlterHandler {
     }
 
     @Override
-    public void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+    public void process(String rawSql, List<AlterClause> alterClauses, Database db,
                         OlapTable olapTable)
             throws UserException {
         olapTable.writeLockOrDdlException();
@@ -1938,7 +1949,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     BuildIndexClause buildIndexClause = (BuildIndexClause) alterClause;
                     IndexDef indexDef = buildIndexClause.getIndexDef();
                     Index index = buildIndexClause.getIndex();
-                    if (!olapTable.isPartitioned()) {
+                    if (!olapTable.isPartitionedTable()) {
                         List<String> specifiedPartitions = indexDef.getPartitionNames();
                         if (!specifiedPartitions.isEmpty()) {
                             throw new DdlException("table " + olapTable.getName()
@@ -2193,6 +2204,7 @@ public class SchemaChangeHandler extends AlterHandler {
         if (isInMemory < 0 && storagePolicyId < 0 && compactionPolicy == null && timeSeriesCompactionConfig.isEmpty()
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION)
+                && !properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)
                 && !properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             LOG.info("Properties already up-to-date");
@@ -2205,6 +2217,12 @@ public class SchemaChangeHandler extends AlterHandler {
             enableSingleCompaction = Boolean.parseBoolean(singleCompaction) ? 1 : 0;
         }
 
+        String disableAutoCompactionBoolean = properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION);
+        int disableAutoCompaction = -1; // < 0 means don't update
+        if (disableAutoCompactionBoolean != null) {
+            disableAutoCompaction = Boolean.parseBoolean(disableAutoCompactionBoolean) ? 1 : 0;
+        }
+
         String skipWriteIndexOnLoad = properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD);
         int skip = -1; // < 0 means don't update
         if (skipWriteIndexOnLoad != null) {
@@ -2213,7 +2231,8 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), storagePolicyId, isInMemory,
-                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip);
+                                    null, compactionPolicy, timeSeriesCompactionConfig, enableSingleCompaction, skip,
+                                    disableAutoCompaction);
         }
 
         olapTable.writeLockOrDdlException();
@@ -2256,7 +2275,7 @@ public class SchemaChangeHandler extends AlterHandler {
         for (String partitionName : partitionNames) {
             try {
                 updatePartitionProperties(db, olapTable.getName(), partitionName, storagePolicyId,
-                                                                                isInMemory, null, null, null, -1, -1);
+                                                                            isInMemory, null, null, null, -1, -1, -1);
             } catch (Exception e) {
                 String errMsg = "Failed to update partition[" + partitionName + "]'s 'in_memory' property. "
                         + "The reason is [" + e.getMessage() + "]";
@@ -2272,7 +2291,8 @@ public class SchemaChangeHandler extends AlterHandler {
     public void updatePartitionProperties(Database db, String tableName, String partitionName, long storagePolicyId,
                                           int isInMemory, BinlogConfig binlogConfig, String compactionPolicy,
                                           Map<String, Long> timeSeriesCompactionConfig,
-                                          int enableSingleCompaction, int skipWriteIndexOnLoad) throws UserException {
+                                          int enableSingleCompaction, int skipWriteIndexOnLoad,
+                                          int disableAutoCompaction) throws UserException {
         // be id -> <tablet id,schemaHash>
         Map<Long, Set<Pair<Long, Integer>>> beIdToTabletIdWithHash = Maps.newHashMap();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
@@ -2305,7 +2325,8 @@ public class SchemaChangeHandler extends AlterHandler {
             countDownLatch.addMark(kv.getKey(), kv.getValue());
             UpdateTabletMetaInfoTask task = new UpdateTabletMetaInfoTask(kv.getKey(), kv.getValue(), isInMemory,
                                             storagePolicyId, binlogConfig, countDownLatch, compactionPolicy,
-                                            timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad);
+                                            timeSeriesCompactionConfig, enableSingleCompaction, skipWriteIndexOnLoad,
+                                            disableAutoCompaction);
             batchTask.addTask(task);
         }
         if (!FeConstants.runningUnitTest) {
@@ -3010,7 +3031,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,
-                                                newBinlogConfig, null, null, -1, -1);
+                                                newBinlogConfig, null, null, -1, -1, -1);
         }
 
         olapTable.writeLockOrDdlException();

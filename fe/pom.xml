@@ -305,7 +305,7 @@ under the License.
         <iceberg.version>1.1.0</iceberg.version>
         <maxcompute.version>0.45.2-public</maxcompute.version>
         <avro.version>1.11.2</avro.version>
-        <arrow.version>13.0.0</arrow.version>
+        <arrow.version>14.0.1</arrow.version>
         <!-- hudi -->
         <hudi.version>0.13.1</hudi.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
@@ -1469,11 +1469,6 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>io.grpc</groupId>
-                <artifactId>grpc-core</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
                 <artifactId>grpc-context</artifactId>
                 <version>${grpc.version}</version>
             </dependency>
@@ -1509,6 +1504,11 @@ under the License.
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>flight-sql</artifactId>
+                <version>${arrow.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>flight-sql-jdbc-driver</artifactId>
                 <version>${arrow.version}</version>
             </dependency>
             <dependency>

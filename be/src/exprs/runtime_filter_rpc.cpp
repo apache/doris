@@ -48,12 +48,12 @@ struct IRuntimeFilter::RPCContext {
     static void finish(std::shared_ptr<RPCContext> ctx) { ctx->is_finished = true; }
 };
 
-Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress* addr,
-                                      bool opt_remote_rf) {
+Status IRuntimeFilter::push_to_remote(RuntimeFilterParamsContext* state,
+                                      const TNetworkAddress* addr, bool opt_remote_rf) {
     DCHECK(is_producer());
     DCHECK(_rpc_context == nullptr);
     std::shared_ptr<PBackendService_Stub> stub(
-            state->exec_env()->brpc_internal_client_cache()->get_client(*addr));
+            state->exec_env->brpc_internal_client_cache()->get_client(*addr));
     if (!stub) {
         std::string msg =
                 fmt::format("Get rpc stub failed, host={},  port=", addr->hostname, addr->port);
@@ -64,16 +64,16 @@ Status IRuntimeFilter::push_to_remote(RuntimeState* state, const TNetworkAddress
     int len = 0;
 
     auto pquery_id = _rpc_context->request.mutable_query_id();
-    pquery_id->set_hi(_state->query_id().hi);
-    pquery_id->set_lo(_state->query_id().lo);
+    pquery_id->set_hi(_state->query_id.hi());
+    pquery_id->set_lo(_state->query_id.lo());
 
     auto pfragment_instance_id = _rpc_context->request.mutable_fragment_instance_id();
-    pfragment_instance_id->set_hi(state->fragment_instance_id().hi);
-    pfragment_instance_id->set_lo(state->fragment_instance_id().lo);
+    pfragment_instance_id->set_hi(state->fragment_instance_id().hi());
+    pfragment_instance_id->set_lo(state->fragment_instance_id().lo());
 
     _rpc_context->request.set_filter_id(_filter_id);
     _rpc_context->request.set_opt_remote_rf(opt_remote_rf);
-    _rpc_context->request.set_is_pipeline(state->enable_pipeline_exec());
+    _rpc_context->request.set_is_pipeline(state->enable_pipeline_exec);
     _rpc_context->cntl.set_timeout_ms(wait_time_ms());
     _rpc_context->cid = _rpc_context->cntl.call_id();
 
