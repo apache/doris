@@ -46,7 +46,8 @@ public class PlanPreprocessors {
     public List<PlanPreprocessor> getProcessors() {
         // add processor if we need
         return ImmutableList.of(
-                new TurnOffPipelineForDml()
+                new TurnOffPipelineForDml(),
+                new TurnOffPageCacheForInsertIntoSelect()
         );
     }
 }
