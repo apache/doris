@@ -1650,7 +1650,8 @@ public class FunctionCallExpr extends Expr {
                     Type[] childTypes = collectChildReturnTypes();
                     // when we call count<Array<T>> with nested type is not null type which is defined in FunctionSet
                     // so here aim to make function signature to match builtln func we defined in fe code
-                    if (fnName.getFunction().equalsIgnoreCase("count") && childTypes[0].isComplexType()) {
+                    if (fnName.getFunction().equalsIgnoreCase("count") && childTypes.length > 0
+                            && childTypes[0].isComplexType()) {
                         // get origin type to match builtln func
                         Type[] matchFuncChildTypes = new Type[1];
                         if (childTypes[0].isArrayType()) {
@@ -1662,9 +1663,6 @@ public class FunctionCallExpr extends Expr {
                         }
                         fn = getBuiltinFunction(fnName.getFunction(), matchFuncChildTypes,
                                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-                        if (fn == null) {
-                            throw new AnalysisException(getFunctionNotFoundError(argTypes));
-                        }
                     } else {
                         fn = getBuiltinFunction(fnName.getFunction(), childTypes,
                                 Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
