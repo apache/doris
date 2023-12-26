@@ -115,6 +115,7 @@ protected:
 
     RuntimeProfile* _profile = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _wait_flush_limit_timer = nullptr;
 
     MonotonicStopWatch _lock_watch;
 };
