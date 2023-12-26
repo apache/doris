@@ -2293,7 +2293,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             DataProperty dataProperty = null;
             try {
                 dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                    new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                olapTable.setStorageMedium(dataProperty.getStorageMediumString());
             } catch (AnalysisException e) {
                 throw new DdlException(e.getMessage());
             }
@@ -2473,8 +2474,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                    DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                            new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
                     Map<String, String> propertiesCheck = new HashMap<>(properties);
                     propertiesCheck.entrySet().removeIf(entry -> entry.getKey().contains("dynamic_partition"));
                     if (propertiesCheck != null && !propertiesCheck.isEmpty()) {
@@ -2483,6 +2484,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     }
                     // just for remove entries in stmt.getProperties(),
                     // and then check if there still has unknown properties
+                    olapTable.setStorageMedium(dataProperty.getStorageMediumString());
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
                     } else if (partitionInfo.getType() == PartitionType.LIST) {
