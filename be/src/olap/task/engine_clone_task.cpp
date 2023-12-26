@@ -166,6 +166,12 @@ Status EngineCloneTask::execute() {
 }
 
 Status EngineCloneTask::_do_clone() {
+    DBUG_EXECUTE_IF("EngineCloneTask.finish.random", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("EngineCloneTask.finish.random random failed");
+            return Status::InternalError("debug engine clone task random failed");
+        }
+    });
     DBUG_EXECUTE_IF("EngineCloneTask.wait_clone", {
         auto duration = std::chrono::milliseconds(dp->param("duration", 10 * 1000));
         std::this_thread::sleep_for(duration);

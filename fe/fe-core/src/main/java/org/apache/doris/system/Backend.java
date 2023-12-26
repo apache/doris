@@ -22,6 +22,7 @@ import org.apache.doris.catalog.DiskInfo.DiskState;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
@@ -35,7 +36,6 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -45,14 +45,14 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.Deque;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
+import java.util.concurrent.locks.ReentrantLock;
 
 /**
  * This class extends the primary identifier of a Backend with ephemeral state,
@@ -150,7 +150,8 @@ public class Backend implements Writable {
     private AtomicBoolean isShutDown = new AtomicBoolean(false);
 
     private long fileCacheCapactiyBytes = 0;
-    private volatile ImmutableSet<Long> cloneFailedWindow = ImmutableSet.of();
+    private final ReentrantLock lock = new ReentrantLock();
+    private volatile Deque<Pair<Long, Long>> cloneFailedWindow = new ArrayDeque<>();
 
     public Backend() {
         this.host = "";
@@ -936,8 +937,18 @@ public class Backend implements Writable {
         return "{" + new PrintableMap<>(tagMap, ":", true, false).toString() + "}";
     }
 
+    private void delExpireStatUnLock(long windowRight) {
+        while (true) {
+            Pair<Long, Long> stat = cloneFailedWindow.peekFirst();
+            if (stat == null || stat.first >= windowRight) {
+                break;
+            }
+            cloneFailedWindow.pollFirst();
+        }
+    }
+
     public void updateCloneFailedWindow() {
-        Set<Long> copiedWindow = ImmutableSet.copyOf(cloneFailedWindow);
+        lock.lock();
         /*
                        oldestTimeStamp            windowRight          currentTimeStamp
                             ^                            ^                       ^
@@ -945,21 +956,37 @@ public class Backend implements Writable {
                             |                            |         window        |
                             |            toDel           |
         */
-        long currentTimeStamp = System.currentTimeMillis();
-        Long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
-        Long oldestTimeStamp = copiedWindow.stream().min(Comparator.comparing(Long::valueOf)).orElse(-1L);
-        Set<Long> toDel = copiedWindow.stream().filter(time -> (time < windowRight && time > oldestTimeStamp))
-                .collect(Collectors.toSet());
-        toDel.forEach(copiedWindow::remove);
-        copiedWindow.add(currentTimeStamp);
-        cloneFailedWindow = ImmutableSet.copyOf(copiedWindow);
+        long curFailTimeStamp = System.currentTimeMillis();
+        Long windowRight = curFailTimeStamp - Config.be_check_health_window_length * 1000L;
+
+        delExpireStatUnLock(windowRight);
+
+        if (cloneFailedWindow.peekLast() != null
+                && curFailTimeStamp <= cloneFailedWindow.peekLast().first + 10 * 1000) {
+            cloneFailedWindow.peekLast().second++;
+        } else {
+            cloneFailedWindow.addLast(Pair.of(curFailTimeStamp, 1L));
+        }
+        lock.unlock();
     }
 
     public boolean isExceedCloneFailedLimit() {
+        lock.lock();
         long currentTimeStamp = System.currentTimeMillis();
-        Long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
-        Set<Long> cloneFailedTimeStampInWindow = cloneFailedWindow.stream()
-                .filter(time -> (time <= currentTimeStamp && time >= windowRight)).collect(Collectors.toSet());
-        return cloneFailedTimeStampInWindow.size() > Config.clone_tablet_in_window_failed_limit_number;
+        long windowRight = currentTimeStamp - Config.be_check_health_window_length * 1000L;
+
+        delExpireStatUnLock(windowRight);
+
+        long count = cloneFailedWindow.stream()
+                .filter(stat -> (stat.first <= currentTimeStamp && stat.first >= windowRight))
+                .mapToLong(stat -> stat.second).sum();
+        lock.unlock();
+        return count > Config.clone_tablet_in_window_failed_limit_number;
+    }
+
+    public void clearCloneFailedWindow() {
+        lock.lock();
+        cloneFailedWindow.clear();
+        lock.unlock();
     }
 }

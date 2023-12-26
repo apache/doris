@@ -739,7 +739,8 @@ public class TabletScheduler extends MasterDaemon {
         Map<Tag, Short> currentAllocMap = Maps.newHashMap();
         for (Replica replica : replicas) {
             Backend be = infoService.getBackend(replica.getBackendId());
-            if (replica.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
+            if (be != null && be.isScheduleAvailable() && replica.isAlive() && !replica.tooSlow()
+                    && !be.isExceedCloneFailedLimit()
                     && be.isMixNode()) {
                 Short num = currentAllocMap.getOrDefault(be.getLocationTag(), (short) 0);
                 currentAllocMap.put(be.getLocationTag(), (short) (num + 1));
@@ -773,14 +774,14 @@ public class TabletScheduler extends MasterDaemon {
         try {
             Set<Long> backendsInTablet = tabletCtx.getReplicas().stream()
                     .map(Replica::getBackendId).collect(Collectors.toSet());
-
             boolean skipAlwaysCloneFail = Config.create_new_replica_in_health_backends
-                    && Env.getCurrentSystemInfo().getAllBackends().stream().anyMatch(be -> be.isScheduleAvailable()
-                    && !backendsInTablet.contains(be.getId())
-                    && be.getLocationTag() == tabletCtx.getTag()
-                    && !be.getDisks().values().stream()
-                        .filter(diskInfo -> diskInfo.getStorageMedium() == tabletCtx.getStorageMedium())
-                        .collect(Collectors.toSet()).isEmpty());
+                    && Env.getCurrentSystemInfo().getAllBackends().stream().anyMatch(be -> {
+                        return be.isScheduleAvailable()
+                                && !backendsInTablet.contains(be.getId())
+                                && !be.isExceedCloneFailedLimit()
+                                && be.getDisks().values().stream()
+                        .anyMatch(diskInfo -> diskInfo.getStorageMedium() == tabletCtx.getStorageMedium());
+                    });
             tabletCtx.chooseDestReplicaForVersionIncomplete(backendsWorkingSlots, skipAlwaysCloneFail);
         } catch (SchedException e) {
             // could not find dest, try add a missing.
@@ -1827,6 +1828,7 @@ public class TabletScheduler extends MasterDaemon {
         stat.counterCloneTaskSucceeded.incrementAndGet();
         gatherStatistics(tabletCtx);
         finalizeTabletCtx(tabletCtx, TabletSchedCtx.State.FINISHED, Status.FINISHED, "finished");
+        Env.getCurrentSystemInfo().getBackend(tabletCtx.getDestBackendId()).clearCloneFailedWindow();
         return true;
     }
 
