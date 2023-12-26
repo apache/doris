@@ -27,6 +27,7 @@
 #include <vector>
 
 #include "common/factory_creator.h"
+#include "common/status.h"
 
 namespace doris {
 class WalDirInfo {

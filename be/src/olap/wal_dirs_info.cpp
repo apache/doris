@@ -21,6 +21,7 @@
 #include <mutex>
 #include <shared_mutex>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "io/fs/local_file_system.h"
 #include "util/parse_util.h"
@@ -115,6 +116,9 @@ Status WalDirsInfo::add(const std::string& wal_dir, size_t limit, size_t used,
                         size_t pre_allocated) {
     for (const auto& it : _wal_dirs_info_vec) {
         if (it->get_wal_dir() == wal_dir) {
+#ifdef BE_TEST
+            return Status::OK();
+#endif
             return Status::InternalError("wal dir {} exists!", wal_dir);
         }
     }
