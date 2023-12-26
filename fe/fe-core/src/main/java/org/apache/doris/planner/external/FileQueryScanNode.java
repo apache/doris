@@ -254,6 +254,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         return params;
     }
 
+    // Set some parameters of scan to support different types of file data sources
     protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
     }
 
