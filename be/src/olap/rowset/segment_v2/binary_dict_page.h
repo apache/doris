@@ -144,7 +144,6 @@ public:
 
     bool is_dict_encoding() const;
 
-    void set_dict_decoder(uint32_t dict_num, StringRef* dict_word_info);
     void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
 
     ~BinaryDictPageDecoder() override;

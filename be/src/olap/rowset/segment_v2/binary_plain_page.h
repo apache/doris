@@ -54,6 +54,10 @@ public:
     bool is_page_full() override {
         bool ret = false;
         if (_options.is_dict_page) {
+            LOG_INFO(
+                    "[BinaryPlainPageBuilder::is_page_full] _size_estimate: {}, "
+                    "_options.dict_page_size: {}",
+                    _size_estimate, _options.dict_page_size);
             // dict_page_size is 0, do not limit the page size
             ret = _options.dict_page_size != 0 && _size_estimate > _options.dict_page_size;
         } else {

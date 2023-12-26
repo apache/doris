@@ -26,11 +26,13 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/port.h"
 #include "gutil/strings/substitute.h" // for Substitute
 #include "olap/rowset/segment_v2/bitshuffle_page.h"
+#include "olap/rowset/segment_v2/options.h"
 #include "util/coding.h"
 #include "util/slice.h" // for Slice
 #include "vec/columns/column.h"
@@ -55,6 +57,7 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
     _data_page_builder =
             std::make_unique<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>>(options);
     PageBuilderOptions dict_builder_options;
+    dict_builder_options.dict_page_size = _options.dict_page_size;
     dict_builder_options.data_page_size =
             std::min(_options.data_page_size, _options.dict_page_size);
     dict_builder_options.is_dict_page = true;
@@ -280,11 +283,6 @@ Status BinaryDictPageDecoder::seek_to_position_in_page(size_t pos) {
 bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
-
-void BinaryDictPageDecoder::set_dict_decoder(uint32_t dict_num, StringRef* dict_word_info) {
-    _dict_num = dict_num;
-    _dict_word_info = dict_word_info;
-};
 
 void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
     _dict_num =
