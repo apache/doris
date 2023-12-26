@@ -1146,6 +1146,8 @@ DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
 // 128 MB
 DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
+DEFINE_Bool(enable_dict_page_automatically_fall_back, "false");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3

@@ -18,8 +18,10 @@
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 
 #include <gen_cpp/segment_v2.pb.h>
+#include <glog/logging.h>
 
 #include <algorithm>
+#include <memory>
 #include <ostream>
 #include <utility>
 
@@ -32,6 +34,8 @@
 #include "util/coding.h"
 #include "util/slice.h" // for Slice
 #include "vec/columns/column.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type_string.h"
 
 namespace doris {
 struct StringRef;
@@ -48,13 +52,14 @@ BinaryDictPageBuilder::BinaryDictPageBuilder(const PageBuilderOptions& options)
           _encoding_type(DICT_ENCODING) {
     // initially use DICT_ENCODING
     // TODO: the data page builder type can be created by Factory according to user config
-    _data_page_builder.reset(new BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>(options));
+    _data_page_builder =
+            std::make_unique<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>>(options);
     PageBuilderOptions dict_builder_options;
     dict_builder_options.data_page_size =
             std::min(_options.data_page_size, _options.dict_page_size);
     dict_builder_options.is_dict_page = true;
-    _dict_builder.reset(
-            new BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(dict_builder_options));
+    _dict_builder = std::make_unique<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(
+            dict_builder_options);
     reset();
 }
 
@@ -63,6 +68,11 @@ bool BinaryDictPageBuilder::is_page_full() {
         return true;
     }
     if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
+        if (config::enable_dict_page_automatically_fall_back) {
+            _should_convert_previous_data = true;
+            _encoding_type = PLAIN_ENCODING;
+            _dict_builder.reset();
+        }
         return true;
     }
     return false;
@@ -133,6 +143,24 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
     }
 }
 
+std::vector<Slice> BinaryDictPageBuilder::get_previous_data() {
+    auto* actual_builder = static_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
+            _data_page_builder.get());
+    auto* encoded_values = reinterpret_cast<uint32_t*>(actual_builder->_data.data());
+    uint32_t count = actual_builder->_count;
+    std::vector<Slice> data;
+    data.reserve(count);
+    for (uint32_t i = 0; i < count; i++) {
+        auto encoded_value = encoded_values[i];
+        if (_empty_code == encoded_value) {
+            data.emplace_back();
+        } else {
+            data.emplace_back(_dict_items[encoded_value]);
+        }
+    }
+    return data;
+}
+
 OwnedSlice BinaryDictPageBuilder::finish() {
     if (VLOG_DEBUG_IS_ON && _encoding_type == DICT_ENCODING) {
         VLOG_DEBUG << "dict page size:" << _dict_builder->size();
@@ -140,6 +168,7 @@ OwnedSlice BinaryDictPageBuilder::finish() {
 
     DCHECK(!_finished);
     _finished = true;
+    _has_first_page_been_written = true;
 
     OwnedSlice data_slice = _data_page_builder->finish();
     // TODO(gaodayue) separate page header and content to avoid this copy
@@ -154,8 +183,9 @@ void BinaryDictPageBuilder::reset() {
     _buffer.resize(BINARY_DICT_PAGE_HEADER_SIZE);
 
     if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-        _data_page_builder.reset(
-                new BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>(_options));
+        _data_page_builder =
+                std::make_unique<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(
+                        _options);
         _encoding_type = PLAIN_ENCODING;
     } else {
         _data_page_builder->reset();
@@ -171,7 +201,11 @@ uint64_t BinaryDictPageBuilder::size() const {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
-    *dictionary_page = _dict_builder->finish();
+    if (_dict_builder) {
+        *dictionary_page = _dict_builder->finish();
+    } else {
+        *dictionary_page = OwnedSlice();
+    }
     return Status::OK();
 }
 
@@ -223,8 +257,10 @@ Status BinaryDictPageDecoder::init() {
                         new BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));
     } else if (_encoding_type == PLAIN_ENCODING) {
         DCHECK_EQ(_encoding_type, PLAIN_ENCODING);
-        _data_page_decoder.reset(
-                new BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));
+        LOG(INFO) << fmt::format("[BinaryDictPageDecoder::init] _encoding_type == PLAIN_ENCODING");
+        _data_page_decoder =
+                std::make_unique<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_INT>>(_data,
+                                                                                         _options);
     } else {
         LOG(WARNING) << "invalid encoding type:" << _encoding_type;
         return Status::Corruption("invalid encoding type:{}", _encoding_type);
@@ -245,8 +281,15 @@ bool BinaryDictPageDecoder::is_dict_encoding() const {
     return _encoding_type == DICT_ENCODING;
 }
 
+void BinaryDictPageDecoder::set_dict_decoder(uint32_t dict_num, StringRef* dict_word_info) {
+    _dict_num = dict_num;
+    _dict_word_info = dict_word_info;
+};
+
 void BinaryDictPageDecoder::set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info) {
-    _dict_decoder = (BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*)dict_decoder;
+    _dict_num =
+            static_cast<BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>*>(dict_decoder)
+                    ->_num_elems;
     _dict_word_info = dict_word_info;
 };
 
@@ -257,7 +300,8 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     }
     // dictionary encoding
     DCHECK(_parsed);
-    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
+    DCHECK(_dict_word_info != nullptr) << "_dict_word_info is nullptr, should call "
+                                          "BinaryDictPageDecoder::set_dict_decoder first!";
 
     if (PREDICT_FALSE(*n == 0 || _bit_shuffle_ptr->_cur_index >= _bit_shuffle_ptr->_num_elements)) {
         *n = 0;
@@ -271,8 +315,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
     const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
     size_t start_index = _bit_shuffle_ptr->_cur_index;
 
-    dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch,
-                               _dict_decoder->_num_elems);
+    dst->insert_many_dict_data(data_array, start_index, _dict_word_info, max_fetch, _dict_num);
 
     _bit_shuffle_ptr->_cur_index += max_fetch;
 
@@ -286,7 +329,8 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
         return _data_page_decoder->read_by_rowids(rowids, page_first_ordinal, n, dst);
     }
     DCHECK(_parsed);
-    DCHECK(_dict_decoder != nullptr) << "dict decoder pointer is nullptr";
+    DCHECK(_dict_word_info != nullptr) << "_dict_word_info is nullptr, should call "
+                                          "BinaryDictPageDecoder::set_dict_decoder first!";
 
     if (PREDICT_FALSE(*n == 0)) {
         *n = 0;
@@ -307,7 +351,7 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
     }
 
     if (LIKELY(read_count > 0)) {
-        dst->insert_many_dict_data(data, 0, _dict_word_info, read_count, _dict_decoder->_num_elems);
+        dst->insert_many_dict_data(data, 0, _dict_word_info, read_count, _dict_num);
     }
     *n = read_count;
     return Status::OK();

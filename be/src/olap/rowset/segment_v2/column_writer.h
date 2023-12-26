@@ -244,6 +244,9 @@ private:
 
     Status _write_data_page(Page* page);
 
+    Status _init_index_builder();
+    Status _rewrite_previous_data(const Slice* data, size_t num_rows);
+
 private:
     io::FileWriter* _file_writer = nullptr;
     // total size of data page list

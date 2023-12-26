@@ -79,6 +79,18 @@ public:
 
     Status get_last_value(void* value) const override;
 
+    bool should_convert_previous_data() const {
+        return _should_convert_previous_data && !_has_first_page_been_written;
+    }
+
+    std::vector<Slice> get_previous_data();
+
+    void fallback_data_page_builder() {
+        _data_page_builder =
+                std::make_unique<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(
+                        _options);
+    }
+
 private:
     PageBuilderOptions _options;
     bool _finished;
@@ -105,6 +117,10 @@ private:
 
     bool _has_empty = false;
     uint32_t _empty_code = 0;
+
+    bool _has_first_page_been_written = false;
+    std::vector<Slice> _pending_pages;
+    bool _should_convert_previous_data = false;
 };
 
 class BinaryDictPageDecoder : public PageDecoder {
@@ -126,6 +142,7 @@ public:
 
     bool is_dict_encoding() const;
 
+    void set_dict_decoder(uint32_t dict_num, StringRef* dict_word_info);
     void set_dict_decoder(PageDecoder* dict_decoder, StringRef* dict_word_info);
 
     ~BinaryDictPageDecoder() override;
@@ -134,12 +151,12 @@ private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
     BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
 
     StringRef* _dict_word_info = nullptr;
+    uint32_t _dict_num = 0;
 };
 
 } // namespace segment_v2

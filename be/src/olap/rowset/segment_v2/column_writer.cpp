@@ -22,12 +22,15 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <memory>
 
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/olap_common.h"
+#include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/bitmap_index_writer.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/bloom_filter_index_writer.h"
@@ -449,26 +452,7 @@ ScalarColumnWriter::~ScalarColumnWriter() {
     _pages.clear();
 }
 
-Status ScalarColumnWriter::init() {
-    RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), &_compress_codec));
-
-    PageBuilder* page_builder = nullptr;
-
-    RETURN_IF_ERROR(
-            EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
-    _opts.meta->set_encoding(_encoding_info->encoding());
-    // create page builder
-    PageBuilderOptions opts;
-    opts.data_page_size = _opts.data_page_size;
-    RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
-    if (page_builder == nullptr) {
-        return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
-                                    get_field()->type(), _opts.meta->encoding());
-    }
-    // should store more concrete encoding type instead of DEFAULT_ENCODING
-    // because the default encoding of a data type can be changed in the future
-    DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
-    _page_builder.reset(page_builder);
+Status ScalarColumnWriter::_init_index_builder() {
     // create ordinal builder
     _ordinal_index_builder.reset(new OrdinalIndexWriter());
     // create null bitmap builder
@@ -502,6 +486,34 @@ Status ScalarColumnWriter::init() {
     return Status::OK();
 }
 
+Status ScalarColumnWriter::init() {
+    RETURN_IF_ERROR(get_block_compression_codec(_opts.meta->compression(), &_compress_codec));
+
+    PageBuilder* page_builder = nullptr;
+
+    RETURN_IF_ERROR(
+            EncodingInfo::get(get_field()->type_info(), _opts.meta->encoding(), &_encoding_info));
+    _opts.meta->set_encoding(_encoding_info->encoding());
+    // create page builder
+    PageBuilderOptions opts;
+    opts.data_page_size = _opts.data_page_size;
+    RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
+    if (page_builder == nullptr) {
+        return Status::NotSupported("Failed to create page builder for type {} and encoding {}",
+                                    get_field()->type(), _opts.meta->encoding());
+    }
+    // should store more concrete encoding type instead of DEFAULT_ENCODING
+    // because the default encoding of a data type can be changed in the future
+    DCHECK_NE(_opts.meta->encoding(), DEFAULT_ENCODING);
+    _page_builder.reset(page_builder);
+    // create null bitmap builder
+    if (is_nullable()) {
+        _null_bitmap_builder.reset(new NullBitmapBuilder());
+    }
+    RETURN_IF_ERROR(_init_index_builder());
+    return Status::OK();
+}
+
 Status ScalarColumnWriter::append_nulls(size_t num_rows) {
     _null_bitmap_builder->add_run(true, num_rows);
     _next_rowid += num_rows;
@@ -532,6 +544,17 @@ Status ScalarColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
         remaining -= num_written;
 
         if (_page_builder->is_page_full()) {
+            if (_encoding_info->encoding() == DICT_ENCODING &&
+                config::enable_dict_page_automatically_fall_back) {
+                auto* dict_page_builder = static_cast<BinaryDictPageBuilder*>(_page_builder.get());
+                if (dict_page_builder->should_convert_previous_data()) {
+                    std::vector<Slice> previous_data = dict_page_builder->get_previous_data();
+                    dict_page_builder->fallback_data_page_builder();
+                    RETURN_IF_ERROR(
+                            _rewrite_previous_data(previous_data.data(), previous_data.size()));
+                    continue;
+                }
+            }
             RETURN_IF_ERROR(finish_current_page());
         }
     }
@@ -728,6 +751,37 @@ Status ScalarColumnWriter::finish_current_page() {
 
     _push_back_page(std::move(page));
     _first_rowid = _next_rowid;
+    return Status::OK();
+}
+
+Status ScalarColumnWriter::_rewrite_previous_data(const Slice* data, size_t num_rows) {
+    const auto* ptr = reinterpret_cast<const uint8_t*>(data);
+
+    RETURN_IF_ERROR(_init_index_builder());
+    _next_rowid = 0;
+
+    if (is_nullable()) {
+        OwnedSlice null_bitmap = _null_bitmap_builder->finish();
+        auto null_map_decoder = RleDecoder<bool>((const uint8_t*)null_bitmap.slice().data,
+                                                 null_bitmap.slice().size, 1);
+        _null_bitmap_builder->reset();
+
+        size_t nrows_to_read = num_rows;
+        while (nrows_to_read > 0) {
+            bool is_null = false;
+            size_t this_run = 0;
+            this_run = null_map_decoder.GetNextRun(&is_null, nrows_to_read);
+            size_t num_rows = this_run;
+            if (is_null) {
+                RETURN_IF_ERROR(append_nulls(this_run));
+                DCHECK_EQ(this_run, num_rows);
+            } else {
+                RETURN_IF_ERROR(append_data(&ptr, this_run));
+            }
+        }
+    } else {
+        RETURN_IF_ERROR(append_data(&ptr, num_rows));
+    }
     return Status::OK();
 }
 
