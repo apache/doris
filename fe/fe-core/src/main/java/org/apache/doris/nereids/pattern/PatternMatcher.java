@@ -79,19 +79,21 @@ public class PatternMatcher<INPUT_TYPE extends Plan, OUTPUT_TYPE extends Plan> {
         return new Rule(ruleType, pattern, rulePromise) {
             @Override
             public List<Plan> transform(Plan originPlan, CascadesContext context) {
-                if (matchedMultiAction != null) {
-                    MatchingContext<INPUT_TYPE> matchingContext =
-                            new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
-                    List<OUTPUT_TYPE> replacePlans = matchedMultiAction.apply(matchingContext);
-                    return replacePlans == null || replacePlans.isEmpty()
-                            ? ImmutableList.of(originPlan)
-                            : ImmutableList.copyOf(replacePlans);
-                } else {
-                    MatchingContext<INPUT_TYPE> matchingContext =
-                            new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
-                    OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
-                    return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);
-                }
+                return context.getStatementContext().getTimeMonitor().executeRule(() -> {
+                    if (matchedMultiAction != null) {
+                        MatchingContext<INPUT_TYPE> matchingContext =
+                                new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
+                        List<OUTPUT_TYPE> replacePlans = matchedMultiAction.apply(matchingContext);
+                        return replacePlans == null || replacePlans.isEmpty()
+                                ? ImmutableList.of(originPlan)
+                                : ImmutableList.copyOf(replacePlans);
+                    } else {
+                        MatchingContext<INPUT_TYPE> matchingContext =
+                                new MatchingContext<>((INPUT_TYPE) originPlan, pattern, context);
+                        OUTPUT_TYPE replacePlan = matchedAction.apply(matchingContext);
+                        return ImmutableList.of(replacePlan == null ? originPlan : replacePlan);
+                    }
+                }, this);
             }
         };
     }

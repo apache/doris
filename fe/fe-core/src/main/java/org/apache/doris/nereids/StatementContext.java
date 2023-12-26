@@ -21,6 +21,8 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.jobs.Job;
+import org.apache.doris.nereids.jobs.NereidsTimeMonitor;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
 import org.apache.doris.nereids.trees.expressions.CTEId;
@@ -35,7 +37,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
-import com.google.common.base.Stopwatch;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
@@ -56,8 +57,8 @@ import javax.annotation.concurrent.GuardedBy;
 public class StatementContext {
 
     private ConnectContext connectContext;
-
-    private final Stopwatch stopwatch = Stopwatch.createUnstarted();
+    private NereidsTimeMonitor timeMonitor = NereidsTimeMonitor.createUnstarted();
+    private final Map<Job, Pair<Long, Long>> jobWithDuration = new HashMap<>();
 
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
@@ -119,8 +120,8 @@ public class StatementContext {
         return originStatement;
     }
 
-    public Stopwatch getStopwatch() {
-        return stopwatch;
+    public NereidsTimeMonitor getTimeMonitor() {
+        return timeMonitor;
     }
 
     public void setMaxNAryInnerJoin(int maxNAryInnerJoin) {

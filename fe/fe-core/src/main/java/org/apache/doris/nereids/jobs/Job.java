@@ -90,6 +90,10 @@ public abstract class Job implements TracerSupplier {
         throw new UnsupportedOperationException("get_event_tracer is unsupported");
     }
 
+    public JobType getType() {
+        return type;
+    }
+
     protected Optional<CopyInResult> invokeRewriteRuleWithTrace(Rule rule, Plan before, Group targetGroup) {
         context.onInvokeRule(rule.getRuleType());
         COUNTER_TRACER.log(CounterEvent.of(Memo.getStateId(),

@@ -20,23 +20,27 @@ package org.apache.doris.nereids.jobs.scheduler;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.Job;
 
-import java.util.concurrent.TimeUnit;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Single thread, serial scheduler.
  */
 public class SimpleJobScheduler implements JobScheduler {
+    public static final Logger LOG = LogManager.getLogger(SimpleJobScheduler.class);
+
     @Override
     public void executeJobPool(ScheduleContext scheduleContext) {
         JobPool pool = scheduleContext.getJobPool();
         while (!pool.isEmpty()) {
             CascadesContext context = (CascadesContext) scheduleContext;
-            if (context.getConnectContext().getSessionVariable().enableNereidsTimeout
-                    && context.getStatementContext().getStopwatch().elapsed(TimeUnit.MILLISECONDS) > 5000) {
-                throw new RuntimeException("Nereids cost too much time ( > 5s )");
-            }
             Job job = pool.pop();
-            job.execute();
+            if (context.getConnectContext().getSessionVariable().enableNereidsTimeout) {
+                context.getConnectContext().getStatementContext().getTimeMonitor().executeJobWithinTimeLimit(
+                        () -> job.execute(), job);
+            } else {
+                job.execute();
+            }
         }
     }
 }
