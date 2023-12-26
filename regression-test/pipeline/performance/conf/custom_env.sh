@@ -18,4 +18,3 @@
 
 export DORIS_TOOLCHAIN=gcc
 export BUILD_TYPE=release
-export REPOSITORY_URL=https://doris-thirdparty-hk-1308700295.cos.ap-hongkong.myqcloud.com/thirdparty
