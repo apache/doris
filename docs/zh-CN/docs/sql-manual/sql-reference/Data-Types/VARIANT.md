@@ -26,10 +26,6 @@ under the License.
 
 ## VARIANT
 
-<version since="2.1.0">
-
-</version>
-
 ### Description
 
 VARIANT类型
@@ -67,11 +63,11 @@ VARIANT类型
 用一个从建表、导数据、查询全周期的例子说明Variant的功能和用法。
 ```
 
-#### 建表语法
+**建表语法**
 
 建表，建表语法关键字variant
 
-```
+``` sql
 -- 无索引
 CREATE TABLE IF NOT EXISTS ${table_name} (
     k BIGINT,
@@ -88,21 +84,21 @@ CREATE TABLE IF NOT EXISTS ${table_name} (
 table_properties;
 ```
 
-#### 查询语法
+**查询语法**
 
-```
-1. 查询方式1， 查询语法稍有不同，v 后使用:分割，.访问子列，例如
+``` sql
+-- 1. 查询方式1， 查询语法稍有不同，v 后使用:分割，.访问子列，例如
 SELECT v:`properties`.`title` from ${table_name}
-2. 查询方式2， 使用v['a']['b']形式例如
+-- 2. 查询方式2， 使用v['a']['b']形式例如
 SELECT v:["properties"]["title"] from ${table_name}
 ```
 
-#### 使用示例
+### 使用示例
 
 这里用 github events 数据展示 variant 的建表、导入、查询。
 下面是格式化后的一行数据
 
-```SQL
+``` json
 {
   "id": "14186154924",
   "type": "PushEvent",
@@ -133,14 +129,14 @@ SELECT v:["properties"]["title"] from ${table_name}
 }
 ```
 
-##### 建表
+**建表**
 
 . 创建了三个VARIANT类型的列， actor，repo和payload
 . 创建表的同时创建了payload列的倒排索引idx_payload
 . USING INVERTED 指定索引类型是倒排索引，用于加速子列的条件过滤
 . `PROPERTIES("parser" = "english")` 指定采用english分词
 
-```
+``` sql
 CREATE DATABASE test_variant;
 USE test_variant;
 CREATE TABLE IF NOT EXISTS github_events (
@@ -160,14 +156,16 @@ properties("replication_num" = "1");
 
 **需要注意的是:**
 
+::: tip
 1. 在Variant列上创建索引，比如payload的子列很多时，可能会造成索引列过多，影响写入性能
 2. 同一个Variant列的分词属性是相同的，如果您有不同的分词需求，那么可以创建多个Variant然后分别指定索引属性
+:::
 
-##### 使用 streamload 导入
+**使用 streamload 导入**
 
 导入gh_2022-11-07-3.json，这是github events 一个小时的数据
 
-```
+``` shell
 wget http://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/variant/gh_2022-11-07-3.json
 
 curl --location-trusted -u root:  -T gh_2022-11-07-3.json -H "read_json_by_line:true" -H "format:json"  http://127.0.0.1:18148/api/test_variant/github_events/_strea
@@ -196,7 +194,7 @@ m_load
 
 确认导入成功
 
-```
+``` sql
 -- 查看行数
 mysql> select count() from github_events;
 +----------+
@@ -218,7 +216,7 @@ mysql> select * from github_events limit 1;
 
 desc 查看 schema 信息，子列会在存储层自动扩展、并进行类型推导
 
-```
+``` sql
 mysql> set describe_extend_variant_column = true;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -251,17 +249,20 @@ desc 可以指定 partition 查看某个 partition 的 schema， 语法如下
 DESCRIBE ${table_name} PARTITION ($partition_name);
 ```
 
-##### 查询
+**查询**
 
+::: tip
 **注意**
 如使用过滤和聚合等功能来查询子列, 需要对子列进行额外的 cast 操作（因为存储类型不一定是固定的，需要有一个 SQL 统一的类型）。
 例如 SELECT * FROM tbl where CAST(var["titile"] as text) MATCH "hello world"
 以下简化的示例说明了如何使用 Variant 进行查询:
+:::
+
 下面是典型的三个查询场景：
 
 1. 从 github_events 表中获取 top 5 star 数的代码库
 
-```
+``` sql
 mysql> SELECT
     ->     cast(repo["name"] as text), count() AS stars
     -> FROM github_events
@@ -282,7 +283,7 @@ mysql> SELECT
 
 2. 获取评论中包含doris的数量
 
-```
+``` sql
 mysql> SELECT
     ->     count() FROM github_events
     ->     WHERE cast(payload["comment"]["body"] as text) MATCH 'doris';
@@ -296,7 +297,7 @@ mysql> SELECT
 
 3. 查询comments最多的issue号以及对应的库
 
-```
+``` sql
 mysql> SELECT 
     ->   cast(repo["name"] as string), 
     ->   cast(payload["issue"]["number"] as int) as issue_number, 

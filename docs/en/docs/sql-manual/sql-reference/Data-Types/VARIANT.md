@@ -26,10 +26,6 @@ under the License.
 
 ## VARIANT
 
-<version since="2.1.0">
-
-</version>
-
 ### Description
 
 VARIANT Type
@@ -62,9 +58,9 @@ Below are test results based on clickbench data:
 ### Example
 Demonstrate the functionality and usage of Variant with an example covering table creation, data import, and query cycle.
 
-#### Table Creation Syntax
+**Table Creation Syntax**
 Create a table, using the `variant` keyword in the syntax.
-```
+``` sql
 -- Without index
 CREATE TABLE IF NOT EXISTS ${table_name} (
     k BIGINT,
@@ -82,9 +78,9 @@ table_properties;
 
 ```
 
-#### Query Syntax
+**Query Syntax**
 
-```
+``` sql
 -- Query Method 1, slight difference in query syntax, use `:` after v, access sub-columns with `.`
 SELECT v:`properties`.`title` from ${table_name}
 
@@ -93,11 +89,11 @@ SELECT v:["properties"]["title"] from ${table_name}
 
 ```
 
-#### Usage Example
+**Usage Example**
 Here, github events data is used to demonstrate the table creation, data import, and query using variant.
 The below is a formatted line of data:
 
-```json
+``` json
 {
   "id": "14186154924",
   "type": "PushEvent",
@@ -128,14 +124,14 @@ The below is a formatted line of data:
 }
 ```
 
-##### Table Creation
+**Table Creation**
 
 . Created three columns of VARIANT type: actor, repo, and payload.
 . Simultaneously created an inverted index, idx_payload, for the payload column while creating the table.
 . Specified the index type as inverted using `USING INVERTED`, aimed at accelerating conditional filtering of sub-columns.
 . `PROPERTIES("parser" = "english")` specified the adoption of English tokenization.
 
-```
+``` sql
 CREATE DATABASE test_variant;
 USE test_variant;
 CREATE TABLE IF NOT EXISTS github_events (
@@ -153,17 +149,17 @@ DISTRIBUTED BY HASH(id) BUCKETS 10
 properties("replication_num" = "1");
 ```
 
-**Notice:**
-
+::: tip
 1. Creating an index on Variant columns, such as when there are numerous sub-columns in payload, might lead to an excessive number of index columns, impacting write performance.
 2. The tokenization properties for the same Variant column are uniform. If you have varied tokenization requirements, consider creating multiple Variant columns and specifying index properties separately for each.
+:::
 
 
-##### Using Streamload for Import
+**Using Streamload for Import**
 
 Importing gh_2022-11-07-3.json, which contains one hour's worth of GitHub events data.
 
-```
+``` shell
 wget http://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/variant/gh_2022-11-07-3.json
 
 curl --location-trusted -u root:  -T gh_2022-11-07-3.json -H "read_json_by_line:true" -H "format:json"  http://127.0.0.1:18148/api/test_variant/github_events/_strea
@@ -192,7 +188,7 @@ m_load
 
 Confirm the successful import.
 
-```
+``` sql
 -- View the number of rows.
 mysql> select count() from github_events;
 +----------+
@@ -213,7 +209,7 @@ mysql> select * from github_events limit 1;
 ```
 Running desc command to view schema information, sub-columns will automatically expand at the storage layer and undergo type inference.
 
-```
+``` sql
 mysql> set describe_extend_variant_column = true;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -241,21 +237,22 @@ mysql> desc github_events;
 ```
 DESC can be used to specify partition and view the schema of a particular partition. The syntax is as follows:
 
-```
+``` sql
 DESCRIBE ${table_name} PARTITION ($partition_name);
 ```
 
-##### Querying
+**Querying**
 
-**Note**
+::: tip
 When utilizing filtering and aggregation functionalities to query sub-columns, additional casting operations need to be performed on sub-columns (because the storage types are not necessarily fixed and require a unified SQL type).
 For instance, `SELECT * FROM tbl where CAST(var["titile"] as text) MATCH "hello world"`
 The simplified examples below illustrate how to use Variant for querying:
 The following are three typical query scenarios:
+:::
 
 1. Retrieve the top 5 repositories based on star count from the `github_events` table.
 
-```
+``` sql
 mysql> SELECT
     ->     cast(repo["name"] as text), count() AS stars
     -> FROM github_events
@@ -276,7 +273,7 @@ mysql> SELECT
 
 2. Retrieve the count of comments containing "doris".
 
-```
+``` sql
 mysql> SELECT
     ->     count() FROM github_events
     ->     WHERE cast(payload["comment"]["body"] as text) MATCH 'doris';
@@ -290,7 +287,7 @@ mysql> SELECT
 
 3. Query the issue number with the highest number of comments along with its corresponding repository.
 
-```
+``` sql
 mysql> SELECT 
     ->   cast(repo["name"] as string), 
     ->   cast(payload["issue"]["number"] as int) as issue_number, 
@@ -314,7 +311,7 @@ mysql> SELECT
 3 rows in set (0.03 sec)
 ```
 
-##### Usage Restrictions and Best Practices
+### Usage Restrictions and Best Practices
 
 **There are several limitations when using the VARIANT type:**
 Dynamic columns of Variant are nearly as efficient as predefined static columns. When dealing with data like logs, where fields are often added dynamically (such as container labels in Kubernetes), parsing JSON and inferring types can generate additional costs during write operations. Therefore, it's recommended to keep the number of columns for a single import below 1000.
