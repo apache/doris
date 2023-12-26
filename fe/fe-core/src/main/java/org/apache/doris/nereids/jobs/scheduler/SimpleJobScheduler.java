@@ -36,11 +36,10 @@ public class SimpleJobScheduler implements JobScheduler {
             CascadesContext context = (CascadesContext) scheduleContext;
             Job job = pool.pop();
             if (context.getConnectContext().getSessionVariable().enableNereidsTimeout) {
-                context.getConnectContext().getStatementContext().getTimeMonitor().executeJobWithinTimeLimit(
-                        () -> job.execute(), job);
-            } else {
-                job.execute();
+                context.getConnectContext().getStatementContext().getTimeMonitor().checkTimeout();
             }
+            context.getConnectContext().getStatementContext().getTimeMonitor().executeJob(
+                    job::execute, job);
         }
     }
 }

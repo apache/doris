@@ -189,6 +189,11 @@ public class PlanChecker {
         return this;
     }
 
+    public PlanChecker startTimeMonitor() {
+        this.connectContext.getStatementContext().getTimeMonitor().start();
+        return this;
+    }
+
     public PlanChecker applyBottomUp(RuleFactory rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(Rewriter.bottomUp(rule)))

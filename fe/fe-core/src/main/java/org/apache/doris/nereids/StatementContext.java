@@ -21,7 +21,6 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.hint.Hint;
-import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.NereidsTimeMonitor;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.rules.analysis.ColumnAliasGenerator;
@@ -58,8 +57,6 @@ public class StatementContext {
 
     private ConnectContext connectContext;
     private NereidsTimeMonitor timeMonitor = NereidsTimeMonitor.createUnstarted();
-    private final Map<Job, Pair<Long, Long>> jobWithDuration = new HashMap<>();
-
     @GuardedBy("this")
     private final Map<String, Supplier<Object>> contextCacheMap = Maps.newLinkedHashMap();
 

@@ -61,16 +61,35 @@ public class NereidsTimeMonitor {
     }
 
     /**
-     * execute Job
+     * execute Job with timelimit
      */
-    public void executeJobWithinTimeLimit(Runnable runnable, Job job) {
+    public void checkTimeout() {
         if (stopwatch.elapsed(TimeUnit.MILLISECONDS) > TIMEOUT_MILLIS) {
             LOG.warn(this.toString());
             throw new RuntimeException(String.format("Nereids cost too much time ( > %s s )", TIMEOUT_MILLIS / 1000));
         }
+    }
+
+    /**
+     * execute Job
+     */
+    public void executeJob(Runnable runnable, Job job) {
         Scope<Job> scope = new Scope<>(job);
+        scope.start();
         runnable.run();
         scope.close();
+        unfinishedScope.clear();
+    }
+
+    /**
+     * execute Rule
+     */
+    public List<Plan> executeRule(Supplier<List<Plan>> lambda, Rule rule) {
+        Scope<Rule> scope = new Scope<>(rule);
+        scope.start();
+        List<Plan> res = lambda.get();
+        scope.close();
+        return res;
     }
 
     @Override
@@ -80,7 +99,7 @@ public class NereidsTimeMonitor {
         List<Map.Entry<RuleType, Long>> sortedRuleTime = new ArrayList<>(ruleTime.entrySet());
         sortedRuleTime.sort(Map.Entry.comparingByValue(Collections.reverseOrder()));
         List<Scope<?>> sortedScope = new ArrayList<>(unfinishedScope);
-        sortedScope.sort((a, b) -> (int)(b.runTime - a.runTime));
+        sortedScope.sort((a, b) -> (int) (b.runTime - a.runTime));
         StringBuilder sb = new StringBuilder();
         sb.append("job:\n");
         sortedJobTime.forEach(entry -> sb.append(entry.getKey()).append(": ").append(entry.getValue()).append("\n"));
@@ -93,33 +112,30 @@ public class NereidsTimeMonitor {
         return sb.toString();
     }
 
-    /**
-     * execute Rule
-     */
-    public List<Plan> executeRule(Supplier<List<Plan>> lambda, Rule rule) {
-        Scope<Rule> scope = new Scope<>(rule);
-        List<Plan> res = lambda.get();
-        scope.close();
-        return res;
-    }
-
     public void start() {
         stopwatch.start();
     }
 
     public void stop() {
         stopwatch.stop();
+        jobTime.clear();
+        ruleTime.clear();
+
     }
 
     class Scope<T> {
         private final T item;
-        private final long startTime;
+        private long startTime;
         private long runTime;
 
         Scope(T item) {
             this.item = item;
+        }
+
+        public void start() {
             this.startTime = stopwatch.elapsed(TimeUnit.MILLISECONDS);
             this.runTime = 0;
+            unfinishedScope.add(this);
         }
 
         private void updateTime(long now) {
