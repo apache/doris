@@ -91,7 +91,7 @@ BUILD IMMEDIATE
 
 ##### refreshMethod
 
-用来定义物化视图刷新方法，默认AUTO
+用来定义物化视图刷新方式，默认AUTO
 COMPLETE：全量刷新
 AUTO：尽量增量刷新，如果不能增量刷新，就全量刷新
 

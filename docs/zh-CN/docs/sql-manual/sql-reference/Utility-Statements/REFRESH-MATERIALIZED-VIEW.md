@@ -52,10 +52,10 @@ REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE)?
     REFRESH MATERIALIZED VIEW mv1;
     ```
 
-2. 刷新名字为p_19950801_19950901的分区
+2. 刷新名字为p_19950801_19950901和p_19950901_19951001的分区
 
     ```sql
-    REFRESH MATERIALIZED VIEW mv1 partitions(p_19950801_19950901);
+    REFRESH MATERIALIZED VIEW mv1 partitions(p_19950801_19950901,p_19950901_19951001);
     ```
  
 3. 强制刷新物化视图全部数据
