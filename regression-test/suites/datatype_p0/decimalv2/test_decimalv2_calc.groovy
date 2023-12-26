@@ -31,7 +31,7 @@ suite("test_decimalv2_calc", "nonConcurrent") {
         `decimal_key1` decimalv2(8, 5) NULL COMMENT "",
         `decimal_key2` decimalv2(16, 5) NULL COMMENT "",
         `decimal_value1` decimalv2(8, 5) NULL COMMENT "",
-        `decimal_value2` decimalv2(16, 5) NULL COMMENT "",
+        `decimal_value2` decimalv2(16, 5) NULL COMMENT ""
       ) ENGINE=OLAP
       DUPLICATE KEY(`decimal_key1`, `decimal_key2`)
       COMMENT "OLAP"
