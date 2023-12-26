@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.catalog.Env;
@@ -28,6 +27,7 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.metastore.messaging.CreateTableMessage;
 
 import java.util.List;
+import java.util.Locale;
 
 /**
  * MetastoreEvent for CREATE_TABLE event type
@@ -51,6 +51,7 @@ public class CreateTableEvent extends MetastoreTableEvent {
                     MetastoreEventsProcessor.getMessageDeserializer(event.getMessageFormat())
                             .getCreateTableMessage(event.getMessage());
             hmsTbl = Preconditions.checkNotNull(createTableMessage.getTableObj());
+            hmsTbl.setTableName(hmsTbl.getTableName().toLowerCase(Locale.ROOT));
         } catch (Exception e) {
             throw new MetastoreNotificationException(
                     debugString("Unable to deserialize the event message"), e);

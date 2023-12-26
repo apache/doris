@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-
 package org.apache.doris.datasource.hive.event;
 
 import org.apache.doris.datasource.hive.HMSCachedClient;
@@ -25,6 +24,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -77,7 +77,7 @@ public abstract class MetastoreEvent {
 
     protected MetastoreEvent(NotificationEvent event, String catalogName) {
         this.event = event;
-        this.dbName = event.getDbName();
+        this.dbName = event.getDbName().toLowerCase(Locale.ROOT);
         this.tblName = event.getTableName();
         this.eventId = event.getEventId();
         this.eventTime = event.getEventTime() * 1000L;
