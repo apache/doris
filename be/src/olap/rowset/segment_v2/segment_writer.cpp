@@ -471,7 +471,7 @@ Status SegmentWriter::append_block_with_partial_content(const vectorized::Block*
             }
 
             if (!_opts.rowset_ctx->partial_update_info->can_insert_new_rows_in_partial_update) {
-                return Status::InternalError(
+                return Status::Error<INVALID_SCHEMA, false>(
                         "the unmentioned columns should have default value or be nullable for "
                         "newly inserted rows in non-strict mode partial update");
             }
