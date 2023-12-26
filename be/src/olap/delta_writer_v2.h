@@ -119,6 +119,7 @@ private:
     int64_t _total_received_rows = 0;
 
     int64_t _write_memtable_time = 0;
+    int64_t _wait_flush_limit_time = 0;
     int64_t _close_wait_time = 0;
 
     std::shared_ptr<MemTableWriter> _memtable_writer;
