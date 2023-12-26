@@ -730,14 +730,40 @@ void Block::update_hash(SipHash& hash) const {
 
 void Block::filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                   const IColumn::Filter& filter) {
+    auto block_column_not_exist = [&columns_to_filter, block](auto& col) -> void {
+        std::ostringstream ss;
+        for (const auto& i : columns_to_filter) {
+            ss << i << "-";
+        }
+        int last_column_index = 0;
+        for (auto i = 0; i < block->columns(); i++) {
+            if (block->get_by_position(i).column != nullptr) {
+                last_column_index = i;
+            }
+        }
+        // If col > block_last_column_index and col < block->columns(), it means col is a column that
+        // does not require filter, such as delete condition column, which is usually at the end of the block.
+        throw Exception(ErrorCode::INTERNAL_ERROR,
+                        "filter_block_internal column nullptr, column id={}, all columns to "
+                        "filter={}, block columns num={}, block last column index={}",
+                        col, ss.str().substr(0, ss.str().length() - 1), block->columns(),
+                        last_column_index);
+    };
+
     size_t count = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
     if (count == 0) {
         for (const auto& col : columns_to_filter) {
+            if (block->get_by_position(col).column == nullptr) {
+                block_column_not_exist(col);
+            }
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
         }
     } else {
         for (const auto& col : columns_to_filter) {
             auto& column = block->get_by_position(col).column;
+            if (column == nullptr) {
+                block_column_not_exist(col);
+            }
             if (column->size() != count) {
                 if (column->is_exclusive()) {
                     const auto result_size = column->assume_mutable()->filter(filter);
