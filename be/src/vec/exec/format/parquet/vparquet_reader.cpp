@@ -91,7 +91,8 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _io_ctx(io_ctx),
           _state(state),
           _meta_cache(meta_cache),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_merge_small_io(state->query_options().enable_parquet_merge_small_io) {
     _init_profile();
     _init_system_properties();
     _init_file_description();
@@ -104,7 +105,8 @@ ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRang
           _scan_range(range),
           _io_ctx(io_ctx),
           _state(state),
-          _enable_lazy_mat(enable_lazy_mat) {
+          _enable_lazy_mat(enable_lazy_mat),
+          _enable_merge_small_io(state->query_options().enable_parquet_merge_small_io) {
     _init_system_properties();
     _init_file_description();
 }
@@ -604,7 +606,7 @@ Status ParquetReader::_next_row_group_reader() {
     RowGroupReader::PositionDeleteContext position_delete_ctx =
             _get_position_delete_ctx(row_group, row_group_index);
     io::FileReaderSPtr group_file_reader;
-    if (typeid_cast<io::InMemoryFileReader*>(_file_reader.get())) {
+    if (typeid_cast<io::InMemoryFileReader*>(_file_reader.get()) || (!_enable_merge_small_io)) {
         // InMemoryFileReader has the ability to merge small IO
         group_file_reader = _file_reader;
     } else {

@@ -670,6 +670,14 @@ Note that the comment must start with /*+ and can only follow the SELECT.
 
   Controls whether to use lazy materialization technology in orc reader. The default value is true.
 
+* `enable_parquet_merge_small_io`
+
+  Controls whether to merge small range io in parquet reader. The default value is true.
+
+* `enable_orc_merge_small_io`
+
+  Controls whether to merge small range io in orc reader. The default value is true.
+
 * `enable_strong_consistency_read`
 
   Used to enable strong consistent reading. By default, Doris supports strong consistency within the same session, that is, changes to data within the same session are visible in real time. If you want strong consistent reads between sessions, set this variable to true. 
