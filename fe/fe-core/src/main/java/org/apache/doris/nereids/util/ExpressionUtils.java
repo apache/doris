@@ -642,7 +642,7 @@ public class ExpressionUtils {
     }
 
     /**
-     * isInferred
+     * Check the expression is inferred or not, if inferred return true, nor return false
      */
     public static boolean isInferred(Expression expression) {
         return expression.accept(new DefaultExpressionVisitor<Boolean, Void>() {
