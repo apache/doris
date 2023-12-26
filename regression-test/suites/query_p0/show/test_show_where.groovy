@@ -73,7 +73,7 @@ suite("test_show_where", "query,external,mysql,external_docker,external_docker_m
             sql """switch ${catalog_name}"""
             sql """ use ${mysql_show_db}"""
 
-            qt_select "show databases where schema_name= '${mysql_show_db}'"
+            qt_select "show databases where schema_name= '${catalog_name}.${mysql_show_db}'"
             qt_select "show tables"
             qt_select "show tables where table_name= '${ex_tb0}'"
             qt_select "show tables from ${mysql_show_db}"
