@@ -182,6 +182,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -362,6 +363,7 @@ public class Env {
 
     private ExportTaskRegister exportTaskRegister;
     private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
+    private LabelProcessor labelProcessor;
     private TransientTaskManager transientTaskManager;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -641,8 +643,11 @@ public class Env {
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobManager = new JobManager<>();
+        this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
+        this.transientTaskManager = new TransientTaskManager();
+
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -3905,6 +3910,10 @@ public class Env {
 
     public JobManager getJobManager() {
         return jobManager;
+    }
+
+    public LabelProcessor getLabelProcessor() {
+        return labelProcessor;
     }
 
     public TransientTaskManager getTransientTaskManager() {

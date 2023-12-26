@@ -111,7 +111,7 @@ suite("test_base_insert_job") {
      """
 
     Thread.sleep(25000)
-    def onceJob = sql """select id,ExecuteSql from jobs("type"="insert") where Name='${jobName}'"""
+    def onceJob = sql """ select id,ExecuteSql from jobs("type"="insert") where Name like '%${jobName}%' and ExecuteType='ONE_TIME' """
     assert onceJob.size() == 1
     def onceJobId= onceJob.get(0).get(0);
     def onceJobSql= onceJob.get(0).get(1);

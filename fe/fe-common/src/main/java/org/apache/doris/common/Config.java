@@ -1932,6 +1932,18 @@ public class Config extends ConfigBase {
     public static boolean enable_hms_events_incremental_sync = false;
 
     /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "当前默认设置为 false，开启后支持使用新优化器的load语句导入数据，失败后会降级旧的load语句。",
+            "Now default set to true, After this function is enabled, the load statement of "
+                    + "the new optimizer can be used to import data. If this function fails, "
+                    + "the old load statement will be degraded."})
+    public static boolean enable_nereids_load = false;
+
+
+    /**
      * Maximum number of events to poll in each RPC.
      */
     @ConfField(mutable = true, masterOnly = true)
