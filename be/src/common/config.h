@@ -271,8 +271,6 @@ DECLARE_Int32(be_service_threads);
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.
 DECLARE_Int32(num_threads_per_core);
-// if true, compresses tuple data in Serialize
-DECLARE_mBool(compress_rowbatches);
 DECLARE_mBool(rowbatch_align_tuple_offset);
 // interval between profile reports; in seconds
 DECLARE_mInt32(status_report_interval);
@@ -653,6 +651,8 @@ DECLARE_mDouble(memtable_insert_memory_ratio);
 DECLARE_mInt64(write_buffer_size);
 // max buffer size used in memtable for the aggregated table, default 400MB
 DECLARE_mInt64(write_buffer_size_for_agg);
+// max parallel flush task per memtable writer
+DECLARE_mInt32(memtable_flush_running_count_limit);
 
 DECLARE_Int32(load_process_max_memory_limit_percent); // 50%
 
@@ -1024,8 +1024,6 @@ DECLARE_Bool(enable_fuzzy_mode);
 DECLARE_Bool(enable_debug_points);
 
 DECLARE_Int32(pipeline_executor_size);
-DECLARE_Bool(enable_workload_group_for_scan);
-DECLARE_mInt64(workload_group_scan_task_wait_timeout_ms);
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.

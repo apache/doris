@@ -181,7 +181,7 @@ public:
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
     [[nodiscard]] virtual DependencySPtr get_dependency(QueryContext* ctx) = 0;
-    [[nodiscard]] virtual DataDistribution get_local_exchange_type() const {
+    [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution() && !is_source()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);
@@ -481,7 +481,7 @@ public:
     }
 
     virtual void get_dependency(std::vector<DependencySPtr>& dependency, QueryContext* ctx) = 0;
-    virtual DataDistribution get_local_exchange_type() const {
+    virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
                        : DataDistribution(ExchangeType::NOOP);

@@ -692,7 +692,7 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, needForward = true, fuzzy = true,
                         setter = "setFragmentInstanceNum")
-    public int parallelExecInstanceNum = 1;
+    public int parallelExecInstanceNum = 8;
 
     @VariableMgr.VarAttr(name = PARALLEL_PIPELINE_TASK_NUM, fuzzy = true, needForward = true,
                         setter = "setPipelineTaskNum")
@@ -2720,7 +2720,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableFunctionPushdown(enableFunctionPushdown);
         tResult.setEnableCommonExprPushdown(enableCommonExprPushdown);
         tResult.setCheckOverflowForDecimal(checkOverflowForDecimal);
-        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec);
+        tResult.setFragmentTransmissionCompressionCodec(fragmentTransmissionCompressionCodec.trim().toLowerCase());
         tResult.setEnableLocalExchange(enableLocalExchange);
 
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);

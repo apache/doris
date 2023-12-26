@@ -393,9 +393,13 @@ public:
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
                 return segment_v2::CompressionTypePB::LZ4;
+            } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
+                return segment_v2::CompressionTypePB::SNAPPY;
+            } else {
+                return segment_v2::CompressionTypePB::NO_COMPRESSION;
             }
         }
-        return segment_v2::CompressionTypePB::SNAPPY;
+        return segment_v2::CompressionTypePB::NO_COMPRESSION;
     }
 
     bool skip_storage_engine_merge() const {

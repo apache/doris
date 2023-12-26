@@ -192,6 +192,12 @@ public:
             // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
             _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
         }
+        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+        if (lowercase == "true") {
+            _analyzer->set_lowercase(true);
+        } else if (lowercase == "false") {
+            _analyzer->set_lowercase(false);
+        }
         _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
                                                                      create, true);
         _index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);

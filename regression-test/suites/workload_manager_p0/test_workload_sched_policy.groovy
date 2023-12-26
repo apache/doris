@@ -56,60 +56,60 @@ suite("test_workload_sched_policy") {
     sql "alter workload schedule policy full_policy_policy properties('priority'='2', 'enabled'='false');"
 
     // create failed check
-    try {
+    test {
         sql "create workload schedule policy failed_policy " +
                 "conditions(abc > 123) actions(cancel_query);"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("invalid metric name"))
+
+        exception "invalid metric name"
     }
 
-    try {
+    test {
         sql "create workload schedule policy failed_policy " +
                 "conditions(query_time > 123) actions(abc);"
-    } catch(Exception e) {
-        assertTrue(e.getMessage().contains("invalid action type"))
+
+        exception "invalid action type"
     }
 
-    try {
+    test {
         sql "alter workload schedule policy full_policy_policy properties('priority'='abc');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("invalid priority property value"))
+
+        exception "invalid priority property value"
     }
 
-    try {
+    test {
         sql "alter workload schedule policy full_policy_policy properties('enabled'='abc');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("invalid enabled property value"))
+
+        exception "invalid enabled property value"
     }
 
-    try {
+    test {
         sql "alter workload schedule policy full_policy_policy properties('priority'='10000');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("priority can only between"))
+
+        exception "priority can only between"
     }
 
-    try {
+    test {
         sql "create workload schedule policy conflict_policy " +
                 "conditions (username = 'root')" +
                 "actions(cancel_query, move_query_to_group 'normal');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("can not exist in one policy at same time"))
+
+        exception "can not exist in one policy at same time"
     }
 
-    try {
+    test {
         sql "create workload schedule policy conflict_policy " +
                 "conditions (username = 'root') " +
                 "actions(cancel_query, cancel_query);"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("duplicate action in one policy"))
+
+        exception "duplicate action in one policy"
     }
 
-    try {
+    test {
         sql "create workload schedule policy conflict_policy " +
                 "conditions (username = 'root') " +
                 "actions(set_session_variable 'workload_group=normal', set_session_variable 'workload_group=abc');"
-    } catch (Exception e) {
-        assertTrue(e.getMessage().contains("duplicate set_session_variable action args one policy"))
+
+        exception "duplicate set_session_variable action args one policy"
     }
 
     // drop
