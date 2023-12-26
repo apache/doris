@@ -1574,44 +1574,6 @@ public:
         }
     }
 
-    inline DateV2Value<DateV2ValueType> get_value_for_day(int day) const {
-        int index = day + DAY_BEFORE_EPOCH;
-        if (LIKELY(index >= 0 && index < DICT_DAYS)) {
-            return DATE_DAY_OFFSET_ITEMS[index];
-        } else {
-            DateV2Value<DateV2ValueType> d = DATE_DAY_OFFSET_ITEMS[0];
-            return d += index;
-        }
-    }
-
-    inline DateV2Value<DateV2ValueType> get_value_for_day7(int day) const {
-        int index = day + DAY_BEFORE_EPOCH;
-        if (index >= 0 && index < DICT_DAYS) {
-            return DATE_DAY_OFFSET_ITEMS[index];
-        } else {
-            DateV2Value<DateV2ValueType> d = DATE_DAY_OFFSET_ITEMS[0];
-            return d += index;
-        }
-    }
-
-    inline DateV2Value<DateV2ValueType> get_value_for_day8(int day) const {
-        int index = day + DAY_BEFORE_EPOCH;
-        if (index >= 0 && index < DICT_DAYS) [[likely]] {
-            return DATE_DAY_OFFSET_ITEMS[index];
-        } else {
-            DateV2Value<DateV2ValueType> d = DATE_DAY_OFFSET_ITEMS[0];
-            return d += index;
-        }
-    }
-
-    inline DateV2Value<DateV2ValueType> get_value_for_day2(int day) const {
-        return DATE_DAY_OFFSET_ITEMS[day + DAY_BEFORE_EPOCH];
-    }
-
-    inline DateV2Value<DateV2ValueType>& get_value_for_day3(int day) const {
-        return DATE_DAY_OFFSET_ITEMS[day + DAY_BEFORE_EPOCH];
-    }
-
     int daynr(int year, int month, int day) const;
 };
 

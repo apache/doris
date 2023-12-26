@@ -225,12 +225,8 @@ protected:
                         column_data.push_back_without_reserve(
                                 unaligned_load<Int64>(reinterpret_cast<char*>(&v)));
                     } else {
-                        //column_data.push_back_without_reserve(date_dict[date_value]);
                         column_data.push_back_without_reserve(
                                 date_dict[date_value].to_date_int_val());
-                        //column_data.push_back_without_reserve(date_dict.get_value_for_day(date_value).to_date_int_val());
-                        //column_data.push_back_without_reserve(date_dict.get_value_for_day(date_value).to_date_int_val());
-                        //column_data.push_back_without_reserve(date_dict.get_value_for_day(date_value));
                     }
                 }
                 break;
