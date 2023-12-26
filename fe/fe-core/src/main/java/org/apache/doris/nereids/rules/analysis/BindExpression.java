@@ -27,6 +27,7 @@ import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.parser.LogicalPlanBuilder;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.AppliedAwareRule.AppliedAwareRuleCondition;
 import org.apache.doris.nereids.rules.Rule;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.rules.expression.rules.FunctionBinder;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.BoundStar;
+import org.apache.doris.nereids.trees.expressions.DefaultValueSlot;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -43,6 +45,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Properties;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionBuilder;
@@ -67,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalInlineTable;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
@@ -87,6 +91,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableListMultimap;
 import com.google.common.collect.ImmutableSet;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang3.StringUtils;
 
@@ -528,6 +533,26 @@ public class BindExpression implements AnalysisRuleFactory {
                     return new LogicalHaving<>(boundConjuncts, having.child());
                 })
             ),
+            RuleType.BINDING_INLINE_TABLE_SLOT.build(
+                logicalInlineTable().thenApply(ctx -> {
+                    LogicalInlineTable logicalInlineTable = ctx.root;
+                    // ensure all expressions are valid.
+                    List<LogicalPlan> relations
+                            = Lists.newArrayListWithCapacity(logicalInlineTable.getConstantExprsList().size());
+                    for (int i = 0; i < logicalInlineTable.getConstantExprsList().size(); i++) {
+                        if (logicalInlineTable.getConstantExprsList().get(i).stream()
+                                .anyMatch(DefaultValueSlot.class::isInstance)) {
+                            throw new AnalysisException("Default expression"
+                                    + " can't exist in SELECT statement at row " + (i + 1));
+                        }
+                        relations.add(new UnboundOneRowRelation(StatementScopeIdGenerator.newRelationId(),
+                                logicalInlineTable.getConstantExprsList().get(i)));
+                    }
+                    // construct union all tree
+                    return LogicalPlanBuilder.reduceToLogicalPlanTree(0, relations.size() - 1,
+                            relations, Qualifier.ALL);
+                })
+            ),
             RuleType.BINDING_ONE_ROW_RELATION_SLOT.build(
                 // we should bind UnboundAlias in the UnboundOneRowRelation
                 unboundOneRowRelation().thenApply(ctx -> {
@@ -538,16 +563,6 @@ public class BindExpression implements AnalysisRuleFactory {
                             .map(project -> bindFunction(project, ctx.root, ctx.cascadesContext))
                             .collect(Collectors.toList());
                     return new LogicalOneRowRelation(oneRowRelation.getRelationId(), projects);
-                })
-            ),
-            RuleType.BINDING_INLINE_TABLE_SLOT.build(
-                logicalInlineTable().thenApply(ctx -> {
-                    LogicalInlineTable logicalInlineTable = ctx.root;
-                    // ensure all expressions are valid.
-                    logicalInlineTable.getExpressions().forEach(expr ->
-                            bindSlot(expr, ImmutableList.of(), ctx.cascadesContext, false)
-                    );
-                    return null;
                 })
             ),
             RuleType.BINDING_SET_OPERATION_SLOT.build(
