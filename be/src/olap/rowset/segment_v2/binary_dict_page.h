@@ -83,6 +83,8 @@ public:
         return _should_convert_previous_data && !_has_first_page_been_written;
     }
 
+    bool is_dict_encoding() const;
+
     std::vector<Slice> get_previous_data();
 
     void fallback_data_page_builder() {

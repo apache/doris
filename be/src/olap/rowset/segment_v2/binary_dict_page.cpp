@@ -192,6 +192,10 @@ void BinaryDictPageBuilder::reset() {
     }
 }
 
+bool BinaryDictPageBuilder::is_dict_encoding() const {
+    return _encoding_type == DICT_ENCODING;
+}
+
 size_t BinaryDictPageBuilder::count() const {
     return _data_page_builder->count();
 }
@@ -201,11 +205,7 @@ uint64_t BinaryDictPageBuilder::size() const {
 }
 
 Status BinaryDictPageBuilder::get_dictionary_page(OwnedSlice* dictionary_page) {
-    if (_dict_builder) {
-        *dictionary_page = _dict_builder->finish();
-    } else {
-        *dictionary_page = OwnedSlice();
-    }
+    *dictionary_page = _dict_builder->finish();
     return Status::OK();
 }
 
