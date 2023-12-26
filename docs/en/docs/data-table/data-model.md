@@ -420,7 +420,8 @@ The Unique model provides two implementation methods:
 - Merge-on-read: In the merge-on-read implementation, no data deduplication-related operations are triggered when writing data. All data deduplication operations occur during queries or compaction. Therefore, merge-on-read has better write performance, poorer query performance, and higher memory consumption.
 - Merge-on-write: In version 1.2, we introduced the merge-on-write implementation, which performs all data deduplication during the data writing phase, providing excellent query performance.
 
-Since version 2.1, merge-on-write has become a mature and stable implementation and the default for the Unique model. For detailed differences between the two implementation methods, refer to the subsequent sections in this chapter. For performance differences between the two implementation methods, see the description in the following section [Limitations of Aggregate Model](#limitations-of-aggregate-model).
+Since version 2.0, merge-on-write has become a mature and stable, due to its excellent query performance, we recommend the majority of users to choose this implementation. Starting from version 2.1, merge-on-write has become the default implementation for the Unique model.
+For detailed differences between the two implementation methods, refer to the subsequent sections in this chapter. For performance differences between the two implementation methods, see the description in the following section [Limitations of Aggregate Model](#limitations-of-aggregate-model).
 
 **Semantic of Data Updates**
 
