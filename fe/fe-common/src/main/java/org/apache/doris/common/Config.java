@@ -144,7 +144,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
-    public static int default_load_parallelism = 1;
+    public static int default_load_parallelism = 8;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "已完成或取消的导入作业信息的 label 会在这个时间后被删除。被删除的 label 可以被重用。",
