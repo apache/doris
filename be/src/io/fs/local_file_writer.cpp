@@ -38,6 +38,7 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
+#include "util/debug_points.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -203,6 +204,11 @@ Status LocalFileWriter::_close(bool sync) {
     if (0 != ::close(_fd)) {
         return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
     }
+
+    DBUG_EXECUTE_IF("LocalFileWriter.close.failed", {
+        return Status::IOError("cannot close {}: {}", _path.native(), std::strerror(errno));
+    });
+
     return Status::OK();
 }
 
