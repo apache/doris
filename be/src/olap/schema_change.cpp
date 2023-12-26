@@ -1301,6 +1301,15 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     if (!sc_params.delete_handler->empty()) {
         // there exists delete condition in header, can't do linked schema change
         *sc_directly = true;
+        return Status::OK();
+    }
+
+    for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
+        ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
+        if (column_mapping->expr != nullptr) {
+            *sc_directly = true;
+            return Status::OK();
+        }
     }
 
     // if rs_reader has remote files, link schema change is not supported,
