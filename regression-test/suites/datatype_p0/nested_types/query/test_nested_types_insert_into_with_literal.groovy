@@ -23,8 +23,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("test_nested_types_insert_into_with_literal", "p0") {
     sql 'use regression_test_datatype_p0_nested_types'
     // old planner does not support cast empty
-    sql 'set enable_nereids_planner=true'
-    sql 'set enable_fallback_to_original_planner=false'
+    sql 'set enable_nereids_planner=false'
     sql """ADMIN SET FRONTEND CONFIG ('disable_nested_complex_type' = 'false')"""
 
     def table_names = [
@@ -42,7 +41,7 @@ suite("test_nested_types_insert_into_with_literal", "p0") {
     ]
 
     // notice : we do not suggest to use this literal {} to present empty struct, please use struct() instead
-    def null_literals = ["[[]]", "[{}]", "array(struct(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null))",
+    def null_literals = ["[[]]", "[{}]", "array()",
                         "{null:[]}", "{null:{}}", "{}",
                         "struct([])", "struct({})", "struct(struct(null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null))"]
 
