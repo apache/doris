@@ -207,12 +207,12 @@ std::string ScannerContext::parent_name() {
 
 vectorized::BlockUPtr ScannerContext::get_free_block() {
     vectorized::BlockUPtr block;
-    if (_free_blocks.try_dequeue(block)) {
+    /*if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
         _free_blocks_memory_usage->add(-block->allocated_bytes());
         _serving_blocks_num++;
         return block;
-    }
+    }*/
 
     block = vectorized::Block::create_unique(_output_tuple_desc->slots(), _batch_size,
                                              true /*ignore invalid slots*/);
@@ -224,14 +224,14 @@ vectorized::BlockUPtr ScannerContext::get_free_block() {
 
 void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block) {
     _serving_blocks_num--;
-    if (block->mem_reuse()) {
+    /*if (block->mem_reuse()) {
         // Only put blocks with schema to free blocks, because colocate blocks
         // need schema.
         _estimated_block_bytes = std::max(block->allocated_bytes(), (size_t)16);
         block->clear_column_data();
         _free_blocks_memory_usage->add(block->allocated_bytes());
         _free_blocks.enqueue(std::move(block));
-    }
+    }*/
 }
 
 void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) {

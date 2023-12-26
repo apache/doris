@@ -86,22 +86,31 @@ void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& ru
         }
         size_t num_read = 0;
         DCHECK_LE(_filter_map_index + num_values, _filter_map_size);
-        for (size_t i = 0; i < num_values; ++i) {
+        /*for (size_t i = 0; i < num_values; ++i) {
             if (_filter_map[_filter_map_index++]) {
                 _data_map[i] = _data_map[i] == FILTERED_NULL ? NULL_DATA : CONTENT;
                 num_read++;
             }
-        }
+        }*/
+        num_read = num_values;
         _num_filtered = num_values - num_read;
         if (null_map != nullptr && num_read > 0) {
             NullMap& map_data_column = *null_map;
             auto null_map_index = map_data_column.size();
             map_data_column.resize(null_map_index + num_read);
-            for (size_t i = 0; i < num_values; ++i) {
-                if (_data_map[i] == CONTENT) {
-                    map_data_column[null_map_index++] = (UInt8) false;
-                } else if (_data_map[i] == NULL_DATA) {
-                    map_data_column[null_map_index++] = (UInt8) true;
+            if (_num_nulls == 0) {
+                memset(map_data_column.data() + null_map_index, 0, num_read);
+            } else if (_num_nulls == num_values) {
+                memset(map_data_column.data() + null_map_index, 1, num_read);
+            } else {
+                for (size_t i = 0; i < num_values; ++i) {
+                    //if (_data_map[i] == CONTENT) {
+                    if (_data_map[i] == FILTERED_CONTENT) {
+                        map_data_column[null_map_index++] = (UInt8) false;
+                        //} else if (_data_map[i] == NULL_DATA) {
+                    } else if (_data_map[i] == FILTERED_NULL) {
+                        map_data_column[null_map_index++] = (UInt8) true;
+                    }
                 }
             }
         }

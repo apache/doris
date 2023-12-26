@@ -352,10 +352,23 @@ ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) c
     return ColumnNullable::create(filtered_data, filtered_null_map);
 }
 
-size_t ColumnNullable::filter(const Filter& filter) {
+/*size_t ColumnNullable::filter(const Filter& filter) {
     const auto data_result_size = get_nested_column().filter(filter);
     const auto map_result_size = get_null_map_column().filter(filter);
     CHECK_EQ(data_result_size, map_result_size);
+    return data_result_size;
+}*/
+
+size_t ColumnNullable::filter(const Filter& filter) {
+    const auto data_result_size = get_nested_column().filter(filter);
+
+    get_null_map_column().resize(data_result_size);
+    /*if (!_has_null) {
+        get_null_map_column().resize(data_result_size);
+    } else {
+        const auto map_result_size = get_null_map_column().filter(filter);
+        CHECK_EQ(data_result_size, map_result_size);
+    }*/
     return data_result_size;
 }
 

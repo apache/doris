@@ -227,16 +227,23 @@ Status FixLengthPlainDecoder::_decode_numeric(MutableColumnPtr& doris_column,
                                               ColumnSelectVector& select_vector) {
     auto& column_data = static_cast<ColumnVector<Numeric>&>(*doris_column).get_data();
     size_t data_index = column_data.size();
-    column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    //fprintf(stderr, "select_vector.num_values(): %ld\n", select_vector.num_values());
+    //column_data.resize(data_index + select_vector.num_values() - select_vector.num_filtered());
+    column_data.resize(data_index + select_vector.num_values());
+
     ColumnSelectVector::DataReadType read_type;
+    //while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            for (size_t i = 0; i < run_length; ++i) {
+            /*for (size_t i = 0; i < run_length; ++i) {
                 char* buf_start = _data->data + _offset;
                 column_data[data_index++] = *(PhysicalType*)buf_start;
                 _offset += _type_length;
-            }
+            }*/
+            //fprintf(stderr, "run_length * _type_length: %ld\n", run_length * _type_length);
+            memcpy(column_data.data() + data_index, _data->data + _offset,
+                   run_length * _type_length);
             break;
         }
         case ColumnSelectVector::NULL_DATA: {
@@ -244,7 +251,7 @@ Status FixLengthPlainDecoder::_decode_numeric(MutableColumnPtr& doris_column,
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
-            _offset += _type_length * run_length;
+            //_offset += _type_length * run_length;
             break;
         }
         case ColumnSelectVector::FILTERED_NULL: {
