@@ -262,8 +262,7 @@ ColumnMapping* BlockChanger::get_mutable_column_mapping(size_t column_index) {
 
 Status BlockChanger::change_block(vectorized::Block* ref_block,
                                   vectorized::Block* new_block) const {
-    ObjectPool pool;
-    RuntimeState* state = pool.add(RuntimeState::create_unique().release());
+    std::unique_ptr<RuntimeState> state = RuntimeState::create_unique();
     state->set_desc_tbl(&_desc_tbl);
     state->set_be_exec_version(_fe_compatible_version);
     RowDescriptor row_desc =
@@ -272,8 +271,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
     if (_where_expr != nullptr) {
         vectorized::VExprContextSPtr ctx = nullptr;
         RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_where_expr, ctx));
-        RETURN_IF_ERROR(ctx->prepare(state, row_desc));
-        RETURN_IF_ERROR(ctx->open(state));
+        RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
+        RETURN_IF_ERROR(ctx->open(state.get()));
 
         RETURN_IF_ERROR(
                 vectorized::VExprContext::filter_block(ctx.get(), ref_block, ref_block->columns()));
@@ -288,8 +287,8 @@ Status BlockChanger::change_block(vectorized::Block* ref_block,
         if (_schema_mapping[idx].expr != nullptr) {
             vectorized::VExprContextSPtr ctx;
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(*_schema_mapping[idx].expr, ctx));
-            RETURN_IF_ERROR(ctx->prepare(state, row_desc));
-            RETURN_IF_ERROR(ctx->open(state));
+            RETURN_IF_ERROR(ctx->prepare(state.get(), row_desc));
+            RETURN_IF_ERROR(ctx->open(state.get()));
 
             int result_column_id = -1;
             RETURN_IF_ERROR(ctx->execute(ref_block, &result_column_id));
@@ -903,13 +902,6 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
                 mv_param.column_name = item.column_name;
-                /*
-                 * origin_column_name is always be set now,
-                 * but origin_column_name may be not set in some materialized view function. eg:count(1)
-                */
-                if (item.__isset.origin_column_name) {
-                    mv_param.origin_column_name = item.origin_column_name;
-                }
 
                 if (item.__isset.mv_expr) {
                     mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
@@ -1206,9 +1198,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
         if (materialized_function_map.find(column_name_lower) != materialized_function_map.end()) {
             auto mv_param = materialized_function_map.find(column_name_lower)->second;
             column_mapping->expr = mv_param.expr;
-            int32_t column_index = base_tablet_schema->field_index(mv_param.origin_column_name);
-            column_mapping->ref_column = column_index;
-            if (column_index >= 0 || column_mapping->expr != nullptr) {
+            if (column_mapping->expr != nullptr) {
                 continue;
             }
         }
@@ -1264,7 +1254,7 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
     for (int i = 0, new_schema_size = new_tablet->num_key_columns(); i < new_schema_size; ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
 
-        if (column_mapping->ref_column < 0) {
+        if (column_mapping->expr == nullptr) {
             num_default_value++;
             continue;
         }
@@ -1312,22 +1302,11 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
 
     for (size_t i = 0; i < new_tablet->num_columns(); ++i) {
         ColumnMapping* column_mapping = changer->get_mutable_column_mapping(i);
-        if (column_mapping->ref_column < 0) {
+        if (column_mapping->expr == nullptr) {
             continue;
         } else {
-            auto column_new = new_tablet_schema->column(i);
-            auto column_old = base_tablet_schema->column(column_mapping->ref_column);
-            if (column_new.type() != column_old.type() ||
-                column_new.precision() != column_old.precision() ||
-                column_new.frac() != column_old.frac() ||
-                column_new.length() != column_old.length() ||
-                column_new.is_bf_column() != column_old.is_bf_column() ||
-                column_new.has_bitmap_index() != column_old.has_bitmap_index() ||
-                new_tablet_schema->has_inverted_index(column_new) !=
-                        base_tablet_schema->has_inverted_index(column_old)) {
-                *sc_directly = true;
-                return Status::OK();
-            }
+            *sc_directly = true;
+            return Status::OK();
         }
     }
 
@@ -1360,10 +1339,10 @@ Status SchemaChangeHandler::_parse_request(const SchemaChangeParams& sc_params,
 Status SchemaChangeHandler::_init_column_mapping(ColumnMapping* column_mapping,
                                                  const TabletColumn& column_schema,
                                                  const std::string& value) {
-    column_mapping->default_value = WrapperField::create(column_schema);
-
-    if (column_mapping->default_value == nullptr) {
-        return Status::Error<MEM_ALLOC_FAILED>("column_mapping->default_value is nullptr");
+    if (auto field = WrapperField::create(column_schema); field.has_value()) {
+        column_mapping->default_value = field.value();
+    } else {
+        return field.error();
     }
 
     if (column_schema.is_nullable() && value.length() == 0) {

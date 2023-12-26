@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -139,8 +138,7 @@ public class FunctionRegistry {
     public List<FunctionBuilder> findUdfBuilder(String dbName, String name) {
         List<String> scopes = ImmutableList.of(GLOBAL_FUNCTION);
         if (ConnectContext.get() != null) {
-            dbName = ClusterNamespace.getFullName(ConnectContext.get().getClusterName(),
-                    dbName == null ? ConnectContext.get().getDatabase() : dbName);
+            dbName = dbName == null ? ConnectContext.get().getDatabase() : dbName;
             if (dbName == null || !Env.getCurrentEnv().getAccessManager()
                     .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                 scopes = ImmutableList.of(GLOBAL_FUNCTION);

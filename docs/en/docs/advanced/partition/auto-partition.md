@@ -81,7 +81,7 @@ PROPERTIES (
 
 The table stores a large amount of business history data, partitioned based on the date the transaction occurred. As you can see when building the table, we need to manually create the partitions in advance. If the data range of the partitioned columns changes, for example, 2022 is added to the above table, we need to create a partition by [ALTER-TABLE-PARTITION](../../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-TABLE-PARTITION) to make changes to the table partition. If such partitions need to be changed, or subdivided at a finer level of granularity, it is very tedious to modify them. At this point we can rewrite the table DDL using AUTO PARTITION.
 
-## Grammer
+## Grammar
 
 When building a table, use the following syntax to populate [CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE) with the `partition_info` section:
 
@@ -143,7 +143,7 @@ When building a table, use the following syntax to populate [CREATE-TABLE](../..
 
 1. Currently the AUTO RANGE PARTITION function supports only one partition column;
 2. In AUTO RANGE PARTITION, the partition function supports only `date_trunc` and the partition column supports only `DATEV2` or `DATETIMEV2` format;
-3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` datatypes, and partitioned values are enum values.
+3. In AUTO LIST PARTITION, function calls are not supported. Partitioned columns support `BOOLEAN`, `TINYINT`, `SMALLINT`, `INT`, `BIGINT`, `LARGEINT`, `DATE`, `DATETIME`, `CHAR`, `VARCHAR` data-types, and partitioned values are enum values.
 4. In AUTO LIST PARTITION, a separate new PARTITION is created for each fetch of a partition column for which the corresponding partition does not currently exist.
 
 ## Sample Scenarios
@@ -197,3 +197,4 @@ A partition created by the AUTO PARTITION function has the exact same functional
 - Tables that use AUTO PARTITION only have their partitions created automatically instead of manually. The original use of the table and the partitions it creates is the same as for non-AUTO PARTITION tables or partitions.
 - To prevent accidental creation of too many partitions, we use the [FE Configuration](../../admin-manual/config/fe-config) `max_auto_partition_num` controls the maximum number of partitions an AUTO PARTITION table can hold. This value can be adjusted if necessary
 - When importing data to a table with AUTO PARTITION enabled, the polling interval for data sent by the Coordinator is different from that of a normal table. For details, see `olap_table_sink_send_interval_auto_partition_factor` in [BE Configuration](../../admin-manual/config/be-config).
+- In the case of inserting data with [insert-overwrite](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/INSERT-OVERWRITE) command, if an overwrite partition is specified, the AUTO PARTITION table behaves as a normal table during this process and no new partitions will be created.

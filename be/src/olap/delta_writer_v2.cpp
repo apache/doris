@@ -152,6 +152,9 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
+    while (_memtable_writer->flush_running_count() >= config::memtable_flush_running_count_limit) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     SCOPED_RAW_TIMER(&_write_memtable_time);
     return _memtable_writer->write(block, row_idxs, is_append);
 }

@@ -65,6 +65,12 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/get_least_supertype.h"
 
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
+
 namespace doris::vectorized {
 namespace {
 
@@ -639,11 +645,12 @@ void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
 }
 
 void ColumnObject::insert_from(const IColumn& src, size_t n) {
-    const auto& src_v = assert_cast<const ColumnObject&>(src);
+    const auto* src_v = check_and_get_column<ColumnObject>(src);
     // optimize when src and this column are scalar variant, since try_insert is inefficiency
-    if (src_v.is_scalar_variant() && is_scalar_variant() &&
-        src_v.get_root_type()->equals(*get_root_type()) && src_v.is_finalized() && is_finalized()) {
-        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v.get_root(), n);
+    if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
+        src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
+        is_finalized()) {
+        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v->get_root(), n);
         ++num_rows;
         return;
     }
@@ -1155,8 +1162,14 @@ void ColumnObject::merge_sparse_to_root_column() {
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         root.Accept(writer);
         bool res = parser.parse(buffer.GetString(), buffer.GetSize());
-        CHECK(res) << "buffer:" << std::string(buffer.GetString(), buffer.GetSize())
-                   << ", row_num:" << i;
+        if (!res) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "parse json failed, doc: {}"
+                            ", row_num:{}"
+                            ", error:{}",
+                            std::string(buffer.GetString(), buffer.GetSize()), i,
+                            JsonbErrMsg::getErrMsg(parser.getErrorCode()));
+        }
         result_column_ptr->insert_data(parser.getWriter().getOutput()->getBuffer(),
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);

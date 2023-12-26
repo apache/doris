@@ -267,6 +267,7 @@ public:
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
                                                     TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
+    request->partition_id = 30003;
     request->__set_version(1);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;
@@ -361,9 +362,9 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
 
-    DeltaWriter* delta_writer = nullptr;
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get()));
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
     ASSERT_NE(delta_writer, nullptr);
 
     vectorized::Block block;
@@ -397,9 +398,8 @@ void createTablet(TabletSharedPtr* tablet, int64_t replica_id, int32_t schema_ha
     ASSERT_EQ(Status::OK(), st);
     st = delta_writer->build_rowset();
     ASSERT_EQ(Status::OK(), st);
-    st = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    st = delta_writer->commit_txn(PSlaveTabletNodes());
     ASSERT_EQ(Status::OK(), st);
-    delete delta_writer;
 
     // publish version success
     *tablet = k_engine->tablet_manager()->get_tablet(write_req.tablet_id, write_req.schema_hash);

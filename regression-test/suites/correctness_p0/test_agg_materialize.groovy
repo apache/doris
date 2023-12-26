@@ -34,7 +34,7 @@ suite("test_agg_materialize") {
     sql """drop table if exists c5749_bug_t;"""
     sql """CREATE TABLE `c5749_bug_t` (
             `org_code` varchar(255) NULL ,
-            `cash_amt` decimal(27, 9) NULL ,
+            `cash_amt` decimal(27, 9) NULL
             
             ) ENGINE=OLAP
             DUPLICATE KEY(`org_code`)

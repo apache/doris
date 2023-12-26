@@ -93,6 +93,31 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")");
+
+        createTable("CREATE TABLE IF NOT EXISTS lineitem_null (\n"
+                + "  L_ORDERKEY    INTEGER NOT NULL,\n"
+                + "  L_PARTKEY     INTEGER NOT NULL,\n"
+                + "  L_SUPPKEY     INTEGER NOT NULL,\n"
+                + "  L_LINENUMBER  INTEGER NOT NULL,\n"
+                + "  L_QUANTITY    DECIMALV3(15,2) NOT NULL,\n"
+                + "  L_EXTENDEDPRICE  DECIMALV3(15,2) NOT NULL,\n"
+                + "  L_DISCOUNT    DECIMALV3(15,2) NOT NULL,\n"
+                + "  L_TAX         DECIMALV3(15,2) NOT NULL,\n"
+                + "  L_RETURNFLAG  CHAR(1) NOT NULL,\n"
+                + "  L_LINESTATUS  CHAR(1) NOT NULL,\n"
+                + "  L_SHIPDATE    DATE NULL,\n"
+                + "  L_COMMITDATE  DATE NULL,\n"
+                + "  L_RECEIPTDATE DATE NULL,\n"
+                + "  L_SHIPINSTRUCT CHAR(25) NOT NULL,\n"
+                + "  L_SHIPMODE     CHAR(10) NOT NULL,\n"
+                + "  L_COMMENT      VARCHAR(44) NOT NULL\n"
+                + ")\n"
+                + "DUPLICATE KEY(L_ORDERKEY, L_PARTKEY, L_SUPPKEY, L_LINENUMBER)\n"
+                + "PARTITION BY RANGE(L_SHIPDATE) (PARTITION `day_1` VALUES LESS THAN ('2017-02-01'))\n"
+                + "DISTRIBUTED BY HASH(L_ORDERKEY) BUCKETS 3\n"
+                + "PROPERTIES (\n"
+                + "  \"replication_num\" = \"1\"\n"
+                + ")");
     }
 
     @Test
@@ -113,7 +138,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             Optional<RelatedTableInfo> relatedTableInfo =
-                                    MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", rewrittenPlan);
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", rewrittenPlan);
                             checkRelatedTableInfo(relatedTableInfo,
                                     "lineitem",
                                     "L_SHIPDATE",
@@ -122,7 +147,30 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
     }
 
     @Test
-    public void getRelatedTableInfoTestWithAliasAndGroupTest() {
+    public void getRelatedTableInfoTestWithoutGroupNullTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT (o.c1_abs + ps.c2_abs) as add_alias, l.L_SHIPDATE, l.L_ORDERKEY, o.O_ORDERDATE, "
+                                + "ps.PS_AVAILQTY "
+                                + "FROM "
+                                + "lineitem_null as l "
+                                + "LEFT JOIN "
+                                + "(SELECT abs(O_TOTALPRICE + 10) as c1_abs, O_CUSTKEY, O_ORDERDATE, O_ORDERKEY "
+                                + "FROM orders) as o "
+                                + "ON l.L_ORDERKEY = o.O_ORDERKEY "
+                                + "JOIN "
+                                + "(SELECT abs(sqrt(PS_SUPPLYCOST)) as c2_abs, PS_AVAILQTY, PS_PARTKEY, PS_SUPPKEY "
+                                + "FROM partsupp) as ps "
+                                + "ON l.L_PARTKEY = ps.PS_PARTKEY and l.L_SUPPKEY = ps.PS_SUPPKEY",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", rewrittenPlan);
+                            Assertions.assertFalse(relatedTableInfo.isPresent());
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithSubqueryTest() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT l.L_SHIPDATE AS ship_data_alias, o.O_ORDERDATE, count(*) "
                                 + "FROM "
@@ -142,8 +190,95 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                                     MaterializedViewUtils.getRelatedTableInfo("ship_data_alias", rewrittenPlan);
                             checkRelatedTableInfo(relatedTableInfo,
                                     "lineitem",
+                                    "l_shipdate",
+                                    true);
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoTestWithAliasAndGroupTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT t1.L_SHIPDATE, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
+                                + "count(distinct case when t1.L_SUPPKEY > 0 then t2.O_ORDERSTATUS else null end) as cnt_1 "
+                                + "from "
+                                + "  (select * from "
+                                + "  lineitem "
+                                + "  where L_SHIPDATE in ('2017-01-30')) t1 "
+                                + "left join "
+                                + "  (select * from "
+                                + "  orders "
+                                + "  where O_ORDERDATE in ('2017-01-30')) t2 "
+                                + "on t1.L_ORDERKEY = t2.O_ORDERKEY "
+                                + "group by "
+                                + "t1.L_SHIPDATE, "
+                                + "t2.O_ORDERDATE, "
+                                + "t1.L_QUANTITY, "
+                                + "t2.O_ORDERSTATUS;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", rewrittenPlan);
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "lineitem",
                                     "L_SHIPDATE",
                                     true);
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoUseRightTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT t1.L_SHIPDATE, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
+                                + "count(distinct case when t1.L_SUPPKEY > 0 then t2.O_ORDERSTATUS else null end) as cnt_1 "
+                                + "from "
+                                + "  (select * from "
+                                + "  lineitem "
+                                + "  where L_SHIPDATE in ('2017-01-30')) t1 "
+                                + "right join "
+                                + "  (select * from "
+                                + "  orders "
+                                + "  where O_ORDERDATE in ('2017-01-30')) t2 "
+                                + "on t1.L_ORDERKEY = t2.O_ORDERKEY "
+                                + "group by "
+                                + "t1.L_SHIPDATE, "
+                                + "t2.O_ORDERDATE, "
+                                + "t1.L_QUANTITY, "
+                                + "t2.O_ORDERSTATUS;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("o_orderdate", rewrittenPlan);
+                            checkRelatedTableInfo(relatedTableInfo,
+                                    "orders",
+                                    "O_ORDERDATE",
+                                    true);
+                        });
+    }
+
+    @Test
+    public void getRelatedTableInfoUseNullGenerateSideTest() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT t1.L_SHIPDATE, t2.O_ORDERDATE, t1.L_QUANTITY, t2.O_ORDERSTATUS, "
+                                + "count(distinct case when t1.L_SUPPKEY > 0 then t2.O_ORDERSTATUS else null end) as cnt_1 "
+                                + "from "
+                                + "  (select * from "
+                                + "  lineitem "
+                                + "  where L_SHIPDATE in ('2017-01-30')) t1 "
+                                + "left join "
+                                + "  (select * from "
+                                + "  orders "
+                                + "  where O_ORDERDATE in ('2017-01-30')) t2 "
+                                + "on t1.L_ORDERKEY = t2.O_ORDERKEY "
+                                + "group by "
+                                + "t1.L_SHIPDATE, "
+                                + "t2.O_ORDERDATE, "
+                                + "t1.L_QUANTITY, "
+                                + "t2.O_ORDERSTATUS;",
+                        nereidsPlanner -> {
+                            Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
+                            Optional<RelatedTableInfo> relatedTableInfo =
+                                    MaterializedViewUtils.getRelatedTableInfo("o_orderdate", rewrittenPlan);
+                            Assertions.assertFalse(relatedTableInfo.isPresent());
                         });
     }
 
@@ -182,7 +317,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
                         nereidsPlanner -> {
                             Plan rewrittenPlan = nereidsPlanner.getRewrittenPlan();
                             Optional<RelatedTableInfo> relatedTableInfo =
-                                    MaterializedViewUtils.getRelatedTableInfo("L_SHIPDATE", rewrittenPlan);
+                                    MaterializedViewUtils.getRelatedTableInfo("l_shipdate", rewrittenPlan);
                             checkRelatedTableInfo(relatedTableInfo,
                                     "lineitem",
                                     "L_SHIPDATE",
@@ -268,7 +403,7 @@ public class MaterializedViewUtilsTest extends TestWithFeService {
         } catch (Exception exception) {
             Assertions.fail();
         }
-        Assertions.assertEquals(relatedTableInfo.get().getColumn(), expectColumnName);
+        Assertions.assertEquals(relatedTableInfo.get().getColumn().toLowerCase(), expectColumnName.toLowerCase());
         Assertions.assertTrue(pctPossible);
     }
 }

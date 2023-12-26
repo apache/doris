@@ -57,7 +57,7 @@ void Dependency::set_ready() {
 Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load() || _is_cancelled();
-    if (!ready && !push_to_blocking_queue() && task) {
+    if (!ready && task) {
         _add_block_task(task);
     }
     return ready ? nullptr : this;
@@ -66,7 +66,7 @@ Dependency* Dependency::is_blocked_by(PipelineXTask* task) {
 Dependency* FinishDependency::is_blocked_by(PipelineXTask* task) {
     std::unique_lock<std::mutex> lc(_task_lock);
     auto ready = _ready.load();
-    if (!ready && !push_to_blocking_queue() && task) {
+    if (!ready && task) {
         _add_block_task(task);
     }
     return ready ? nullptr : this;
@@ -116,7 +116,7 @@ std::string AndDependency::debug_string(int indentation_level) {
 
 bool RuntimeFilterTimer::has_ready() {
     std::unique_lock<std::mutex> lc(_lock);
-    return _runtime_filter->is_ready();
+    return _is_ready;
 }
 
 void RuntimeFilterTimer::call_timeout() {
@@ -139,6 +139,7 @@ void RuntimeFilterTimer::call_ready() {
     if (_parent) {
         _parent->sub_filters();
     }
+    _is_ready = true;
 }
 
 void RuntimeFilterTimer::call_has_ready() {
@@ -160,7 +161,7 @@ void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
     int32 wait_time_ms = runtime_filter->wait_time_ms();
     auto filter_timer = std::make_shared<RuntimeFilterTimer>(
             registration_time, wait_time_ms,
-            std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()), runtime_filter);
+            std::dynamic_pointer_cast<RuntimeFilterDependency>(shared_from_this()));
     runtime_filter->set_filter_timer(filter_timer);
     ExecEnv::GetInstance()->runtime_filter_timer_queue()->push_filter_timer(filter_timer);
 }
@@ -168,6 +169,7 @@ void RuntimeFilterDependency::add_filters(IRuntimeFilter* runtime_filter) {
 void RuntimeFilterDependency::sub_filters() {
     auto value = _filters.fetch_sub(1);
     if (value == 1) {
+        _watcher.stop();
         std::vector<PipelineXTask*> local_block_task {};
         {
             std::unique_lock<std::mutex> lc(_task_lock);

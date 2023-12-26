@@ -22,6 +22,7 @@
 #include "exprs/bloom_filter_func.h"
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "vec/exec/join/vhash_join_node.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -45,8 +46,7 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     RETURN_IF_ERROR(JoinBuildSinkLocalState::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    _shared_hash_table_dependency = SharedHashTableDependency::create_shared(
-            _parent->operator_id(), _parent->node_id(), state->get_query_ctx());
+    _shared_hash_table_dependency = dependency_sptr();
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
     _shared_state->join_op_variants = p._join_op_variants;
 
@@ -62,9 +62,12 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     if (p._is_broadcast_join) {
         profile()->add_info_string("BroadcastJoin", "true");
         if (state->enable_share_hash_table_for_broadcast_join()) {
-            profile()->add_info_string("ShareHashTableEnabled", "true");
-            _should_build_hash_table = p._shared_hashtable_controller->should_build_hash_table(
-                    state->fragment_instance_id(), p.node_id());
+            _should_build_hash_table = info.task_idx == 0;
+            if (_should_build_hash_table) {
+                profile()->add_info_string("ShareHashTableEnabled", "true");
+                CHECK(p._shared_hashtable_controller->should_build_hash_table(
+                        state->fragment_instance_id(), p.node_id()));
+            }
         } else {
             profile()->add_info_string("ShareHashTableEnabled", "false");
         }
@@ -100,7 +103,8 @@ Status HashJoinBuildSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo
     _runtime_filters.resize(p._runtime_filter_descs.size());
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
         RETURN_IF_ERROR(state->runtime_filter_mgr()->register_producer_filter(
-                p._runtime_filter_descs[i], state->query_options(), _build_expr_ctxs.size() == 1));
+                p._runtime_filter_descs[i], state->query_options(), _build_expr_ctxs.size() == 1,
+                p._use_global_rf, p._child_x->parallel_tasks()));
         RETURN_IF_ERROR(state->runtime_filter_mgr()->get_producer_filter(
                 p._runtime_filter_descs[i].filter_id, &_runtime_filters[i]));
     }
@@ -115,7 +119,7 @@ Status HashJoinBuildSinkLocalState::open(RuntimeState* state) {
     auto& p = _parent->cast<HashJoinBuildSinkOperatorX>();
 
     for (size_t i = 0; i < p._runtime_filter_descs.size(); i++) {
-        if (auto bf = _runtime_filters[i]->get_bloomfilter()) {
+        if (auto* bf = _runtime_filters[i]->get_bloomfilter()) {
             RETURN_IF_ERROR(bf->init_with_fixed_length());
         }
     }
@@ -226,8 +230,6 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     vectorized::ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
     vectorized::ColumnUInt8::MutablePtr null_map_val;
-    std::vector<int> res_col_ids(_build_expr_ctxs.size());
-    RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (p._join_op == TJoinOp::LEFT_OUTER_JOIN || p._join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
         // first row is mocked
@@ -243,7 +245,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     //  so we have to initialize this flag by the first build block.
     if (!_has_set_need_null_map_for_build) {
         _has_set_need_null_map_for_build = true;
-        _set_build_ignore_flag(block, res_col_ids);
+        _set_build_ignore_flag(block, _build_col_ids);
     }
     if (p._short_circuit_for_null_in_build_side || _build_side_ignore_null) {
         null_map_val = vectorized::ColumnUInt8::create();
@@ -251,7 +253,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state,
     }
 
     // Get the key column that needs to be built
-    Status st = _extract_join_column(block, null_map_val, raw_ptrs, res_col_ids);
+    Status st = _extract_join_column(block, null_map_val, raw_ptrs, _build_col_ids);
 
     st = std::visit(
             Overload {[&](std::monostate& arg, auto join_op, auto has_null_value,
@@ -383,12 +385,14 @@ void HashJoinBuildSinkLocalState::_hash_table_init(RuntimeState* state) {
 
 HashJoinBuildSinkOperatorX::HashJoinBuildSinkOperatorX(ObjectPool* pool, int operator_id,
                                                        const TPlanNode& tnode,
-                                                       const DescriptorTbl& descs)
+                                                       const DescriptorTbl& descs,
+                                                       bool use_global_rf)
         : JoinBuildSinkOperatorX(pool, operator_id, tnode, descs),
           _join_distribution(tnode.hash_join_node.__isset.dist_type ? tnode.hash_join_node.dist_type
                                                                     : TJoinDistributionType::NONE),
           _is_broadcast_join(tnode.hash_join_node.__isset.is_broadcast_join &&
-                             tnode.hash_join_node.is_broadcast_join) {
+                             tnode.hash_join_node.is_broadcast_join),
+          _use_global_rf(use_global_rf) {
     _runtime_filter_descs = tnode.runtime_filters;
 }
 
@@ -452,13 +456,21 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
         if (local_state._build_side_mutable_block.empty()) {
             auto tmp_build_block = vectorized::VectorizedUtils::create_empty_columnswithtypename(
                     _child_x->row_desc());
+            tmp_build_block = *(tmp_build_block.create_same_struct_block(1, false));
+            local_state._build_col_ids.resize(_build_expr_ctxs.size());
+            RETURN_IF_ERROR(local_state._do_evaluate(tmp_build_block, local_state._build_expr_ctxs,
+                                                     *local_state._build_expr_call_timer,
+                                                     local_state._build_col_ids));
             local_state._build_side_mutable_block =
                     vectorized::MutableBlock::build_mutable_block(&tmp_build_block);
-            RETURN_IF_ERROR(local_state._build_side_mutable_block.merge(
-                    *(tmp_build_block.create_same_struct_block(1, false))));
         }
 
         if (in_block->rows() != 0) {
+            std::vector<int> res_col_ids(_build_expr_ctxs.size());
+            RETURN_IF_ERROR(local_state._do_evaluate(*in_block, local_state._build_expr_ctxs,
+                                                     *local_state._build_expr_call_timer,
+                                                     res_col_ids));
+
             SCOPED_TIMER(local_state._build_side_merge_block_timer);
             RETURN_IF_ERROR(local_state._build_side_mutable_block.merge(*in_block));
             if (local_state._build_side_mutable_block.rows() >
@@ -514,10 +526,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, vectorized::Block* 
     } else if (!local_state._should_build_hash_table) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
-        auto wait_timer = ADD_TIMER(local_state.profile(), "WaitForSharedHashTableTime");
-        SCOPED_TIMER(wait_timer);
-        RETURN_IF_ERROR(
-                _shared_hashtable_controller->wait_for_signal(state, _shared_hash_table_context));
+        CHECK(_shared_hash_table_context->signaled);
 
         local_state.profile()->add_info_string(
                 "SharedHashTableFrom",

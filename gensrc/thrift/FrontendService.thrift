@@ -530,6 +530,8 @@ struct TMasterOpResult {
     3: optional TShowResultSet resultSet;
     4: optional Types.TUniqueId queryId;
     5: optional string status;
+    6: optional i32 statusCode;
+    7: optional string errMessage;
 }
 
 struct TUpdateExportTaskStatusRequest {
@@ -652,8 +654,9 @@ struct TStreamLoadPutRequest {
     // only valid when file type is CSV
     52: optional i8 escape
     53: optional bool memtable_on_sink_node;
-    54: optional bool group_commit
+    54: optional bool group_commit // deprecated
     55: optional i32 stream_per_node;
+    56: optional string group_commit_mode
 }
 
 struct TStreamLoadPutResult {
@@ -1299,6 +1302,11 @@ struct TGetBackendMetaResult {
     3: optional Types.TNetworkAddress master_address
 }
 
+struct TColumnInfo {
+  1: optional string columnName
+  2: optional i64 columnId
+}
+
 struct TGetColumnInfoRequest {
     1: optional i64 db_id
     2: optional i64 table_id
@@ -1306,7 +1314,7 @@ struct TGetColumnInfoRequest {
 
 struct TGetColumnInfoResult {
     1: optional Status.TStatus status
-    2: optional string column_info
+    2: optional list<TColumnInfo> columns
 }
 
 service FrontendService {

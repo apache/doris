@@ -302,8 +302,7 @@ Status Tablet::_init_once_action() {
     for (const auto& rs_meta : _tablet_meta->all_rs_metas()) {
         Version version = rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), _tablet_path, rs_meta,
-                                           &rowset);
+        res = create_rowset(rs_meta, &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init rowset. tablet_id=" << tablet_id()
                          << ", schema_hash=" << schema_hash() << ", version=" << version
@@ -314,11 +313,10 @@ Status Tablet::_init_once_action() {
     }
 
     // init stale rowset
-    for (auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
+    for (const auto& stale_rs_meta : _tablet_meta->all_stale_rs_metas()) {
         Version version = stale_rs_meta->version();
         RowsetSharedPtr rowset;
-        res = RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), _tablet_path,
-                                           stale_rs_meta, &rowset);
+        res = create_rowset(stale_rs_meta, &rowset);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init stale rowset. tablet_id:" << tablet_id()
                          << ", schema_hash:" << schema_hash() << ", version=" << version
@@ -2074,8 +2072,10 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {
-    return RowsetFactory::create_rowset(_tablet_meta->tablet_schema(), tablet_path(), rowset_meta,
-                                        rowset);
+    return RowsetFactory::create_rowset(
+            _tablet_meta->tablet_schema(),
+            rowset_meta->is_local() ? _tablet_path : remote_tablet_path(tablet_id()), rowset_meta,
+            rowset);
 }
 
 Status Tablet::cooldown() {
@@ -2122,16 +2122,7 @@ Status Tablet::_cooldown_data() {
         LOG(INFO) << "cannot pick cooldown rowset in tablet " << tablet_id();
         return Status::OK();
     }
-    if (old_rowset->num_segments() < 1) {
-        // Empty rowset, just reset rowset's resource_id
-        std::lock_guard meta_wlock(_meta_lock);
-        SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
-        old_rowset->rowset_meta()->set_fs(dest_fs);
-        LOG(INFO) << "cooldown empty rowset " << old_rowset->version() << " "
-                  << old_rowset->rowset_id().to_string() << " to " << dest_fs->root_path().native()
-                  << ", tablet_id=" << tablet_id();
-        return Status::OK();
-    }
+
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
     auto pending_rs_guard = StorageEngine::instance()->pending_remote_rowsets().add(new_rowset_id);
     Status st;
@@ -2178,7 +2169,9 @@ Status Tablet::_cooldown_data() {
         SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
         save_meta();
     }
-    // upload cooldowned rowset meta to remote fs
+    // Upload cooldowned rowset meta to remote fs
+    // ATTN: Even if it is an empty rowset, in order for the followers to synchronize, the coolown meta must be
+    // uploaded, otherwise followers may never completely cooldown.
     if (auto t = StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id());
         t != nullptr) { // `t` can be nullptr if it has been dropped
         async_write_cooldown_meta(std::move(t));
@@ -2371,8 +2364,8 @@ Status Tablet::_follow_cooldowned_data() {
             auto rs_meta = std::make_shared<RowsetMeta>();
             rs_meta->init_from_pb(*rs_pb_it);
             RowsetSharedPtr rs;
-            RETURN_IF_ERROR(RowsetFactory::create_rowset(_tablet_meta->tablet_schema(),
-                                                         _tablet_path, rs_meta, &rs));
+            RETURN_IF_ERROR(RowsetFactory::create_rowset(
+                    _tablet_meta->tablet_schema(), remote_tablet_path(tablet_id()), rs_meta, &rs));
             to_add.push_back(std::move(rs));
         }
         // Note: We CANNOT call `modify_rowsets` here because `modify_rowsets` cannot process version graph correctly.
@@ -3023,7 +3016,10 @@ Status Tablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
             auto st = lookup_row_key(key, true, specified_rowsets, &loc, dummy_version.first - 1,
                                      segment_caches, &rowset_find);
             bool expected_st = st.ok() || st.is<KEY_NOT_FOUND>() || st.is<KEY_ALREADY_EXISTS>();
-            DCHECK(expected_st) << "unexpected error status while lookup_row_key:" << st;
+            // It's a defensive DCHECK, we need to exclude some common errors to avoid core-dump
+            // while stress test
+            DCHECK(expected_st || st.is<MEM_LIMIT_EXCEEDED>())
+                    << "unexpected error status while lookup_row_key:" << st;
             if (!expected_st) {
                 return st;
             }
@@ -3203,6 +3199,7 @@ Status Tablet::generate_new_block_for_partial_update(
                     read_index_update[idx]);
         }
     }
+    output_block->set_columns(std::move(full_mutable_columns));
     VLOG_DEBUG << "full block when publish: " << output_block->dump_data();
     return Status::OK();
 }
@@ -3248,6 +3245,7 @@ Status Tablet::read_columns_by_plan(TabletSchemaSPtr tablet_schema,
             }
         }
     }
+    block.set_columns(std::move(mutable_columns));
     return Status::OK();
 }
 

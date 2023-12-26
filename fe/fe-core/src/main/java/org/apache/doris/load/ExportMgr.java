@@ -59,23 +59,26 @@ import java.util.stream.Collectors;
 
 public class ExportMgr {
     private static final Logger LOG = LogManager.getLogger(ExportJob.class);
-
-    // lock for export job
-    // lock is private and must use after db lock
-    private ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
-
     private Map<Long, ExportJob> exportIdToJob = Maps.newHashMap(); // exportJobId to exportJob
     // dbid -> <label -> job>
     private Map<Long, Map<String, Long>> dbTolabelToExportJobId = Maps.newHashMap();
 
+    // lock for export job
+    // lock is private and must use after db lock
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
     public ExportMgr() {
     }
 
-    public void readLock() {
+    public List<ExportJob> getJobs() {
+        return Lists.newArrayList(exportIdToJob.values());
+    }
+
+    private void readLock() {
         lock.readLock().lock();
     }
 
-    public void readUnlock() {
+    private void readUnlock() {
         lock.readLock().unlock();
     }
 
@@ -85,10 +88,6 @@ public class ExportMgr {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
-    }
-
-    public List<ExportJob> getJobs() {
-        return Lists.newArrayList(exportIdToJob.values());
     }
 
     public void addExportJobAndRegisterTask(ExportJob job) throws Exception {
@@ -101,9 +100,8 @@ public class ExportMgr {
                 throw new LabelAlreadyUsedException(job.getLabel());
             }
             unprotectAddJob(job);
-            job.getJobExecutorList().forEach(executor -> {
-                Long taskId = Env.getCurrentEnv().getExportTaskRegister().registerTask(executor);
-                executor.setTaskId(taskId);
+            job.getTaskExecutors().forEach(executor -> {
+                Long taskId = Env.getCurrentEnv().getTransientTaskManager().addMemoryTask(executor);
                 job.getTaskIdToExecutor().put(taskId, executor);
             });
             Env.getCurrentEnv().getEditLog().logExportCreate(job);

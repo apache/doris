@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
+import org.apache.doris.thrift.TTypeDesc;
+import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
@@ -71,10 +73,21 @@ public class StructLiteral extends LiteralExpr {
         return "STRUCT(" + StringUtils.join(list, ", ") + ")";
     }
 
+    private String getStringValue(Expr expr) {
+        String stringValue = expr.getStringValue();
+        if (stringValue.isEmpty()) {
+            return "''";
+        }
+        if (expr instanceof StringLiteral) {
+            return "\"" + stringValue + "\"";
+        }
+        return stringValue;
+    }
+
     @Override
     public String getStringValue() {
         List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValue()));
+        children.forEach(v -> list.add(getStringValue(v)));
         return "{" + StringUtils.join(list, ", ") + "}";
     }
 
@@ -95,6 +108,11 @@ public class StructLiteral extends LiteralExpr {
     @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.STRUCT_LITERAL;
+        ((StructType) type).getFields().forEach(v -> msg.setChildType(v.getType().getPrimitiveType().toThrift()));
+        TTypeDesc container = new TTypeDesc();
+        container.setTypes(new ArrayList<TTypeNode>());
+        type.toThrift(container);
+        msg.setType(container);
     }
 
     @Override

@@ -17,6 +17,7 @@
 
 #include "runtime/tablets_channel.h"
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
@@ -41,6 +42,7 @@
 #include "olap/storage_engine.h"
 #include "olap/txn_manager.h"
 #include "runtime/load_channel.h"
+#include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
 #include "vec/core/block.h"
@@ -48,12 +50,15 @@
 namespace doris {
 class SlotDescriptor;
 
+bvar::Adder<int64_t> g_tablets_channel_send_data_allocated_size(
+        "tablets_channel_send_data_allocated_size");
+
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(tablet_writer_count, MetricUnit::NOUNIT);
 
-std::atomic<uint64_t> TabletsChannel::_s_tablet_writer_count;
+std::atomic<uint64_t> BaseTabletsChannel::_s_tablet_writer_count;
 
-TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
-                               bool is_high_priority, RuntimeProfile* profile)
+BaseTabletsChannel::BaseTabletsChannel(const TabletsChannelKey& key, const UniqueId& load_id,
+                                       bool is_high_priority, RuntimeProfile* profile)
         : _key(key),
           _state(kInitialized),
           _load_id(load_id),
@@ -66,21 +71,41 @@ TabletsChannel::TabletsChannel(const TabletsChannelKey& key, const UniqueId& loa
     });
 }
 
-TabletsChannel::~TabletsChannel() {
+TabletsChannel::TabletsChannel(StorageEngine& engine, const TabletsChannelKey& key,
+                               const UniqueId& load_id, bool is_high_priority,
+                               RuntimeProfile* profile)
+        : BaseTabletsChannel(key, load_id, is_high_priority, profile), _engine(engine) {}
+
+BaseTabletsChannel::~BaseTabletsChannel() {
     _s_tablet_writer_count -= _tablet_writers.size();
-    for (auto& it : _tablet_writers) {
-        delete it.second;
-    }
-    delete _schema;
 }
 
-void TabletsChannel::_init_profile(RuntimeProfile* profile) {
+TabletsChannel::~TabletsChannel() = default;
+
+Status BaseTabletsChannel::_get_current_seq(int64_t& cur_seq,
+                                            const PTabletWriterAddBlockRequest& request) {
+    std::lock_guard<std::mutex> l(_lock);
+    if (_state != kOpened) {
+        return _state == kFinished ? _close_status
+                                   : Status::InternalError("TabletsChannel {} state: {}",
+                                                           _key.to_string(), _state);
+    }
+    cur_seq = _next_seqs[request.sender_id()];
+    // check packet
+    if (request.packet_seq() > cur_seq) {
+        LOG(WARNING) << "lost data packet, expect_seq=" << cur_seq
+                     << ", recept_seq=" << request.packet_seq();
+        return Status::InternalError("lost data packet");
+    }
+    return Status::OK();
+}
+
+void BaseTabletsChannel::_init_profile(RuntimeProfile* profile) {
     _profile =
             profile->create_child(fmt::format("TabletsChannel {}", _key.to_string()), true, true);
     _add_batch_number_counter = ADD_COUNTER(_profile, "NumberBatchAdded", TUnit::UNIT);
 
     auto* memory_usage = _profile->create_child("PeakMemoryUsage", true, true);
-    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
     _add_batch_timer = ADD_TIMER(_profile, "AddBatchTime");
     _write_block_timer = ADD_TIMER(_profile, "WriteBlockTime");
     _incremental_open_timer = ADD_TIMER(_profile, "IncrementalOpenTabletTime");
@@ -95,7 +120,12 @@ void TabletsChannel::_init_profile(RuntimeProfile* profile) {
             memory_usage->AddHighWaterMarkCounter("MaxTabletFlush", TUnit::BYTES);
 }
 
-Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
+void TabletsChannel::_init_profile(RuntimeProfile* profile) {
+    BaseTabletsChannel::_init_profile(profile);
+    _slave_replica_timer = ADD_TIMER(_profile, "SlaveReplicaTime");
+}
+
+Status BaseTabletsChannel::open(const PTabletWriterOpenRequest& request) {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kOpened) {
         // Normal case, already open by other sender
@@ -105,7 +135,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
               << ", timeout(s): " << request.load_channel_timeout_s();
     _txn_id = request.txn_id();
     _index_id = request.index_id();
-    _schema = new OlapTableSchemaParam();
+    _schema = std::make_unique<OlapTableSchemaParam>();
     RETURN_IF_ERROR(_schema->init(request.schema()));
     _tuple_desc = _schema->tuple_desc();
 
@@ -119,7 +149,7 @@ Status TabletsChannel::open(const PTabletWriterOpenRequest& request) {
     return Status::OK();
 }
 
-Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) {
+Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) {
     SCOPED_TIMER(_incremental_open_timer);
     if (_state == kInitialized) { // haven't opened
         return open(params);
@@ -159,22 +189,15 @@ Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) 
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
-        wrequest.table_schema_param = _schema;
+        wrequest.table_schema_param = _schema.get();
 
-        DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
-        if (!st.ok()) {
-            auto err_msg = fmt::format(
-                    "open delta writer failed, tablet_id={}"
-                    ", txn_id={}, partition_id={}, err={}",
-                    tablet.tablet_id(), _txn_id, tablet.partition_id(), st.to_string());
-            LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
-        }
+        // TODO(plat1ko): CloudDeltaWriter
+        auto delta_writer = std::make_unique<DeltaWriter>(*StorageEngine::instance(), &wrequest,
+                                                          _profile, _load_id);
         ss << "[" << tablet.tablet_id() << "]";
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            _tablet_writers.emplace(tablet.tablet_id(), writer);
+            _tablet_writers.emplace(tablet.tablet_id(), std::move(delta_writer));
         }
     }
 
@@ -185,14 +208,12 @@ Status TabletsChannel::incremental_open(const PTabletWriterOpenRequest& params) 
     return Status::OK();
 }
 
-Status TabletsChannel::close(
-        LoadChannel* parent, int sender_id, int64_t backend_id, bool* finished,
-        const google::protobuf::RepeatedField<int64_t>& partition_ids,
-        google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-        google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
-        const google::protobuf::Map<int64_t, PSlaveTabletNodes>& slave_tablet_nodes,
-        google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>* success_slave_tablet_node_ids,
-        const bool write_single_replica) {
+Status TabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlockRequest& req,
+                             PTabletWriterAddBlockResult* res, bool* finished) {
+    int sender_id = req.sender_id();
+    int64_t backend_id = req.backend_id();
+    const auto& partition_ids = req.partition_ids();
+    auto* tablet_errors = res->mutable_tablet_errors();
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;
@@ -215,17 +236,17 @@ Status TabletsChannel::close(
         // All senders are closed
         // 1. close all delta writers
         std::set<DeltaWriter*> need_wait_writers;
-        for (auto& it : _tablet_writers) {
-            if (_partition_ids.count(it.second->partition_id()) > 0) {
-                auto st = it.second->close();
+        for (auto&& [tablet_id, writer] : _tablet_writers) {
+            if (_partition_ids.contains(writer->partition_id())) {
+                auto st = writer->close();
                 if (!st.ok()) {
                     auto err_msg = fmt::format(
                             "close tablet writer failed, tablet_id={}, "
                             "transaction_id={}, err={}",
-                            it.first, _txn_id, st.to_string());
+                            tablet_id, _txn_id, st.to_string());
                     LOG(WARNING) << err_msg;
                     PTabletError* tablet_error = tablet_errors->Add();
-                    tablet_error->set_tablet_id(it.first);
+                    tablet_error->set_tablet_id(tablet_id);
                     tablet_error->set_msg(st.to_string());
                     // just skip this tablet(writer) and continue to close others
                     continue;
@@ -233,30 +254,30 @@ Status TabletsChannel::close(
                 // tablet writer in `_broken_tablets` should not call `build_rowset` and
                 // `commit_txn` method, after that, the publish-version task will success,
                 // which can cause the replica inconsistency.
-                if (_is_broken_tablet(it.second->tablet_id())) {
+                if (_is_broken_tablet(writer->tablet_id())) {
                     LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
-                                 << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
+                                 << ", tablet_id=" << tablet_id << ", transaction_id=" << _txn_id;
                     continue;
                 }
-                need_wait_writers.insert(it.second);
+                need_wait_writers.insert(static_cast<DeltaWriter*>(writer.get()));
             } else {
-                auto st = it.second->cancel();
+                auto st = writer->cancel();
                 if (!st.ok()) {
-                    LOG(WARNING) << "cancel tablet writer failed, tablet_id=" << it.first
+                    LOG(WARNING) << "cancel tablet writer failed, tablet_id=" << tablet_id
                                  << ", transaction_id=" << _txn_id;
                     // just skip this tablet(writer) and continue to close others
                     continue;
                 }
-                VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << it.first
+                VLOG_PROGRESS << "cancel tablet writer successfully, tablet_id=" << tablet_id
                               << ", transaction_id=" << _txn_id;
             }
         }
 
-        _write_single_replica = write_single_replica;
+        _write_single_replica = req.write_single_replica();
 
         // 2. wait all writer finished flush.
-        for (auto writer : need_wait_writers) {
-            static_cast<void>(writer->wait_flush());
+        for (auto* writer : need_wait_writers) {
+            RETURN_IF_ERROR((writer->wait_flush()));
         }
 
         // 3. build rowset
@@ -289,23 +310,23 @@ Status TabletsChannel::close(
         }
 
         // 5. commit all writers
-        for (auto writer : need_wait_writers) {
+
+        for (auto* writer : need_wait_writers) {
             PSlaveTabletNodes slave_nodes;
-            if (write_single_replica) {
-                slave_nodes = slave_tablet_nodes.at(writer->tablet_id());
-            }
+
             // close may return failed, but no need to handle it here.
             // tablet_vec will only contains success tablet, and then let FE judge it.
-            _commit_txn(writer, tablet_vec, tablet_errors, slave_nodes, write_single_replica);
+            _commit_txn(writer, req, res);
         }
 
-        if (write_single_replica) {
+        if (_write_single_replica) {
+            auto* success_slave_tablet_node_ids = res->mutable_success_slave_tablet_node_ids();
             // The operation waiting for all slave replicas to complete must end before the timeout,
             // so that there is enough time to collect completed replica. Otherwise, the task may
             // timeout and fail even though most of the replicas are completed. Here we set 0.9
             // times the timeout as the maximum waiting time.
             SCOPED_TIMER(_slave_replica_timer);
-            while (need_wait_writers.size() > 0 &&
+            while (!need_wait_writers.empty() &&
                    (time(nullptr) - parent->last_updated_time()) < (parent->timeout() * 0.9)) {
                 std::set<DeltaWriter*>::iterator it;
                 for (it = need_wait_writers.begin(); it != need_wait_writers.end();) {
@@ -318,22 +339,22 @@ Status TabletsChannel::close(
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(100));
             }
-            for (auto writer : need_wait_writers) {
+            for (auto* writer : need_wait_writers) {
                 writer->add_finished_slave_replicas(success_slave_tablet_node_ids);
             }
-            StorageEngine::instance()->txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
+            _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
         }
     }
     return Status::OK();
 }
 
-void TabletsChannel::_commit_txn(DeltaWriter* writer,
-                                 google::protobuf::RepeatedPtrField<PTabletInfo>* tablet_vec,
-                                 google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors,
-                                 PSlaveTabletNodes slave_tablet_nodes,
-                                 const bool write_single_replica) {
-    Status st = writer->commit_txn(slave_tablet_nodes, write_single_replica);
-    if (st.ok()) {
+void TabletsChannel::_commit_txn(DeltaWriter* writer, const PTabletWriterAddBlockRequest& req,
+                                 PTabletWriterAddBlockResult* res) {
+    Status st = writer->commit_txn(_write_single_replica
+                                           ? req.slave_tablet_nodes().at(writer->tablet_id())
+                                           : PSlaveTabletNodes {});
+    if (st.ok()) [[likely]] {
+        auto* tablet_vec = res->mutable_tablet_vec();
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
         // unused required field.
@@ -341,11 +362,11 @@ void TabletsChannel::_commit_txn(DeltaWriter* writer,
         tablet_info->set_received_rows(writer->total_received_rows());
         tablet_info->set_num_rows_filtered(writer->num_rows_filtered());
     } else {
-        _add_error_tablet(tablet_errors, writer->tablet_id(), st);
+        _add_error_tablet(res->mutable_tablet_errors(), writer->tablet_id(), st);
     }
 }
 
-void TabletsChannel::_add_error_tablet(
+void BaseTabletsChannel::_add_error_tablet(
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors, int64_t tablet_id,
         Status error) const {
     PTabletError* tablet_error = tablet_errors->Add();
@@ -355,7 +376,7 @@ void TabletsChannel::_add_error_tablet(
                   << "err msg " << error;
 }
 
-void TabletsChannel::refresh_profile() {
+void BaseTabletsChannel::refresh_profile() {
     int64_t write_mem_usage = 0;
     int64_t flush_mem_usage = 0;
     int64_t max_tablet_mem_usage = 0;
@@ -363,10 +384,10 @@ void TabletsChannel::refresh_profile() {
     int64_t max_tablet_flush_mem_usage = 0;
     {
         std::lock_guard<SpinLock> l(_tablet_writers_lock);
-        for (auto& it : _tablet_writers) {
-            int64_t write_mem = it.second->mem_consumption(MemType::WRITE);
+        for (auto&& [tablet_id, writer] : _tablet_writers) {
+            int64_t write_mem = writer->mem_consumption(MemType::WRITE);
             write_mem_usage += write_mem;
-            int64_t flush_mem = it.second->mem_consumption(MemType::FLUSH);
+            int64_t flush_mem = writer->mem_consumption(MemType::FLUSH);
             flush_mem_usage += flush_mem;
             if (write_mem > max_tablet_write_mem_usage) {
                 max_tablet_write_mem_usage = write_mem;
@@ -387,10 +408,10 @@ void TabletsChannel::refresh_profile() {
     COUNTER_SET(_max_tablet_flush_memory_usage_counter, max_tablet_flush_mem_usage);
 }
 
-Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
+Status BaseTabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request) {
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
-    for (auto& index : _schema->indexes()) {
+    for (const auto& index : _schema->indexes()) {
         if (index->index_id == _index_id) {
             index_slots = &index->slots;
             schema_hash = index->schema_hash;
@@ -414,7 +435,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
 #endif
 
     int tablet_cnt = 0;
-    for (auto& tablet : request.tablets()) {
+    for (const auto& tablet : request.tablets()) {
         if (_tablet_writers.find(tablet.tablet_id()) != _tablet_writers.end()) {
             continue;
         }
@@ -428,24 +449,17 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
                 .load_id = request.id(),
                 .tuple_desc = _tuple_desc,
                 .slots = index_slots,
-                .table_schema_param = _schema,
+                .table_schema_param = _schema.get(),
                 .is_high_priority = _is_high_priority,
                 .write_file_cache = request.write_file_cache(),
         };
 
-        DeltaWriter* writer = nullptr;
-        auto st = DeltaWriter::open(&wrequest, &writer, _profile, _load_id);
-        if (!st.ok()) {
-            auto err_msg = fmt::format(
-                    "open delta writer failed, tablet_id={}"
-                    ", txn_id={}, partition_id={}, err={}",
-                    tablet.tablet_id(), _txn_id, tablet.partition_id(), st.to_string());
-            LOG(WARNING) << err_msg;
-            return Status::InternalError(err_msg);
-        }
+        // TODO(plat1ko): CloudDeltaWriter
+        auto writer = std::make_unique<DeltaWriter>(*StorageEngine::instance(), &wrequest, _profile,
+                                                    _load_id);
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
-            _tablet_writers.emplace(tablet.tablet_id(), writer);
+            _tablet_writers.emplace(tablet.tablet_id(), std::move(writer));
         }
     }
     _s_tablet_writer_count += _tablet_writers.size();
@@ -453,7 +467,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
     return Status::OK();
 }
 
-Status TabletsChannel::cancel() {
+Status BaseTabletsChannel::cancel() {
     std::lock_guard<std::mutex> l(_lock);
     if (_state == kFinished) {
         return _close_status;
@@ -462,8 +476,14 @@ Status TabletsChannel::cancel() {
         static_cast<void>(it.second->cancel());
     }
     _state = kFinished;
+
+    return Status::OK();
+}
+
+Status TabletsChannel::cancel() {
+    RETURN_IF_ERROR(BaseTabletsChannel::cancel());
     if (_write_single_replica) {
-        StorageEngine::instance()->txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
+        _engine.txn_manager()->clear_txn_tablet_delta_writer(_txn_id);
     }
     return Status::OK();
 }
@@ -479,8 +499,8 @@ std::ostream& operator<<(std::ostream& os, const TabletsChannelKey& key) {
     return os;
 }
 
-Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
-                                 PTabletWriterAddBlockResult* response) {
+Status BaseTabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
+                                     PTabletWriterAddBlockResult* response) {
     SCOPED_TIMER(_add_batch_timer);
     int64_t cur_seq = 0;
     _add_batch_number_counter->update(1);
@@ -498,23 +518,7 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
 
     std::unordered_map<int64_t /* tablet_id */, std::vector<uint32_t> /* row index */>
             tablet_to_rowidxs;
-    for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
-        if (request.is_single_tablet_block()) {
-            break;
-        }
-        int64_t tablet_id = request.tablet_ids(i);
-        if (_is_broken_tablet(tablet_id)) {
-            // skip broken tablets
-            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
-            continue;
-        }
-        auto it = tablet_to_rowidxs.find(tablet_id);
-        if (it == tablet_to_rowidxs.end()) {
-            tablet_to_rowidxs.emplace(tablet_id, std::initializer_list<uint32_t> {i});
-        } else {
-            it->second.emplace_back(i);
-        }
-    }
+    _build_tablet_to_rowidxs(request, &tablet_to_rowidxs);
 
     vectorized::Block send_data;
     RETURN_IF_ERROR(send_data.deserialize(request.block()));
@@ -522,15 +526,19 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
             << "block rows: " << send_data.rows()
             << ", tablet_ids_size: " << request.tablet_ids_size();
 
+    g_tablets_channel_send_data_allocated_size << send_data.allocated_bytes();
+    Defer defer {
+            [&]() { g_tablets_channel_send_data_allocated_size << -send_data.allocated_bytes(); }};
+
     auto write_tablet_data = [&](uint32_t tablet_id,
-                                 std::function<Status(DeltaWriter * writer)> write_func) {
+                                 std::function<Status(BaseDeltaWriter * writer)> write_func) {
         google::protobuf::RepeatedPtrField<PTabletError>* tablet_errors =
                 response->mutable_tablet_errors();
         auto tablet_writer_it = _tablet_writers.find(tablet_id);
         if (tablet_writer_it == _tablet_writers.end()) {
             return Status::InternalError("unknown tablet to append data, tablet={}", tablet_id);
         }
-        Status st = write_func(tablet_writer_it->second);
+        Status st = write_func(tablet_writer_it->second.get());
         if (!st.ok()) {
             auto err_msg =
                     fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
@@ -549,15 +557,16 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
 
     if (request.is_single_tablet_block()) {
         SCOPED_TIMER(_write_block_timer);
-        RETURN_IF_ERROR(write_tablet_data(request.tablet_ids(0), [&](DeltaWriter* writer) {
+        RETURN_IF_ERROR(write_tablet_data(request.tablet_ids(0), [&](BaseDeltaWriter* writer) {
             return writer->append(&send_data);
         }));
     } else {
         SCOPED_TIMER(_write_block_timer);
         for (const auto& tablet_to_rowidxs_it : tablet_to_rowidxs) {
-            RETURN_IF_ERROR(write_tablet_data(tablet_to_rowidxs_it.first, [&](DeltaWriter* writer) {
-                return writer->write(&send_data, tablet_to_rowidxs_it.second);
-            }));
+            RETURN_IF_ERROR(
+                    write_tablet_data(tablet_to_rowidxs_it.first, [&](BaseDeltaWriter* writer) {
+                        return writer->write(&send_data, tablet_to_rowidxs_it.second);
+                    }));
         }
     }
 
@@ -568,14 +577,39 @@ Status TabletsChannel::add_batch(const PTabletWriterAddBlockRequest& request,
     return Status::OK();
 }
 
-void TabletsChannel::_add_broken_tablet(int64_t tablet_id) {
+void BaseTabletsChannel::_add_broken_tablet(int64_t tablet_id) {
     std::unique_lock<std::shared_mutex> wlock(_broken_tablets_lock);
     _broken_tablets.insert(tablet_id);
 }
 
-bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
-    std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+bool BaseTabletsChannel::_is_broken_tablet(int64_t tablet_id) const {
     return _broken_tablets.find(tablet_id) != _broken_tablets.end();
+}
+
+void BaseTabletsChannel::_build_tablet_to_rowidxs(
+        const PTabletWriterAddBlockRequest& request,
+        std::unordered_map<int64_t, std::vector<uint32_t>>* tablet_to_rowidxs) {
+    // just add a coarse-grained read lock here rather than each time when visiting _broken_tablets
+    // tests show that a relatively coarse-grained read lock here performs better under multicore scenario
+    // see: https://github.com/apache/doris/pull/28552
+    std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+    for (uint32_t i = 0; i < request.tablet_ids_size(); ++i) {
+        if (request.is_single_tablet_block()) {
+            break;
+        }
+        int64_t tablet_id = request.tablet_ids(i);
+        if (_is_broken_tablet(tablet_id)) {
+            // skip broken tablets
+            VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
+            continue;
+        }
+        auto it = tablet_to_rowidxs->find(tablet_id);
+        if (it == tablet_to_rowidxs->end()) {
+            tablet_to_rowidxs->emplace(tablet_id, std::initializer_list<uint32_t> {i});
+        } else {
+            it->second.emplace_back(i);
+        }
+    }
 }
 
 } // namespace doris

@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -37,6 +38,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DateTimeType;
+import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.qe.SessionVariable;
@@ -187,7 +190,7 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void testParseSQLWithDialect() {
+    public void testParseSQLWithTrinoDialect() {
         String sql = "select `AD``D` from t1 where a = 1;explain graph select `AD``D` from t1 where a = 1;";
         NereidsParser nereidsParser = new NereidsParser();
         SessionVariable sessionVariable = new SessionVariable();
@@ -201,6 +204,24 @@ public class NereidsParserTest extends ParserTestBase {
         LogicalPlan logicalPlan1 = ((LogicalPlanAdapter) statementBases.get(1)).getLogicalPlan();
         Assertions.assertTrue(logicalPlan0 instanceof UnboundResultSink);
         Assertions.assertTrue(logicalPlan1 instanceof ExplainCommand);
+    }
+
+    @Test
+    public void testParseSQLWithSparkSqlDialect() {
+        // doris parser will throw a ParseException when derived table does not have alias
+        String sql1 = "select * from (select * from t1);";
+        NereidsParser nereidsParser = new NereidsParser();
+        Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSQL(sql1),
+                    "Every derived table must have its own alias");
+
+        // test parse with spark-sql dialect
+        SessionVariable sessionVariable = new SessionVariable();
+        sessionVariable.setSqlDialect("spark_sql");
+        List<StatementBase> statementBases = nereidsParser.parseSQL(sql1, sessionVariable);
+        Assertions.assertEquals(1, statementBases.size());
+        Assertions.assertTrue(statementBases.get(0) instanceof LogicalPlanAdapter);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) statementBases.get(0)).getLogicalPlan();
+        Assertions.assertTrue(logicalPlan instanceof UnboundResultSink);
     }
 
     @Test
@@ -287,7 +308,35 @@ public class NereidsParserTest extends ParserTestBase {
                 .stream()
                 .mapToLong(e -> e.<Set<DecimalLiteral>>collect(DecimalLiteral.class::isInstance).size())
                 .sum();
-        Assertions.assertEquals(doubleCount, Config.enable_decimal_conversion ? 0 : 1);
+        Assertions.assertEquals(Config.enable_decimal_conversion ? 0 : 1, doubleCount);
+    }
+
+    @Test
+    public void testDatev1() {
+        String dv1 = "SELECT CAST('2023-12-18' AS DATEV1)";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(dv1).child(0);
+        Assertions.assertEquals(DateType.INSTANCE, logicalPlan.getExpressions().get(0).getDataType());
+    }
+
+    @Test
+    public void testDatetimev1() {
+        String dtv1 = "SELECT CAST('2023-12-18' AS DATETIMEV1)";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(dtv1).child(0);
+        Assertions.assertEquals(DateTimeType.INSTANCE, logicalPlan.getExpressions().get(0).getDataType());
+
+        String wrongDtv1 = "SELECT CAST('2023-12-18' AS DATETIMEV1(2))";
+        Assertions.assertThrows(AnalysisException.class, () -> nereidsParser.parseSingle(wrongDtv1).child(0));
+
+    }
+
+    @Test
+    public void testDecimalv2() {
+        String decv2 = "SELECT CAST('1.234' AS decimalv2(10,5))";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = (LogicalPlan) nereidsParser.parseSingle(decv2).child(0);
+        Assertions.assertTrue(logicalPlan.getExpressions().get(0).getDataType().isDecimalV2Type());
     }
 
     @Test

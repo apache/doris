@@ -177,6 +177,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         }
     };
+
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
@@ -207,9 +208,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         }
 
-        if (!is_mem_reuse || !keep_origin) {
-            output_block->swap(mutable_block.to_block());
-        }
+        output_block->swap(mutable_block.to_block());
         DCHECK(output_block->rows() == rows);
     }
 

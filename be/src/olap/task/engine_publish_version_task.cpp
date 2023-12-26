@@ -115,6 +115,7 @@ Status EnginePublishVersionTask::execute() {
     }
 #endif
 
+    std::vector<std::shared_ptr<TabletPublishTxnTask>> tablet_tasks;
     // each partition
     for (auto& par_ver_info : _publish_version_req.partition_version_infos) {
         int64_t partition_id = par_ver_info.partition_id;
@@ -191,8 +192,17 @@ Status EnginePublishVersionTask::execute() {
                     }
                     auto handle_version_not_continuous = [&]() {
                         add_error_tablet_id(tablet_info.tablet_id);
-                        _discontinuous_version_tablets->emplace_back(
-                                partition_id, tablet_info.tablet_id, version.first);
+                        // When there are too many missing versions, do not directly retry the
+                        // publish and handle it through async publish.
+                        if (max_version + config::mow_publish_max_discontinuous_version_num <
+                            version.first) {
+                            StorageEngine::instance()->add_async_publish_task(
+                                    partition_id, tablet_info.tablet_id, version.first,
+                                    _publish_version_req.transaction_id, false);
+                        } else {
+                            _discontinuous_version_tablets->emplace_back(
+                                    partition_id, tablet_info.tablet_id, version.first);
+                        }
                         res = Status::Error<PUBLISH_VERSION_NOT_CONTINUOUS>(
                                 "check_version_exist failed");
                         int64_t missed_version = max_version + 1;
@@ -233,6 +243,7 @@ Status EnginePublishVersionTask::execute() {
 
             auto tablet_publish_txn_ptr = std::make_shared<TabletPublishTxnTask>(
                     this, tablet, rowset, partition_id, transaction_id, version, tablet_info);
+            tablet_tasks.push_back(tablet_publish_txn_ptr);
             auto submit_st = token->submit_func([=]() { tablet_publish_txn_ptr->handle(); });
 #ifndef NDEBUG
             LOG(INFO) << "transaction_id: " << transaction_id << ", partition id: " << partition_id
@@ -244,6 +255,15 @@ Status EnginePublishVersionTask::execute() {
         }
     }
     token->wait();
+
+    if (res.ok()) {
+        for (const auto& tablet_task : tablet_tasks) {
+            res = tablet_task->result();
+            if (!res.ok()) {
+                break;
+            }
+        }
+    }
 
     _succ_tablets->clear();
     // check if the related tablet remained all have the version
@@ -334,24 +354,24 @@ void TabletPublishTxnTask::handle() {
         rowset_update_lock.lock();
     }
     _stats.schedule_time_us = MonotonicMicros() - _stats.submit_time_us;
-    auto publish_status = StorageEngine::instance()->txn_manager()->publish_txn(
+    _result = StorageEngine::instance()->txn_manager()->publish_txn(
             _partition_id, _tablet, _transaction_id, _version, &_stats);
-    if (!publish_status.ok()) {
+    if (!_result.ok()) {
         LOG(WARNING) << "failed to publish version. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
-                     << ", res=" << publish_status;
+                     << ", res=" << _result;
         _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
         return;
     }
 
     // add visible rowset to tablet
     int64_t t1 = MonotonicMicros();
-    publish_status = _tablet->add_inc_rowset(_rowset);
+    _result = _tablet->add_inc_rowset(_rowset);
     _stats.add_inc_rowset_us = MonotonicMicros() - t1;
-    if (!publish_status.ok() && !publish_status.is<PUSH_VERSION_ALREADY_EXIST>()) {
+    if (!_result.ok() && !_result.is<PUSH_VERSION_ALREADY_EXIST>()) {
         LOG(WARNING) << "fail to add visible rowset to tablet. rowset_id=" << _rowset->rowset_id()
                      << ", tablet_id=" << _tablet_info.tablet_id << ", txn_id=" << _transaction_id
-                     << ", res=" << publish_status;
+                     << ", res=" << _result;
         _engine_publish_version_task->add_error_tablet_id(_tablet_info.tablet_id);
         return;
     }
@@ -361,9 +381,11 @@ void TabletPublishTxnTask::handle() {
     LOG(INFO) << "publish version successfully on tablet"
               << ", table_id=" << _tablet->table_id() << ", tablet=" << _tablet->tablet_id()
               << ", transaction_id=" << _transaction_id << ", version=" << _version.first
-              << ", num_rows=" << _rowset->num_rows() << ", res=" << publish_status
+              << ", num_rows=" << _rowset->num_rows() << ", res=" << _result
               << ", cost: " << cost_us << "(us) "
               << (cost_us > 500 * 1000 ? _stats.to_string() : "");
+
+    _result = Status::OK();
 }
 
 void AsyncTabletPublishTask::handle() {

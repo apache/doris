@@ -18,16 +18,20 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.NereidsException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.job.base.JobExecuteType;
+import org.apache.doris.job.base.JobExecutionConfiguration;
+import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -44,6 +48,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -52,7 +57,6 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryStateException;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.tablefunction.HdfsTableValuedFunction;
 import org.apache.doris.tablefunction.S3TableValuedFunction;
@@ -82,10 +86,11 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     private final String labelName;
     private final BulkStorageDesc bulkStorageDesc;
+    private final Set<String> sinkTableNames = new HashSet<>();
     private final List<BulkLoadDataDesc> sourceInfos;
     private final Map<String, String> properties;
     private final String comment;
-    private final List<LogicalPlan> plans = new ArrayList<>();
+    private List<InsertIntoTableCommand> plans = new ArrayList<>();
     private Profile profile;
 
     /**
@@ -118,15 +123,19 @@ public class LoadCommand extends Command implements ForwardWithSync {
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        // TODO: begin txn form multi insert sql
-        /* this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile);
-          profile.getSummaryProfile().setQueryBeginTime();
-          for (BulkLoadDataDesc dataDesc : sourceInfos) {
-               plans.add(new InsertIntoTableCommand(completeQueryPlan(ctx, dataDesc), Optional.of(labelName), false));
-          }
-          profile.getSummaryProfile().setQueryPlanFinishTime();
-         * executeInsertStmtPlan(ctx, executor, plans);  */
-        throw new AnalysisException("Fallback to legacy planner temporary.");
+        if (!Config.enable_nereids_load) {
+            throw new AnalysisException("Fallback to legacy planner temporary.");
+        }
+        this.profile = new Profile("Query", ctx.getSessionVariable().enableProfile);
+        profile.getSummaryProfile().setQueryBeginTime();
+        if (sourceInfos.size() == 1) {
+            plans = ImmutableList.of(new InsertIntoTableCommand(completeQueryPlan(ctx, sourceInfos.get(0)),
+                    Optional.of(labelName)));
+        } else {
+            throw new AnalysisException("Multi insert into statements are unsupported.");
+        }
+        profile.getSummaryProfile().setQueryPlanFinishTime();
+        submitInsertStmtPlan(ctx, executor, plans);
     }
 
     private LogicalPlan completeQueryPlan(ConnectContext ctx, BulkLoadDataDesc dataDesc)
@@ -150,6 +159,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         boolean scanAllTvfCol = (tvfProjects.get(0) instanceof UnboundStar);
 
         OlapTable olapTable = getOlapTable(ctx, dataDesc);
+        sinkTableNames.add(olapTable.getName());
         List<Column> olapSchema = olapTable.getBaseSchema();
         // map column index to mapping expr
         Map<String, Expression> mappingExpressions = dataDesc.getColumnMappings();
@@ -226,7 +236,7 @@ public class LoadCommand extends Command implements ForwardWithSync {
         boolean isPartialUpdate = olapTable.getEnableUniqueKeyMergeOnWrite()
                 && sinkCols.size() < olapTable.getColumns().size();
         return new UnboundTableSink<>(dataDesc.getNameParts(), sinkCols, ImmutableList.of(),
-                dataDesc.getPartitionNames(), isPartialUpdate, tvfLogicalPlan);
+                false, dataDesc.getPartitionNames(), isPartialUpdate, DMLCommandType.LOAD, tvfLogicalPlan);
     }
 
     private static void fillDeleteOnColumn(BulkLoadDataDesc dataDesc, OlapTable olapTable,
@@ -470,20 +480,14 @@ public class LoadCommand extends Command implements ForwardWithSync {
         return tvfProperties;
     }
 
-    private void executeInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<InsertIntoTableCommand> plans) {
+    private void submitInsertStmtPlan(ConnectContext ctx, StmtExecutor executor, List<InsertIntoTableCommand> plans) {
         try {
-            for (LogicalPlan logicalPlan : plans) {
-                ((Command) logicalPlan).run(ctx, executor);
-            }
-        } catch (QueryStateException e) {
-            ctx.setState(e.getQueryState());
-            throw new NereidsException("Command process failed", new AnalysisException(e.getMessage(), e));
-        } catch (UserException e) {
-            // Return message to info client what happened.
-            ctx.getState().setError(e.getMysqlErrorCode(), e.getMessage());
-            throw new NereidsException("Command process failed", new AnalysisException(e.getMessage(), e));
+            JobExecutionConfiguration jobExecutionConfiguration = new JobExecutionConfiguration();
+            jobExecutionConfiguration.setExecuteType(JobExecuteType.INSTANT);
+            InsertJob jobExecutor = new InsertJob(ctx, executor, labelName, plans,
+                    sinkTableNames, properties, comment, jobExecutionConfiguration);
+            Env.getCurrentEnv().getJobManager().registerJob(jobExecutor);
         } catch (Exception e) {
-            // Maybe our bug
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw new NereidsException("Command process failed.", new AnalysisException(e.getMessage(), e));
         }

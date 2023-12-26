@@ -181,8 +181,8 @@ public class PhysicalHashJoin<
             TRuntimeFilterType type, long buildSideNdv, int exprOrder) {
         if (RuntimeFilterGenerator.DENIED_JOIN_TYPES.contains(getJoinType()) || isMarkJoin()) {
             if (builderNode instanceof PhysicalHashJoin) {
-                PhysicalHashJoin<?, ?> builderJion = (PhysicalHashJoin<?, ?>) builderNode;
-                if (builderJion == this) {
+                PhysicalHashJoin<?, ?> builderJoin = (PhysicalHashJoin<?, ?>) builderNode;
+                if (builderJoin == this) {
                     return false;
                 }
             }

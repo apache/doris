@@ -72,7 +72,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         + "distributed by hash(k2) buckets 1\n"
                         + "properties('replication_num' = '1');");
 
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
     }
 
     @Test
