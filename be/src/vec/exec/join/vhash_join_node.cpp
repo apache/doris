@@ -551,9 +551,7 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
         Block temp_block;
         //get probe side output column
         for (int i = 0; i < _left_output_slot_flags.size(); ++i) {
-            if (_left_output_slot_flags[i]) {
-                temp_block.insert(_probe_block.get_by_position(i));
-            }
+            temp_block.insert(_probe_block.get_by_position(i));
         }
         auto mark_column = ColumnNullable::create(ColumnUInt8::create(block_rows, 0),
                                                   ColumnUInt8::create(block_rows, 1));
@@ -884,7 +882,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from data.
         while (!eos && (!_short_circuit_for_null_in_build_side || !_has_null_in_build_side)) {
-            block.clear_column_data();
+            release_block_memory(block, 1);
             RETURN_IF_CANCELLED(state);
             {
                 SCOPED_TIMER(_build_get_next_timer);
@@ -917,6 +915,10 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         _build_side_mem_used += in_block->allocated_bytes();
 
         if (in_block->rows() != 0) {
+            _build_col_ids.resize(_build_expr_ctxs.size());
+            RETURN_IF_ERROR(_do_evaluate(*in_block, _build_expr_ctxs, *_build_expr_call_timer,
+                                         _build_col_ids));
+
             SCOPED_TIMER(_build_side_merge_block_timer);
             RETURN_IF_ERROR(_build_side_mutable_block.merge(*in_block));
         }
@@ -1154,8 +1156,6 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     ColumnRawPtrs raw_ptrs(_build_expr_ctxs.size());
 
     ColumnUInt8::MutablePtr null_map_val;
-    std::vector<int> res_col_ids(_build_expr_ctxs.size());
-    RETURN_IF_ERROR(_do_evaluate(block, _build_expr_ctxs, *_build_expr_call_timer, res_col_ids));
     if (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
         _convert_block_to_null(block);
     }
@@ -1163,7 +1163,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     //  so we have to initialize this flag by the first build block.
     if (!_has_set_need_null_map_for_build) {
         _has_set_need_null_map_for_build = true;
-        _set_build_ignore_flag(block, res_col_ids);
+        _set_build_ignore_flag(block, _build_col_ids);
     }
     if (_short_circuit_for_null_in_build_side || _build_side_ignore_null) {
         null_map_val = ColumnUInt8::create();
@@ -1171,7 +1171,7 @@ Status HashJoinNode::_process_build_block(RuntimeState* state, Block& block, uin
     }
 
     // Get the key column that needs to be built
-    Status st = _extract_join_column<true>(block, null_map_val, raw_ptrs, res_col_ids);
+    Status st = _extract_join_column<true>(block, null_map_val, raw_ptrs, _build_col_ids);
 
     st = std::visit(
             Overload {

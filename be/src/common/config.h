@@ -1067,7 +1067,7 @@ DECLARE_mInt32(s3_write_buffer_whole_size);
 // the max number of cached file handle for block segemnt
 DECLARE_mInt64(file_cache_max_file_reader_cache_size);
 //enable shrink memory
-DECLARE_Bool(enable_shrink_memory);
+DECLARE_mBool(enable_shrink_memory);
 // enable cache for high concurrent point query work load
 DECLARE_mInt32(schema_cache_capacity);
 DECLARE_mInt32(schema_cache_sweep_time_sec);
@@ -1124,6 +1124,9 @@ DECLARE_mInt64(LZ4_HC_compression_level);
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // rowid conversion correctness check when compaction for mow table
 DECLARE_mBool(enable_rowid_conversion_correctness_check);
+// When the number of missing versions is more than this value, do not directly
+// retry the publish and handle it through async publish.
+DECLARE_mInt32(mow_publish_max_discontinuous_version_num);
 
 // The secure path with user files, used in the `local` table function.
 DECLARE_mString(user_files_secure_path);
@@ -1160,8 +1163,13 @@ DECLARE_Int32(ingest_binlog_work_pool_size);
 // Download binlog rate limit, unit is KB/s
 DECLARE_Int32(download_binlog_rate_limit_kbs);
 
+DECLARE_mInt32(buffered_reader_read_timeout_ms);
+
 // whether to enable /api/snapshot api
 DECLARE_Bool(enable_snapshot_action);
+
+// The timeout config for S3 write buffer allocation
+DECLARE_mInt32(s3_writer_buffer_allocation_timeout_second);
 
 #ifdef BE_TEST
 // test s3

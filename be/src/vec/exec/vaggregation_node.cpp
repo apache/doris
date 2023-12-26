@@ -950,18 +950,25 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
 
                 auto creator = [this](const auto& ctor, const auto& key) {
                     using KeyType = std::decay_t<decltype(key)>;
-                    if constexpr (HashTableTraits<HashTableType>::is_string_hash_table &&
-                                  !std::is_same_v<StringRef, KeyType>) {
-                        StringRef string_ref = to_string_ref(key);
-                        ArenaKeyHolder key_holder {string_ref, *_agg_arena_pool};
-                        key_holder_persist_key(key_holder);
-                        auto mapped = _aggregate_data_container->append_data(key_holder.key);
-                        _create_agg_status(mapped);
-                        ctor(key, mapped);
-                    } else {
-                        auto mapped = _aggregate_data_container->append_data(key);
-                        _create_agg_status(mapped);
-                        ctor(key, mapped);
+                    try {
+                        if constexpr (HashTableTraits<HashTableType>::is_string_hash_table &&
+                                      !std::is_same_v<StringRef, KeyType>) {
+                            StringRef string_ref = to_string_ref(key);
+                            ArenaKeyHolder key_holder {string_ref, *_agg_arena_pool};
+                            key_holder_persist_key(key_holder);
+                            auto mapped = _aggregate_data_container->append_data(key_holder.key);
+                            _create_agg_status(mapped);
+                            ctor(key, mapped);
+                        } else {
+                            auto mapped = _aggregate_data_container->append_data(key);
+                            _create_agg_status(mapped);
+                            ctor(key, mapped);
+                        }
+                    } catch (...) {
+                        // Exception-safety - if it can not allocate memory or create status,
+                        // the destructors will not be called.
+                        ctor(key, nullptr);
+                        throw;
                     }
                 };
 

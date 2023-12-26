@@ -1543,6 +1543,11 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
             if (status.ok()) {
                 break;
             } else if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+                // there are too many missing versions, it has been be added to async
+                // publish task, so no need to retry here.
+                if (discontinuous_version_tablets.empty()) {
+                    break;
+                }
                 int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
                 if (time_elapsed > config::publish_version_task_timeout_s) {
                     LOG(INFO) << "task elapsed " << time_elapsed
@@ -1565,10 +1570,10 @@ void PublishVersionTaskPool::_publish_version_worker_thread_callback() {
                         .tag("retry_time", retry_time)
                         .error(status);
                 ++retry_time;
-                std::this_thread::sleep_for(std::chrono::seconds(1));
             }
         }
-        if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>() && !is_task_timeout) {
+        if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>() && !discontinuous_version_tablets.empty() &&
+            !is_task_timeout) {
             continue;
         }
 

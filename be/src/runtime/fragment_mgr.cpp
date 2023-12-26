@@ -279,6 +279,9 @@ Status FragmentExecState::execute() {
 Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {
     if (!_cancelled) {
         std::lock_guard<std::mutex> l(_status_lock);
+        if (_cancelled) { // double check. may re-enter cuz MemLimiter
+            return Status::OK();
+        }
         if (reason == PPlanFragmentCancelReason::LIMIT_REACH) {
             _executor.set_is_report_on_cancel(false);
         }
