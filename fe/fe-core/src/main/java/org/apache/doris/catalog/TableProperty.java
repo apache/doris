@@ -293,8 +293,8 @@ public class TableProperty implements Writable {
     }
 
     public TableProperty buildStorageMedium() {
-        String storageMediumStr = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, "");
-        if (storageMediumStr == "") {
+        String storageMediumStr = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
+        if (Strings.isNullOrEmpty(storageMediumStr)) {
             storageMedium = null;
         } else {
             storageMedium = TStorageMedium.valueOf(storageMediumStr);

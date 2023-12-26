@@ -2007,7 +2007,6 @@ public class OlapTable extends Table {
         return false;
     }
 
-
     public void setStoreRowColumn(boolean storeRowColumn) {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN,
