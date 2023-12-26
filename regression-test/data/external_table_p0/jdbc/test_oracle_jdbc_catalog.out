@@ -214,6 +214,7 @@ TINYINT_VALUE2	SMALLINT	Yes	false	\N	NONE
 
 -- !specified_database --
 DORIS_TEST
+information_schema
 
 -- !specified_database --
 DORIS_TEST
