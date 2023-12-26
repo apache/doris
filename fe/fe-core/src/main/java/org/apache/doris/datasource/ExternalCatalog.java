@@ -255,7 +255,8 @@ public abstract class ExternalCatalog
         InitCatalogLog initCatalogLog = new InitCatalogLog();
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(logType);
-        List<String> allDatabases = listDatabaseNames();
+        List<String> allDatabases = Lists.newArrayList(listDatabaseNames());
+
         allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
         allDatabases.add(InfoSchemaDb.DATABASE_NAME);
         Map<String, Boolean> includeDatabaseMap = getIncludeDatabaseMap();
@@ -633,3 +634,4 @@ public abstract class ExternalCatalog
         return new ConcurrentHashMap<>(idToDb);
     }
 }
+
