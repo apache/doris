@@ -327,6 +327,8 @@ private:
         return 0;
     }
 
+    bool _need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column, size_t nrows_read);
+
     class BitmapRangeIterator;
     class BackwardBitmapRangeIterator;
 

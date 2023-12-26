@@ -289,10 +289,13 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                 auto current_probe_index = probe_index;
                 if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
                               JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+                    bool accept_null_value = JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
+                                             hash_table_ctx.hash_table.size() == 0;
                     if (is_mark_join) {
                         ++current_offset;
                         bool null_result =
-                                (need_null_map_for_probe && (*null_map)[probe_index]) ||
+                                (need_null_map_for_probe && (*null_map)[probe_index] &&
+                                 !accept_null_value) ||
                                 (find_result.is_found() && _join_node->_has_null_in_build_side);
                         if (null_result) {
                             mark_column->insert_null();

@@ -457,11 +457,20 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (config::enable_index_apply_preds_except_leafnode_of_andnode) {
         RETURN_IF_ERROR(_apply_index_except_leafnode_of_andnode());
         if (_can_filter_by_preds_except_leafnode_of_andnode()) {
-            for (auto& expr : _remaining_conjunct_roots) {
+            for (auto it = _remaining_conjunct_roots.begin();
+                 it != _remaining_conjunct_roots.end();) {
                 _pred_except_leafnode_of_andnode_evaluate_result.clear();
-                auto res = _execute_predicates_except_leafnode_of_andnode(expr);
+                auto res = _execute_predicates_except_leafnode_of_andnode(*it);
                 if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
                     _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
+                    // Delete expr after it obtains the final result.
+                    {
+                        std::erase_if(_common_expr_ctxs_push_down,
+                                      [&it](const auto& iter) { return iter->root() == *it; });
+                        it = _remaining_conjunct_roots.erase(it);
+                    }
+                } else {
+                    ++it;
                 }
             }
         }
@@ -472,7 +481,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_ctx();
+        auto* query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
     }
 
@@ -1782,6 +1791,9 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
 
     for (auto cid : _first_read_column_ids) {
         auto& column = _current_return_columns[cid];
+        if (_need_read_key_data(cid, column, nrows_read)) {
+            continue;
+        }
         if (_prune_column(cid, column, true, nrows_read)) {
             continue;
         }
@@ -2447,6 +2459,44 @@ void SegmentIterator::_calculate_pred_in_remaining_conjunct_root(
             _column_predicate_info.reset(new ColumnPredicateInfo());
         }
     }
+}
+
+bool SegmentIterator::_need_read_key_data(ColumnId cid, vectorized::MutableColumnPtr& column,
+                                          size_t nrows_read) {
+    if (_opts.tablet_schema->keys_type() != KeysType::DUP_KEYS) {
+        return false;
+    }
+
+    if (_opts.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
+        return false;
+    }
+
+    if (!_opts.tablet_schema->column(cid).is_key()) {
+        return false;
+    }
+
+    std::set<uint32_t> cids;
+    for (auto* pred : _col_predicates) {
+        cids.insert(pred->column_id());
+    }
+    for (auto* pred : _col_preds_except_leafnode_of_andnode) {
+        cids.insert(pred->column_id());
+    }
+
+    // If the key is present in expr, data needs to be read.
+    if (cids.contains(cid)) {
+        return false;
+    }
+
+    if (column->is_nullable()) {
+        auto* nullable_col_ptr = reinterpret_cast<vectorized::ColumnNullable*>(column.get());
+        nullable_col_ptr->get_null_map_column().insert_many_defaults(nrows_read);
+        nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(nrows_read);
+    } else {
+        column->insert_many_defaults(nrows_read);
+    }
+
+    return true;
 }
 
 } // namespace segment_v2
