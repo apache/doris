@@ -149,7 +149,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, null, false);
+                distributionDesc, properties, extProperties, comment, null);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -164,7 +164,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment, List<AlterClause> ops) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, ops, false);
+                distributionDesc, properties, extProperties, comment, ops);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -178,8 +178,7 @@ public class CreateTableStmt extends DdlStmt {
             DistributionDesc distributionDesc,
             Map<String, String> properties,
             Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList,
-            boolean isDynamicSchema) {
+            String comment, List<AlterClause> rollupAlterClauseList) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -196,12 +195,6 @@ public class CreateTableStmt extends DdlStmt {
         this.keysDesc = keysDesc;
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
-        if (isDynamicSchema) {
-            if (properties == null) {
-                properties = Maps.newHashMap();
-            }
-            properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "true");
-        }
         this.properties = properties;
         this.extProperties = extProperties;
         this.isExternal = isExternal;
