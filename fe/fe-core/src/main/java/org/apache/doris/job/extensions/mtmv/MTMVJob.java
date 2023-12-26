@@ -125,7 +125,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
         tasks.add(task);
-        super.initTasks(tasks);
+        super.initTasks(tasks, taskType);
         return tasks;
     }
 
