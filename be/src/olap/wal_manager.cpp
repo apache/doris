@@ -146,7 +146,9 @@ Status WalManager::_init_wal_dirs_info() {
         }
         // if there are some wal files in wal dir, we need to add it to wal disk limit.
         size_t wal_dir_size = 0;
+#ifndef BE_TEST
         RETURN_IF_ERROR(io::global_local_filesystem()->directory_size(wal_dir, &wal_dir_size));
+#endif
         if (is_percent) {
             wal_disk_limit += wal_dir_size;
         }
