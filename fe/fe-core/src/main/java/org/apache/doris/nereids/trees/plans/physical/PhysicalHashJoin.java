@@ -260,6 +260,7 @@ public class PhysicalHashJoin<
             builder.append(" build RFs:").append(runtimeFilters.stream()
                     .map(rf -> rf.shapeInfo()).collect(Collectors.joining(";")));
         }
+        // builder.append("jump: ").append(getMutableState(MutableState.KEY_RF_JUMP));
         return builder.toString();
     }
 
