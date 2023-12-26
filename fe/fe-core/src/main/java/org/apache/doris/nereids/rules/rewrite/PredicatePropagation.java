@@ -88,6 +88,9 @@ public class PredicatePropagation {
     public Set<Expression> infer(Set<Expression> predicates) {
         Set<Expression> inferred = Sets.newHashSet();
         for (Expression predicate : predicates) {
+            // if we support more infer predicate expression type, we should impl withInferred() method.
+            // And should add inferred props in withChildren() method just like ComparisonPredicate,
+            // and it's subclass, to mark the predicate is from infer.
             if (!(predicate instanceof ComparisonPredicate)) {
                 continue;
             }

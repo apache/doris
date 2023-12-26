@@ -242,7 +242,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     }
 
     public Expression withInferred(boolean inferred) {
-        throw new RuntimeException();
+        throw new RuntimeException("current expression has not impl the withInferred method");
     }
 
     /**
