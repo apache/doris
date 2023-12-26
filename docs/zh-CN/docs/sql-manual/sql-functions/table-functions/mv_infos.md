@@ -80,19 +80,19 @@ mysql> desc function mv_infos("database"="tpch100");
 1. 查看db1下的所有物化视图
 
 ```
-mysql> select * from mtmvs("database"="db1");
+mysql> select * from mv_infos("database"="db1");
 ```
 
 2. 查看db1下的物化视图名称为mv1的物化视图
 
 ```
-mysql> select * from mtmvs("database"="db1") where Name = "mv1";
+mysql> select * from mv_infos("database"="db1") where Name = "mv1";
 ```
 
 3. 查看db1下的物化视图名称为mv1的状态
 
 ```
-mysql> select State from mtmvs("database"="db1") where Name = "mv1";
+mysql> select State from mv_infos("database"="db1") where Name = "mv1";
 ```
 
 ### keywords
