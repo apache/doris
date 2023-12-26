@@ -58,6 +58,8 @@ public class AlterJobStatusStmt extends DdlStmt {
             throw new AnalysisException("Value can't is null");
         }
         this.jobName = inputValue;
-
+        if (CreateJobStmt.isInnerJob(jobName)) {
+            throw new AnalysisException("Can't alter inner job status");
+        }
     }
 }
