@@ -592,7 +592,7 @@ DEFINE_Int32(memory_max_alignment, "16");
 // memtable insert memory tracker will multiply input block size with this ratio
 DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
-DEFINE_mInt64(write_buffer_size, "209715200");
+DEFINE_mInt64(write_buffer_size, "104857600");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
 // max parallel flush task per memtable writer
