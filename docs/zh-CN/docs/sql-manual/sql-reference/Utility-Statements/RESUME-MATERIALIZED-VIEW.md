@@ -1,6 +1,6 @@
 ---
 {
-    "title": "DROP-MATERIALIZED-VIEW",
+    "title": "RESUME-MATERIALIZED-VIEW",
     "language": "zh-CN"
 }
 ---
@@ -24,45 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## DROP-MATERIALIZED-VIEW
+## RESUME-MATERIALIZED-VIEW
 
 ### Name
 
-DROP MULTI TABLE MATERIALIZED VIEW
+RESUME MATERIALIZED VIEW
 
 ### Description
 
-该语句用于删除物化视图。同步语法
+该语句用于暂恢复物化视图的定时调度
 
 语法：
 
 ```sql
-DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
+RESUME MATERIALIZED VIEW JOB ON mvName=multipartIdentifier
 ```
-
-
-1. IF EXISTS:
-        如果物化视图不存在，不要抛出错误。如果不声明此关键字，物化视图不存在则报错。
-
-2. mv_name:
-        待删除的物化视图的名称。必填项。
 
 ### Example
 
-1. 删除表物化视图mv1
+1. 恢复物化视图mv1的定时调度
 
-```sql
-DROP MATERIALIZED VIEW mv1;
-```
-2.如果存在，删除指定 database 的物化视图
-
-```sql
-DROP MATERIALIZED VIEW IF EXISTS db1.mv1;
-```
-
+    ```sql
+    RESUME MATERIALIZED VIEW mv1;
+    ```
+   
 ### Keywords
 
-    DROP, MULTI, TABLE, MATERIALIZED, VIEW
+    RESUME, MATERIALIZED, VIEW
 
 ### Best Practice
 

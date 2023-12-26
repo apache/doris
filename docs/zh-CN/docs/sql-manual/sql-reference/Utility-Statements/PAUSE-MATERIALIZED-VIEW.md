@@ -1,6 +1,6 @@
 ---
 {
-    "title": "REFRESH-MATERIALIZED-VIEW",
+    "title": "PAUSE-MATERIALIZED-VIEW",
     "language": "zh-CN"
 }
 ---
@@ -24,49 +24,33 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## REFRESH-MATERIALIZED-VIEW
+## PAUSE-MATERIALIZED-VIEW
 
 ### Name
 
-REFRESH MATERIALIZED VIEW
+PAUSE MATERIALIZED VIEW
 
 ### Description
 
-该语句用于手动刷新指定的多表物化视图
+该语句用于暂停物化视图的定时调度
 
 语法：
 
 ```sql
-REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE)? 
+PAUSE MATERIALIZED VIEW JOB ON mvName=multipartIdentifier
 ```
-
-说明：
-
-异步刷新某个物化视图的数据
 
 ### Example
 
-1. 刷新物化视图mv1(自动计算要刷新的分区)
+1. 暂停物化视图mv1的定时调度
 
     ```sql
-    REFRESH MATERIALIZED VIEW mv1;
-    ```
-
-2. 刷新名字为p_19950801_19950901的分区
-
-    ```sql
-    REFRESH MATERIALIZED VIEW mv1 partitions(p_19950801_19950901);
-    ```
- 
-3. 强制刷新物化视图全部数据
-
-    ```sql
-    REFRESH MATERIALIZED VIEW mv1 complete;
+    PAUSE MATERIALIZED VIEW mv1;
     ```
    
 ### Keywords
 
-    REFRESH, MATERIALIZED, VIEW
+    PAUSE, MATERIALIZED, VIEW
 
 ### Best Practice
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "物化视图",
+    "title": "异步物化视图",
     "language": "zh-CN"
 }
 ---
@@ -59,22 +59,22 @@ under the License.
 
 物化视图支持多种刷新策略，
 
-具体的语法可查看[CREATE MULTI TABLE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MULTI-TABLE-MATERIALIZED-VIEW.md)
+具体的语法可查看[CREATE ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 ### 删除物化视图
 物化视图有专门的删除语法，不能通过drop table来删除，
 
-具体的语法可查看[DROP MULTI TABLE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-MULTI-TABLE-MATERIALIZED-VIEW.md)
+具体的语法可查看[DROP ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
 
 ### 修改物化视图
 
-修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER MULTI TABLE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-MULTI-TABLE-MATERIALIZED-VIEW.md)来修改
+修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)来修改
 
 table相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法来修改
 
 ### 查看已创建的物化视图
 
-物化视图独有的特性可以通过[mtmvs()](../sql-manual/sql-functions/table-functions/mtmvs.md)查看
+物化视图独有的特性可以通过[mv_infos()](../sql-manual/sql-functions/table-functions/mv_infos.md)查看
 
 和table相关的属性，仍通过[SHOW TABLES](../sql-manual/sql-reference/Show-Statements/SHOW-TABLES.md)来查看
 
@@ -88,14 +88,24 @@ table相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法�
 
 每个物化视图底层都会默认创建一个job，用来定义物化视图的刷新逻辑，
 
-具体的语法可查看[SHOW MTMV JOB](../sql-manual/sql-reference/Show-Statements/SHOW-MTMV-JOB.md)
+具体的语法可查看[jobs("type"="mv")](../sql-manual/sql-functions/table-functions/jobs.md)
 
-备注：jobName 可通过[mtmvs()](../sql-manual/sql-functions/table-functions/mtmvs.md)查看
+### 暂停物化视图job调度
+
+可以暂停物化视图的定时调度
+
+具体的语法可查看[PAUSE MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
+
+### 恢复物化视图job调度
+
+可以恢复物化视图的定时调度
+
+具体的语法可查看[RESUME MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
 
 ### 查看物化视图刷新数据的task
 
 每个job可以有一个或多个task，用来记录物化视图的刷新记录及状态等信息
 
-具体的语法可查看[SHOW MTMV TASK](../sql-manual/sql-reference/Show-Statements/SHOW-MTMV-TASK.md)
+具体的语法可查看[tasks("type"="mv")](../sql-manual/sql-functions/table-functions/tasks.md)
 
 注意：每个物化视图目前最多只保存100条记录，超过之后，会自动删除最老的数据

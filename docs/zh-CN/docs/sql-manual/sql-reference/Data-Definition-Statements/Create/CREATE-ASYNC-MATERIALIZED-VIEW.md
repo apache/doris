@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CREATE-MULTI-TABLE-MATERIALIZED-VIEW",
+    "title": "CREATE-ASYNC-MATERIALIZED-VIEW",
     "language": "zh-CN"
 }
 ---
@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## CREATE-MULTI-TABLE-MATERIALIZED-VIEW
+## CREATE-ASYNC-MATERIALIZED-VIEW
 
 ### Name
 
-CREATE MULTI TABLE MATERIALIZED VIEW
+CREATE ASYNC MATERIALIZED VIEW
 
 ### Description
 
-该语句用于创建多表物化视图。
+该语句用于创建异步物化视图。
 
 #### 语法
 
@@ -42,6 +42,7 @@ CREATE MATERIALIZED VIEW (IF NOT EXISTS)? mvName=multipartIdentifier
         (REFRESH refreshMethod? refreshTrigger?)?
         (KEY keys=identifierList)?
         (COMMENT STRING_LITERAL)?
+        (PARTITION BY LEFT_PAREN partitionKey = identifier RIGHT_PAREN)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query
@@ -90,12 +91,13 @@ BUILD IMMEDIATE
 
 ##### refreshMethod
 
-用来定义物化视图刷新方法，默认COMPLETE（目前仅支持COMPLETE）
+用来定义物化视图刷新方法，默认AUTO
 COMPLETE：全量刷新
+AUTO：尽量增量刷新，如果不能增量刷新，就全量刷新
 
 ```sql
 refreshMethod
-: COMPLETE
+: COMPLETE | AUTO
 ;
 ```
 
@@ -122,7 +124,7 @@ refreshSchedule
 ;
     
 mvRefreshUnit
-: SECOND | MINUTE | HOUR | DAY | WEEK
+: MINUTE | HOUR | DAY | WEEK
 ;    
 ```
 
@@ -150,6 +152,12 @@ identifierSeq
 CREATE MATERIALIZED VIEW mv1
 KEY(k1,k2)
 ```
+
+##### partition
+物化视图有两种分区方式，如果不指定分区，默认只有一个分区，如果指定分区字段，会自动推导出字段来自哪个基表并同步基表的所有分区（限制条件：基表只能有一个分区字段且不能允许空值）
+
+例如：基表是range分区，分区字段为`create_time`并按天分区，创建物化视图时指定`partition by(ct) as select create_time as ct from t1`
+那么物化视图也会是range分区，分区字段为`ct`,并且按天分区
 
 ##### query
 
@@ -185,5 +193,5 @@ SELECT random() as dd,k3 FROM user
 
 ### Keywords
 
-    CREATE, MULTI, TABLE, MATERIALIZED, VIEW
+    CREATE, ASYNC, MATERIALIZED, VIEW
 

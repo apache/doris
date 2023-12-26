@@ -1,6 +1,6 @@
 ---
 {
-    "title": "REFRESH-MATERIALIZED-VIEW",
+    "title": "DROP-MATERIALIZED-VIEW",
     "language": "zh-CN"
 }
 ---
@@ -24,49 +24,45 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## REFRESH-MATERIALIZED-VIEW
+## DROP-MATERIALIZED-VIEW
 
 ### Name
 
-REFRESH MATERIALIZED VIEW
+DROP ASYNC MATERIALIZED VIEW
 
 ### Description
 
-该语句用于手动刷新指定的多表物化视图
+该语句用于删除异步物化视图。
 
 语法：
 
 ```sql
-REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE)? 
+DROP MATERIALIZED VIEW (IF EXISTS)? mvName=multipartIdentifier
 ```
 
-说明：
 
-异步刷新某个物化视图的数据
+1. IF EXISTS:
+        如果物化视图不存在，不要抛出错误。如果不声明此关键字，物化视图不存在则报错。
+
+2. mv_name:
+        待删除的物化视图的名称。必填项。
 
 ### Example
 
-1. 刷新物化视图mv1(自动计算要刷新的分区)
+1. 删除表物化视图mv1
 
-    ```sql
-    REFRESH MATERIALIZED VIEW mv1;
-    ```
+```sql
+DROP MATERIALIZED VIEW mv1;
+```
+2.如果存在，删除指定 database 的物化视图
 
-2. 刷新名字为p_19950801_19950901的分区
+```sql
+DROP MATERIALIZED VIEW IF EXISTS db1.mv1;
+```
 
-    ```sql
-    REFRESH MATERIALIZED VIEW mv1 partitions(p_19950801_19950901);
-    ```
- 
-3. 强制刷新物化视图全部数据
-
-    ```sql
-    REFRESH MATERIALIZED VIEW mv1 complete;
-    ```
-   
 ### Keywords
 
-    REFRESH, MATERIALIZED, VIEW
+    DROP, ASYNC, MATERIALIZED, VIEW
 
 ### Best Practice
 

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "ALTER-MULTI-TABLE-MATERIALIZED-VIEW",
+    "title": "ALTER-ASYNC-MATERIALIZED-VIEW",
     "language": "zh-CN"
 }
 ---
@@ -24,15 +24,15 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## ALTER-MULTI-TABLE-MATERIALIZED-VIEW
+## ALTER-ASYNC-MATERIALIZED-VIEW
 
 ### Name
 
-ALTER MULTI TABLE MATERIALIZED VIEW
+ALTER ASYNC MATERIALIZED VIEW
 
 ### Description
 
-该语句用于修改多表物化视图。
+该语句用于修改异步物化视图。
 
 #### 语法
 
@@ -55,16 +55,21 @@ alter Materialized View mv1 rename mv2;
 
 ##### refreshMethod
 
-同[创建物化视图](../Create/CREATE-MULTI-TABLE-MATERIALIZED-VIEW.md)
+同[创建异步物化视图](../Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 ##### refreshTrigger
 
-同[创建物化视图](../Create/CREATE-MULTI-TABLE-MATERIALIZED-VIEW.md)
+同[创建异步物化视图](../Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
 ##### SET
 修改物化视图特有的property,例如grace_period,待支持透明改写后，会有详细介绍
 
+例如修改mv1的grace_period为3000ms
+```sql
+alter Materialized View mv1 set("grace_period"="3000");
+```
+
 ### Keywords
 
-    ALTER, MULTI, TABLE, MATERIALIZED, VIEW
+    ALTER, ASYNC, MATERIALIZED, VIEW
 

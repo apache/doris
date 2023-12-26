@@ -1,6 +1,6 @@
 ---
 {
-    "title": "MTMVS",
+    "title": "MV_INFOS",
     "language": "zh-CN"
 }
 ---
@@ -24,42 +24,42 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-## `mtmvs`
+## `mv_infos`
 
 ### Name
 
-
-mtmvs
-
+mv_infos
 
 ### description
 
-表函数，生成多表物化视图临时表，可以查看某个db中创建的多表物化视图信息。
+表函数，生成异步物化视图临时表，可以查看某个db中创建的异步物化视图信息。
 
 该函数用于 from 子句中。
 
 #### syntax
 
-`catalogs("database"="")`
+`mv_infos("database"="")`
 
-mtmvs()表结构：
+mv_infos()表结构：
 ```
-mysql> desc function mtmvs("database"="db1");
-+--------------------+--------+------+-------+---------+-------+
-| Field              | Type   | Null | Key   | Default | Extra |
-+--------------------+--------+------+-------+---------+-------+
-| Id                 | BIGINT | No   | false | NULL    | NONE  |
-| Name               | TEXT   | No   | false | NULL    | NONE  |
-| JobName            | TEXT   | No   | false | NULL    | NONE  |
-| State              | TEXT   | No   | false | NULL    | NONE  |
-| SchemaChangeDetail | TEXT   | No   | false | NULL    | NONE  |
-| RefreshState       | TEXT   | No   | false | NULL    | NONE  |
-| RefreshInfo        | TEXT   | No   | false | NULL    | NONE  |
-| QuerySql           | TEXT   | No   | false | NULL    | NONE  |
-| EnvInfo            | TEXT   | No   | false | NULL    | NONE  |
-| MvProperties       | TEXT   | No   | false | NULL    | NONE  |
-+--------------------+--------+------+-------+---------+-------+
-10 rows in set (0.00 sec)
+mysql> desc function mv_infos("database"="tpch100");
++--------------------+---------+------+-------+---------+-------+
+| Field              | Type    | Null | Key   | Default | Extra |
++--------------------+---------+------+-------+---------+-------+
+| Id                 | BIGINT  | No   | false | NULL    | NONE  |
+| Name               | TEXT    | No   | false | NULL    | NONE  |
+| JobName            | TEXT    | No   | false | NULL    | NONE  |
+| State              | TEXT    | No   | false | NULL    | NONE  |
+| SchemaChangeDetail | TEXT    | No   | false | NULL    | NONE  |
+| RefreshState       | TEXT    | No   | false | NULL    | NONE  |
+| RefreshInfo        | TEXT    | No   | false | NULL    | NONE  |
+| QuerySql           | TEXT    | No   | false | NULL    | NONE  |
+| EnvInfo            | TEXT    | No   | false | NULL    | NONE  |
+| MvProperties       | TEXT    | No   | false | NULL    | NONE  |
+| MvPartitionInfo    | TEXT    | No   | false | NULL    | NONE  |
+| SyncWithBaseTables | BOOLEAN | No   | false | NULL    | NONE  |
++--------------------+---------+------+-------+---------+-------+
+12 rows in set (0.01 sec)
 ```
 
 * Id：物化视图id.
@@ -71,7 +71,9 @@ mysql> desc function mtmvs("database"="db1");
 * RefreshInfo：物化视图定义的刷新策略信息.
 * QuerySql：物化视图定义的查询语句.
 * EnvInfo：物化视图创建时的环境信息.
-* MvPropertiesMvProperties：物化视属性.
+* MvProperties：物化视属性.
+* MvPartitionInfo：物化视图的分区信息
+* SyncWithBaseTables：是否和base表数据同步
 
 ### example
 
@@ -95,4 +97,4 @@ mysql> select State from mtmvs("database"="db1") where Name = "mv1";
 
 ### keywords
 
-    mtmvs
+    mv, infos
