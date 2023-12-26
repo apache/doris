@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantConfig;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
@@ -793,6 +794,7 @@ public class ReportHandler extends Daemon {
                     }
 
                     BinlogConfig binlogConfig = new BinlogConfig(olapTable.getBinlogConfig());
+                    VariantConfig variantConfig = new VariantConfig(olapTable.getVariantConfig());
 
                     ReplicaState state = replica.getState();
                     if (state == ReplicaState.NORMAL || state == ReplicaState.SCHEMA_CHANGE) {
@@ -837,7 +839,8 @@ public class ReportHandler extends Daemon {
                                             olapTable.getTimeSeriesCompactionTimeThresholdSeconds(),
                                             olapTable.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                             olapTable.storeRowColumn(),
-                                            binlogConfig);
+                                            binlogConfig,
+                                            variantConfig);
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);

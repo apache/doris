@@ -33,8 +33,11 @@
 #include "olap/rowset/beta_rowset_writer.h" // SegmentStatistics
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/rowset/segment_v2/vertical_segment_writer.h"
+#include "olap/storage_engine.h"
+#include "olap/tablet_manager.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
+#include "olap/variant_config.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_object.h"
@@ -110,9 +113,12 @@ Status SegmentFlusher::_expand_variant_to_subcolumns(vectorized::Block& block,
     if (variant_column_pos.empty()) {
         return Status::OK();
     }
+    auto tablet = StorageEngine::instance()->tablet_manager()->get_tablet(_context->tablet_id);
+    VariantConfig config = _context->variant_config.has_value() ? _context->variant_config.value()
+                                                                : tablet->variant_config();
 
-    RETURN_IF_ERROR(
-            vectorized::schema_util::parse_and_encode_variant_columns(block, variant_column_pos));
+    RETURN_IF_ERROR(vectorized::schema_util::parse_and_encode_variant_columns(
+            block, variant_column_pos, config));
 
     // Dynamic Block consists of two parts, dynamic part of columns and static part of columns
     //     static     extracted

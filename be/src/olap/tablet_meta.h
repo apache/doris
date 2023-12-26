@@ -47,6 +47,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
 #include "runtime/memory/lru_cache_policy.h"
+#include "olap/variant_config.h"
 #include "util/uid_util.h"
 
 namespace json2pb {
@@ -87,6 +88,7 @@ class DataDir;
 class TabletMeta;
 class DeleteBitmap;
 class TBinlogConfig;
+class TVariantConfig;
 
 // Class encapsulates meta of tablet.
 // The concurrency control is handled in Tablet Class, not in this class.
@@ -106,6 +108,7 @@ public:
                TCompressionType::type compression_type, int64_t storage_policy_id = 0,
                bool enable_unique_key_merge_on_write = false,
                std::optional<TBinlogConfig> binlog_config = {},
+               std::optional<TVariantConfig> variant_config = {},
                std::string compaction_policy = "size_based",
                int64_t time_series_compaction_goal_size_mbytes = 1024,
                int64_t time_series_compaction_file_count_threshold = 2000,
@@ -259,6 +262,11 @@ public:
         return _time_series_compaction_empty_rowsets_threshold;
     }
 
+    const VariantConfig& variant_config() const { return _variant_config; }
+    void set_variant_config(VariantConfig variant_config) {
+        _variant_config = std::move(variant_config);
+    }
+
 private:
     Status _save_meta(DataDir* data_dir);
 
@@ -304,6 +312,9 @@ private:
 
     // binlog config
     BinlogConfig _binlog_config {};
+
+    // variant config
+    VariantConfig _variant_config {};
 
     // meta for compaction
     std::string _compaction_policy;

@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "common/status.h"
+#include "olap/variant_config.h"
 #include "vec/columns/column.h"
 #include "vec/columns/subcolumn_tree.h"
 #include "vec/common/cow.h"
@@ -141,7 +142,8 @@ public:
         /// creates a single column that stores all values.
         void finalize();
 
-        bool check_if_sparse_column(size_t num_rows);
+        bool check_if_sparse_column(size_t num_rows, int rows_threshold_to_estimate_spasr,
+                                    double defaults_ratio_to_estimate_sparse);
 
         /// Returns last inserted field.
         Field get_last_field() const;
@@ -221,6 +223,8 @@ private:
     // the leaves is null.In order to display whole document, copy
     // this structure and fill with Subcolumns sub items
     mutable std::shared_ptr<rapidjson::Document> doc_structure;
+    // Table level config
+    VariantConfig config;
 
 public:
     static constexpr auto COLUMN_NAME_DUMMY = "_dummy";
@@ -228,6 +232,9 @@ public:
     explicit ColumnObject(bool is_nullable_, bool create_root = true);
 
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
+
+    // Write path, more configurable
+    ColumnObject(VariantConfig variantConfig);
 
     ~ColumnObject() override = default;
 

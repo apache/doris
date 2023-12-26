@@ -355,6 +355,8 @@ public class OperationType {
 
     public static final short OP_INSERT_OVERWRITE = 461;
 
+    public static final short OP_UPDATE_VARIANT_CONFIG = 462;
+
     /**
      * Get opcode name by op code.
      **/

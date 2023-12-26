@@ -18,6 +18,7 @@
 package org.apache.doris.task;
 
 import org.apache.doris.catalog.BinlogConfig;
+import org.apache.doris.catalog.VariantConfig;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Status;
@@ -54,6 +55,7 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
     private int enableSingleReplicaCompaction = -1;
     private int skipWriteIndexOnLoad = -1;
     private int disableAutoCompaction = -1;
+    private VariantConfig variantConfig;
 
     public UpdateTabletMetaInfoTask(long backendId, Set<Pair<Long, Integer>> tableIdWithSchemaHash) {
         super(null, backendId, TTaskType.UPDATE_TABLET_META_INFO,
@@ -89,13 +91,15 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                                     Map<String, Long> timeSeriesCompactionConfig,
                                     int enableSingleReplicaCompaction,
                                     int skipWriteIndexOnLoad,
-                                    int disableAutoCompaction) {
+                                    int disableAutoCompaction,
+                                    VariantConfig variantConfig) {
         this(backendId, tableIdWithSchemaHash, inMemory, storagePolicyId, binlogConfig, latch);
         this.compactionPolicy = compactionPolicy;
         this.timeSeriesCompactionConfig = timeSeriesCompactionConfig;
         this.enableSingleReplicaCompaction = enableSingleReplicaCompaction;
         this.skipWriteIndexOnLoad = skipWriteIndexOnLoad;
         this.disableAutoCompaction = disableAutoCompaction;
+        this.variantConfig = variantConfig;
     }
 
     public void countDownLatch(long backendId, Set<Pair<Long, Integer>> tablets) {
@@ -169,6 +173,10 @@ public class UpdateTabletMetaInfoTask extends AgentTask {
                 }
                 if (disableAutoCompaction >= 0) {
                     metaInfo.setDisableAutoCompaction(disableAutoCompaction > 0);
+                }
+
+                if (variantConfig != null) {
+                    metaInfo.setVariantConfig(variantConfig.toThrift());
                 }
                 updateTabletMetaInfoReq.addToTabletMetaInfos(metaInfo);
             }

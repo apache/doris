@@ -49,6 +49,7 @@
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
+#include "olap/variant_config.h"
 #include "olap/version_graph.h"
 #include "segment_loader.h"
 #include "util/metrics.h"
@@ -559,6 +560,9 @@ public:
             OlapReaderStatistics* stats);
     void set_alter_failed(bool alter_failed) { _alter_failed = alter_failed; }
     bool is_alter_failed() { return _alter_failed; }
+
+    void set_variant_config(VariantConfig binlog_config);
+    const VariantConfig& variant_config() const;
 
 private:
     Status _init_once_action();

@@ -977,8 +977,6 @@ DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mBool(variant_enable_flatten_nested, "false");
-DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
-DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
 
 // block file cache
 DEFINE_Bool(enable_file_cache, "false");

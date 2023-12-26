@@ -231,6 +231,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
         context.tablet_schema = tablet_schema;
         context.original_tablet_schema = tablet_schema;
         context.newest_write_timestamp = UnixSeconds();
+        context.tablet_id = cur_tablet->tablet_id();
         auto rowset_writer = DORIS_TRY(cur_tablet->create_rowset_writer(context, false));
         _pending_rs_guard =
                 StorageEngine::instance()->pending_local_rowsets().add(context.rowset_id);

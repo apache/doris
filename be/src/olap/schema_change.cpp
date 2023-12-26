@@ -611,6 +611,7 @@ Result<std::pair<RowsetSharedPtr, PendingRowsetGuard>> VSchemaChangeWithSorting:
     context.original_tablet_schema = new_tablet_schema;
     context.newest_write_timestamp = newest_write_timestamp;
     context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+    context.tablet_id = new_tablet->tablet_id();
     std::unique_ptr<RowsetWriter> rowset_writer;
     // TODO(plat1ko): Use monad op
     if (auto result = new_tablet->create_rowset_writer(context, false); !result.has_value())
@@ -1073,6 +1074,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
         context.write_type = DataWriteType::TYPE_SCHEMA_CHANGE;
+        context.tablet_id = sc_params.new_tablet->tablet_id();
         auto result = new_tablet->create_rowset_writer(context, false);
         if (!result.has_value()) {
             res = Status::Error<ROWSET_BUILDER_INIT>("create_rowset_writer failed, reason={}",

@@ -39,6 +39,7 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.catalog.VariantConfig;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -238,6 +239,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
             Preconditions.checkState(tbl.getState() == OlapTableState.SCHEMA_CHANGE);
             BinlogConfig binlogConfig = new BinlogConfig(tbl.getBinlogConfig());
+            VariantConfig variantConfig = new VariantConfig(tbl.getVariantConfig());
             for (long partitionId : partitionIndexMap.rowKeySet()) {
                 Partition partition = tbl.getPartition(partitionId);
                 if (partition == null) {
@@ -284,7 +286,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                                     tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
                                     tbl.getTimeSeriesCompactionEmptyRowsetsThreshold(),
                                     tbl.storeRowColumn(),
-                                    binlogConfig);
+                                    binlogConfig,
+                                    variantConfig);
 
                             createReplicaTask.setBaseTablet(partitionIndexTabletMap.get(partitionId, shadowIdxId)
                                     .get(shadowTabletId), originSchemaHash);
