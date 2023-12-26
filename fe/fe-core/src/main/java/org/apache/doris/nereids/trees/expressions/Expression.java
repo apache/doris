@@ -60,7 +60,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     private final int depth;
     private final int width;
     // Mark this expression is from predicate infer or something else infer
-    private boolean inferred;
+    private final boolean inferred;
 
     protected Expression(Expression... children) {
         super(children);
@@ -241,9 +241,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         throw new RuntimeException();
     }
 
-    public <E> E withInferred(boolean inferred) {
-        this.inferred = inferred;
-        return (E) this;
+    public Expression withInferred(boolean inferred) {
+        throw new RuntimeException();
     }
 
     /**

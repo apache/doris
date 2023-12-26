@@ -33,7 +33,11 @@ import java.util.List;
 public abstract class ComparisonPredicate extends BinaryOperator {
 
     public ComparisonPredicate(List<Expression> children, String symbol) {
-        super(children, symbol);
+        this(children, symbol, false);
+    }
+
+    public ComparisonPredicate(List<Expression> children, String symbol, boolean inferred) {
+        super(children, symbol, inferred);
     }
 
     @Override

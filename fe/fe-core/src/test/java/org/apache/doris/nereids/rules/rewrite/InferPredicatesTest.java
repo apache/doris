@@ -88,7 +88,7 @@ public class InferPredicatesTest extends TestWithFeService implements MemoPatter
                         logicalJoin(
                             logicalFilter(
                                     logicalOlapScan()
-                            ).when(filter ->  !ExpressionUtils.isInferred(filter.getPredicate())
+                            ).when(filter -> !ExpressionUtils.isInferred(filter.getPredicate())
                                     & filter.getPredicate().toSql().contains("id > 1")),
                             logicalFilter(
                                     logicalOlapScan()
