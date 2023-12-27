@@ -374,8 +374,9 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
         RETURN_IF_ERROR(sink_operator->init(request.fragment.output_sink));
 
         RETURN_IF_ERROR(pipeline->build_operators());
-        auto task = std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
-                                                   sink_operator, this, pipeline->pipeline_profile());
+        auto task =
+                std::make_unique<PipelineTask>(pipeline, _total_tasks++, _runtime_state.get(),
+                                               sink_operator, this, pipeline->pipeline_profile());
         RETURN_IF_ERROR(sink_operator->set_child(task->get_root()));
         _tasks.emplace_back(std::move(task));
         _runtime_profile->add_child(pipeline->pipeline_profile(), true, nullptr);

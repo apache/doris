@@ -185,7 +185,7 @@ private:
     void _init_profile();
 
     OperatorBuilders _operator_builders; // left is _source, right is _root
-    OperatorBuilderPtr _sink_builder;            // put block to sink
+    OperatorBuilderPtr _sink_builder;    // put block to sink
 
     std::mutex _depend_mutex;
     std::vector<std::pair<int, std::weak_ptr<Pipeline>>> _parents;
