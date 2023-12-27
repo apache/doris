@@ -60,6 +60,14 @@ public class InsertOverwriteTableStmt extends DdlStmt {
         return source.getQueryStmt();
     }
 
+    public Expr getPartitionExpr() {
+   	 if (target.getPartitionNames() == null) {
+            return null;
+        }
+      return target.getPartitionNames().getExpr();
+   }
+   
+    
     public List<String> getPartitionNames() {
         if (target.getPartitionNames() == null) {
             return new ArrayList<>();

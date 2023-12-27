@@ -52,12 +52,15 @@ public class PartitionNames implements ParseNode, Writable {
     private final long count;
     // Default partition count to collect statistic for external table.
     private static final long DEFAULT_PARTITION_COUNT = 100;
+    @SerializedName(value = "expr")
+    private final Expr expr;
 
     public PartitionNames(boolean isTemp, List<String> partitionNames) {
         this.partitionNames = partitionNames;
         this.isTemp = isTemp;
         this.allPartitions = false;
         this.count = 0;
+        this.expr = null;
     }
 
     public PartitionNames(PartitionNames other) {
@@ -65,6 +68,15 @@ public class PartitionNames implements ParseNode, Writable {
         this.isTemp = other.isTemp;
         this.allPartitions = other.allPartitions;
         this.count = 0;
+        this.expr = null;
+    }
+    
+public PartitionNames(Expr expr) {
+        this.partitionNames = null;
+        this.isTemp = false;
+        this.expr = expr;
+        this.count = 0;
+        this.allPartitions = false;
     }
 
     public PartitionNames(boolean allPartitions) {
@@ -72,6 +84,7 @@ public class PartitionNames implements ParseNode, Writable {
         this.isTemp = false;
         this.allPartitions = allPartitions;
         this.count = 0;
+        this.expr = null;
     }
 
     public PartitionNames(long partitionCount) {
@@ -79,9 +92,14 @@ public class PartitionNames implements ParseNode, Writable {
         this.isTemp = false;
         this.allPartitions = false;
         this.count = partitionCount;
+        this.expr = null;
     }
+  
+    public Expr getExpr() {
+		return expr;
+	}
 
-    public List<String> getPartitionNames() {
+	public List<String> getPartitionNames() {
         return partitionNames;
     }
 

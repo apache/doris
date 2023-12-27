@@ -5789,6 +5789,10 @@ partition_names ::=
     {:
         RESULT = new PartitionNames(count);
     :}
+ 	| KW_PARTITIONS LPAREN STRING_LITERAL:vn equal expr:e RPAREN
+    {:
+        RESULT = new PartitionNames(e);
+    :}
     ;
 
 opt_table_sample ::=
