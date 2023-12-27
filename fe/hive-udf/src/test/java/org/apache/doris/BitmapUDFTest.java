@@ -23,6 +23,7 @@ import org.apache.doris.udf.BitmapAndUDF;
 import org.apache.doris.udf.BitmapCountUDF;
 import org.apache.doris.udf.BitmapOrUDF;
 import org.apache.doris.udf.BitmapXorUDF;
+
 import org.apache.hadoop.hive.ql.udf.generic.GenericUDF;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.primitive.BinaryObjectInspector;
@@ -30,6 +31,7 @@ import org.apache.hadoop.hive.serde2.objectinspector.primitive.JavaConstantBinar
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+
 import java.io.IOException;
 
 // hive bitmap udf test
@@ -42,7 +44,7 @@ public class BitmapUDFTest {
     private BinaryObjectInspector inputOI1 = new JavaConstantBinaryObjectInspector(new byte[0]);
 
     @Before
-    public void initData() throws IOException{
+    public void initData() throws IOException {
         BitmapValue bitmapValue0 = new BitmapValue();
         BitmapValue bitmapValue1 = new BitmapValue();
 
@@ -58,11 +60,11 @@ public class BitmapUDFTest {
     }
 
     @Test
-    public void BitmapAndUDFTest() throws Exception {
+    public void bitmapAndTest() throws Exception {
         BitmapAndUDF bitmapAndUDF = new BitmapAndUDF();
         bitmapAndUDF.initialize(new ObjectInspector[]{inputOI0, inputOI1});
 
-        GenericUDF.DeferredObject[]  args = new GenericUDF.DeferredObject[]{new GenericUDF.DeferredJavaObject(bitmapValue0Bytes), new GenericUDF.DeferredJavaObject(bitmapValue1Bytes)};
+        GenericUDF.DeferredObject[] args = new GenericUDF.DeferredObject[]{new GenericUDF.DeferredJavaObject(bitmapValue0Bytes), new GenericUDF.DeferredJavaObject(bitmapValue1Bytes)};
         Object evaluate = bitmapAndUDF.evaluate(args);
         BitmapValue resultBitmap = BitmapValueUtil.deserializeToBitmap((byte[]) evaluate);
 
@@ -71,25 +73,25 @@ public class BitmapUDFTest {
     }
 
     @Test
-    public void BitmapOrUDFTest() throws Exception {
+    public void bitmapOrTest() throws Exception {
 
         BitmapOrUDF bitmapOrUDF = new BitmapOrUDF();
         bitmapOrUDF.initialize(new ObjectInspector[]{inputOI0, inputOI1});
 
-        GenericUDF.DeferredObject[]  args = new GenericUDF.DeferredObject[]{new GenericUDF.DeferredJavaObject(bitmapValue0Bytes), new GenericUDF.DeferredJavaObject(bitmapValue1Bytes)};
+        GenericUDF.DeferredObject[] args = new GenericUDF.DeferredObject[]{new GenericUDF.DeferredJavaObject(bitmapValue0Bytes), new GenericUDF.DeferredJavaObject(bitmapValue1Bytes)};
         Object evaluate = bitmapOrUDF.evaluate(args);
-        BitmapValue resultBitmap = BitmapValueUtil.deserializeToBitmap( (byte[]) evaluate);
+        BitmapValue resultBitmap = BitmapValueUtil.deserializeToBitmap((byte[]) evaluate);
 
         Assert.assertEquals(4, resultBitmap.cardinality());
         Assert.assertEquals("{1,2,3,4}", resultBitmap.toString());
     }
 
     @Test
-    public void BitmapXorUDFTest() throws Exception {
+    public void bitmapXorTest() throws Exception {
         BitmapXorUDF bitmapXorUDF = new BitmapXorUDF();
         bitmapXorUDF.initialize(new ObjectInspector[]{inputOI0, inputOI1});
 
-        GenericUDF.DeferredObject[]  args = new GenericUDF.DeferredObject[]{new GenericUDF.DeferredJavaObject(bitmapValue0Bytes), new GenericUDF.DeferredJavaObject(bitmapValue1Bytes)};
+        GenericUDF.DeferredObject[] args = new GenericUDF.DeferredObject[]{new GenericUDF.DeferredJavaObject(bitmapValue0Bytes), new GenericUDF.DeferredJavaObject(bitmapValue1Bytes)};
         Object evaluate = bitmapXorUDF.evaluate(args);
         BitmapValue resultBitmap = BitmapValueUtil.deserializeToBitmap((byte[]) evaluate);
 
@@ -98,11 +100,11 @@ public class BitmapUDFTest {
     }
 
     @Test
-    public void BitmapCountUDFTest() throws Exception {
+    public void bitmapCountTest() throws Exception {
         BitmapCountUDF bitmapCountUDF = new BitmapCountUDF();
-		bitmapCountUDF.initialize(new ObjectInspector[] { inputOI0 });
-		Object evaluate = bitmapCountUDF.evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(bitmapValue0Bytes) });
-		Assert.assertEquals(2L, evaluate);
+        bitmapCountUDF.initialize(new ObjectInspector[] { inputOI0 });
+        Object evaluate = bitmapCountUDF.evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(bitmapValue0Bytes) });
+        Assert.assertEquals(2L, evaluate);
 
         bitmapCountUDF.initialize(new ObjectInspector[] { inputOI1 });
         Object evaluate1 = bitmapCountUDF.evaluate(new GenericUDF.DeferredObject[] { new GenericUDF.DeferredJavaObject(bitmapValue1Bytes) });
