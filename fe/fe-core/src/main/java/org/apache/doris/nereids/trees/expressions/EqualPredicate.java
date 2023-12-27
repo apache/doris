@@ -25,7 +25,11 @@ import java.util.List;
 public abstract class EqualPredicate extends ComparisonPredicate {
 
     protected EqualPredicate(List<Expression> children, String symbol) {
-        super(children, symbol);
+        this(children, symbol, false);
+    }
+
+    protected EqualPredicate(List<Expression> children, String symbol, boolean inferred) {
+        super(children, symbol, inferred);
     }
 
     @Override

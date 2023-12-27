@@ -169,6 +169,7 @@ public class ColocatePlanTest extends TestWithFeService {
 
     @Test
     public void checkColocatePlanFragment() throws Exception {
+        connectContext.getSessionVariable().setEnableSharedScan(false);
         String sql
                 = "select /*+ SET_VAR(enable_nereids_planner=false) */ a.k1 from db1.test_colocate a, db1.test_colocate b where a.k1=b.k1 and a.k2=b.k2 group by a.k1;";
         StmtExecutor executor = getSqlStmtExecutor(sql);
