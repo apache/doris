@@ -238,7 +238,6 @@ Status VExprContext::execute_conjuncts(const VExprContextSPtrs& ctxs,
 Status VExprContext::execute_conjuncts_and_filter_block(
         const VExprContextSPtrs& ctxs, const std::vector<IColumn::Filter*>* filters, Block* block,
         std::vector<uint32_t>& columns_to_filter, int column_to_keep) {
-    check_filter_block_column_position(block, columns_to_filter);
     IColumn::Filter result_filter(block->rows(), 1);
     bool can_filter_all;
     RETURN_IF_ERROR(
@@ -272,7 +271,6 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
                                                         std::vector<uint32_t>& columns_to_filter,
                                                         int column_to_keep,
                                                         IColumn::Filter& filter) {
-    check_filter_block_column_position(block, columns_to_filter);
     filter.resize_fill(block->rows(), 1);
     bool can_filter_all;
     RETURN_IF_ERROR(execute_conjuncts(ctxs, nullptr, false, block, &filter, &can_filter_all));
@@ -286,25 +284,6 @@ Status VExprContext::execute_conjuncts_and_filter_block(const VExprContextSPtrs&
 
     Block::erase_useless_column(block, column_to_keep);
     return Status::OK();
-}
-
-void VExprContext::check_filter_block_column_position(Block* block,
-                                                      std::vector<uint32_t>& columns_to_filter) {
-    for (const auto& col : columns_to_filter) {
-        // If col >= block->columns(), it means col should not be filtered, there is a BUG.
-        // such as delete condition column was incorrectly put into columns_to_filter,
-        // which is usually at the end of the block.
-        if (col >= block->columns()) {
-            std::ostringstream ss;
-            for (const auto& i : columns_to_filter) {
-                ss << i << "-";
-            }
-            throw Exception(ErrorCode::INTERNAL_ERROR,
-                            "filter_block_internal column id(index) greater than block->columns(), "
-                            "column id={}, all columns that need filter={}, block columns num={}",
-                            col, ss.str().substr(0, ss.str().length() - 1), block->columns());
-        }
-    }
 }
 
 // do_projection: for some query(e.g. in MultiCastDataStreamerSourceOperator::get_block()),

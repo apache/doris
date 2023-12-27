@@ -2177,6 +2177,25 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         _replace_version_col(_current_batch_rows_read);
     }
 
+    // If col >= block->columns(), it means col should not be filtered, there is a BUG.
+    // such as delete condition column was incorrectly put into columns_to_filter,
+    // which is usually at the end of the block. only check during the first next_batch.
+    if (_opts.stats->blocks_load == 0) {
+        for (const auto& col : _columns_to_filter) {
+            if (col >= block->columns()) {
+                std::ostringstream ss;
+                for (const auto& i : _columns_to_filter) {
+                    ss << i << "-";
+                }
+                throw Exception(
+                        ErrorCode::INTERNAL_ERROR,
+                        "filter_block_internal column id(index) greater than block->columns(), "
+                        "column id={}, all columns that need filter={}, block columns num={}",
+                        col, ss.str().substr(0, ss.str().length() - 1), block->columns());
+            }
+        }
+    }
+
     _opts.stats->blocks_load += 1;
     _opts.stats->raw_rows_read += _current_batch_rows_read;
 
