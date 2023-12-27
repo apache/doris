@@ -71,7 +71,7 @@ bool BinaryDictPageBuilder::is_page_full() {
         return true;
     }
     if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
-        if (config::enable_dict_page_automatically_fall_back) {
+        if (config::enable_dict_page_automatically_fall_back && !_has_first_page_been_written) {
             _should_convert_previous_data = true;
             _encoding_type = PLAIN_ENCODING;
             _dict_builder.reset();
@@ -79,6 +79,17 @@ bool BinaryDictPageBuilder::is_page_full() {
         return true;
     }
     return false;
+}
+
+bool BinaryDictPageBuilder::should_convert_previous_data() const {
+    return _should_convert_previous_data;
+}
+
+void BinaryDictPageBuilder::fallback_data_page_builder() {
+    LOG_INFO("[BinaryDictPageBuilder::fallback_data_page_builder]");
+    _data_page_builder =
+            std::make_unique<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(_options);
+    _should_convert_previous_data = false;
 }
 
 Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
@@ -149,8 +160,13 @@ Status BinaryDictPageBuilder::add(const uint8_t* vals, size_t* count) {
 std::vector<Slice> BinaryDictPageBuilder::get_previous_data() {
     auto* actual_builder = static_cast<BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>*>(
             _data_page_builder.get());
-    auto* encoded_values = reinterpret_cast<uint32_t*>(actual_builder->_data.data());
+    using type = BitshufflePageBuilder<FieldType::OLAP_FIELD_TYPE_INT>::CppType;
+    auto* encoded_values = reinterpret_cast<type*>(actual_builder->_data.data());
     uint32_t count = actual_builder->_count;
+    std::map<uint32_t, Slice> dict;
+    for (auto& it : _dictionary) {
+        dict.emplace(it.second, it.first);
+    }
     std::vector<Slice> data;
     data.reserve(count);
     for (uint32_t i = 0; i < count; i++) {
@@ -158,7 +174,7 @@ std::vector<Slice> BinaryDictPageBuilder::get_previous_data() {
         if (_empty_code == encoded_value) {
             data.emplace_back();
         } else {
-            data.emplace_back(_dict_items[encoded_value]);
+            data.emplace_back(dict[encoded_value]);
         }
     }
     return data;

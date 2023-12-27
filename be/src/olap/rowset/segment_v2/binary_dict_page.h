@@ -79,19 +79,13 @@ public:
 
     Status get_last_value(void* value) const override;
 
-    bool should_convert_previous_data() const {
-        return _should_convert_previous_data && !_has_first_page_been_written;
-    }
+    bool should_convert_previous_data() const;
 
     bool is_dict_encoding() const;
 
     std::vector<Slice> get_previous_data();
 
-    void fallback_data_page_builder() {
-        _data_page_builder =
-                std::make_unique<BinaryPlainPageBuilder<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(
-                        _options);
-    }
+    void fallback_data_page_builder();
 
 private:
     PageBuilderOptions _options;
