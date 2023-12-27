@@ -157,12 +157,16 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
 
     {
         std::lock_guard<doris::SpinLock> l(_fail_lock);
+        int least_tablet_success_channel_num = ((_parent->_num_replicas + 1) / 2);
+        if (_parent->_write_single_replica) {
+            least_tablet_success_channel_num = 1;
+        }
         if (tablet_id == -1) {
             for (const auto the_tablet_id : it->second) {
                 _failed_channels[the_tablet_id].insert(node_id);
                 _failed_channels_msgs.emplace(the_tablet_id,
                                               err + ", host: " + node_channel->host());
-                if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
+                if (_failed_channels[the_tablet_id].size() >= least_tablet_success_channel_num) {
                     _intolerable_failure_status =
                             Status::InternalError(_failed_channels_msgs[the_tablet_id]);
                 }
@@ -170,7 +174,7 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
         } else {
             _failed_channels[tablet_id].insert(node_id);
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
-            if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
+            if (_failed_channels[tablet_id].size() >= least_tablet_success_channel_num) {
                 _intolerable_failure_status =
                         Status::InternalError(_failed_channels_msgs[tablet_id]);
             }

@@ -361,8 +361,6 @@ public class AnalysisManager implements Writable {
         }
         recordAnalysisJob(jobInfo);
         analysisJobIdToTaskMap.put(jobInfo.jobId, analysisTaskInfos);
-        // TODO: maybe we should update table stats only when all task succeeded.
-        updateTableStats(jobInfo);
         if (!jobInfo.scheduleType.equals(ScheduleType.PERIOD)) {
             analysisTaskInfos.values().forEach(taskExecutor::submitTask);
         }

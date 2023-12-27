@@ -131,6 +131,7 @@ public class S3Util {
             if (StringUtils.isNotEmpty(host)) {
                 // Replace 'hdfs://key/' to 'hdfs://name_service/key/'
                 // Or hdfs:///abc to hdfs://name_service/abc
+                // TODO: check host in path when the 'dfs.nameservices' has multiple hosts
                 return location.replace(normalizedPrefix, normalizedPrefix + host + "/");
             } else {
                 // 'hdfs://null/' equals the 'hdfs:///'

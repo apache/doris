@@ -41,9 +41,7 @@ suite("test_decimalv3_overflow") {
         ); """
     sql "insert into ${tblName2} values(705091149953414452.46)"
 
-    // qt_sql1 """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
-
-    sql """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
+    qt_sql1 """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
 
     //=======================================
     // decimal32

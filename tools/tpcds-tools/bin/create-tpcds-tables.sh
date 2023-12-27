@@ -42,6 +42,7 @@ Usage: $0
 OPTS=$(getopt \
     -n "$0" \
     -o '' \
+    -o 'hs:' \
     -- "$@")
 
 eval set -- "${OPTS}"
@@ -58,6 +59,10 @@ while true; do
         HELP=1
         shift
         ;;
+    -s)
+        SCALE_FACTOR=$2
+        shift 2
+        ;;
     --)
         shift
         break
@@ -71,6 +76,11 @@ done
 
 if [[ "${HELP}" -eq 1 ]]; then
     usage
+fi
+
+if [[ ${SCALE_FACTOR} -ne 1 ]] && [[ ${SCALE_FACTOR} -ne 100 ]] && [[ ${SCALE_FACTOR} -ne 1000 ]] && [[ ${SCALE_FACTOR} -ne 10000 ]]; then
+    echo "${SCALE_FACTOR} scale is not supported"
+    exit 1
 fi
 
 check_prerequest() {

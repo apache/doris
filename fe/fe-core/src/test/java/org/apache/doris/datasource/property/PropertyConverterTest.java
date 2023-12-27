@@ -35,8 +35,11 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.HMSExternalCatalog;
+import org.apache.doris.datasource.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.datasource.property.constants.CosProperties;
 import org.apache.doris.datasource.property.constants.GCSProperties;
+import org.apache.doris.datasource.property.constants.HMSProperties;
 import org.apache.doris.datasource.property.constants.MinioProperties;
 import org.apache.doris.datasource.property.constants.ObsProperties;
 import org.apache.doris.datasource.property.constants.OssProperties;
@@ -46,6 +49,7 @@ import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.aliyun.datalake.metastore.common.DataLakeConfig;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Maps;
 import org.junit.jupiter.api.Assertions;
@@ -221,13 +225,13 @@ public class PropertyConverterTest extends TestWithFeService {
     public void testS3TVFPropertiesConverter() throws Exception {
         FeConstants.runningUnitTest = true;
         String queryOld = "select * from s3(\n"
-                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
-                    + "  'access_key' = 'akk',\n"
-                    + "  'secret_key' = 'skk',\n"
-                    + "  'region' = 'us-east-1',\n"
-                    + "  'format' = 'parquet',\n"
-                    + "  'use_path_style' = 'true'\n"
-                    + ") limit 10;";
+                + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
+                + "  'access_key' = 'akk',\n"
+                + "  'secret_key' = 'skk',\n"
+                + "  'region' = 'us-east-1',\n"
+                + "  'format' = 'parquet',\n"
+                + "  'use_path_style' = 'true'\n"
+                + ") limit 10;";
         SelectStmt analyzedStmt = createStmt(queryOld);
         Assertions.assertEquals(analyzedStmt.getTableRefs().size(), 1);
         TableValuedFunctionRef oldFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
@@ -235,12 +239,12 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(s3Tvf.getBrokerDesc().getProperties().size(), 9);
 
         String queryNew = "select * from s3(\n"
-                    + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
-                    + "  's3.access_key' = 'akk',\n"
-                    + "  's3.secret_key' = 'skk',\n"
-                    + "  'format' = 'parquet',\n"
-                    + "  'use_path_style' = 'true'\n"
-                    + ") limit 10;";
+                + "  'uri' = 'http://s3.us-east-1.amazonaws.com/test.parquet',\n"
+                + "  's3.access_key' = 'akk',\n"
+                + "  's3.secret_key' = 'skk',\n"
+                + "  'format' = 'parquet',\n"
+                + "  'use_path_style' = 'true'\n"
+                + ") limit 10;";
         SelectStmt analyzedStmtNew = createStmt(queryNew);
         Assertions.assertEquals(analyzedStmtNew.getTableRefs().size(), 1);
         TableValuedFunctionRef newFuncTable = (TableValuedFunctionRef) analyzedStmt.getTableRefs().get(0);
@@ -251,13 +255,13 @@ public class PropertyConverterTest extends TestWithFeService {
     @Test
     public void testAWSOldCatalogPropertiesConverter() throws Exception {
         String queryOld = "create catalog hms_s3_old properties (\n"
-                    + "    'type'='hms',\n"
-                    + "    'hive.metastore.uris' = 'thrift://172.21.0.44:7004',\n"
-                    + "    'AWS_ENDPOINT' = 's3.us-east-1.amazonaws.com',\n"
-                    + "    'AWS_REGION' = 'us-east-1',\n"
-                    + "    'AWS_ACCESS_KEY' = 'akk',\n"
-                    + "    'AWS_SECRET_KEY' = 'skk'\n"
-                    + ");";
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.44:7004',\n"
+                + "    'AWS_ENDPOINT' = 's3.us-east-1.amazonaws.com',\n"
+                + "    'AWS_REGION' = 'us-east-1',\n"
+                + "    'AWS_ACCESS_KEY' = 'akk',\n"
+                + "    'AWS_SECRET_KEY' = 'skk'\n"
+                + ");";
         CreateCatalogStmt analyzedStmt = createStmt(queryOld);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3_old");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
@@ -270,12 +274,12 @@ public class PropertyConverterTest extends TestWithFeService {
     @Test
     public void testS3CatalogPropertiesConverter() throws Exception {
         String query = "create catalog hms_s3 properties (\n"
-                    + "    'type'='hms',\n"
-                    + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                    + "    's3.endpoint' = 's3.us-east-1.amazonaws.com',\n"
-                    + "    's3.access_key' = 'akk',\n"
-                    + "    's3.secret_key' = 'skk'\n"
-                    + ");";
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    's3.endpoint' = 's3.us-east-1.amazonaws.com',\n"
+                + "    's3.access_key' = 'akk',\n"
+                + "    's3.secret_key' = 'skk'\n"
+                + ");";
         CreateCatalogStmt analyzedStmt = createStmt(query);
         HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, "hms_s3");
         Map<String, String> properties = catalog.getCatalogProperty().getProperties();
@@ -283,6 +287,136 @@ public class PropertyConverterTest extends TestWithFeService {
 
         Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
         Assertions.assertEquals(hdProps.size(), 20);
+    }
+
+    @Test
+    public void testOssHdfsProperties() throws Exception {
+        String catalogName1 = "hms_oss_hdfs";
+        String query1 = "create catalog " + catalogName1 + " properties (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'oss.endpoint' = 'oss-cn-beijing.aliyuncs.com',\n"
+                + "    'oss.hdfs.enabled' = 'true',\n"
+                + "    'oss.access_key' = 'akk',\n"
+                + "    'oss.secret_key' = 'skk'\n"
+                + ");";
+        String catalogName = "hms_oss_hdfs";
+        CreateCatalogStmt analyzedStmt = createStmt(query1);
+        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
+        Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
+        Assertions.assertEquals("com.aliyun.jindodata.oss.JindoOssFileSystem", hdProps.get("fs.oss.impl"));
+        Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", hdProps.get("fs.oss.endpoint"));
+    }
+
+    @Test
+    public void testDlfPropertiesConverter() throws Exception {
+        String queryDlf1 = "create catalog hms_dlf1 properties (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.type'='dlf',\n"
+                + "    'dlf.proxy.mode' = 'DLF_ONLY',\n"
+                + "    'dlf.endpoint' = 'dlf.cn-beijing.aliyuncs.com',\n"
+                + "    'dlf.uid' = '20239444',\n"
+                + "    'dlf.access_key' = 'akk',\n"
+                + "    'dlf.secret_key' = 'skk',\n"
+                + "    'dlf.region' = 'cn-beijing',\n"
+                + "    'dlf.access.public' = 'false'\n"
+                + ");";
+        String catalogName = "hms_dlf1";
+        CreateCatalogStmt analyzedStmt = createStmt(queryDlf1);
+        HMSExternalCatalog catalog = createAndGetCatalog(analyzedStmt, catalogName);
+        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
+        Assertions.assertEquals("hms", properties.get("type"));
+        Assertions.assertEquals("dlf", properties.get(HMSProperties.HIVE_METASTORE_TYPE));
+        Assertions.assertEquals("akk", properties.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
+        Assertions.assertEquals("skk", properties.get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET));
+        Assertions.assertEquals("dlf.cn-beijing.aliyuncs.com", properties.get(DataLakeConfig.CATALOG_ENDPOINT));
+        Assertions.assertEquals("cn-beijing", properties.get(DataLakeConfig.CATALOG_REGION_ID));
+        Assertions.assertEquals("20239444", properties.get(DataLakeConfig.CATALOG_USER_ID));
+
+        Map<String, String> hdProps = catalog.getCatalogProperty().getHadoopProperties();
+        Assertions.assertEquals("akk", hdProps.get(OssProperties.ACCESS_KEY));
+        Assertions.assertEquals("skk", hdProps.get(OssProperties.SECRET_KEY));
+        Assertions.assertEquals("http://oss-cn-beijing-internal.aliyuncs.com",
+                hdProps.get(OssProperties.ENDPOINT));
+
+        String queryDlf2 = "create catalog hms_dlf2 properties (\n"
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.type'='dlf',\n"
+                + "    'dlf.catalog.endpoint' = 'dlf.cn-beijing.aliyuncs.com',\n"
+                + "    'dlf.catalog.uid' = '20239444',\n"
+                + "    'dlf.catalog.id' = 'catalogId',\n"
+                + "    'dlf.catalog.proxyMode' = 'DLF_ONLY',\n"
+                + "    'dlf.catalog.accessKeyId' = 'akk',\n"
+                + "    'dlf.catalog.accessKeySecret' = 'skk',\n"
+                + "    'dlf.catalog.region' = 'cn-beijing',\n"
+                + "    'oss.hdfs.enabled' = 'true',\n"
+                + "    'dlf.catalog.accessPublic' = 'true'\n"
+                + ");";
+        String catalogName2 = "hms_dlf2";
+        CreateCatalogStmt analyzedStmt2 = createStmt(queryDlf2);
+        HMSExternalCatalog catalog2 = createAndGetCatalog(analyzedStmt2, catalogName2);
+        Map<String, String> properties2 = catalog2.getCatalogProperty().getProperties();
+        Assertions.assertEquals("dlf", properties2.get(HMSProperties.HIVE_METASTORE_TYPE));
+        Assertions.assertEquals("akk", properties2.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
+        Assertions.assertEquals("skk", properties2.get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET));
+        Assertions.assertEquals("dlf.cn-beijing.aliyuncs.com", properties2.get(DataLakeConfig.CATALOG_ENDPOINT));
+        Assertions.assertEquals("cn-beijing", properties2.get(DataLakeConfig.CATALOG_REGION_ID));
+        Assertions.assertEquals("20239444", properties2.get(DataLakeConfig.CATALOG_USER_ID));
+
+        Map<String, String> hdProps2 = catalog2.getCatalogProperty().getHadoopProperties();
+        Assertions.assertEquals("akk", hdProps2.get(OssProperties.ACCESS_KEY));
+        Assertions.assertEquals("skk", hdProps2.get(OssProperties.SECRET_KEY));
+        Assertions.assertEquals("cn-beijing.oss-dls.aliyuncs.com", hdProps2.get(OssProperties.ENDPOINT));
+
+        String queryDlfIceberg = "create catalog dlf_iceberg properties (\n"
+                + "    'type'='iceberg',\n"
+                + "    'iceberg.catalog.type'='dlf',\n"
+                + "    'dlf.proxy.mode' = 'DLF_ONLY',\n"
+                + "    'dlf.endpoint' = 'dlf.cn-beijing.aliyuncs.com',\n"
+                + "    'dlf.uid' = '20239444',\n"
+                + "    'dlf.access_key' = 'akk',\n"
+                + "    'dlf.secret_key' = 'skk',\n"
+                + "    'dlf.region' = 'cn-beijing'\n"
+                + ");";
+        String catalogName3 = "dlf_iceberg";
+        CreateCatalogStmt analyzedStmt3 = createStmt(queryDlfIceberg);
+        IcebergExternalCatalog catalog3 = createAndGetIcebergCatalog(analyzedStmt3, catalogName3);
+        Map<String, String> properties3 = catalog3.getCatalogProperty().getProperties();
+        Assertions.assertEquals("dlf", properties3.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE));
+        Assertions.assertEquals("akk", properties3.get(DataLakeConfig.CATALOG_ACCESS_KEY_ID));
+        Assertions.assertEquals("skk", properties3.get(DataLakeConfig.CATALOG_ACCESS_KEY_SECRET));
+        Assertions.assertEquals("dlf.cn-beijing.aliyuncs.com", properties3.get(DataLakeConfig.CATALOG_ENDPOINT));
+        Assertions.assertEquals("cn-beijing", properties3.get(DataLakeConfig.CATALOG_REGION_ID));
+        Assertions.assertEquals("20239444", properties3.get(DataLakeConfig.CATALOG_USER_ID));
+
+        Map<String, String> hdProps3 = catalog3.getCatalogProperty().getHadoopProperties();
+        Assertions.assertEquals("akk", hdProps3.get(OssProperties.ACCESS_KEY));
+        Assertions.assertEquals("skk", hdProps3.get(OssProperties.SECRET_KEY));
+        Assertions.assertEquals("http://oss-cn-beijing-internal.aliyuncs.com", hdProps3.get(OssProperties.ENDPOINT));
+    }
+
+    @Test
+    public void testMcPropertiesConverter() throws Exception {
+        String queryDlf1 = "create catalog hms_mc properties (\n"
+                + "    'type'='max_compute',\n"
+                + "    'mc.default.project' = 'project0',\n"
+                + "    'mc.region' = 'cn-beijing',\n"
+                + "    'mc.access_key' = 'ak',\n"
+                + "    'mc.secret_key' = 'sk',\n"
+                + "    'mc.public_access' = 'true'\n"
+                + ");";
+        String catalogName = "hms_mc";
+        CreateCatalogStmt analyzedStmt = createStmt(queryDlf1);
+        Env.getCurrentEnv().getCatalogMgr().createCatalog(analyzedStmt);
+        MaxComputeExternalCatalog catalog = (MaxComputeExternalCatalog) Env.getCurrentEnv()
+                .getCatalogMgr().getCatalog(catalogName);
+        Map<String, String> properties = catalog.getCatalogProperty().getProperties();
+        Assertions.assertEquals(properties.get("type"), "max_compute");
+        Assertions.assertEquals(properties.get("mc.region"), "cn-beijing");
+        Assertions.assertEquals(properties.get("mc.access_key"), "ak");
+        Assertions.assertEquals(properties.get("mc.secret_key"), "sk");
+        Assertions.assertEquals(properties.get("mc.public_access"), "true");
+        Assertions.assertEquals(properties.get("mc.default.project"), "project0");
     }
 
     @Test
@@ -306,13 +440,13 @@ public class PropertyConverterTest extends TestWithFeService {
         Assertions.assertEquals(hdProps.size(), 29);
 
         String query = "create catalog hms_glue properties (\n"
-                    + "    'type'='hms',\n"
-                    + "    'hive.metastore.type'='glue',\n"
-                    + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                    + "    'glue.endpoint' = 'glue.us-east-1.amazonaws.com',\n"
-                    + "    'glue.access_key' = 'akk',\n"
-                    + "    'glue.secret_key' = 'skk'\n"
-                    + ");";
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.type'='glue',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'glue.endpoint' = 'glue.us-east-1.amazonaws.com',\n"
+                + "    'glue.access_key' = 'akk',\n"
+                + "    'glue.secret_key' = 'skk'\n"
+                + ");";
         catalogName = "hms_glue";
         CreateCatalogStmt analyzedStmtNew = createStmt(query);
         HMSExternalCatalog catalogNew = createAndGetCatalog(analyzedStmtNew, catalogName);
@@ -327,14 +461,14 @@ public class PropertyConverterTest extends TestWithFeService {
     public void testS3CompatibleCatalogPropertiesConverter() throws Exception {
         String catalogName0 = "hms_cos";
         String query0 = "create catalog " + catalogName0 + " properties (\n"
-                    + "    'type'='hms',\n"
-                    + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
-                    + "    'cos.endpoint' = 'cos.ap-beijing.myqcloud.com',\n"
-                    + "    'cos.access_key' = 'akk',\n"
-                    + "    'cos.secret_key' = 'skk'\n"
-                    + ");";
+                + "    'type'='hms',\n"
+                + "    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',\n"
+                + "    'cos.endpoint' = 'cos.ap-beijing.myqcloud.com',\n"
+                + "    'cos.access_key' = 'akk',\n"
+                + "    'cos.secret_key' = 'skk'\n"
+                + ");";
         testS3CompatibleCatalogProperties(catalogName0, CosProperties.COS_PREFIX,
-                    "cos.ap-beijing.myqcloud.com", query0, 11, 16);
+                "cos.ap-beijing.myqcloud.com", query0, 11, 16);
 
         String catalogName1 = "hms_oss";
         String query1 = "create catalog " + catalogName1 + " properties (\n"
@@ -345,7 +479,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'oss.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName1, OssProperties.OSS_PREFIX,
-                    "oss.oss-cn-beijing.aliyuncs.com", query1, 11, 16);
+                "oss.oss-cn-beijing.aliyuncs.com", query1, 11, 16);
 
         String catalogName2 = "hms_minio";
         String query2 = "create catalog " + catalogName2 + " properties (\n"
@@ -356,7 +490,7 @@ public class PropertyConverterTest extends TestWithFeService {
                 + "    'minio.secret_key' = 'skk'\n"
                 + ");";
         testS3CompatibleCatalogProperties(catalogName2, MinioProperties.MINIO_PREFIX,
-                    "http://127.0.0.1", query2, 11, 20);
+                "http://127.0.0.1", query2, 11, 20);
 
         String catalogName3 = "hms_obs";
         String query3 = "create catalog hms_obs properties (\n"
@@ -405,6 +539,12 @@ public class PropertyConverterTest extends TestWithFeService {
             throws UserException {
         Env.getCurrentEnv().getCatalogMgr().createCatalog(analyzedStmt);
         return (HMSExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(name);
+    }
+
+    private static IcebergExternalCatalog createAndGetIcebergCatalog(CreateCatalogStmt analyzedStmt, String name)
+            throws UserException {
+        Env.getCurrentEnv().getCatalogMgr().createCatalog(analyzedStmt);
+        return (IcebergExternalCatalog) Env.getCurrentEnv().getCatalogMgr().getCatalog(name);
     }
 
     @Test
