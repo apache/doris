@@ -240,7 +240,7 @@ public class MetaPersistMethod {
                 break;
             case "JobTaskManager":
                 break;
-            case "iot":
+            case "insertOverwrite":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadIot", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
