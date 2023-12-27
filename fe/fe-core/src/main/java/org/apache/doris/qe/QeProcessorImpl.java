@@ -140,9 +140,7 @@ public final class QeProcessorImpl implements QeProcessor {
     public void unregisterQuery(TUniqueId queryId) {
         QueryInfo queryInfo = coordinatorMap.remove(queryId);
         if (queryInfo != null) {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("Deregister query id {}", DebugUtil.printId(queryId));
-            }
+            LOG.info("Deregister query id {}", DebugUtil.printId(queryId));
 
             if (queryInfo.getConnectContext() != null
                     && !Strings.isNullOrEmpty(queryInfo.getConnectContext().getQualifiedUser())
@@ -152,7 +150,7 @@ public final class QeProcessorImpl implements QeProcessor {
                     String user = queryInfo.getConnectContext().getQualifiedUser();
                     AtomicInteger instancesNum = userToInstancesCount.get(user);
                     if (instancesNum == null) {
-                        LOG.warn("WTF?? query {} in queryToInstancesNum but not in userToInstancesCount",
+                        LOG.warn("Query {} in queryToInstancesNum but not in userToInstancesCount",
                                 DebugUtil.printId(queryId)
                         );
                     } else {
@@ -161,9 +159,7 @@ public final class QeProcessorImpl implements QeProcessor {
                 }
             }
         } else {
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("not found query {} when unregisterQuery", DebugUtil.printId(queryId));
-            }
+            LOG.warn("Query {} not found when unregister.", DebugUtil.printId(queryId));
         }
 
         // commit hive tranaction if needed

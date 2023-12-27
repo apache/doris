@@ -161,10 +161,8 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
     // We need a more detail discussion.
     if (_query_ctx->cancel(true, msg, Status::Cancelled(msg))) {
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
-            LOG(WARNING) << "PipelineFragmentContext "
-                         << PrintInstanceStandardInfo(_query_id, _fragment_instance_id)
-                         << " is canceled, cancel message: " << msg;
-
+            LOG_WARNING("Instance {} cancelled, reason {}", print_id(_fragment_instance_id),
+                        msg.substr(0, 50));
         } else {
             _set_is_report_on_cancel(false); // TODO bug llj fix this not projected by lock
         }

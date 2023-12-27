@@ -402,10 +402,9 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     VLOG_DEBUG << "reportExecStatus params is "
                << apache::thrift::ThriftDebugString(params).c_str();
     if (!exec_status.ok()) {
-        LOG(WARNING) << "report error status: " << exec_status.msg()
-                     << " to coordinator: " << req.coord_addr
-                     << ", query id: " << print_id(req.query_id)
-                     << ", instance id: " << print_id(req.fragment_instance_id);
+        LOG_WARNING("Query {} instance {} report error status to coor {}:{}, error status: {}",
+                    print_id(req.query_id), print_id(req.fragment_instance_id),
+                    req.coord_addr.hostname, req.coord_addr.port, exec_status.to_string_no_stack());
     }
     try {
         try {
