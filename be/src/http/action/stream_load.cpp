@@ -645,8 +645,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
                 content_length *= 3;
             }
-            RETURN_IF_ERROR(ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(
-                    ctx->id.to_thrift(), content_length));
+            ctx->put_result.params.__set_content_length(content_length);
         }
     }
 
