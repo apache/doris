@@ -170,6 +170,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 .setLastExecTimeInMs(System.currentTimeMillis())
                 .setJobType(JobType.SYSTEM)
                 .setTblUpdateTime(table.getUpdateTime())
+                .setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0)
                 .build();
         analysisInfos.add(jobInfo);
     }
