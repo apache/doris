@@ -19,8 +19,6 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
-#include <chrono>
-#include <mutex>
 #include <shared_mutex>
 
 #include "common/exception.h"
@@ -29,7 +27,6 @@
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/sink/volap_table_sink.h"
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris {
@@ -74,10 +71,10 @@ Status GroupCommitBlockSink::prepare(RuntimeState* state) {
     _state = state;
 
     // profile must add to state's object pool
-    _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
+    _profile = state->obj_pool()->add(new RuntimeProfile("GroupCommitBlockSink"));
     init_sink_common_profile();
     _mem_tracker =
-            std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
+            std::make_shared<MemTracker>("GroupCommitBlockSink:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 

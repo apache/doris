@@ -70,6 +70,8 @@ private:
     std::vector<std::shared_ptr<vectorized::Block>> _blocks;
     bool _is_block_appended = false;
     double _max_filter_ratio = 0.0;
+
+    // used for find_partition
     VOlapTablePartitionParam* _vpartition = nullptr;
     // reuse for find_tablet.
     std::vector<VOlapTablePartition*> _partitions;
