@@ -336,7 +336,7 @@ void S3FileWriter::_upload_one_part(int64_t part_num, UploadFileBuffer& buf) {
                     "injected error",
                     _bucket, _path.native(), part_num, _upload_id);
             LOG_WARNING(s.to_string());
-            buf.set_status(s);
+            buf.set_status(std::move(s));
             return;
         }
     });

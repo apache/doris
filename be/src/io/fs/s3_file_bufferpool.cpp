@@ -121,7 +121,7 @@ Status UploadFileBuffer::append_data(const Slice& data) {
  * 1. submit the on_upload() callback to executor
  */
 static Status submit_upload_buffer(std::shared_ptr<FileBuffer> buffer) {
-    TEST_SYNC_POINT_RETURN_WITH_VOID("UploadFileBuffer::submit", buffer.get());
+    TEST_SYNC_POINT_RETURN_WITH_VALUE("UploadFileBuffer::submit", Status::OK(), buffer.get());
     return ExecEnv::GetInstance()->s3_file_upload_thread_pool()->submit_func(
             [buf = std::move(buffer)]() { buf->execute_async(); });
 }
