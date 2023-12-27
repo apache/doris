@@ -114,7 +114,8 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
             (double)state->num_rows_load_filtered() / num_selected_rows > _max_filter_ratio) {
             return Status::DataQualityError("too many filtered rows");
         }
-        RETURN_IF_ERROR(_add_blocks(true));
+        RETURN_IF_ERROR(
+                _add_blocks(state, true));
     }
     if (_load_block_queue) {
         _load_block_queue->remove_load_id(_load_id);
@@ -220,15 +221,16 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         _blocks.emplace_back(output_block);
     } else {
         if (!_is_block_appended) {
-            RETURN_IF_ERROR(_add_blocks(false));
+            RETURN_IF_ERROR(
+                    _add_blocks(state, false));
         }
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                output_block, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
+                state, output_block, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
     }
     return Status::OK();
 }
 
-Status GroupCommitBlockSink::_add_blocks(bool is_blocks_contain_all_load_data) {
+Status GroupCommitBlockSink::_add_blocks(RuntimeState* state, bool is_blocks_contain_all_load_data) {
     DCHECK(_is_block_appended == false);
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
@@ -257,7 +259,7 @@ Status GroupCommitBlockSink::_add_blocks(bool is_blocks_contain_all_load_data) {
     }
     for (auto it = _blocks.begin(); it != _blocks.end(); ++it) {
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                *it, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
+                state, *it, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
     }
     _is_block_appended = true;
     _blocks.clear();
