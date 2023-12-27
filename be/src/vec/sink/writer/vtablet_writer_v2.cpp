@@ -540,7 +540,11 @@ Status VTabletWriterV2::close(Status exec_status) {
             SCOPED_TIMER(_close_load_timer);
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : streams->streams()) {
+                    LOG(INFO) << "begin waiting stream close load_id=" << print_id(_load_id)
+                              << ", stream_id=" << stream->stream_id();
                     RETURN_IF_ERROR(stream->close_wait());
+                    LOG(INFO) << "end waiting stream close load_id=" << print_id(_load_id)
+                              << ", stream_id=" << stream->stream_id();
                 }
             }
         }
