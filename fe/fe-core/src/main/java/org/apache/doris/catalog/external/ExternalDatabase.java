@@ -345,6 +345,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public void gsonPostProcess() throws IOException {
         tableNameToId = Maps.newConcurrentMap();
+        LOG.info("debug gsonPostProcess() db: {}, {}, size: {}", name, id, idToTbl.size());
         for (T tbl : idToTbl.values()) {
             tableNameToId.put(tbl.getName(), tbl.getId());
         }
