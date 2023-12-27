@@ -39,6 +39,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "runtime/large_int_value.h"
+#include "runtime/primitive_type.h"
 #include "vec/common/int_exp.h"
 #include "vec/data_types/data_type_decimal.h"
 
@@ -158,7 +159,8 @@ public:
         return string_to_bool_internal(s + i, len - i, result);
     }
 
-    template <PrimitiveType P, typename T>
+    template <PrimitiveType P, typename T,
+              typename DecimalType = PrimitiveTypeTraits<P>::ColumnType::value_type>
     static inline T string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                       ParseResult* result);
 
@@ -568,7 +570,7 @@ inline int StringParser::StringParseTraits<__int128>::max_ascii_len() {
     return 39;
 }
 
-template <PrimitiveType P, typename T>
+template <PrimitiveType P, typename T, typename DecimalType>
 T StringParser::string_to_decimal(const char* s, int len, int type_precision, int type_scale,
                                   ParseResult* result) {
     static_assert(
@@ -646,10 +648,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     value = (value * 10) + (c - '0'); // Benchmarks are faster with parenthesis...
                 } else {
                     *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision)
-                                        : vectorized::max_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision);
+                    value = is_negative
+                                    ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                    : vectorized::max_decimal_value<DecimalType>(type_precision);
                     return value;
                 }
                 DCHECK(value >= 0); // For some reason //DCHECK_GE doesn't work with __int128.
@@ -696,10 +697,9 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     cur_digit = precision - scale;
                 } else if (!found_dot && max_digit < (precision - scale)) {
                     *result = StringParser::PARSE_OVERFLOW;
-                    value = is_negative ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision)
-                                        : vectorized::max_decimal_value<vectorized::Decimal<T>>(
-                                                  type_precision);
+                    value = is_negative
+                                    ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                    : vectorized::max_decimal_value<DecimalType>(type_precision);
                     return value;
                 } else if (found_dot && scale >= type_scale && !has_round) {
                     // make rounding cases
@@ -739,11 +739,10 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
                     if (!is_numeric_ascii(c)) {
                         if (cur_digit > type_precision) {
                             *result = StringParser::PARSE_OVERFLOW;
-                            value = is_negative
-                                            ? vectorized::min_decimal_value<vectorized::Decimal<T>>(
-                                                      type_precision)
-                                            : vectorized::max_decimal_value<vectorized::Decimal<T>>(
-                                                      type_precision);
+                            value = is_negative ? vectorized::min_decimal_value<DecimalType>(
+                                                          type_precision)
+                                                : vectorized::max_decimal_value<DecimalType>(
+                                                          type_precision);
                             return value;
                         }
                         return is_negative ? T(-value) : T(value);
@@ -782,9 +781,8 @@ T StringParser::string_to_decimal(const char* s, int len, int type_precision, in
         *result = StringParser::PARSE_OVERFLOW;
         if constexpr (TYPE_DECIMALV2 != P) {
             // decimalv3 overflow will return max min value for type precision
-            value = is_negative
-                            ? vectorized::min_decimal_value<vectorized::Decimal<T>>(type_precision)
-                            : vectorized::max_decimal_value<vectorized::Decimal<T>>(type_precision);
+            value = is_negative ? vectorized::min_decimal_value<DecimalType>(type_precision)
+                                : vectorized::max_decimal_value<DecimalType>(type_precision);
             return value;
         }
     } else if (UNLIKELY(scale > type_scale)) {
