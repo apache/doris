@@ -22,13 +22,18 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 
+import com.google.gson.annotations.SerializedName;
+
 import java.util.List;
 
 public class InsertOverwriteTask {
-
+    @SerializedName(value = "cancel")
     private boolean cancel;
+    @SerializedName(value = "dbId")
     private long dbId;
+    @SerializedName(value = "tId")
     private long tableId;
+    @SerializedName(value = "tpns")
     private List<String> tempPartitionNames;
 
     public InsertOverwriteTask() {

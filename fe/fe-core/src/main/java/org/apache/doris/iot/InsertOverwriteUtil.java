@@ -25,15 +25,16 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.PropertyAnalyzer;
 
 import com.google.common.collect.Maps;
-import static org.apache.doris.common.util.PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 public class InsertOverwriteUtil {
     private static final Logger LOG = LogManager.getLogger(InsertOverwriteUtil.class);
@@ -49,8 +50,8 @@ public class InsertOverwriteUtil {
     public static void addTempPartitions(OlapTable olapTable, List<String> partitionNames,
             List<String> tempPartitionNames) throws DdlException {
         for (int i = 0; i < partitionNames.size(); i++) {
-            Env.getCurrentEnv().addPartitionLike((Database) olapTable.getDatabase(), olapTable.getQualifiedName(),
-                    new AddPartitionLikeClause(partitionNames.get(i), tempPartitionNames.get(i), true));
+            Env.getCurrentEnv().addPartitionLike((Database) olapTable.getDatabase(), olapTable.getName(),
+                    new AddPartitionLikeClause(tempPartitionNames.get(i), partitionNames.get(i), true));
         }
     }
 
@@ -69,7 +70,7 @@ public class InsertOverwriteUtil {
                 return;
             }
             Map<String, String> properties = Maps.newHashMap();
-            properties.put(PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
+            properties.put(PropertyAnalyzer.PROPERTIES_USE_TEMP_PARTITION_NAME, "false");
             ReplacePartitionClause replacePartitionClause = new ReplacePartitionClause(
                     new PartitionNames(false, partitionNames),
                     new PartitionNames(true, tempPartitionNames), properties);
@@ -90,7 +91,12 @@ public class InsertOverwriteUtil {
     public static List<String> generateTempPartitionNames(List<String> partitionNames) {
         List<String> tempPartitionNames = new ArrayList<String>(partitionNames.size());
         for (String partitionName : partitionNames) {
-            tempPartitionNames.add("iot_temp_" + partitionName);
+            String tempPartitionName = "iot_temp_" + partitionName;
+            if (tempPartitionName.length() > 50) {
+                tempPartitionName = tempPartitionName.substring(0, 30) + Math.abs(Objects.hash(tempPartitionName))
+                        + "_" + System.currentTimeMillis();
+            }
+            tempPartitionNames.add(tempPartitionName);
         }
         return tempPartitionNames;
     }

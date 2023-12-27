@@ -96,6 +96,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      * for transterToMaster,try drop all temp partitions
      */
     public void allTaskFail() {
+        LOG.info("try drop all temp partitions when transterToMaster");
         HashMap<Long, InsertOverwriteTask> copyTasks = Maps.newHashMap(tasks);
         for (Entry<Long, InsertOverwriteTask> entry : copyTasks.entrySet()) {
             taskFail(entry.getKey());
@@ -104,6 +105,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
 
     private void cancelTask(long taskId) {
         if (tasks.containsKey(taskId)) {
+            LOG.info("cancel insert overwrite task: {}", tasks.get(taskId));
             tasks.get(taskId).setCancel(true);
             Env.getCurrentEnv().getEditLog()
                     .logInsertOverwrite(new InsertOverwriteLog(taskId, null, InsertOverwriteOpType.CANCEL));
@@ -112,6 +114,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
 
     private void removeTask(long taskId) {
         if (tasks.containsKey(taskId)) {
+            LOG.info("remove insert overwrite task: {}", tasks.get(taskId));
             tasks.remove(taskId);
             Env.getCurrentEnv().getEditLog()
                     .logInsertOverwrite(new InsertOverwriteLog(taskId, null, InsertOverwriteOpType.DROP));
@@ -148,11 +151,15 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
                 break;
             case DROP:
                 tasks.remove(insertOverwriteLog.getTaskId());
+                break;
             case CANCEL:
                 InsertOverwriteTask task = tasks.get(insertOverwriteLog.getTaskId());
                 if (task != null) {
                     task.setCancel(true);
                 }
+                break;
+            default:
+                LOG.warn("error insertOverwriteLog: {}", insertOverwriteLog.toString());
         }
     }
 
@@ -161,6 +168,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
      */
     @Override
     protected void runAfterCatalogReady() {
+        LOG.info("start clean insert overwrite temp partitions");
         HashMap<Long, InsertOverwriteTask> copyTasks = Maps.newHashMap(tasks);
         for (Entry<Long, InsertOverwriteTask> entry : copyTasks.entrySet()) {
             if (entry.getValue().isCancel()) {

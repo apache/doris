@@ -62,6 +62,15 @@ public class InsertOverwriteLog implements Writable {
     }
 
     @Override
+    public String toString() {
+        return "InsertOverwriteLog{"
+                + "taskId=" + taskId
+                + ", task=" + task
+                + ", opType=" + opType
+                + '}';
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
