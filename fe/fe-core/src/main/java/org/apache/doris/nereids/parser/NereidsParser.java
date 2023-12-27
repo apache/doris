@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.plugin.DialectConverterPlugin;
-import org.apache.doris.plugin.DialectConverterPluginMgr;
+import org.apache.doris.plugin.PluginMgr;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.Lists;
@@ -88,8 +88,8 @@ public class NereidsParser {
             return parseSQL(sql);
         }
 
-        DialectConverterPluginMgr pluginMgr = Env.getCurrentEnv().getSqlDialectPluginMgr();
-        List<DialectConverterPlugin> plugins = pluginMgr.getDialectConverterPlugins(sqlDialect);
+        PluginMgr pluginMgr = Env.getCurrentEnv().getPluginMgr();
+        List<DialectConverterPlugin> plugins = pluginMgr.getActiveDialectPluginList(sqlDialect);
         for (DialectConverterPlugin plugin : plugins) {
             try {
                 List<StatementBase> statementBases = plugin.parseSqlWithDialect(sql, sessionVariable);

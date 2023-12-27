@@ -88,6 +88,7 @@ public enum Dialect {
      */
     OCEANBASE("oceanbase");
 
+    public static final int MAX_DIALECT_SIZE = Dialect.values().length;
 
     private final String dialectName;
 

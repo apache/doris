@@ -51,7 +51,5 @@ public interface DialectConverterPlugin {
      * Use Dialect.getByName(sessionVariable.getSqlDialect()) to extract the dialect parameter.
      * </pre>
      * */
-    default @Nullable List<StatementBase> parseSqlWithDialect(String sql, SessionVariable sessionVariable) {
-        return null;
-    }
+    @Nullable List<StatementBase> parseSqlWithDialect(String sql, SessionVariable sessionVariable);
 }

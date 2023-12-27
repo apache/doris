@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.dialect.presto;
+package org.apache.doris.plugin.dialect.http;
 
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;

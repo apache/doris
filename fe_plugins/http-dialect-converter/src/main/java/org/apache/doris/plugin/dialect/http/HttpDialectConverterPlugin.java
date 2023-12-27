@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.plugin.dialect.presto;
+package org.apache.doris.plugin.dialect.http;
 
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.nereids.parser.Dialect;
 import org.apache.doris.plugin.DialectConverterPlugin;
 import org.apache.doris.plugin.Plugin;
@@ -34,6 +35,7 @@ import java.nio.file.FileSystems;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Properties;
@@ -112,8 +114,9 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
         final Map<String, String> properties = props.stringPropertyNames().stream()
                 .collect(Collectors.toMap(Function.identity(), props::getProperty));
         targetURL = properties.get("target_url");
-        acceptDialects = ImmutableSet.copyOf(Arrays.stream(Objects.requireNonNull(properties.get("accept_dialects"))
-                    .split(",")).map(Dialect::getByName).collect(Collectors.toSet()));
+        String acceptDialectsStr = Objects.requireNonNull(properties.get("accept_dialects"));
+        acceptDialects = ImmutableSet.copyOf(Arrays.stream(acceptDialectsStr.split(","))
+                    .map(Dialect::getByName).collect(Collectors.toSet()));
     }
 
     @Override
@@ -131,5 +134,11 @@ public class HttpDialectConverterPlugin extends Plugin implements DialectConvert
     public @Nullable String convertSql(String originSql, SessionVariable sessionVariable) {
         Preconditions.checkNotNull(targetURL);
         return HttpDialectUtils.convertSql(targetURL, originSql);
+    }
+
+    // no need to override parseSqlWithDialect, just return null
+    @Override
+    public List<StatementBase> parseSqlWithDialect(String sql, SessionVariable sessionVariable) {
+        return null;
     }
 }

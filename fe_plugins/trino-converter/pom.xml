@@ -28,24 +28,11 @@ under the License.
     <modelVersion>4.0.0</modelVersion>
     <artifactId>trino-converter</artifactId>
     <packaging>jar</packaging>
-    <properties>
-        <trino.parser.version>358</trino.parser.version>
-    </properties>
     <dependencies>
         <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-core</artifactId>
             <version>${doris.version}</version>
-            <exclusions>
-                <exclusion>
-                    <groupId>org.apache.orc</groupId>
-                    <artifactId>orc-core</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.openjdk.jol</groupId>
-                    <artifactId>jol-core</artifactId>
-                </exclusion>
-            </exclusions>
             <scope>provided</scope>
         </dependency>
         <dependency>
@@ -61,16 +48,6 @@ under the License.
             <artifactId>trino-parser</artifactId>
             <version>${trino.parser.version}</version>
             <scope>compile</scope>
-            <exclusions>
-                <exclusion>
-                    <groupId>com.google.guava</groupId>
-                    <artifactId>guava</artifactId>
-                </exclusion>
-                <exclusion>
-                    <groupId>org.antlr</groupId>
-                    <artifactId>antlr4-runtime</artifactId>
-                </exclusion>
-            </exclusions>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.logging.log4j/log4j-api -->
         <dependency>
@@ -100,25 +77,25 @@ under the License.
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-engine</artifactId>
-            <scope>provided</scope>
+            <scope>test</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.junit.vintage/junit-vintage-engine -->
         <dependency>
             <groupId>org.junit.vintage</groupId>
             <artifactId>junit-vintage-engine</artifactId>
-            <scope>provided</scope>
+            <scope>test</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.junit.jupiter/junit-jupiter-params -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
             <artifactId>junit-jupiter-params</artifactId>
-            <scope>provided</scope>
+            <scope>test</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.jmockit/jmockit -->
         <dependency>
             <groupId>org.jmockit</groupId>
             <artifactId>jmockit</artifactId>
-            <scope>provided</scope>
+            <scope>test</scope>
         </dependency>
     </dependencies>
     <build>
@@ -138,7 +115,7 @@ under the License.
                         <configuration>
                             <outputDirectory>${project.build.directory}</outputDirectory>
                             <overWriteIfNewer>true</overWriteIfNewer>
-                            <excludeScope>provided</excludeScope>
+                            <includeArtifactIds>trino-parser</includeArtifactIds>
                         </configuration>
                     </execution>
                 </executions>

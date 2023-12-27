@@ -73,6 +73,7 @@ under the License.
         <project.scm.id>github</project.scm.id>
         <plugin-ut.parallel>1</plugin-ut.parallel>
         <doris.version>1.2-SNAPSHOT</doris.version>
+        <trino.parser.version>395</trino.parser.version>
         <log4j2.version>2.18.0</log4j2.version>
         <log4j.verion>1.2.17</log4j.verion>
         <lombok.version>1.18.24</lombok.version>

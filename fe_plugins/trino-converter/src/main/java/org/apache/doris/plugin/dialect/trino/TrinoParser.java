@@ -27,6 +27,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
+import io.trino.sql.parser.ParsingException;
+import io.trino.sql.parser.ParsingOptions;
+import io.trino.sql.parser.SqlParser;
+import io.trino.sql.parser.StatementSplitter;
+import io.trino.sql.tree.Statement;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -42,9 +47,8 @@ public class TrinoParser {
 
     public static final Logger LOG = LogManager.getLogger(TrinoParser.class);
 
-    private static final io.trino.sql.parser.ParsingOptions PARSING_OPTIONS =
-            new io.trino.sql.parser.ParsingOptions(
-                    io.trino.sql.parser.ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL);
+    private static final ParsingOptions PARSING_OPTIONS = new ParsingOptions(
+                ParsingOptions.DecimalLiteralTreatment.AS_DECIMAL);
 
     /**
      * Parse with trino syntax, return null if parse failed
@@ -52,10 +56,10 @@ public class TrinoParser {
     public static @Nullable List<StatementBase> parse(String sql, SessionVariable sessionVariable) {
         final List<StatementBase> logicalPlans = new ArrayList<>();
         try {
-            io.trino.sql.parser.StatementSplitter splitter = new io.trino.sql.parser.StatementSplitter(sql);
+            StatementSplitter splitter = new StatementSplitter(addDelimiterIfNeeded(sql));
             ParserContext parserContext = new ParserContext(Dialect.TRINO);
             StatementContext statementContext = new StatementContext();
-            for (io.trino.sql.parser.StatementSplitter.Statement statement : splitter.getCompleteStatements()) {
+            for (StatementSplitter.Statement statement : splitter.getCompleteStatements()) {
                 Object parsedPlan = parseSingle(statement.statement(), parserContext);
                 logicalPlans.add(parsedPlan == null
                         ? null : new LogicalPlanAdapter((LogicalPlan) parsedPlan, statementContext));
@@ -64,14 +68,14 @@ public class TrinoParser {
                 return null;
             }
             return logicalPlans;
-        } catch (io.trino.sql.parser.ParsingException | UnsupportedDialectException e) {
+        } catch (ParsingException | UnsupportedDialectException e) {
             LOG.debug("Failed to parse logical plan from trino, sql is :{}", sql, e);
             return null;
         }
     }
 
-    private static io.trino.sql.tree.Statement parse(String sql) {
-        io.trino.sql.parser.SqlParser sqlParser = new io.trino.sql.parser.SqlParser();
+    private static Statement parse(String sql) {
+        SqlParser sqlParser = new io.trino.sql.parser.SqlParser();
         return sqlParser.createStatement(sql, PARSING_OPTIONS);
     }
 
@@ -84,7 +88,18 @@ public class TrinoParser {
      */
     public static <T> T parseSingle(String sql, ParserContext parserContext) {
         Preconditions.checkArgument(parserContext.getParserDialect() == Dialect.TRINO);
-        io.trino.sql.tree.Statement statement = TrinoParser.parse(sql);
+        Statement statement = TrinoParser.parse(sql);
         return (T) new TrinoLogicalPlanBuilder().visit(statement, parserContext);
     }
-}
+
+    /**
+     * {@link io.trino.sql.parser.StatementSplitter} use ";" as the delimiter if not set
+     * So add ";" if sql does not end with ";",
+     * otherwise {@link io.trino.sql.parser.StatementSplitter#getCompleteStatements()} will return empty list
+     */
+    private static String addDelimiterIfNeeded(String sql) {
+        if (!sql.trim().endsWith(";")) {
+            return sql + ";";
+        }
+        return sql;
+    }}
