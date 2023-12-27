@@ -19,8 +19,8 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------filter(d_quarter_name IN ('2001Q1', '2001Q2', '2001Q3'))
 --------------------------------PhysicalOlapScan[date_dim]
---------------------PhysicalDistribute
-----------------------PhysicalProject
+--------------------PhysicalProject
+----------------------PhysicalDistribute
 ------------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF6 s_store_sk->[ss_store_sk]
 --------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk)) otherCondition=() build RFs:RF5 i_item_sk->[ss_item_sk]
 ----------------------------PhysicalDistribute

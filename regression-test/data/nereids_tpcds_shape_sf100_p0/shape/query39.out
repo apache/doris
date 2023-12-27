@@ -4,25 +4,24 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
 ----PhysicalProject
 ------filter((if((mean = 0), 0, (stdev / mean)) > 1))
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalProject
-----------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF2 w_warehouse_sk->[inv_warehouse_sk]
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[inv_item_sk]
-----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
-------------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1 RF2
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
-------------------------------PhysicalOlapScan[date_dim]
+--------hashAgg[LOCAL]
+----------PhysicalProject
+------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=() build RFs:RF2 w_warehouse_sk->[inv_warehouse_sk]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[inv_item_sk]
+--------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
+----------------------PhysicalOlapScan[inventory] apply RFs: RF0 RF1 RF2
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------PhysicalOlapScan[item]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[warehouse]
+--------------------------filter((date_dim.d_year = 1998) and d_moy IN (1, 2))
+----------------------------PhysicalOlapScan[date_dim]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[item]
+--------------PhysicalDistribute
+----------------PhysicalProject
+------------------PhysicalOlapScan[warehouse]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute

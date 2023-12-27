@@ -18,8 +18,8 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------filter((d3.d_moy <= 10) and (d3.d_moy >= 4) and (d3.d_year = 2000))
 ------------------------------PhysicalOlapScan[date_dim]
-------------------PhysicalDistribute
---------------------PhysicalProject
+------------------PhysicalProject
+--------------------PhysicalDistribute
 ----------------------hashJoin[INNER_JOIN] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=()
 ------------------------hashJoin[INNER_JOIN] hashCondition=((item.i_item_sk = store_sales.ss_item_sk)) otherCondition=()
 --------------------------PhysicalDistribute

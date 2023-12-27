@@ -93,20 +93,19 @@ PhysicalResultSink
 --------------------------------------PhysicalProject
 ----------------------------------------PhysicalOlapScan[web_page]
 ------------------------PhysicalProject
---------------------------hashAgg[GLOBAL]
-----------------------------PhysicalDistribute
-------------------------------hashAgg[LOCAL]
---------------------------------PhysicalProject
-----------------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF7 wp_web_page_sk->[wr_web_page_sk]
-------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[wr_returned_date_sk]
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6 RF7
-----------------------------------------PhysicalDistribute
-------------------------------------------PhysicalProject
---------------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
-----------------------------------------------PhysicalOlapScan[date_dim]
-------------------------------------PhysicalDistribute
+--------------------------hashAgg[LOCAL]
+----------------------------PhysicalProject
+------------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF7 wp_web_page_sk->[wr_web_page_sk]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------hashJoin[INNER_JOIN] hashCondition=((web_returns.wr_returned_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF6 d_date_sk->[wr_returned_date_sk]
 --------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[web_page]
+----------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF6 RF7
+--------------------------------------PhysicalDistribute
+----------------------------------------PhysicalProject
+------------------------------------------filter((date_dim.d_date <= '1998-09-04') and (date_dim.d_date >= '1998-08-05'))
+--------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[web_page]
 

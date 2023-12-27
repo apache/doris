@@ -9,8 +9,8 @@ PhysicalResultSink
 ------------filter((if(( not (avg_monthly_sales = 0.0000)), (cast(abs((sum_sales - cast(avg_monthly_sales as DECIMALV3(38, 2)))) as DECIMALV3(38, 10)) / avg_monthly_sales), NULL) > 0.100000))
 --------------PhysicalWindow
 ----------------PhysicalQuickSort[LOCAL_SORT]
-------------------PhysicalDistribute
---------------------PhysicalProject
+------------------PhysicalProject
+--------------------PhysicalDistribute
 ----------------------hashAgg[GLOBAL]
 ------------------------PhysicalDistribute
 --------------------------hashAgg[LOCAL]

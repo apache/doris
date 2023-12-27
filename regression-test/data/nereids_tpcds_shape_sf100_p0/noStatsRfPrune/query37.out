@@ -12,9 +12,9 @@ PhysicalResultSink
 ------------------PhysicalDistribute
 --------------------PhysicalProject
 ----------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[inv_item_sk]
+------------------PhysicalProject
+--------------------hashJoin[INNER_JOIN] hashCondition=((inventory.inv_item_sk = item.i_item_sk)) otherCondition=() build RFs:RF1 i_item_sk->[inv_item_sk]
+----------------------PhysicalDistribute
 ------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_date_sk = inventory.inv_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[inv_date_sk]
 --------------------------PhysicalProject
 ----------------------------filter((inventory.inv_quantity_on_hand <= 500) and (inventory.inv_quantity_on_hand >= 100))
@@ -23,8 +23,8 @@ PhysicalResultSink
 ----------------------------PhysicalProject
 ------------------------------filter((date_dim.d_date <= '1999-04-22') and (date_dim.d_date >= '1999-02-21'))
 --------------------------------PhysicalOlapScan[date_dim]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------filter((item.i_current_price <= 75.00) and (item.i_current_price >= 45.00) and i_manufact_id IN (1000, 707, 747, 856))
-------------------------------PhysicalOlapScan[item]
+----------------------PhysicalDistribute
+------------------------PhysicalProject
+--------------------------filter((item.i_current_price <= 75.00) and (item.i_current_price >= 45.00) and i_manufact_id IN (1000, 707, 747, 856))
+----------------------------PhysicalOlapScan[item]
 
