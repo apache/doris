@@ -33,7 +33,6 @@ import org.apache.doris.nereids.util.HyperGraphBuilder;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -113,7 +112,6 @@ class CompareOuterJoinTest extends SqlTestBase {
         Assertions.assertEquals("(id = 0)", res.getQueryExpressions().get(0).toSql());
     }
 
-    @Disabled
     @Test
     void testInnerJoinWithFilter2() {
         connectContext.getSessionVariable().setDisableNereidsRules("INFER_PREDICATES");

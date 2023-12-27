@@ -116,4 +116,15 @@ public class ComparisonResult {
                     viewNoNullableSlotBuilder.build(), valid);
         }
     }
+
+    @Override
+    public String toString() {
+        if (isInvalid()) {
+            return "INVALID";
+        }
+        return String.format("viewExpressions: %s \n "
+                + "queryExpressions :%s \n "
+                + "viewNoNullableSlot :%s \n",
+                viewExpressions, queryExpressions, viewNoNullableSlot);
+    }
 }
