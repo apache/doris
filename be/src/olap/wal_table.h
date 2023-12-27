@@ -40,8 +40,6 @@ public:
     void stop();
 
 public:
-    // <retry_num, start_time_ms, is_doing_replay>
-    using replay_wal_info = std::tuple<int64_t, int64_t, bool>;
     // <column_name, column_index>
     using column_info = std::pair<std::string, int64_t>;
 
@@ -72,7 +70,5 @@ private:
     std::list<std::shared_ptr<WalInfo>> _replaying_queue;
     std::atomic<bool> _stop;
     std::map<int64_t, std::shared_ptr<column_info>> _column_id_info_map;
-//    std::map<int64_t, std::string> _column_id_name_map;
-//    std::map<int64_t, int64_t> _column_id_index_map;
 };
 } // namespace doris
