@@ -18,17 +18,13 @@
 package org.apache.doris.nereids.processor.pre;
 
 import org.apache.doris.analysis.SetVar;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.InsertOverwriteTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileSink;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.VariableMgr;
 
@@ -50,20 +46,19 @@ public class TurnOffPageCacheForInsertIntoSelect extends PlanPreprocessor {
         return fileSink;
     }
 
+    @Override
+    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> tableSink, StatementContext context) {
+        turnOffPageCache(context);
+        return tableSink;
+    }
+
     private void turnOffPageCache(StatementContext context) {
         SessionVariable sessionVariable = context.getConnectContext().getSessionVariable();
         // set temporary session value, and then revert value in the 'finally block' of StmtExecutor#execute
         sessionVariable.setIsSingleSetVar(true);
         try {
-            StatementBase parsedStatement = context.getParsedStatement();
-            if (parsedStatement instanceof LogicalPlanAdapter) {
-                LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStatement).getLogicalPlan();
-                if (logicalPlan instanceof InsertIntoTableCommand
-                        || logicalPlan instanceof InsertOverwriteTableCommand) {
-                    VariableMgr.setVar(sessionVariable,
-                        new SetVar(SessionVariable.ENABLE_PAGE_CACHE, new StringLiteral("false")));
-                }
-            }
+            VariableMgr.setVar(sessionVariable,
+                new SetVar(SessionVariable.ENABLE_PAGE_CACHE, new StringLiteral("false")));
         } catch (Throwable t) {
             throw new AnalysisException("Can not set turn off page cache for insert into select", t);
         }
