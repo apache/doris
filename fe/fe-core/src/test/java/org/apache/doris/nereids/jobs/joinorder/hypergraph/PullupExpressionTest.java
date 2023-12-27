@@ -21,6 +21,7 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
 import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
+import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
 import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
@@ -54,7 +55,7 @@ class PullupExpressionTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        ComparisonResult res = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertEquals(2, res.getQueryExpressions().size());
         Assertions.assertEquals("(id = 1)", res.getQueryExpressions().get(0).toSql());
         Assertions.assertEquals("(id = 1)", res.getQueryExpressions().get(1).toSql());
@@ -81,7 +82,7 @@ class PullupExpressionTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        ComparisonResult res = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertEquals(1, res.getQueryExpressions().size());
         Assertions.assertEquals("(score = score)", res.getQueryExpressions().get(0).toSql());
     }
@@ -107,7 +108,7 @@ class PullupExpressionTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        ComparisonResult res = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertEquals(2, res.getViewExpressions().size());
         Assertions.assertEquals("(id = 1)", res.getViewExpressions().get(0).toSql());
         Assertions.assertEquals("(id = 1)", res.getViewExpressions().get(1).toSql());
@@ -134,7 +135,7 @@ class PullupExpressionTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        ComparisonResult res = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
         Assertions.assertEquals(1, res.getViewExpressions().size());
         Assertions.assertEquals("(score = score)", res.getViewExpressions().get(0).toSql());
     }

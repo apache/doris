@@ -167,7 +167,6 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
             log.info("dispatch instant job, job id is {}, job name is {}, task id is {}", job.getJobId(),
                     job.getJobName(), task.getTaskId());
         });
-
     }
 
     /**

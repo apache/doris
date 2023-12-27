@@ -1153,7 +1153,7 @@ Max bytes a broker scanner can process in one broker load job. Commonly, each Ba
 
 #### `default_load_parallelism`
 
-Default: 1
+Default: 8
 
 IsMutable：true
 

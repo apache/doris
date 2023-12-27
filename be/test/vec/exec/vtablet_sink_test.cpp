@@ -496,7 +496,7 @@ public:
 private:
     ExecEnv* _env = nullptr;
     brpc::Server* _server = nullptr;
-    std::string wal_dir = "./wal_test";
+    std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
 };
 
 TEST_F(VOlapTableSinkTest, normal) {
