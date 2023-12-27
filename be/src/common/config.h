@@ -1171,6 +1171,8 @@ DECLARE_Bool(enable_snapshot_action);
 // The timeout config for S3 write buffer allocation
 DECLARE_mInt32(s3_writer_buffer_allocation_timeout_second);
 
+DECLARE_mBool(enable_column_type_check);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

@@ -1113,6 +1113,8 @@ DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(s3_writer_buffer_allocation_timeout_second, "60");
 
+DEFINE_mBool(enable_column_type_check, "true");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
