@@ -70,26 +70,26 @@ Add settings to the BE node's configuration file `conf/be.conf`, and restart the
 Execute `set enable_profile = true` to enable the session variable, and you can view the query profile in the Queris tab of FE's web page. The metrics related to File Cache are as follows:
 
 ```
--  FileCache:
-  -  IOHitCacheNum:  552
-  -  IOTotalNum:  835
-  -  ReadFromFileCacheBytes:  19.98  MB
-  -  ReadFromWriteCacheBytes:  0.00  
-  -  ReadTotalBytes:  29.52  MB
-  -  WriteInFileCacheBytes:  915.77  MB
-  -  WriteInFileCacheNum:  283 
+-  FileCache:  0ns
+    -  BytesScannedFromCache:  2.02  GB
+    -  BytesScannedFromRemote:  0.00  
+    -  BytesWriteIntoCache:  0.00  
+    -  LocalIOUseTimer:  2s723ms
+    -  NumLocalIOTotal:  444
+    -  NumRemoteIOTotal:  0
+    -  NumSkipCacheIOTotal:  0
+    -  RemoteIOUseTimer:  0ns
+    -  WriteCacheIOUseTimer:  0ns
 ```
 
-- `IOTotalNum`:  Number of remote access
-- `IOHitCacheNum`: Number of cache hits
-- `ReadFromFileCacheBytes`: Amount of data read from cache file
-- `ReadTotalBytes`: Total amount of data read
-- `SkipCacheBytes`: Failed to create the cache file, or the cache file was deleted. The amount of data that needs to be read from the remote again
-- `WriteInFileCacheBytes`: Amount of data saved to cache file
-- `WriteInFileCacheNum`: The number of blocks saved, so 'WriteInFileCacheBytes'/' WriteInFileCacheBytes' is the average size of blocks
+- `BytesScannedFromCache`: The amount of data read from the local cache.
+- `BytesScannedFromRemote`: The amount of data read from the remote end.
+- `BytesWriteIntoCache`: The amount of data written to the cache.
+- `LocalIOUseTimer`: Local cached IO time.
+- `RemoteIOUseTimer`: IO time for remote reading.
+- `NumLocalIOTotal`: The number of locally cached IOs.
+- `NumRemoteIOTotal`: Number of remote IOs.
+- `WriteCacheIOUseTimer`: IO time to write cache.
 
-`IOHitCacheNum` / `IOTotalNum` Equal to 1, indicating that read data only from file cache
+If `BytesScannedFromRemote` is 0, it means all caches are hit.
 
-`ReadFromFileCacheBytes` / `ReadTotalBytes` Equal to 1, indicating that read data only from file cache
-
-`ReadFromFileCacheBytes` The smaller the better, the smaller the amount of data read from remote

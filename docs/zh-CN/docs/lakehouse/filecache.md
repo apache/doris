@@ -71,25 +71,26 @@ SET GLOBAL enable_file_cache = true;
 执行 `set enable_profile=true` 打开会话变量，可以在 FE 的 web 页面的 Queris 标签中查看到作业的 Profile。File Cache 相关的指标如下:
 
 ```
--  FileCache:
-  -  IOHitCacheNum:  552
-  -  IOTotalNum:  835
-  -  ReadFromFileCacheBytes:  19.98  MB
-  -  ReadFromWriteCacheBytes:  0.00  
-  -  ReadTotalBytes:  29.52  MB
-  -  WriteInFileCacheBytes:  915.77  MB
-  -  WriteInFileCacheNum:  283 
+-  FileCache:  0ns
+    -  BytesScannedFromCache:  2.02  GB
+    -  BytesScannedFromRemote:  0.00  
+    -  BytesWriteIntoCache:  0.00  
+    -  LocalIOUseTimer:  2s723ms
+    -  NumLocalIOTotal:  444
+    -  NumRemoteIOTotal:  0
+    -  NumSkipCacheIOTotal:  0
+    -  RemoteIOUseTimer:  0ns
+    -  WriteCacheIOUseTimer:  0ns
 ```
 
-- `IOTotalNum`:  远程访问的次数
-- `IOHitCacheNum`: 命中缓存的次数
-- `ReadFromFileCacheBytes`: 从缓存文件中读取的数据量
-- `ReadTotalBytes`: 总共读取的数据量
-- `SkipCacheBytes`: 创建缓存文件失败，或者缓存文件被删，需要再次从远程读取的数据量
-- `WriteInFileCacheBytes`: 保存到缓存文件中的数据量
-- `WriteInFileCacheNum`: 保存的 Block 数量，所以 `WriteInFileCacheBytes`/`WriteInFileCacheBytes` 为 Block 的平均大小
+- `BytesScannedFromCache`：从本地缓存中读取的数据量。
+- `BytesScannedFromRemote`：从远端读取的数据量。
+- `BytesWriteIntoCache`：写入缓存的数据量。
+- `LocalIOUseTimer`：本地缓存的 IO 时间。
+- `RemoteIOUseTimer`：远端读取的 IO 时间。
+- `NumLocalIOTotal`：本地缓存的 IO 次数。
+- `NumRemoteIOTotal`：远端 IO 次数。
+- `WriteCacheIOUseTimer`：写入缓存的 IO 时间。
 
-`IOHitCacheNum` / `IOTotalNum` 等于1，表示缓存完全命中
-
-`ReadFromFileCacheBytes` / `ReadTotalBytes` 等于1，表示缓存完全命中
+如果 `BytesScannedFromRemote` 为 0，表示全部命中缓存。
 
