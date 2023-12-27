@@ -224,6 +224,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
+    public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+
+    // Limit the max count of scanners to prevent generate too many scanners.
+    public static final String PARALLEL_SCAN_MAX_SCANNERS_COUNT = "parallel_scan_max_scanners_count";
+
+    // Avoid splitting small segments, each scanner should scan `parallel_scan_min_rows_per_scanner` rows.
+    public static final String PARALLEL_SCAN_MIN_ROWS_PER_SCANNER = "parallel_scan_min_rows_per_scanner";
+
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
@@ -784,7 +792,19 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
-    private boolean enableSharedScan = false;
+    private boolean enableSharedScan = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    private boolean enableParallelScan = true;
+
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private int parallelScanMaxScannersCount = 48;
+
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private long parallelScanMinRowsPerScanner = 65536; // 2MB
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -1322,7 +1342,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean truncateCharOrVarcharColumns = false;
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
-    public boolean enableMemtableOnSinkNode = true;
+    public boolean enableMemtableOnSinkNode = false;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 60;
@@ -2746,6 +2766,10 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
 
+        tResult.setEnableParallelScan(enableParallelScan);
+        tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
+        tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
+
         return tResult;
     }
 
@@ -3057,6 +3081,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableSharedScan() {
         return enableSharedScan;
+    }
+
+    public void setEnableSharedScan(boolean value) {
+        enableSharedScan = value;
+    }
+
+    public boolean getEnableParallelScan() {
+        return enableParallelScan;
     }
 
     public boolean getEnablePipelineXEngine() {
