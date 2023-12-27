@@ -33,7 +33,10 @@ jobs:
       - name: Comment on PR
         uses: ./.github/actions/create-or-update-comment
         with:
+          permissions:
+            issues: write
           issue-number: ${{ github.event.pull_request.number }}
+          token: ${{ secrets.GITHUB_TOKEN }}
           body: |
               Thank you for your contribution to Apache Doris.
   
