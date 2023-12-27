@@ -64,18 +64,6 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         set_be_config.call("inverted_index_compaction_enable", "true")
         set_be_config.call("inverted_index_max_buffered_docs", "5")
         has_update_be_config = true
-        // check updated config
-        // (code, out, err) = show_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id))
-        // assertEquals(code, 0)
-        // configList = parseJson(out.trim())
-        // assert configList instanceof List
-        // for (Object ele in (List) configList) {
-        //     assert ele instanceof List<String>
-        //     if (((List<String>) ele)[0] == "inverted_index_compaction_enable") {
-        //         assert(true, Boolean.parseBoolean(((List<String>) ele)[2]))
-        //         logger.info("inverted_index_compaction_enable: ${((List<String>) ele)[2]}")
-        //     }
-        // }
 
         sql """ DROP TABLE IF EXISTS ${tableName}; """
         sql """
