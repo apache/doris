@@ -28,6 +28,7 @@
 #include <runtime/exec_env.h>
 
 #include <memory>
+#include <sstream>
 
 #include "common/signal_handler.h"
 #include "exec/tablet_info.h"
@@ -363,7 +364,7 @@ Status LoadStream::close(int64_t src_id, const std::vector<PTabletID>& tablets_t
         _open_streams.erase(src_id);
     }
     _close_load_cnt++;
-    LOG(INFO) << "received CLOSE_LOAD from sender " << src_id << ", remaining "
+    LOG(INFO) << *this << " received CLOSE_LOAD from sender " << src_id << ", remaining "
               << _total_streams - _close_load_cnt << " senders";
 
     _tablets_to_commit.insert(_tablets_to_commit.end(), tablets_to_commit.begin(),
@@ -506,6 +507,9 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
             messages[i]->cutn(&hdr_buf, hdr_len);
             _parse_header(&hdr_buf, hdr);
 
+            // debug
+            _remote_stream_id = hdr.stream_id();
+
             // step 2: cut data
             size_t data_len = 0;
             messages[i]->cutn((void*)&data_len, sizeof(size_t));
@@ -567,6 +571,7 @@ void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* 
         std::vector<PTabletID> tablets_to_commit(hdr.tablets().begin(), hdr.tablets().end());
         auto st = close(hdr.src_id(), tablets_to_commit, &success_tablet_ids, &failed_tablets);
         _report_result(id, st, success_tablet_ids, failed_tablets, true);
+        LOG(INFO) << "closing stream " << *this;
         brpc::StreamClose(id);
     } break;
     case PStreamHeader::GET_SCHEMA: {
@@ -584,15 +589,19 @@ void LoadStream::on_idle_timeout(StreamId id) {
 }
 
 void LoadStream::on_closed(StreamId id) {
+    // convert to string in advance to prevent use-after-free
+    std::stringstream self;
+    self << "stream " << *this;
     auto remaining_streams = _total_streams - _close_rpc_cnt.fetch_add(1) - 1;
-    LOG(INFO) << "stream " << id << " on_closed, remaining streams = " << remaining_streams;
+    LOG(INFO) << self.str() << " on_closed, remaining streams = " << remaining_streams;
     if (remaining_streams == 0) {
         _load_stream_mgr->clear_load(_load_id);
     }
 }
 
 inline std::ostream& operator<<(std::ostream& ostr, const LoadStream& load_stream) {
-    ostr << "load_id=" << UniqueId(load_stream._load_id) << ", txn_id=" << load_stream._txn_id;
+    ostr << "load_id=" << UniqueId(load_stream._load_id) << ", txn_id=" << load_stream._txn_id
+         << ", remote stream_id=" << load_stream._remote_stream_id;
     return ostr;
 }
 

@@ -351,6 +351,7 @@ void LoadStreamStub::cancel(Status reason) {
 
 Status LoadStreamStub::_encode_and_send(PStreamHeader& header, std::span<const Slice> data) {
     butil::IOBuf buf;
+    header.set_stream_id(_stream_id);
     size_t header_len = header.ByteSizeLong();
     buf.append(reinterpret_cast<uint8_t*>(&header_len), sizeof(header_len));
     buf.append(header.SerializeAsString());
