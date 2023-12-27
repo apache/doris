@@ -27,6 +27,11 @@ suite("test_decimalv3") {
 
     qt_decimalv3 "select * from test5_v"
     qt_decimalv3 "select cast(a as decimalv3(12,10)) * cast(b as decimalv3(18,10)) from test5"
+    qt_decimalv3_view1 "select count(*) from test5_v;"
+
+    sql "drop view if exists test5_v2"
+    sql "create view test5_v2 (amout) as select cast(a as decimalv3(18,6)) from test5"
+    qt_decimalv3_view2 "select count(*) from test5_v2;"
 
     /*
     sql "drop table if exists test_decimal256;"
