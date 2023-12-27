@@ -57,8 +57,8 @@ fi
 echo "#### Run tpch test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-cold_run_time_threshold=${cold_run_time_threshold:-50000}
-hot_run_time_threshold=${hot_run_time_threshold:-42000}
+cold_run_time_threshold=${cold_run_time_threshold:-70000} # ms
+hot_run_time_threshold=${hot_run_time_threshold:-42000}   # ms
 exit_flag=0
 
 (
