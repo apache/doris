@@ -1504,6 +1504,8 @@ Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, r
 // todo(wb) need a UT here
 Status SegmentIterator::_vec_init_lazy_materialization() {
     _is_pred_column.resize(_schema->columns().size(), false);
+    std::vector<bool> is_pred_column_no_del_condition;
+    is_pred_column_no_del_condition.resize(_schema->columns().size(), false);
 
     // including short/vec/delete pred
     std::set<ColumnId> pred_column_ids;
@@ -1545,6 +1547,7 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         for (auto predicate : _col_predicates) {
             auto cid = predicate->column_id();
             _is_pred_column[cid] = true;
+            is_pred_column_no_del_condition[cid] = true;
             pred_column_ids.insert(cid);
 
             // check pred using short eval or vec eval
@@ -1598,8 +1601,9 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema->column_ids()) {
-                // pred column also needs to be filtered by expr
-                if (_is_common_expr_column[cid] || _is_pred_column[cid]) {
+                // pred column also needs to be filtered by expr, exclude additional deleted column,
+                // not required by query engine.
+                if (_is_common_expr_column[cid] || is_pred_column_no_del_condition[cid]) {
                     auto loc = _schema_block_id_map[cid];
                     _columns_to_filter.push_back(loc);
                 }

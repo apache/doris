@@ -91,6 +91,8 @@ public:
     static Status execute_conjuncts_and_filter_block(const VExprContextSPtrs& ctxs, Block* block,
                                                      std::vector<uint32_t>& columns_to_filter,
                                                      int column_to_keep, IColumn::Filter& filter);
+    static void check_filter_block_column_position(Block* block,
+                                                   std::vector<uint32_t>& columns_to_filter);
 
     [[nodiscard]] static Status get_output_block_after_execute_exprs(const VExprContextSPtrs&,
                                                                      const Block&, Block*,
