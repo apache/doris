@@ -963,4 +963,11 @@ bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSi
     return false;
 }
 
+std::string PipelineFragmentContext::debug_string() {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "PipelineFragmentContext Info: QueryId = {}\n",
+                   print_id(_query_ctx->query_id()));
+    return fmt::to_string(debug_string_buffer);
+}
+
 } // namespace doris::pipeline
