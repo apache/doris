@@ -159,6 +159,18 @@ public abstract class DataType implements AbstractDataType {
                             throw new AnalysisException("Nereids do not support type: " + type);
                     }
                 }
+            case "decimalv2":
+                switch (types.size()) {
+                    case 1:
+                        return DecimalV2Type.SYSTEM_DEFAULT;
+                    case 2:
+                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)), 0);
+                    case 3:
+                        return DecimalV2Type.createDecimalV2Type(Integer.parseInt(types.get(1)),
+                                Integer.parseInt(types.get(2)));
+                    default:
+                        throw new AnalysisException("Nereids do not support type: " + type);
+                }
             case "decimalv3":
                 switch (types.size()) {
                     case 1:
