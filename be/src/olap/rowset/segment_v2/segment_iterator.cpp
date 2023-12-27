@@ -259,8 +259,6 @@ SegmentIterator::SegmentIterator(std::shared_ptr<Segment> segment, SchemaSPtr sc
           _lazy_materialization_read(false),
           _lazy_inited(false),
           _inited(false),
-          _estimate_row_size(true),
-          _wait_times_estimate_row_size(10),
           _pool(new ObjectPool) {}
 
 Status SegmentIterator::init(const StorageReadOptions& opts) {
@@ -457,11 +455,20 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
     if (config::enable_index_apply_preds_except_leafnode_of_andnode) {
         RETURN_IF_ERROR(_apply_index_except_leafnode_of_andnode());
         if (_can_filter_by_preds_except_leafnode_of_andnode()) {
-            for (auto& expr : _remaining_conjunct_roots) {
+            for (auto it = _remaining_conjunct_roots.begin();
+                 it != _remaining_conjunct_roots.end();) {
                 _pred_except_leafnode_of_andnode_evaluate_result.clear();
-                auto res = _execute_predicates_except_leafnode_of_andnode(expr);
+                auto res = _execute_predicates_except_leafnode_of_andnode(*it);
                 if (res.ok() && _pred_except_leafnode_of_andnode_evaluate_result.size() == 1) {
                     _row_bitmap &= _pred_except_leafnode_of_andnode_evaluate_result[0];
+                    // Delete expr after it obtains the final result.
+                    {
+                        std::erase_if(_common_expr_ctxs_push_down,
+                                      [&it](const auto& iter) { return iter->root() == *it; });
+                        it = _remaining_conjunct_roots.erase(it);
+                    }
+                } else {
+                    ++it;
                 }
             }
         }
@@ -472,7 +479,7 @@ Status SegmentIterator::_get_row_ranges_by_column_conditions() {
 
     std::shared_ptr<doris::ColumnPredicate> runtime_predicate = nullptr;
     if (_opts.use_topn_opt) {
-        auto query_ctx = _opts.runtime_state->get_query_ctx();
+        auto* query_ctx = _opts.runtime_state->get_query_ctx();
         runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
     }
 
@@ -2025,13 +2032,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     _current_batch_rows_read = 0;
     uint32_t nrows_read_limit = _opts.block_row_max;
-    if (_wait_times_estimate_row_size > 0) {
-        // first time, read 100 rows to estimate average row size, to avoid oom caused by a single batch being too large.
-        // If no valid data is read for the first time, block_row_max is read each time thereafter.
-        // Avoid low performance when valid data cannot be read all the time
-        nrows_read_limit = std::min(nrows_read_limit, (uint32_t)100);
-        _wait_times_estimate_row_size--;
-    }
     RETURN_IF_ERROR(_read_columns_by_index(
             nrows_read_limit, _current_batch_rows_read,
             _lazy_materialization_read || _opts.record_rowids || _is_need_expr_eval));
@@ -2171,9 +2171,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
             // shrink char_type suffix zero data
             block->shrink_char_type_column_suffix_zero(_char_type_idx);
 
-            if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
-                _update_max_row(block);
-            }
             return Status::OK();
         }
 
@@ -2198,10 +2195,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
-
-    if (UNLIKELY(_estimate_row_size) && block->rows() > 0) {
-        _update_max_row(block);
-    }
 
     // reverse block row order
     if (_opts.read_orderby_key_reverse) {
@@ -2351,14 +2344,6 @@ void SegmentIterator::_convert_dict_code_for_predicate_if_necessary_impl(
     } else if (PredicateTypeTraits::is_bloom_filter(predicate->type())) {
         col_ptr->initialize_hash_values_for_runtime_filter();
     }
-}
-
-void SegmentIterator::_update_max_row(const vectorized::Block* block) {
-    _estimate_row_size = false;
-    auto avg_row_size = block->bytes() / block->rows();
-
-    int block_row_max = config::doris_scan_block_max_mb / avg_row_size;
-    _opts.block_row_max = std::min(block_row_max, _opts.block_row_max);
 }
 
 Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* block_row_locations) {

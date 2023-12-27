@@ -90,6 +90,7 @@ public class JdbcExecutor {
     private int minIdleSize;
     private int maxIdleTime;
     private int maxWaitTime;
+    private boolean isKeepAlive;
     private TOdbcTableType tableType;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
@@ -105,12 +106,14 @@ public class JdbcExecutor {
         maxPoolSize = Integer.valueOf(System.getProperty("JDBC_MAX_POOL", "100"));
         maxIdleTime = Integer.valueOf(System.getProperty("JDBC_MAX_IDLE_TIME", "300000"));
         maxWaitTime = Integer.valueOf(System.getProperty("JDBC_MAX_WAIT_TIME", "5000"));
+        isKeepAlive = Boolean.valueOf(System.getProperty("JDBC_KEEP_ALIVE", "false"));
         minIdleSize = minPoolSize > 0 ? 1 : 0;
         LOG.info("JdbcExecutor set minPoolSize = " + minPoolSize
                 + ", maxPoolSize = " + maxPoolSize
                 + ", maxIdleTime = " + maxIdleTime
                 + ", maxWaitTime = " + maxWaitTime
-                + ", minIdleSize = " + minIdleSize);
+                + ", minIdleSize = " + minIdleSize
+                + ", isKeepAlive = " + isKeepAlive);
         init(request.driver_path, request.statement, request.batch_size, request.jdbc_driver_class,
                 request.jdbc_url, request.jdbc_user, request.jdbc_password, request.op, request.table_type);
     }
@@ -409,6 +412,8 @@ public class JdbcExecutor {
 
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op, TOdbcTableType tableType) throws UdfRuntimeException {
+        String druidDataSourceKey = JdbcDataSource.getDataSource().createCacheKey(jdbcUrl, jdbcUser, jdbcPassword,
+                driverUrl, driverClass);
         try {
             if (isNebula()) {
                 batchSizeNum = batchSize;
@@ -418,10 +423,10 @@ public class JdbcExecutor {
             } else {
                 ClassLoader parent = getClass().getClassLoader();
                 ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-                druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
                 if (druidDataSource == null) {
                     synchronized (druidDataSourceLock) {
-                        druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl + jdbcUser + jdbcPassword);
+                        druidDataSource = JdbcDataSource.getDataSource().getSource(druidDataSourceKey);
                         if (druidDataSource == null) {
                             long start = System.currentTimeMillis();
                             DruidDataSource ds = new DruidDataSource();
@@ -439,12 +444,13 @@ public class JdbcExecutor {
                             setValidationQuery(ds, tableType);
                             ds.setTimeBetweenEvictionRunsMillis(maxIdleTime / 5);
                             ds.setMinEvictableIdleTimeMillis(maxIdleTime);
+                            ds.setKeepAlive(isKeepAlive);
                             druidDataSource = ds;
                             // here is a cache of datasource, which using the string(jdbcUrl + jdbcUser +
                             // jdbcPassword) as key.
                             // and the default datasource init = 1, min = 1, max = 100, if one of connection idle
                             // time greater than 10 minutes. then connection will be retrieved.
-                            JdbcDataSource.getDataSource().putSource(jdbcUrl + jdbcUser + jdbcPassword, ds);
+                            JdbcDataSource.getDataSource().putSource(druidDataSourceKey, ds);
                             LOG.info("init datasource [" + (jdbcUrl + jdbcUser) + "] cost: " + (
                                     System.currentTimeMillis() - start) + " ms");
                         }

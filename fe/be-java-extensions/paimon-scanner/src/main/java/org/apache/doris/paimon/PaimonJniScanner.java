@@ -30,7 +30,6 @@ import org.apache.paimon.reader.RecordReader;
 import org.apache.paimon.table.Table;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.table.source.Split;
-import org.apache.paimon.types.DataType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,6 +42,7 @@ import java.util.stream.Collectors;
 public class PaimonJniScanner extends JniScanner {
     private static final Logger LOG = LoggerFactory.getLogger(PaimonJniScanner.class);
     private static final String PAIMON_OPTION_PREFIX = "paimon_option_prefix.";
+    private final Map<String, String> params;
     private final Map<String, String> paimonOptionParams;
     private final String dbName;
     private final String tblName;
@@ -57,9 +57,17 @@ public class PaimonJniScanner extends JniScanner {
     private long dbId;
     private long tblId;
     private long lastUpdateTime;
+    private RecordReader.RecordIterator<InternalRow> recordIterator = null;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         LOG.debug("params:{}", params);
+        this.params = params;
+        String[] requiredFields = params.get("required_fields").split(",");
+        String[] requiredTypes = params.get("columns_types").split("#");
+        ColumnType[] columnTypes = new ColumnType[requiredTypes.length];
+        for (int i = 0; i < requiredTypes.length; i++) {
+            columnTypes[i] = ColumnType.parseType(requiredFields[i], requiredTypes[i]);
+        }
         paimonSplit = params.get("paimon_split");
         paimonPredicate = params.get("paimon_predicate");
         dbName = params.get("db_name");
@@ -68,21 +76,17 @@ public class PaimonJniScanner extends JniScanner {
         dbId = Long.parseLong(params.get("db_id"));
         tblId = Long.parseLong(params.get("tbl_id"));
         lastUpdateTime = Long.parseLong(params.get("last_update_time"));
-        super.batchSize = batchSize;
-        super.fields = params.get("paimon_column_names").split(",");
-        super.predicates = new ScanPredicate[0];
+        initTableInfo(columnTypes, requiredFields, new ScanPredicate[0], batchSize);
         paimonOptionParams = params.entrySet().stream()
                 .filter(kv -> kv.getKey().startsWith(PAIMON_OPTION_PREFIX))
                 .collect(Collectors
                         .toMap(kv1 -> kv1.getKey().substring(PAIMON_OPTION_PREFIX.length()), kv1 -> kv1.getValue()));
-
     }
 
     @Override
     public void open() throws IOException {
         initTable();
         initReader();
-        parseRequiredTypes();
     }
 
     private void initReader() throws IOException {
@@ -98,28 +102,14 @@ public class PaimonJniScanner extends JniScanner {
 
     private List<Predicate> getPredicates() {
         List<Predicate> predicates = PaimonScannerUtils.decodeStringToObject(paimonPredicate);
-        LOG.info("predicates:{}", predicates);
+        LOG.debug("predicates:{}", predicates);
         return predicates;
     }
 
     private Split getSplit() {
         Split split = PaimonScannerUtils.decodeStringToObject(paimonSplit);
-        LOG.info("split:{}", split);
+        LOG.debug("split:{}", split);
         return split;
-    }
-
-    private void parseRequiredTypes() {
-        ColumnType[] columnTypes = new ColumnType[fields.length];
-        for (int i = 0; i < fields.length; i++) {
-            int index = paimonAllFieldNames.indexOf(fields[i]);
-            if (index == -1) {
-                throw new RuntimeException(String.format("Cannot find field %s in schema %s",
-                        fields[i], paimonAllFieldNames));
-            }
-            DataType dataType = table.rowType().getTypeAt(index);
-            columnTypes[i] = PaimonTypeUtils.fromPaimonType(fields[i], dataType);
-        }
-        super.types = columnTypes;
     }
 
     @Override
@@ -133,22 +123,32 @@ public class PaimonJniScanner extends JniScanner {
     protected int getNext() throws IOException {
         int rows = 0;
         try {
-            RecordReader.RecordIterator<InternalRow> batch;
-            while ((batch = reader.readBatch()) != null) {
+            if (recordIterator == null) {
+                recordIterator = reader.readBatch();
+            }
+
+            while (recordIterator != null) {
                 InternalRow record;
-                while ((record = batch.next()) != null) {
+                while ((record = recordIterator.next()) != null) {
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
                         columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
                     }
                     rows++;
+                    if (rows >= batchSize) {
+                        return rows;
+                    }
                 }
-                batch.releaseBatch();
+                recordIterator.releaseBatch();
+                recordIterator = reader.readBatch();
             }
-        } catch (IOException e) {
-            LOG.warn("failed to getNext columnValue ", e);
-            throw new RuntimeException(e);
+        } catch (Exception e) {
+            close();
+            LOG.warn("Failed to get the next batch of paimon. "
+                            + "split: {}, requiredFieldNames: {}, paimonAllFieldNames: {}",
+                    getSplit(), params.get("required_fields"), paimonAllFieldNames, e);
+            throw new IOException(e);
         }
         return rows;
     }
@@ -170,7 +170,7 @@ public class PaimonJniScanner extends JniScanner {
         }
         this.table = tableExt.getTable();
         paimonAllFieldNames = PaimonScannerUtils.fieldNames(this.table.rowType());
-        LOG.info("paimonAllFieldNames:{}", paimonAllFieldNames);
+        LOG.debug("paimonAllFieldNames:{}", paimonAllFieldNames);
     }
 
 }

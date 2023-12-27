@@ -43,4 +43,15 @@ public class EsNodeInfoTest  extends EsTestCase {
             }
         }
     }
+
+    @Test
+    public void testEsNodeInfo() {
+        EsNodeInfo node = new EsNodeInfo("0", "http://127.0.0.1:9200/");
+        Assert.assertEquals("http://127.0.0.1", node.getHost());
+        Assert.assertEquals(9200, node.getPublishAddress().getPort());
+        node = new EsNodeInfo("0", "http://127.0.0.1:9200");
+        Assert.assertEquals("http://127.0.0.1", node.getHost());
+        Assert.assertEquals(9200, node.getPublishAddress().getPort());
+
+    }
 }
