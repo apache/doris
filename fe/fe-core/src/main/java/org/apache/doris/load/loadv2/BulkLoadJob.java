@@ -336,6 +336,11 @@ public abstract class BulkLoadJob extends LoadJob {
         return userInfo;
     }
 
+    public void recycleProgress() {
+        // Recycle memory occupied by Progress.
+        Env.getCurrentProgressManager().removeProgress(String.valueOf(id));
+    }
+
     @Override
     protected void auditFinishedLoadJob() {
         try {
