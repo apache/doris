@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
@@ -378,48 +377,27 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
     }
 
     private ForeignKeyConstraint getFkInfoFromConstraint(LogicalCatalogRelation table) {
-        table.getTable().readLock();
-        try {
-            for (Map.Entry<String, Constraint> constraintMap : table.getTable().getConstraintsMap().entrySet()) {
-                Constraint constraint = constraintMap.getValue();
-                if (constraint instanceof ForeignKeyConstraint) {
-                    return (ForeignKeyConstraint) constraint;
-                }
-            }
+        Set<ForeignKeyConstraint> foreignKeyConstraints = table.getTable().getForeignKeyConstraints();
+        if (foreignKeyConstraints.isEmpty()) {
             return null;
-        } finally {
-            table.getTable().readUnlock();
         }
+        return foreignKeyConstraints.stream().iterator().next();
     }
 
     private Set<String> getPkInfoFromConstraint(LogicalCatalogRelation table) {
-        table.getTable().readLock();
-        try {
-            for (Map.Entry<String, Constraint> constraintMap : table.getTable().getConstraintsMap().entrySet()) {
-                Constraint constraint = constraintMap.getValue();
-                if (constraint instanceof PrimaryKeyConstraint) {
-                    return ((PrimaryKeyConstraint) constraint).getPrimaryKeyNames();
-                }
-            }
+        Set<PrimaryKeyConstraint> primaryKeyConstraints = table.getTable().getPrimaryKeyConstraints();
+        if (primaryKeyConstraints.isEmpty()) {
             return null;
-        } finally {
-            table.getTable().readUnlock();
         }
+        return primaryKeyConstraints.stream().iterator().next().getPrimaryKeyNames();
     }
 
     private Set<String> getUkInfoFromConstraint(LogicalCatalogRelation table) {
-        table.getTable().readLock();
-        try {
-            for (Map.Entry<String, Constraint> constraintMap : table.getTable().getConstraintsMap().entrySet()) {
-                Constraint constraint = constraintMap.getValue();
-                if (constraint instanceof UniqueConstraint) {
-                    return ((UniqueConstraint) constraint).getUniqueColumnNames();
-                }
-            }
+        Set<UniqueConstraint> uniqueConstraints = table.getTable().getUniqueConstraints();
+        if (uniqueConstraints.isEmpty()) {
             return null;
-        } finally {
-            table.getTable().readUnlock();
         }
+        return uniqueConstraints.stream().iterator().next().getUniqueColumnNames();
     }
 
     private boolean checkJoinRoot(LogicalJoin joinRoot) {
