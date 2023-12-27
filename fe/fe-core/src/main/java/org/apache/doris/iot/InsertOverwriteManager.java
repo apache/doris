@@ -48,7 +48,7 @@ public class InsertOverwriteManager extends MasterDaemon implements Writable {
     private Map<Long, InsertOverwriteTask> tasks = Maps.newConcurrentMap();
 
     public InsertOverwriteManager() {
-        super("InsertOverwriteTableDropDirtyPartitions", CLEAN_INTERVAL_SECOND * 1000);
+        super("InsertOverwriteDropDirtyPartitions", CLEAN_INTERVAL_SECOND * 1000);
     }
 
     /**
