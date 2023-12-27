@@ -290,8 +290,8 @@ Status Channel<Parent>::close_internal(Status exec_status) {
         if (is_local()) {
             if (_recvr_is_valid()) {
                 if constexpr (std::is_same_v<VDataStreamSender, Parent>) {
-                    _local_recvr->remove_sender(_parent->sender_id(), _be_number,
-                                                _parent->query_statisticsPtr(), exec_status);
+                    _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status,
+                                                _parent->query_statisticsPtr());
                 } else {
                     _local_recvr->remove_sender(_parent->sender_id(), _be_number, exec_status);
                 }
