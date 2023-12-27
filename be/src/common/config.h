@@ -256,6 +256,8 @@ DECLARE_Int32(sys_log_roll_num);
 DECLARE_Strings(sys_log_verbose_modules);
 // verbose log level
 DECLARE_Int32(sys_log_verbose_level);
+// verbose log FLAGS_v
+DECLARE_Int32(sys_log_verbose_flags_v);
 // log buffer level
 DECLARE_String(log_buffer_level);
 

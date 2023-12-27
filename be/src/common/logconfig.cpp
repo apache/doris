@@ -130,7 +130,7 @@ bool init_glog(const char* basename) {
     }
 
     // set verbose modules.
-    FLAGS_v = -1;
+    FLAGS_v = config::sys_log_verbose_flags_v;
     std::vector<std::string>& verbose_modules = config::sys_log_verbose_modules;
     int32_t vlog_level = config::sys_log_verbose_level;
     for (size_t i = 0; i < verbose_modules.size(); i++) {
