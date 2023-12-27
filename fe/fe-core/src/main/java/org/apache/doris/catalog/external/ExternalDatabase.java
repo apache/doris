@@ -357,8 +357,8 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 tableNameToId.put(table.getName(), table.getId());
             } else {
                 Preconditions.checkState(obj instanceof ExternalTable);
-                tmpIdToTbl.put(((ExternalTable)obj).getId(), (T)obj);
-                tableNameToId.put(((ExternalTable)obj).getName(), ((ExternalTable)obj).getId());
+                tmpIdToTbl.put(((ExternalTable) obj).getId(), (T) obj);
+                tableNameToId.put(((ExternalTable) obj).getName(), ((ExternalTable) obj).getId());
             }
         }
         idToTbl = tmpIdToTbl;

@@ -218,7 +218,7 @@ public class GsonUtils {
             .registerSubtype(PaimonHMSExternalCatalog.class, PaimonHMSExternalCatalog.class.getSimpleName())
             .registerSubtype(PaimonFileExternalCatalog.class, PaimonFileExternalCatalog.class.getSimpleName())
             .registerSubtype(MaxComputeExternalCatalog.class, MaxComputeExternalCatalog.class.getSimpleName())
-            .registerSubtype(TestExternalCatalog .class, TestExternalCatalog.class.getSimpleName());
+            .registerSubtype(TestExternalCatalog.class, TestExternalCatalog.class.getSimpleName());
 
     // routine load data source
     private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
@@ -252,7 +252,7 @@ public class GsonUtils {
             .registerSubtype(PaimonExternalTable.class, PaimonExternalTable.class.getSimpleName())
             .registerSubtype(MaxComputeExternalTable.class, MaxComputeExternalTable.class.getSimpleName())
             .registerSubtype(ExternalInfoSchemaTable.class, ExternalInfoSchemaTable.class.getSimpleName())
-            .registerSubtype(TestExternalTable .class, TestExternalTable.class.getSimpleName());
+            .registerSubtype(TestExternalTable.class, TestExternalTable.class.getSimpleName());
 
     // runtime adapter for class "PartitionInfo"
     private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory
