@@ -62,4 +62,15 @@ public class DistributeHint extends Hint {
         }
         return out.toString();
     }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        return this.joinHint == ((DistributeHint) o).joinHint;
+    }
 }

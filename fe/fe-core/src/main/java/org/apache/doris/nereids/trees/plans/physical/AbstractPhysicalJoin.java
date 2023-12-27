@@ -242,7 +242,7 @@ public abstract class AbstractPhysicalJoin<
         }
         if (hint.joinHint != JoinHint.NONE) {
             args.add("hint");
-            args.add(hint);
+            args.add(hint.getExplainString());
         }
         if (!runtimeFilters.isEmpty()) {
             args.add("runtimeFilters");

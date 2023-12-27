@@ -255,9 +255,9 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
                 "markJoinSlotReference", markJoinSlotReference,
                 "hashJoinConjuncts", hashJoinConjuncts,
                 "otherJoinConjuncts", otherJoinConjuncts);
-        if (hint != new DistributeHint("Distribute", JoinHint.NONE)) {
+        if (hint.joinHint != JoinHint.NONE) {
             args.add("hint");
-            args.add(hint);
+            args.add(hint.getExplainString());
         }
         return Utils.toSqlString("LogicalJoin[" + id.asInt() + "]", args.toArray());
     }
@@ -272,7 +272,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         }
         LogicalJoin<?, ?> that = (LogicalJoin<?, ?>) o;
         return joinType == that.joinType
-                && hint == that.hint
+                && hint.equals(that.hint)
                 && hashJoinConjuncts.equals(that.hashJoinConjuncts)
                 && otherJoinConjuncts.equals(that.otherJoinConjuncts)
                 && Objects.equals(markJoinSlotReference, that.markJoinSlotReference);

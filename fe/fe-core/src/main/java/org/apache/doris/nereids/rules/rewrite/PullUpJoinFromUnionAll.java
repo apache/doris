@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -521,7 +522,7 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                 JoinType.INNER_JOIN,
                 newHashJoinConjuncts,
                 ExpressionUtils.EMPTY_CONDITION,
-                JoinHint.NONE,
+                new DistributeHint("Distribute", JoinHint.NONE),
                 Optional.empty(),
                 newUnionNode,
                 pullUpTable);
@@ -634,7 +635,7 @@ public class PullUpJoinFromUnionAll extends OneRewriteRuleFactory {
                 return new LogicalJoin(JoinType.INNER_JOIN,
                         join.getHashJoinConjuncts(),
                         join.getOtherJoinConjuncts(),
-                        JoinHint.NONE,
+                        new DistributeHint("Distribute", JoinHint.NONE),
                         Optional.empty(),
                         leftChild, rightChild);
             }
