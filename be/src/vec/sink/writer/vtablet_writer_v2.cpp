@@ -555,7 +555,11 @@ Status VTabletWriterV2::close(Status exec_status) {
                              _timeout_watch.elapsed_time() / 1000 / 1000;
             for (const auto& [_, streams] : _streams_for_node) {
                 for (const auto& stream : streams->streams()) {
+                    LOG(INFO) << "begin waiting stream close load_id=" << print_id(_load_id)
+                              << ", stream_id=" << stream->stream_id();
                     RETURN_IF_ERROR(stream->close_wait(remain_ms));
+                    LOG(INFO) << "end waiting stream close load_id=" << print_id(_load_id)
+                              << ", stream_id=" << stream->stream_id();
                 }
             }
         }
