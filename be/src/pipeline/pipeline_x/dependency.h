@@ -59,9 +59,6 @@ struct BasicSharedState {
     Dependency* source_dep = nullptr;
     Dependency* sink_dep = nullptr;
 
-    std::atomic<int> ref_count = 0;
-
-    void ref() { ref_count++; }
     virtual Status close(RuntimeState* state) { return Status::OK(); }
     virtual ~BasicSharedState() = default;
 };
@@ -296,23 +293,16 @@ public:
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
-    ~AggSharedState() override = default;
+    ~AggSharedState() override {
+        if (probe_expr_ctxs.empty()) {
+            _close_without_key();
+        } else {
+            _close_with_serialized_key();
+        }
+    }
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
                 std::make_unique<vectorized::SpillPartitionHelper>(spill_partition_count_bits);
-    }
-    Status close(RuntimeState* state) override {
-        if (ref_count.fetch_sub(1) == 1) {
-            for (auto* aggregate_evaluator : aggregate_evaluators) {
-                aggregate_evaluator->close(state);
-            }
-            if (probe_expr_ctxs.empty()) {
-                _close_without_key();
-            } else {
-                _close_with_serialized_key();
-            }
-        }
-        return Status::OK();
     }
 
     vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
