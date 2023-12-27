@@ -300,10 +300,6 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
             _add_block_closure->clear_in_flight();
             return;
         }
-        {
-            vectorized::Block tmp_block(*request.mutable_block());
-            CHECK(block.rows() == tmp_block.rows());
-        }
         if (compressed_bytes >= double(config::brpc_max_body_size) * 0.95f) {
             LOG(WARNING) << "send block too large, this rpc may failed. send size: "
                          << compressed_bytes << ", threshold: " << config::brpc_max_body_size
