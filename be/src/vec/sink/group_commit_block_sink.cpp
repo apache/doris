@@ -17,6 +17,14 @@
 
 #include "vec/sink/group_commit_block_sink.h"
 
+#include <gen_cpp/DataSinks_types.h>
+
+#include <chrono>
+#include <mutex>
+#include <shared_mutex>
+
+#include "common/exception.h"
+#include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
@@ -61,6 +69,8 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
 
 Status GroupCommitBlockSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
+    RETURN_IF_ERROR(
+            ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(_load_id.to_thrift(), 0));
     _state = state;
 
     // profile must add to state's object pool
@@ -107,7 +117,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
             (double)state->num_rows_load_filtered() / num_selected_rows > _max_filter_ratio) {
             return Status::DataQualityError("too many filtered rows");
         }
-        RETURN_IF_ERROR(_add_blocks());
+        RETURN_IF_ERROR(_add_blocks(_group_commit_mode != TGroupCommitMode::SYNC_MODE, true));
     }
     if (_load_block_queue) {
         _load_block_queue->remove_load_id(_load_id);
@@ -213,7 +223,7 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         _blocks.emplace_back(output_block);
     } else {
         if (!_is_block_appended) {
-            RETURN_IF_ERROR(_add_blocks());
+            RETURN_IF_ERROR(_add_blocks(_group_commit_mode != TGroupCommitMode::SYNC_MODE, false));
         }
         RETURN_IF_ERROR(_load_block_queue->add_block(
                 output_block, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
@@ -221,7 +231,7 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
     return Status::OK();
 }
 
-Status GroupCommitBlockSink::_add_blocks() {
+Status GroupCommitBlockSink::_add_blocks(bool write_wal, bool is_blocks_contain_all_load_data) {
     DCHECK(_is_block_appended == false);
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
@@ -231,6 +241,20 @@ Status GroupCommitBlockSink::_add_blocks() {
             RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
+            if (write_wal) {
+                _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(
+                                             _blocks, load_id, is_blocks_contain_all_load_data)
+                                             ? TGroupCommitMode::ASYNC_MODE
+                                             : TGroupCommitMode::SYNC_MODE;
+                if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
+                    LOG(INFO)
+                            << "Load label " << _load_block_queue->label
+                            << " will not write wal because wal disk space usage reachs max limit.";
+                } else {
+                    LOG(INFO) << "Load label " << _load_block_queue->label << " will write wal to "
+                              << _load_block_queue->wal_base_path << ".";
+                }
+            }
             _state->set_import_label(_load_block_queue->label);
             _state->set_wal_id(_load_block_queue->txn_id);
         } else {

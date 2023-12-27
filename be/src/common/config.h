@@ -1203,8 +1203,9 @@ DECLARE_String(default_tzfiles_path);
 // Max size(bytes) of group commit queues, used for mem back pressure.
 DECLARE_Int32(group_commit_max_queue_size);
 
-// Max size(bytes) of wal disk using, used for disk space back pressure.
-DECLARE_Int32(wal_max_disk_size);
+// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
+// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
+DECLARE_mString(group_commit_wal_max_disk_limit);
 
 // Ingest binlog work pool size
 DECLARE_Int32(ingest_binlog_work_pool_size);
