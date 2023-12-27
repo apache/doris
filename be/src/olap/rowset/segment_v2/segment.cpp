@@ -150,7 +150,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
-            if (can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
+            if (_column_readers.count(uid) >= 1 &&
+                can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
                                            *schema, read_options.io_ctx.reader_type) &&
                 !_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
