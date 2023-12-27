@@ -193,8 +193,8 @@ Status OperatorXBase::do_projections(RuntimeState* state, vectorized::Block* ori
     return Status::OK();
 }
 
-Status OperatorXBase::get_next_after_projects(RuntimeState* state, vectorized::Block* block,
-                                              SourceState& source_state) {
+Status OperatorXBase::get_block_after_projects(RuntimeState* state, vectorized::Block* block,
+                                               SourceState& source_state) {
     auto local_state = state->get_local_state(operator_id());
     if (_output_row_descriptor) {
         local_state->clear_origin_block();
@@ -461,8 +461,8 @@ Status PipelineXSinkLocalState<DependencyType>::close(RuntimeState* state, Statu
 template <typename LocalStateType>
 Status StreamingOperatorX<LocalStateType>::get_block(RuntimeState* state, vectorized::Block* block,
                                                      SourceState& source_state) {
-    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(state, block,
-                                                                                 source_state));
+    RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(state, block,
+                                                                                  source_state));
     return pull(state, block, source_state);
 }
 
@@ -473,7 +473,7 @@ Status StatefulOperatorX<LocalStateType>::get_block(RuntimeState* state, vectori
                                 ->template cast<LocalStateType>();
     if (need_more_input_data(state)) {
         local_state._child_block->clear_column_data();
-        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_next_after_projects(
+        RETURN_IF_ERROR(OperatorX<LocalStateType>::_child_x->get_block_after_projects(
                 state, local_state._child_block.get(), local_state._child_source_state));
         source_state = local_state._child_source_state;
         if (local_state._child_block->rows() == 0 &&
