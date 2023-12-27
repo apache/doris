@@ -421,6 +421,9 @@ public class LoadManager implements Writable {
                     if (job instanceof SparkLoadJob) {
                         ((SparkLoadJob) job).clearSparkLauncherLog();
                     }
+                    if (job instanceof BulkLoadJob) {
+                        ((BulkLoadJob) job).recycleProgress();
+                    }
                     if (list.isEmpty()) {
                         map.remove(job.getLabel());
                     }
@@ -745,6 +748,9 @@ public class LoadManager implements Writable {
                             if (!job.isCompleted()) {
                                 continue;
                             }
+                            if (job instanceof BulkLoadJob) {
+                                ((BulkLoadJob) job).recycleProgress();
+                            }
                             innerIter.remove();
                             idToLoadJob.remove(job.getId());
                             ++counter;
@@ -764,6 +770,9 @@ public class LoadManager implements Writable {
                         LoadJob job = iter.next();
                         if (!job.isCompleted()) {
                             continue;
+                        }
+                        if (job instanceof BulkLoadJob) {
+                            ((BulkLoadJob) job).recycleProgress();
                         }
                         iter.remove();
                         idToLoadJob.remove(job.getId());
