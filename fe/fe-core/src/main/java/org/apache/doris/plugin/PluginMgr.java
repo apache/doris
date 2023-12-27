@@ -71,7 +71,7 @@ public class PluginMgr implements Writable {
         dialectPlugins = new Map[Dialect.MAX_DIALECT_SIZE];
         for (int i = 0; i < Dialect.MAX_DIALECT_SIZE; i++) {
             // use synchronized wrapper for thread-safe
-            plugins[i] = Collections.synchronizedSortedMap(Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER));
+            dialectPlugins[i] = Collections.synchronizedSortedMap(Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER));
         }
     }
 
@@ -218,7 +218,10 @@ public class PluginMgr implements Writable {
 
         PluginLoader loader = new BuiltinPluginLoader(Config.plugin_dir, pluginInfo, plugin);
         PluginLoader checkLoader = plugins[pluginInfo.getTypeId()].putIfAbsent(pluginInfo.getName(), loader);
-
+        // add dialect plugin
+        if (plugin instanceof DialectConverterPlugin) {
+            addDialectPlugin((DialectConverterPlugin) plugin, pluginInfo);
+        }
         return checkLoader == null;
     }
 

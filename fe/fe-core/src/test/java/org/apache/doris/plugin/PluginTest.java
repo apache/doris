@@ -17,43 +17,56 @@
 
 package org.apache.doris.plugin;
 
+import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.nereids.parser.Dialect;
+import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.utframe.TestWithFeService;
+
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
+
 import java.io.IOException;
-import java.util.HashMap;
-import java.util.Map;
+import java.util.List;
 
-public class PluginTest extends Plugin {
-
-    private Map<String, String> map = new HashMap<>();
-
+public class PluginTest extends TestWithFeService {
     @Override
-    public void init(PluginInfo info, PluginContext ctx) {
-        System.out.println("this is init");
+    public void runBeforeAll() throws IOException, InterruptedException {
+        connectContext.getState().setNereids(true);
+        connectContext.getSessionVariable().enableFallbackToOriginalPlanner = false;
+        connectContext.getSessionVariable().enableNereidsTimeout = false;
+        connectContext.getSessionVariable().enableNereidsDML = true;
+        FeConstants.runningUnitTest = true;
+
+        TestHiveDialectPlugin hivePlugin = new TestHiveDialectPlugin();
+        PluginInfo hivePluginInfo = new PluginInfo("hiveDialectPlugin", PluginInfo.PluginType.DIALECT, "test");
+        TestSparkDialectPlugin sparkPlugin = new TestSparkDialectPlugin();
+        PluginInfo sparkPluginInfo = new PluginInfo("sparkDialectPlugin", PluginInfo.PluginType.DIALECT, "test");
+        Env.getCurrentEnv().getPluginMgr().registerBuiltinPlugin(hivePluginInfo, hivePlugin);
+        Env.getCurrentEnv().getPluginMgr().registerBuiltinPlugin(sparkPluginInfo, sparkPlugin);
     }
 
-
-    @Override
-    public void close() throws IOException {
-        super.close();
-        System.out.println("this is close");
+    @Test
+    public void testHivePlugin() {
+        connectContext.getSessionVariable().setSqlDialect(Dialect.HIVE.getDialectName());
+        NereidsParser parser = new NereidsParser();
+        List<StatementBase> stmts = parser.parseSQL("select * from test_hive_table",
+                    connectContext.getSessionVariable());
+        Assertions.assertEquals(1, stmts.size());
+        Assertions.assertTrue(stmts.get(0) instanceof LogicalPlan);
+        Assertions.assertTrue(stmts.get(0).toString().contains("select 1"));
     }
 
-    @Override
-    public int flags() {
-        return 2;
-    }
-
-    @Override
-    public void setVariable(String key, String value) {
-        map.put(key, value);
-    }
-
-    @Override
-    public Map<String, String> variable() {
-        return map;
-    }
-
-    @Override
-    public Map<String, String> status() {
-        return new HashMap<>();
+    @Test
+    public void testSparkPlugin() {
+        connectContext.getSessionVariable().setSqlDialect(Dialect.SPARK_SQL.getDialectName());
+        NereidsParser parser = new NereidsParser();
+        List<StatementBase> stmts = parser.parseSQL("select * from test_hive_table",
+                    connectContext.getSessionVariable());
+        Assertions.assertEquals(1, stmts.size());
+        Assertions.assertTrue(stmts.get(0) instanceof LogicalPlan);
+        Assertions.assertTrue(stmts.get(0).toString().contains("select 2"));
     }
 }
