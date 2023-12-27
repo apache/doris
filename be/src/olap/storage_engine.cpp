@@ -37,6 +37,7 @@
 #include <filesystem>
 #include <iterator>
 #include <list>
+#include <mutex>
 #include <new>
 #include <ostream>
 #include <random>
@@ -45,10 +46,12 @@
 #include <unordered_set>
 #include <utility>
 
+#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
+#include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
 #include "olap/base_compaction.h"
 #include "olap/binlog.h"
@@ -56,6 +59,7 @@
 #include "olap/data_dir.h"
 #include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
@@ -116,7 +120,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _stopped(false),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
-          _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
+          _segment_meta_mem_tracker(std::make_shared<MemTracker>(
+                  "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -329,7 +334,7 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
             if (need_update) {
-                static_cast<void>(it.second->update_capacity());
+                RETURN_IF_ERROR(it.second->update_capacity());
             }
             path_map.emplace(it.first, it.second->get_dir_info());
         }
@@ -397,7 +402,9 @@ Status StorageEngine::_check_file_descriptor_number() {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "
                    << config::min_file_descriptor_number;
-        return Status::InternalError("file descriptors limit is too small");
+        return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                "file descriptors limit {} is small than {}", l.rlim_cur,
+                config::min_file_descriptor_number);
     }
     return Status::OK();
 }
@@ -425,7 +432,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
 
     // write cluster id into cluster_id_path if get effective cluster id success
     if (_effective_cluster_id != -1 && !_is_all_cluster_id_exist) {
-        static_cast<void>(set_cluster_id(_effective_cluster_id));
+        RETURN_IF_ERROR(set_cluster_id(_effective_cluster_id));
     }
 
     return Status::OK();
@@ -767,7 +774,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     }
 
     // clear expire incremental rowset, move deleted tablet to trash
-    static_cast<void>(_tablet_manager->start_trash_sweep());
+    RETURN_IF_ERROR(_tablet_manager->start_trash_sweep());
 
     // clean rubbish transactions
     _clean_unused_txns();
@@ -1058,39 +1065,38 @@ void StorageEngine::_parse_default_rowset_type() {
 }
 
 void StorageEngine::start_delete_unused_rowset() {
-    std::unordered_map<std::string, RowsetSharedPtr> unused_rowsets_copy;
+    std::vector<RowsetSharedPtr> unused_rowsets_copy;
+    unused_rowsets_copy.reserve(_unused_rowsets.size());
     {
         std::lock_guard<std::mutex> lock(_gc_mutex);
         for (auto it = _unused_rowsets.begin(); it != _unused_rowsets.end();) {
             uint64_t now = UnixSeconds();
-            if (it->second.use_count() == 1 && it->second->need_delete_file() &&
+            auto&& rs = it->second;
+            if (rs.use_count() == 1 && rs->need_delete_file() &&
                 // We delay the GC time of this rowset since it's maybe still needed, see #20732
-                now > it->second->delayed_expired_timestamp()) {
-                if (it->second->is_local()) {
-                    unused_rowsets_copy[it->first] = it->second;
-                }
-                // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                now > rs->delayed_expired_timestamp()) {
                 evict_querying_rowset(it->second->rowset_id());
+                // remote rowset data will be reclaimed by `remove_unused_remote_files`
+                if (rs->is_local()) {
+                    unused_rowsets_copy.push_back(std::move(rs));
+                }
                 it = _unused_rowsets.erase(it);
             } else {
                 ++it;
             }
         }
     }
-    for (auto it = unused_rowsets_copy.begin(); it != unused_rowsets_copy.end(); ++it) {
-        VLOG_NOTICE << "start to remove rowset:" << it->second->rowset_id()
-                    << ", version:" << it->second->version().first << "-"
-                    << it->second->version().second;
-        auto tablet_id = it->second->rowset_meta()->tablet_id();
-        auto tablet = _tablet_manager->get_tablet(tablet_id);
+    for (auto&& rs : unused_rowsets_copy) {
+        VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
+                    << ", version:" << rs->version();
         // delete delete_bitmap of unused rowsets
-        if (tablet != nullptr && tablet->enable_unique_key_merge_on_write()) {
-            tablet->tablet_meta()->delete_bitmap().remove({it->second->rowset_id(), 0, 0},
-                                                          {it->second->rowset_id(), UINT32_MAX, 0});
+        if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
+            tablet && tablet->enable_unique_key_merge_on_write()) {
+            tablet->tablet_meta()->delete_bitmap().remove({rs->rowset_id(), 0, 0},
+                                                          {rs->rowset_id(), UINT32_MAX, 0});
         }
-        Status status = it->second->remove();
-        VLOG_NOTICE << "remove rowset:" << it->second->rowset_id()
-                    << " finished. status:" << status;
+        Status status = rs->remove();
+        VLOG_NOTICE << "remove rowset:" << rs->rowset_id() << " finished. status:" << status;
     }
 }
 
@@ -1098,19 +1104,14 @@ void StorageEngine::add_unused_rowset(RowsetSharedPtr rowset) {
     if (rowset == nullptr) {
         return;
     }
-
     VLOG_NOTICE << "add unused rowset, rowset id:" << rowset->rowset_id()
                 << ", version:" << rowset->version();
-
-    auto rowset_id = rowset->rowset_id().to_string();
-
     std::lock_guard<std::mutex> lock(_gc_mutex);
-    auto it = _unused_rowsets.find(rowset_id);
+    auto it = _unused_rowsets.find(rowset->rowset_id());
     if (it == _unused_rowsets.end()) {
         rowset->set_need_delete_file();
         rowset->close();
-        _unused_rowsets[rowset_id] = rowset;
-        release_rowset_id(rowset->rowset_id());
+        _unused_rowsets[rowset->rowset_id()] = std::move(rowset);
     }
 }
 
@@ -1157,20 +1158,14 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
         *store = stores[0];
     }
 
-    Status res = Status::OK();
-    uint64_t shard = 0;
-    res = (*store)->get_shard(&shard);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to get root path shard. res=" << res;
-        return res;
-    }
+    uint64_t shard = (*store)->get_shard();
 
     std::stringstream root_path_stream;
     root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
 
     LOG(INFO) << "success to process obtain root path. path=" << shard_path;
-    return res;
+    return Status::OK();
 }
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
@@ -1212,43 +1207,53 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
     return res;
 }
 
-void StorageEngine::register_report_listener(TaskWorkerPool* listener) {
+void StorageEngine::register_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    CHECK(_report_listeners.find(listener) == _report_listeners.end());
-    _report_listeners.insert(listener);
+    if (std::find(_report_listeners.begin(), _report_listeners.end(), listener) !=
+        _report_listeners.end()) [[unlikely]] {
+        return;
+    }
+    _report_listeners.push_back(listener);
 }
 
-void StorageEngine::deregister_report_listener(TaskWorkerPool* listener) {
+void StorageEngine::deregister_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    _report_listeners.erase(listener);
+    if (auto it = std::find(_report_listeners.begin(), _report_listeners.end(), listener);
+        it != _report_listeners.end()) {
+        _report_listeners.erase(it);
+    }
 }
 
 void StorageEngine::notify_listeners() {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        listener->notify_thread();
+        listener->notify();
     }
 }
 
-void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+bool StorageEngine::notify_listener(std::string_view name) {
+    bool found = false;
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        if (listener->task_worker_type() == task_worker_type) {
-            listener->notify_thread();
+        if (listener->name() == name) {
+            listener->notify();
+            found = true;
         }
     }
-}
-
-Status StorageEngine::execute_task(EngineTask* task) {
-    RETURN_IF_ERROR(task->execute());
-    return task->finish();
+    return found;
 }
 
 // check whether any unused rowsets's id equal to rowset_id
 bool StorageEngine::check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id) {
     std::lock_guard<std::mutex> lock(_gc_mutex);
-    auto search = _unused_rowsets.find(rowset_id.to_string());
-    return search != _unused_rowsets.end();
+    return _unused_rowsets.contains(rowset_id);
+}
+
+PendingRowsetGuard StorageEngine::add_pending_rowset(const RowsetWriterContext& ctx) {
+    if (!ctx.fs || ctx.fs->type() == io::FileSystemType::LOCAL) {
+        return _pending_local_rowsets.add(ctx.rowset_id);
+    }
+    return _pending_remote_rowsets.add(ctx.rowset_id);
 }
 
 void StorageEngine::create_cumulative_compaction(
@@ -1425,6 +1430,26 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
+}
+
+bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
+    if (!config::enable_compaction_priority_scheduling) {
+        return true;
+    }
+    std::lock_guard l(_low_priority_task_nums_mutex);
+    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
+        _low_priority_task_nums[dir]++;
+        return true;
+    }
+    return false;
+}
+
+void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
+    if (config::enable_compaction_priority_scheduling) {
+        std::lock_guard l(_low_priority_task_nums_mutex);
+        _low_priority_task_nums[dir]--;
+        DCHECK(_low_priority_task_nums[dir] >= 0);
+    }
 }
 
 } // namespace doris

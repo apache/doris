@@ -57,8 +57,9 @@ public:
 
     TypeIndex get_type_id() const override { return TypeIndex::HLL; }
     TypeDescriptor get_type_as_type_descriptor() const override { return TypeDescriptor(TYPE_HLL); }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::HLL;
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_HLL;
     }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
@@ -81,8 +82,6 @@ public:
     }
     bool have_maximum_size_of_value() const override { return false; }
 
-    bool can_be_inside_nullable() const override { return true; }
-
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
 
     bool can_be_inside_low_cardinality() const override { return false; }
@@ -95,6 +94,7 @@ public:
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for HLL";
+        __builtin_unreachable();
     }
 
     static void serialize_as_stream(const HyperLogLog& value, BufferWritable& buf);

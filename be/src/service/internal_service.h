@@ -94,7 +94,7 @@ public:
                             google::protobuf::Closure* done) override;
 
     void open_load_stream(google::protobuf::RpcController* controller,
-                          const POpenStreamSinkRequest* request, POpenStreamSinkResponse* response,
+                          const POpenLoadStreamRequest* request, POpenLoadStreamResponse* response,
                           google::protobuf::Closure* done) override;
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,
@@ -204,6 +204,15 @@ public:
                              const PGroupCommitInsertRequest* request,
                              PGroupCommitInsertResponse* response,
                              google::protobuf::Closure* done) override;
+    void fetch_remote_tablet_schema(google::protobuf::RpcController* controller,
+                                    const PFetchRemoteSchemaRequest* request,
+                                    PFetchRemoteSchemaResponse* response,
+                                    google::protobuf::Closure* done) override;
+
+    void get_wal_queue_size(google::protobuf::RpcController* controller,
+                            const PGetWalQueueSizeRequest* request,
+                            PGetWalQueueSizeResponse* response,
+                            google::protobuf::Closure* done) override;
 
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
@@ -231,11 +240,6 @@ private:
                          ::doris::PTransmitDataResult* response, ::google::protobuf::Closure* done,
                          const Status& extract_st);
 
-    void _tablet_writer_add_block(google::protobuf::RpcController* controller,
-                                  const PTabletWriterAddBlockRequest* request,
-                                  PTabletWriterAddBlockResult* response,
-                                  google::protobuf::Closure* done);
-
     void _response_pull_slave_rowset(const std::string& remote_host, int64_t brpc_port,
                                      int64_t txn_id, int64_t tablet_id, int64_t node_id,
                                      bool is_succeed);
@@ -247,7 +251,7 @@ private:
                                        google::protobuf::Closure* done);
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 
     // every brpc service request should put into thread pool
     // the reason see issue #16634

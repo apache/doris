@@ -166,9 +166,11 @@ Stream load uses HTTP protocol, so all parameters related to import tasks are se
   
 + format
 
-  Specify the import data format, support csv, json, the default is csv
+  Specify the import data format, support csv, json, arrow, the default is csv
 
-  <version since="1.2">supports `csv_with_names` (csv file line header filter), `csv_with_names_and_types` (csv file first two lines filter), parquet, orc</version>
+  <version since="1.2">supports `csv_with_names` (csv file line header filter), `csv_with_names_and_types` (csv file first two lines filter), parquet, orc.</version>
+
+  <version since="2.1.0">supports `arrow` format.</version>
 
 + exec\_mem\_limit
 
@@ -294,7 +296,7 @@ curl --location-trusted -u user:passwd [-H "sql: ${load_sql}"...] -T data.file -
 Examples：
 
 ```
-curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream("format" = "CSV", "column_separator" = "," ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
+curl  --location-trusted -u root: -T test.csv  -H "sql:insert into demo.example_tbl_1(user_id, age, cost) select c1, c4, c7 * 2 from http_stream(\"format\" = \"CSV\", \"column_separator\" = \",\" ) where age >= 30"  http://127.0.0.1:28030/api/_http_stream
 ```
 
 ### Return results

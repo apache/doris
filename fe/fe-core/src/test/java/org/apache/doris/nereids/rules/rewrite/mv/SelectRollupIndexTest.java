@@ -20,7 +20,7 @@ package org.apache.doris.nereids.rules.rewrite.mv;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.rewrite.MergeProjects;
-import org.apache.doris.nereids.rules.rewrite.PushdownFilterThroughProject;
+import org.apache.doris.nereids.rules.rewrite.PushDownFilterThroughProject;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -189,7 +189,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .applyBottomUp(new LogicalSubQueryAliasToLogicalProject())
-                .applyTopDown(new PushdownFilterThroughProject())
+                .applyTopDown(new PushDownFilterThroughProject())
                 .applyBottomUp(new MergeProjects())
                 .applyTopDown(new SelectMaterializedIndexWithAggregate())
                 .applyTopDown(new SelectMaterializedIndexWithoutAggregate())
@@ -418,7 +418,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         String queryWithoutHint = "select k1, v1 from test_preagg_hint";
         // legacy planner
         Assertions.assertTrue(getSQLPlanOrErrorMsg(queryWithoutHint).contains(
-                "TABLE: default_cluster:test.test_preagg_hint(r1), PREAGGREGATION: OFF. Reason: No AggregateInfo"));
+                "TABLE: test.test_preagg_hint(r1), PREAGGREGATION: OFF. Reason: No AggregateInfo"));
         // nereids planner
         PlanChecker.from(connectContext)
                 .analyze(queryWithoutHint)
@@ -436,7 +436,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements M
         String queryWithHint = "select k1, v1 from test_preagg_hint /*+ PREAGGOPEN*/";
         // legacy planner
         Assertions.assertTrue(getSQLPlanOrErrorMsg(queryWithHint).contains(
-                "TABLE: default_cluster:test.test_preagg_hint(r1), PREAGGREGATION: ON"));
+                "TABLE: test.test_preagg_hint(r1), PREAGGREGATION: ON"));
         // nereids planner
         PlanChecker.from(connectContext)
                 .analyze(queryWithHint)

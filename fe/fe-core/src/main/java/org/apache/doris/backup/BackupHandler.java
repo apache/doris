@@ -19,6 +19,7 @@ package org.apache.doris.backup;
 
 import org.apache.doris.analysis.AbstractBackupStmt;
 import org.apache.doris.analysis.AbstractBackupTableRefClause;
+import org.apache.doris.analysis.AlterRepositoryStmt;
 import org.apache.doris.analysis.BackupStmt;
 import org.apache.doris.analysis.BackupStmt.BackupType;
 import org.apache.doris.analysis.CancelBackupStmt;
@@ -49,6 +50,7 @@ import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFileSystem;
+import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.SnapshotTask;
@@ -219,6 +221,49 @@ public class BackupHandler extends MasterDaemon implements Writable {
         if (!st.ok()) {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
                                            "Failed to create repository: " + st.getErrMsg());
+        }
+    }
+
+    public void alterRepository(AlterRepositoryStmt stmt) throws DdlException {
+        tryLock();
+        try {
+            Repository repo = repoMgr.getRepo(stmt.getName());
+            if (repo == null) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Repository does not exist");
+            }
+
+            if (repo.getRemoteFileSystem() instanceof S3FileSystem) {
+                Map<String, String> oldProperties = new HashMap<>(stmt.getProperties());
+                Status status = repo.alterRepositoryS3Properties(oldProperties);
+                if (!status.ok()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, status.getErrMsg());
+                }
+                RemoteFileSystem fileSystem = FileSystemFactory.get(repo.getRemoteFileSystem().getName(),
+                        StorageBackend.StorageType.S3, oldProperties);
+                Repository newRepo = new Repository(repo.getId(), repo.getName(), repo.isReadOnly(),
+                        repo.getLocation(), fileSystem);
+                if (!newRepo.ping()) {
+                    LOG.warn("Failed to connect repository {}. msg: {}", repo.getName(), repo.getErrorMsg());
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Repo can not ping with new s3 properties");
+                }
+
+                Status st = repoMgr.alterRepo(newRepo, false /* not replay */);
+                if (!st.ok()) {
+                    ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                            "Failed to alter repository: " + st.getErrMsg());
+                }
+                for (AbstractJob job : getAllCurrentJobs()) {
+                    if (!job.isDone() && job.getRepoId() == repo.getId()) {
+                        job.updateRepo(newRepo);
+                    }
+                }
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR,
+                                                "Only support alter s3 repository");
+            }
+        } finally {
+            seqlock.unlock();
         }
     }
 

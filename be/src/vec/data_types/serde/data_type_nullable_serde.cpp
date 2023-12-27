@@ -320,7 +320,6 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   std::vector<StringRef>& buffer_list) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
-
     auto& null_map_tmp = column_nullable.get_null_map_data();
     auto orc_null_map = revert_null_map(&null_map_tmp, start, end);
     // orc_col_batch->notNull.data() must add 'start' (+ start),
@@ -329,10 +328,35 @@ Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
     // because orc_null_map begins at start and only has (end - start) elements
     memcpy(orc_col_batch->notNull.data() + start, orc_null_map.data(), end - start);
 
-    static_cast<void>(nested_serde->write_column_to_orc(
-            timezone, column_nullable.get_nested_column(), &column_nullable.get_null_map_data(),
-            orc_col_batch, start, end, buffer_list));
+    RETURN_IF_ERROR(nested_serde->write_column_to_orc(timezone, column_nullable.get_nested_column(),
+                                                      &column_nullable.get_null_map_data(),
+                                                      orc_col_batch, start, end, buffer_list));
     return Status::OK();
+}
+
+void DataTypeNullableSerDe::write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                                   rapidjson::Document::AllocatorType& allocator,
+                                                   int row_num) const {
+    auto& col = static_cast<const ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    if (col.is_null_at(row_num)) {
+        result.SetNull();
+    } else {
+        nested_serde->write_one_cell_to_json(nested_col, result, allocator, row_num);
+    }
+}
+
+void DataTypeNullableSerDe::read_one_cell_from_json(IColumn& column,
+                                                    const rapidjson::Value& result) const {
+    auto& col = static_cast<ColumnNullable&>(column);
+    auto& nested_col = col.get_nested_column();
+    if (result.IsNull()) {
+        col.insert_default();
+    } else {
+        // TODO sanitize data
+        nested_serde->read_one_cell_from_json(nested_col, result);
+        col.get_null_map_column().get_data().push_back(0);
+    }
 }
 
 } // namespace vectorized

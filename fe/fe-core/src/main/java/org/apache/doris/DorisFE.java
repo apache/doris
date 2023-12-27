@@ -25,7 +25,6 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Log4jConfig;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.Version;
-import org.apache.doris.common.telemetry.Telemetry;
 import org.apache.doris.common.util.JdkUtils;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.httpv2.HttpServer;
@@ -34,6 +33,7 @@ import org.apache.doris.journal.bdbje.BDBTool;
 import org.apache.doris.journal.bdbje.BDBToolOptions;
 import org.apache.doris.persist.meta.MetaReader;
 import org.apache.doris.qe.QeService;
+import org.apache.doris.qe.SimpleScheduler;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.FeServer;
 import org.apache.doris.service.FrontendOptions;
@@ -101,6 +101,11 @@ public class DorisFE {
         CommandLineOptions cmdLineOpts = parseArgs(args);
 
         try {
+            if (cmdLineOpts.isVersion()) {
+                printVersion();
+                System.exit(0);
+            }
+
             // pid file
             if (!createAndLockPidFile(pidDir + "/fe.pid")) {
                 throw new IOException("pid file is already locked.");
@@ -147,7 +152,7 @@ public class DorisFE {
 
             if (Config.enable_bdbje_debug_mode) {
                 // Start in BDB Debug mode
-                BDBDebugger.get().startDebugMode(dorisHomeDir);
+                BDBDebugger.get().startDebugMode(Config.meta_dir + "/bdb");
                 return;
             }
 
@@ -162,8 +167,6 @@ public class DorisFE {
             // init catalog and wait it be ready
             Env.getCurrentEnv().initialize(args);
             Env.getCurrentEnv().waitForReady();
-
-            Telemetry.initOpenTelemetry();
 
             // init and start:
             // 1. HttpServer for HTTP Server
@@ -191,6 +194,8 @@ public class DorisFE {
                 httpServer.start();
                 Env.getCurrentEnv().setHttpReady(true);
             }
+
+            SimpleScheduler.init();
 
             if (options.enableQeService) {
                 QeService qeService = new QeService(Config.query_port, Config.arrow_flight_sql_port,
@@ -371,13 +376,17 @@ public class DorisFE {
         return new CommandLineOptions(false, null, null, "");
     }
 
+    private static void printVersion() {
+        System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
+        System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
+        System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
+        System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
+        System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+    }
+
     private static void checkCommandLineOptions(CommandLineOptions cmdLineOpts) {
         if (cmdLineOpts.isVersion()) {
-            System.out.println("Build version: " + Version.DORIS_BUILD_VERSION);
-            System.out.println("Build time: " + Version.DORIS_BUILD_TIME);
-            System.out.println("Build info: " + Version.DORIS_BUILD_INFO);
-            System.out.println("Build hash: " + Version.DORIS_BUILD_HASH);
-            System.out.println("Java compile version: " + Version.DORIS_JAVA_COMPILE_VERSION);
+            printVersion();
             System.exit(0);
         } else if (cmdLineOpts.runBdbTools()) {
             BDBTool bdbTool = new BDBTool(Env.getCurrentEnv().getBdbDir(), cmdLineOpts.getBdbToolOpts());
@@ -452,7 +461,7 @@ public class DorisFE {
             releaseFileLockAndCloseFileChannel();
             throw new RuntimeException("Try to lock process failed", e);
         }
-        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the"
+        throw new RuntimeException("FE process has been started，please do not start multiple FE processes at the "
                 + "same time");
     }
 

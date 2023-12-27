@@ -33,7 +33,6 @@
 #include <memory>
 #include <mutex>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "olap/olap_common.h"
@@ -129,6 +128,7 @@ Status IcebergTableReader::init_reader(
     _gen_file_col_names();
     _gen_new_colname_to_value_range();
     parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
+    parquet_reader->iceberg_sanitize(_all_required_col_names);
     Status status = parquet_reader->init_reader(
             _all_required_col_names, _not_in_file_col_names, &_new_colname_to_value_range,
             conjuncts, tuple_descriptor, row_descriptor, colname_to_slot_id,
@@ -143,9 +143,11 @@ Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool*
         auto rows =
                 std::min(_remaining_push_down_count, (int64_t)_state->query_options().batch_size);
         _remaining_push_down_count -= rows;
-        for (auto& col : block->mutate_columns()) {
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
             col->resize(rows);
         }
+        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         if (_remaining_push_down_count == 0) {
             *eof = true;

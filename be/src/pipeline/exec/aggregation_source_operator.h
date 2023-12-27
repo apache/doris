@@ -48,11 +48,30 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
+class AggSourceDependency final : public Dependency {
+public:
+    using SharedState = AggSharedState;
+    AggSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "AggSourceDependency", query_ctx) {}
+    ~AggSourceDependency() override = default;
+
+    void block() override {
+        if (_is_streaming_agg_state()) {
+            Dependency::block();
+        }
+    }
+
+private:
+    bool _is_streaming_agg_state() {
+        return ((SharedState*)Dependency::_shared_state.get())->data_queue != nullptr;
+    }
+};
+
 class AggSourceOperatorX;
 
-class AggLocalState final : public PipelineXLocalState<AggDependency> {
+class AggLocalState final : public PipelineXLocalState<AggSourceDependency> {
 public:
-    using Base = PipelineXLocalState<AggDependency>;
+    using Base = PipelineXLocalState<AggSourceDependency>;
     ENABLE_FACTORY_CREATOR(AggLocalState);
     AggLocalState(RuntimeState* state, OperatorXBase* parent);
     ~AggLocalState() override = default;
@@ -69,8 +88,6 @@ protected:
     friend class DistinctStreamingAggSourceOperatorX;
     friend class DistinctStreamingAggSinkOperatorX;
 
-    void _close_without_key();
-    void _close_with_serialized_key();
     Status _get_without_key_result(RuntimeState* state, vectorized::Block* block,
                                    SourceState& source_state);
     Status _serialize_without_key(RuntimeState* state, vectorized::Block* block,
@@ -90,34 +107,44 @@ protected:
     Status _serialize_with_serialized_key_result_with_spilt_data(RuntimeState* state,
                                                                  vectorized::Block* block,
                                                                  SourceState& source_state);
+    Status _destroy_agg_status(vectorized::AggregateDataPtr data);
+    Status _reset_hash_table();
+    Status _merge_spilt_data();
+    void _make_nullable_output_key(vectorized::Block* block) {
+        if (block->rows() != 0) {
+            auto& shared_state = *Base ::_shared_state;
+            for (auto cid : shared_state.make_nullable_keys) {
+                block->get_by_position(cid).column =
+                        make_nullable(block->get_by_position(cid).column);
+                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
+            }
+        }
+    }
 
-    RuntimeProfile::Counter* _get_results_timer;
-    RuntimeProfile::Counter* _serialize_result_timer;
-    RuntimeProfile::Counter* _hash_table_iterate_timer;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer;
-    RuntimeProfile::Counter* _serialize_data_timer;
-    RuntimeProfile::Counter* _hash_table_size_counter;
+    RuntimeProfile::Counter* _get_results_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_result_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
+    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
+    RuntimeProfile::Counter* _serialize_data_timer = nullptr;
+    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
 
     using vectorized_get_result = std::function<Status(
             RuntimeState* state, vectorized::Block* block, SourceState& source_state)>;
-    using vectorized_closer = std::function<void()>;
 
     struct executor {
         vectorized_get_result get_result;
-        vectorized_closer close;
     };
 
     executor _executor;
 
-    vectorized::AggregatedDataVariants* _agg_data;
-    bool _agg_data_created_without_key = false;
+    vectorized::AggregatedDataVariants* _agg_data = nullptr;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {
 public:
     using Base = OperatorX<AggLocalState>;
     AggSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
-                       const DescriptorTbl& descs);
+                       const DescriptorTbl& descs, bool is_streaming = false);
     ~AggSourceOperatorX() = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
@@ -127,6 +154,7 @@ public:
 
 private:
     friend class AggLocalState;
+    const bool _is_streaming;
 
     bool _needs_finalize;
     bool _without_key;

@@ -312,7 +312,9 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
             // check disk capacity
             if (data_dir->reach_capacity_limit(file_len)) {
-                return Status::InternalError("capacity limit reached");
+                return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                        "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                        file_len);
             }
             // remove file which will be downloaded now.
             // this file will be added to local_files if it be downloaded successfully.
@@ -545,7 +547,9 @@ Status SnapshotLoader::remote_http_download(
 
             // check disk capacity
             if (data_dir->reach_capacity_limit(file_size)) {
-                return Status::InternalError("Disk reach capacity limit");
+                return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                        "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                        file_size);
             }
 
             total_file_size += file_size;
@@ -696,14 +700,14 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     }
 
     // rename the rowset ids and tabletid info in rowset meta
-    Status convert_status = SnapshotManager::instance()->convert_rowset_ids(
+    auto res = SnapshotManager::instance()->convert_rowset_ids(
             snapshot_path, tablet_id, tablet->replica_id(), tablet->partition_id(), schema_hash);
-    if (!convert_status.ok()) {
-        std::stringstream ss;
-        ss << "failed to convert rowsetids in snapshot: " << snapshot_path
-           << ", tablet path: " << tablet_path;
-        LOG(WARNING) << ss.str();
-        return Status::InternalError(ss.str());
+    if (!res.has_value()) [[unlikely]] {
+        auto err_msg =
+                fmt::format("failed to convert rowsetids in snapshot: {}, tablet path: {}, err: {}",
+                            snapshot_path, tablet_path, res.error());
+        LOG(WARNING) << err_msg;
+        return Status::InternalError(err_msg);
     }
 
     if (overwrite) {

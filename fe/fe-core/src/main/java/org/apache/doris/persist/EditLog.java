@@ -52,6 +52,7 @@ import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.ha.MasterInfo;
+import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
@@ -64,7 +65,6 @@ import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportJobState;
 import org.apache.doris.load.ExportJobStateTransfer;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr.FetchStreamLoadRecord;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.LoadJobFinalOperation;
@@ -78,8 +78,7 @@ import org.apache.doris.policy.DropPolicyLog;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.workloadgroup.WorkloadGroup;
-import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.job.JobTask;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicy;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.statistics.TableStatsMeta;
@@ -530,6 +529,7 @@ public class EditLog {
                     Env.getCurrentGlobalTransactionMgr().replayUpsertTransactionState(state);
                     LOG.debug("logid: {}, opcode: {}, tid: {}", logId, opCode, state.getTransactionId());
 
+                    // state.loadedTableIndexIds is updated after replay
                     if (state.getTransactionStatus() == TransactionStatus.VISIBLE) {
                         UpsertRecord upsertRecord = new UpsertRecord(logId, state);
                         Env.getCurrentEnv().getBinlogManager().addUpsertRecord(upsertRecord);
@@ -661,21 +661,21 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_CREATE_SCHEDULER_JOB: {
-                    Job job = (Job) journal.getData();
-                    Env.getCurrentEnv().getAsyncJobManager().replayCreateJob(job);
+                    AbstractJob job = (AbstractJob) journal.getData();
+                    Env.getCurrentEnv().getJobManager().replayCreateJob(job);
                     break;
                 }
                 case OperationType.OP_UPDATE_SCHEDULER_JOB: {
-                    Job job = (Job) journal.getData();
-                    Env.getCurrentEnv().getAsyncJobManager().replayUpdateJob(job);
+                    AbstractJob job = (AbstractJob) journal.getData();
+                    Env.getCurrentEnv().getJobManager().replayUpdateJob(job);
                     break;
                 }
                 case OperationType.OP_DELETE_SCHEDULER_JOB: {
-                    Job job = (Job) journal.getData();
-                    Env.getCurrentEnv().getAsyncJobManager().replayDeleteJob(job);
+                    AbstractJob job = (AbstractJob) journal.getData();
+                    Env.getCurrentEnv().getJobManager().replayEndJob(job);
                     break;
                 }
-                case OperationType.OP_CREATE_SCHEDULER_TASK: {
+                /*case OperationType.OP_CREATE_SCHEDULER_TASK: {
                     JobTask task = (JobTask) journal.getData();
                     Env.getCurrentEnv().getJobTaskManager().replayCreateTask(task);
                     break;
@@ -684,7 +684,7 @@ public class EditLog {
                     JobTask task = (JobTask) journal.getData();
                     Env.getCurrentEnv().getJobTaskManager().replayDeleteTask(task);
                     break;
-                }
+                }*/
                 case OperationType.OP_CHANGE_ROUTINE_LOAD_JOB: {
                     RoutineLoadOperation operation = (RoutineLoadOperation) journal.getData();
                     Env.getCurrentEnv().getRoutineLoadManager().replayChangeRoutineLoadJob(operation);
@@ -1048,6 +1048,22 @@ public class EditLog {
                     env.getWorkloadGroupMgr().replayAlterWorkloadGroup(resource);
                     break;
                 }
+                case OperationType.OP_CREATE_WORKLOAD_SCHED_POLICY: {
+                    final WorkloadSchedPolicy policy = (WorkloadSchedPolicy) journal.getData();
+                    env.getWorkloadSchedPolicyMgr().replayCreateWorkloadSchedPolicy(policy);
+                    break;
+                }
+                case OperationType.OP_ALTER_WORKLOAD_SCHED_POLICY: {
+                    final WorkloadSchedPolicy policy = (WorkloadSchedPolicy) journal.getData();
+                    env.getWorkloadSchedPolicyMgr().replayAlterWorkloadSchedPolicy(policy);
+                    break;
+                }
+                case OperationType.OP_DROP_WORKLOAD_SCHED_POLICY: {
+                    final DropWorkloadSchedPolicyOperatorLog dropLog
+                            = (DropWorkloadSchedPolicyOperatorLog) journal.getData();
+                    env.getWorkloadSchedPolicyMgr().replayDropWorkloadSchedPolicy(dropLog.getId());
+                    break;
+                }
                 case OperationType.OP_INIT_EXTERNAL_TABLE: {
                     // Do nothing.
                     break;
@@ -1109,6 +1125,16 @@ public class EditLog {
                 }
                 case OperationType.OP_DELETE_TABLE_STATS: {
                     env.getAnalysisManager().replayTableStatsDeletion((TableStatsDeletionLog) journal.getData());
+                    break;
+                }
+                case OperationType.OP_ALTER_MTMV: {
+                    final AlterMTMV alterMtmv = (AlterMTMV) journal.getData();
+                    env.getAlterInstance().processAlterMTMV(alterMtmv, true);
+                    break;
+                }
+                case OperationType.OP_ALTER_REPOSITORY: {
+                    Repository repository = (Repository) journal.getData();
+                    env.getBackupHandler().getRepoMgr().alterRepo(repository, true);
                     break;
                 }
                 default: {
@@ -1178,6 +1204,9 @@ public class EditLog {
         } catch (Throwable t) {
             // Throwable contains all Exception and Error, such as IOException and
             // OutOfMemoryError
+            if (journal instanceof BDBJEJournal) {
+                LOG.error("BDBJE stats : {}", ((BDBJEJournal) journal).getBDBStats());
+            }
             LOG.error("Fatal Error : write stream Exception", t);
             System.exit(-1);
         }
@@ -1315,30 +1344,6 @@ public class EditLog {
 
     public void logRecoverTable(RecoverInfo info) {
         logEdit(OperationType.OP_RECOVER_TABLE, info);
-    }
-
-    public void logLoadStart(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_START, job);
-    }
-
-    public void logLoadEtl(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_ETL, job);
-    }
-
-    public void logLoadLoading(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_LOADING, job);
-    }
-
-    public void logLoadQuorum(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_QUORUM, job);
-    }
-
-    public void logLoadCancel(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_CANCEL, job);
-    }
-
-    public void logLoadDone(LoadJob job) {
-        logEdit(OperationType.OP_LOAD_DONE, job);
     }
 
     public void logDropRollup(DropInfo info) {
@@ -1519,6 +1524,10 @@ public class EditLog {
         logEdit(OperationType.OP_DROP_REPOSITORY, new Text(repoName));
     }
 
+    public void logAlterRepository(Repository repo) {
+        logEdit(OperationType.OP_ALTER_REPOSITORY, repo);
+    }
+
     public void logRestoreJob(RestoreJob job) {
         logEdit(OperationType.OP_RESTORE_JOB, job);
     }
@@ -1602,23 +1611,15 @@ public class EditLog {
         logEdit(OperationType.OP_CREATE_ROUTINE_LOAD_JOB, routineLoadJob);
     }
 
-    public void logCreateJob(Job job) {
+    public void logCreateJob(AbstractJob job) {
         logEdit(OperationType.OP_CREATE_SCHEDULER_JOB, job);
     }
 
-    public void logUpdateJob(Job job) {
+    public void logUpdateJob(AbstractJob job) {
         logEdit(OperationType.OP_UPDATE_SCHEDULER_JOB, job);
     }
 
-    public void logCreateJobTask(JobTask jobTask) {
-        logEdit(OperationType.OP_CREATE_SCHEDULER_TASK, jobTask);
-    }
-
-    public void logDeleteJobTask(JobTask jobTask) {
-        logEdit(OperationType.OP_DELETE_SCHEDULER_TASK, jobTask);
-    }
-
-    public void logDeleteJob(Job job) {
+    public void logEndJob(AbstractJob job) {
         logEdit(OperationType.OP_DELETE_SCHEDULER_JOB, job);
     }
 
@@ -1676,6 +1677,18 @@ public class EditLog {
 
     public void logDropWorkloadGroup(DropWorkloadGroupOperationLog operationLog) {
         logEdit(OperationType.OP_DROP_WORKLOAD_GROUP, operationLog);
+    }
+
+    public void logCreateWorkloadSchedPolicy(WorkloadSchedPolicy workloadSchedPolicy) {
+        logEdit(OperationType.OP_CREATE_WORKLOAD_SCHED_POLICY, workloadSchedPolicy);
+    }
+
+    public void logAlterWorkloadSchedPolicy(WorkloadSchedPolicy workloadSchedPolicy) {
+        logEdit(OperationType.OP_ALTER_WORKLOAD_SCHED_POLICY, workloadSchedPolicy);
+    }
+
+    public void dropWorkloadSchedPolicy(long policyId) {
+        logEdit(OperationType.OP_DROP_WORKLOAD_SCHED_POLICY, new DropWorkloadSchedPolicyOperatorLog(policyId));
     }
 
     public void logAlterStoragePolicy(StoragePolicy storagePolicy) {
@@ -1943,5 +1956,20 @@ public class EditLog {
 
     public void logDeleteTableStats(TableStatsDeletionLog log) {
         logEdit(OperationType.OP_DELETE_TABLE_STATS, log);
+    }
+
+    public void logAlterMTMV(AlterMTMV log) {
+        logEdit(OperationType.OP_ALTER_MTMV, log);
+
+    }
+
+    public String getNotReadyReason() {
+        if (journal == null) {
+            return "journal is null";
+        }
+        if (journal instanceof BDBJEJournal) {
+            return ((BDBJEJournal) journal).getNotReadyReason();
+        }
+        return "";
     }
 }

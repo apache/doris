@@ -47,17 +47,14 @@ public class IsNullPredicate extends Predicate {
 
             functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
                     null, Lists.newArrayList(t), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
+        }
+        // for array type
+        for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
+                    Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
 
-            // for array type
-            for (Type complexType : Lists.newArrayList(Type.ARRAY, Type.MAP, Type.GENERIC_STRUCT)) {
-                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NULL, null,
-                        Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
-
-                functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL,
-                        null, Lists.newArrayList(complexType), Type.BOOLEAN,
-                        NullableMode.ALWAYS_NOT_NULLABLE));
-            }
-
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(IS_NOT_NULL, null,
+                    Lists.newArrayList(complexType), Type.BOOLEAN, NullableMode.ALWAYS_NOT_NULLABLE));
         }
     }
 
@@ -160,7 +157,7 @@ public class IsNullPredicate extends Predicate {
         // after outer join
         recursiveResetChildrenResult(!forPushDownPredicatesToView);
         final Expr childValue = getChild(0);
-        if (!(childValue instanceof LiteralExpr)) {
+        if (forPushDownPredicatesToView || !(childValue instanceof LiteralExpr)) {
             return this;
         }
         return childValue instanceof NullLiteral ? new BoolLiteral(!isNotNull) : new BoolLiteral(isNotNull);

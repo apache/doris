@@ -102,7 +102,7 @@ public class ConnectScheduler {
             return false;
         }
         connectionMap.put(ctx.getConnectionId(), ctx);
-        if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT)) {
+        if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
             flightToken2ConnectionId.put(ctx.getPeerIdentity(), ctx.getConnectionId());
         }
         return true;
@@ -116,7 +116,7 @@ public class ConnectScheduler {
                 conns.decrementAndGet();
             }
             numberConnection.decrementAndGet();
-            if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT)) {
+            if (ctx.getConnectType().equals(ConnectType.ARROW_FLIGHT_SQL)) {
                 flightToken2ConnectionId.remove(ctx.getPeerIdentity());
             }
         }
@@ -124,6 +124,15 @@ public class ConnectScheduler {
 
     public ConnectContext getContext(int connectionId) {
         return connectionMap.get(connectionId);
+    }
+
+    public ConnectContext getContextWithQueryId(String queryId) {
+        for (ConnectContext context : connectionMap.values()) {
+            if (queryId.equals(DebugUtil.printId(context.queryId))) {
+                return context;
+            }
+        }
+        return null;
     }
 
     public ConnectContext getContext(String flightToken) {
@@ -169,5 +178,9 @@ public class ConnectScheduler {
     public String getQueryIdByTraceId(String traceId) {
         TUniqueId queryId = traceId2QueryId.get(traceId);
         return queryId == null ? "" : DebugUtil.printId(queryId);
+    }
+
+    public Map<Integer, ConnectContext> getConnectionMap() {
+        return connectionMap;
     }
 }

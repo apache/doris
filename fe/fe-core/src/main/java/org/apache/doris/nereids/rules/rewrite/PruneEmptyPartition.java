@@ -22,8 +22,6 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 
-import java.util.stream.Collectors;
-
 /**
  * Used to prune empty partition.
  */
@@ -34,9 +32,7 @@ public class PruneEmptyPartition extends OneRewriteRuleFactory {
         return logicalOlapScan().thenApply(ctx -> {
             LogicalOlapScan scan = ctx.root;
             OlapTable table = scan.getTable();
-            return scan.withSelectedPartitionIds(scan.getSelectedPartitionIds().stream()
-                    .filter(partitionId -> table.getPartition(partitionId).hasData())
-                    .collect(Collectors.toList()));
+            return scan.withSelectedPartitionIds(table.selectNonEmptyPartitionIds(scan.getSelectedPartitionIds()));
         }).toRule(RuleType.PRUNE_EMPTY_PARTITION);
     }
 }

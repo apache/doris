@@ -75,6 +75,11 @@ public:
     void write_one_cell_to_jsonb(const IColumn& column, JsonbWriter& result, Arena* mem_pool,
                                  int32_t col_id, int row_num) const override;
 
+    void write_one_cell_to_json(const IColumn& column, rapidjson::Value& result,
+                                rapidjson::Document::AllocatorType& allocator,
+                                int row_num) const override;
+    void read_one_cell_from_json(IColumn& column, const rapidjson::Value& result) const override;
+
     void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     void write_column_to_arrow(const IColumn& column, const NullMap* null_map,

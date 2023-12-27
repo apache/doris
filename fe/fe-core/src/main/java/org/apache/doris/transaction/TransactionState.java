@@ -220,13 +220,20 @@ public class TransactionState implements Writable {
     // this state need not be serialized
     private Map<Long, PublishVersionTask> publishVersionTasks;
     private boolean hasSendTask;
-    private long publishVersionTime = -1;
     private TransactionStatus preStatus = null;
 
     // When publish txn, if every tablet has at least 1 replica published succ, but not quorum replicas succ,
-    // and time since firstPublishOneSuccTime has exceeds Config.publish_wait_time_second,
+    // and time since firstPublishVersionTime has exceeds Config.publish_wait_time_second,
     // then this transaction will become visible.
-    private long firstPublishOneSuccTime = -1;
+    private long firstPublishVersionTime = -1;
+
+    private long lastPublishVersionTime = -1;
+
+    private long publishCount = 0;
+
+    // txn may try finish many times and generate a lot of log.
+    // use lastPublishLogTime to reduce log.
+    private long lastPublishLogTime = 0;
 
     @SerializedName(value = "callbackId")
     private long callbackId = -1;
@@ -339,17 +346,29 @@ public class TransactionState implements Writable {
         this.publishVersionTasks.put(backendId, task);
     }
 
-    public void setHasSendTask(boolean hasSendTask) {
-        this.hasSendTask = hasSendTask;
-        this.publishVersionTime = System.currentTimeMillis();
+    public void setSendedTask() {
+        this.hasSendTask = true;
+        updateSendTaskTime();
     }
 
     public void updateSendTaskTime() {
-        this.publishVersionTime = System.currentTimeMillis();
+        this.publishCount++;
+        this.lastPublishVersionTime = System.currentTimeMillis();
+        if (this.firstPublishVersionTime <= 0) {
+            this.firstPublishVersionTime = lastPublishVersionTime;
+        }
     }
 
-    public long getPublishVersionTime() {
-        return this.publishVersionTime;
+    public long getFirstPublishVersionTime() {
+        return firstPublishVersionTime;
+    }
+
+    public long getLastPublishVersionTime() {
+        return this.lastPublishVersionTime;
+    }
+
+    public long getPublishCount() {
+        return publishCount;
     }
 
     public boolean hasSendTask() {
@@ -420,12 +439,12 @@ public class TransactionState implements Writable {
         return errorLogUrl;
     }
 
-    public long getFirstPublishOneSuccTime() {
-        return firstPublishOneSuccTime;
+    public long getLastPublishLogTime() {
+        return lastPublishLogTime;
     }
 
-    public void setFirstPublishOneSuccTime(long firstPublishOneSuccTime) {
-        this.firstPublishOneSuccTime = firstPublishOneSuccTime;
+    public void setLastPublishLogTime(long lastPublishLogTime) {
+        this.lastPublishLogTime = lastPublishLogTime;
     }
 
     public void setTransactionStatus(TransactionStatus transactionStatus) {
@@ -646,7 +665,7 @@ public class TransactionState implements Writable {
         if (prolongPublishTimeout) {
             timeoutMillis *= 2;
         }
-        return System.currentTimeMillis() - publishVersionTime > timeoutMillis;
+        return System.currentTimeMillis() - lastPublishVersionTime > timeoutMillis;
     }
 
     public void prolongPublishTimeout() {
@@ -746,6 +765,12 @@ public class TransactionState implements Writable {
 
     public String getErrMsg() {
         return this.errMsg;
+    }
+
+    // reduce memory
+    public void pruneAfterVisible() {
+        publishVersionTasks.clear();
+        tableIdToTotalNumDeltaRows.clear();
     }
 
     public void setSchemaForPartialUpdate(OlapTable olapTable) {

@@ -1,19 +1,19 @@
 // Licensed to the Apache Software Foundation (ASF) under one
- // or more contributor license agreements.  See the NOTICE file
- // distributed with this work for additional information
- // regarding copyright ownership.  The ASF licenses this file
- // to you under the Apache License, Version 2.0 (the
- // "License"); you may not use this file except in compliance
- // with the License.  You may obtain a copy of the License at
- //
- //   http://www.apache.org/licenses/LICENSE-2.0
- //
- // Unless required by applicable law or agreed to in writing,
- // software distributed under the License is distributed on an
- // "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
- // KIND, either express or implied.  See the License for the
- // specific language governing permissions and limitations
- // under the License.
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
 
 
  suite("test_numbers","p0,external,external_docker") {
@@ -22,6 +22,11 @@
     qt_basic2 """ select * from numbers("number" = "10"); """
     qt_basic3 """ select * from numbers("number" = "100"); """
     qt_basic4_limit """ select * from numbers("number" = "10") limit 5; """
+
+    qt_const1 """ select * from numbers("number" = "5", "const_value" = "1"); """
+    qt_const2 """ select * from numbers("number" = "5", "const_value" = "-123"); """
+    qt_const3 """ select * from numbers("number" = "-10", "const_value" = "1"); """
+    qt_const4 """ select avg(number) from numbers("number" = "100", "const_value" = "123"); """
 
     // Test aggregate function withh numbers("number" = N)
     qt_agg_sum """ select sum(number) from numbers("number" = "100"); """
@@ -129,13 +134,13 @@
         sql """ select * from numbers('number' = 'abc'); """
 
         // check exception
-        exception "can not parse `number` param to natural number"
+        exception "cannot parse param value abc"
     }
 
     test {
         sql """ select * from numbers(); """
 
         // check exception
-        exception """can not find `number` param, please specify `number`, like: numbers("number" = "10")"""
+        exception """number not set"""
     }
  }

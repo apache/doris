@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <ctime>
 #include <memory>
+#include <mutex>
 #include <new>
 #include <ostream>
 #include <set>
@@ -151,8 +152,9 @@ Status EngineStorageMigrationTask::_gen_and_write_header_to_hdr_file(
 
     // it will change rowset id and its create time
     // rowset create time is useful when load tablet from meta to check which tablet is the tablet to load
-    return SnapshotManager::instance()->convert_rowset_ids(
-            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash);
+    _pending_rs_guards = DORIS_TRY(SnapshotManager::instance()->convert_rowset_ids(
+            full_path, tablet_id, _tablet->replica_id(), _tablet->partition_id(), schema_hash));
+    return Status::OK();
 }
 
 Status EngineStorageMigrationTask::_reload_tablet(const std::string& full_path) {
@@ -194,6 +196,21 @@ Status EngineStorageMigrationTask::_migrate() {
     int32_t end_version = 0;
     std::vector<RowsetSharedPtr> consistent_rowsets;
 
+    // During migration, if the rowsets being migrated undergoes a compaction operation,
+    // that will result in incorrect delete bitmaps after migration for mow table. Therefore,
+    // compaction will be prohibited for the mow table when migration. Moreover, it is useless
+    // to perform a compaction operation on the migration data, as the migration still migrates
+    // the data of rowsets before the compaction operation.
+    std::unique_lock full_compaction_lock(_tablet->get_full_compaction_lock(), std::defer_lock);
+    std::unique_lock base_compaction_lock(_tablet->get_base_compaction_lock(), std::defer_lock);
+    std::unique_lock cumu_compaction_lock(_tablet->get_cumulative_compaction_lock(),
+                                          std::defer_lock);
+    if (_tablet->enable_unique_key_merge_on_write()) {
+        full_compaction_lock.lock();
+        base_compaction_lock.lock();
+        cumu_compaction_lock.lock();
+    }
+
     // try hold migration lock first
     Status res;
     uint64_t shard = 0;
@@ -213,7 +230,7 @@ Status EngineStorageMigrationTask::_migrate() {
         RETURN_IF_ERROR(_get_versions(start_version, &end_version, &consistent_rowsets));
 
         // TODO(ygl): the tablet should not under schema change or rollup or load
-        RETURN_IF_ERROR(_dest_store->get_shard(&shard));
+        shard = _dest_store->get_shard();
 
         auto shard_path = fmt::format("{}/{}/{}", _dest_store->path(), DATA_PREFIX, shard);
         full_path = SnapshotManager::get_schema_hash_full_path(_tablet, shard_path);

@@ -49,6 +49,7 @@
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/storage_engine.h"
@@ -187,6 +188,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
         return;
     }
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
+    auto pending_rs_guard = StorageEngine::instance()->pending_local_rowsets().add(new_rowset_id);
     rowset_meta->set_rowset_id(new_rowset_id);
     rowset_meta->set_tablet_uid(local_tablet->tablet_uid());
 
@@ -336,7 +338,7 @@ void _ingest_binlog(IngestBinlogArg* arg) {
     Status commit_txn_status = StorageEngine::instance()->txn_manager()->commit_txn(
             local_tablet->data_dir()->get_meta(), rowset_meta->partition_id(),
             rowset_meta->txn_id(), rowset_meta->tablet_id(), local_tablet->tablet_uid(),
-            rowset_meta->load_id(), rowset, false);
+            rowset_meta->load_id(), rowset, std::move(pending_rs_guard), false);
     if (!commit_txn_status && !commit_txn_status.is<ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST>()) {
         auto err_msg = fmt::format(
                 "failed to commit txn for remote tablet. rowset_id: {}, remote_tablet_id={}, "
@@ -520,7 +522,7 @@ int64_t BackendService::get_trash_used_capacity() {
                                                                        false /*do not update */));
 
     // uses excute sql `show trash`, then update backend trash capacity too.
-    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
+    StorageEngine::instance()->notify_listener("REPORT_DISK_STATE");
 
     for (const auto& root_path_info : data_dir_infos) {
         result += root_path_info.trash_used_capacity;
@@ -535,7 +537,7 @@ void BackendService::get_disk_trash_used_capacity(std::vector<TDiskTrashInfo>& d
                                                                        false /*do not update */));
 
     // uses excute sql `show trash on <be>`, then update backend trash capacity too.
-    StorageEngine::instance()->notify_listener(TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE);
+    StorageEngine::instance()->notify_listener("REPORT_DISK_STATE");
 
     for (const auto& root_path_info : data_dir_infos) {
         TDiskTrashInfo diskTrashInfo;
@@ -677,8 +679,7 @@ void BackendService::get_stream_load_record(TStreamLoadRecordResult& result,
 
 void BackendService::clean_trash() {
     static_cast<void>(StorageEngine::instance()->start_trash_sweep(nullptr, true));
-    static_cast<void>(StorageEngine::instance()->notify_listener(
-            TaskWorkerPool::TaskWorkerType::REPORT_DISK_STATE));
+    static_cast<void>(StorageEngine::instance()->notify_listener("REPORT_DISK_STATE"));
 }
 
 void BackendService::check_storage_format(TCheckStorageFormatResult& result) {

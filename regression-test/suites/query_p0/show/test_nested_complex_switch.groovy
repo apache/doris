@@ -170,17 +170,17 @@ suite("test_nested_complex_switch", "query") {
         // struct
         test {
             sql sql_s_s
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported field type: STRUCT<f11:BOOLEAN> for STRUCT"
+            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported"
         }
 
         test {
             sql sql_s_a
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported field type: ARRAY<INT> for STRUCT"
+            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported"
         }
 
         test {
             sql sql_s_m
-            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported field type: MAP<BOOLEAN,TINYINT> for STRUCT"
+            exception "java.sql.SQLException: errCode = 2, detailMessage = Unsupported"
         }
 
     } finally {

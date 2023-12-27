@@ -17,16 +17,8 @@
 
 package org.apache.doris.scheduler.disruptor;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.scheduler.constants.JobType;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
-import org.apache.doris.scheduler.job.ExecutorResult;
-import org.apache.doris.scheduler.job.Job;
-import org.apache.doris.scheduler.job.JobTask;
-import org.apache.doris.scheduler.manager.JobTaskManager;
-import org.apache.doris.scheduler.manager.TimerJobManager;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 
 import com.lmax.disruptor.WorkHandler;
@@ -42,22 +34,10 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public class TaskHandler implements WorkHandler<TaskEvent> {
 
-    /**
-     * The event job manager used to retrieve and execute event jobs.
-     */
-    private TimerJobManager timerJobManager;
 
     private TransientTaskManager transientTaskManager;
 
-    private JobTaskManager jobTaskManager;
-
-    /**
-     * Constructs a new {@link TaskHandler} instance with the specified event job manager.
-     *
-     * @param timerJobManager The event job manager used to retrieve and execute event jobs.
-     */
-    public TaskHandler(TimerJobManager timerJobManager, TransientTaskManager transientTaskManager) {
-        this.timerJobManager = timerJobManager;
+    public TaskHandler(TransientTaskManager transientTaskManager) {
         this.transientTaskManager = transientTaskManager;
     }
 
@@ -71,10 +51,6 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
     @Override
     public void onEvent(TaskEvent event) {
         switch (event.getTaskType()) {
-            case SCHEDULER_JOB_TASK:
-            case MANUAL_JOB_TASK:
-                onTimerJobTaskHandle(event);
-                break;
             case TRANSIENT_TASK:
                 onTransientTaskHandle(event);
                 break;
@@ -82,71 +58,6 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
                 log.warn("unknown task type: {}", event.getTaskType());
                 break;
         }
-    }
-
-    /**
-     * Processes an event task by retrieving the associated event job and executing it if it is running.
-     *
-     * @param taskEvent The event task to be processed.
-     */
-    @SuppressWarnings("checkstyle:UnusedLocalVariable")
-    public void onTimerJobTaskHandle(TaskEvent taskEvent) {
-        long jobId = taskEvent.getId();
-        long taskId = taskEvent.getTaskId();
-        JobTask jobTask = jobTaskManager.pollPrepareTaskByTaskId(jobId, taskId);
-        if (jobTask == null) {
-            log.warn("jobTask is null, maybe it's cancel, jobId: {}, taskId: {}", jobId, taskId);
-            return;
-        }
-        Job job = timerJobManager.getJob(jobId);
-        if (job == null) {
-            log.info("job is null, jobId: {}", jobId);
-            return;
-        }
-        if (!job.isRunning()) {
-            log.info("job is not running, eventJobId: {}", jobId);
-            return;
-        }
-        log.debug("job is running, eventJobId: {}", jobId);
-
-
-        try {
-            jobTask.setStartTimeMs(System.currentTimeMillis());
-            ExecutorResult result = job.getExecutor().execute(job, jobTask.getContextData());
-            job.setLatestCompleteExecuteTimeMs(System.currentTimeMillis());
-            if (job.getJobType().equals(JobType.RECURRING)) {
-                updateJobStatusIfPastEndTime(job);
-            } else {
-                // one time job should be finished after execute
-                updateOnceTimeJobStatus(job);
-            }
-            if (null == result) {
-                log.warn("Job execute failed, jobId: {}, result is null", jobId);
-                jobTask.setErrorMsg("Job execute failed, result is null");
-                jobTask.setIsSuccessful(false);
-                timerJobManager.setJobLatestStatus(jobId, false);
-                return;
-            }
-            String resultStr = GsonUtils.GSON.toJson(result.getResult());
-            jobTask.setExecuteResult(resultStr);
-            jobTask.setIsSuccessful(result.isSuccess());
-            if (!result.isSuccess()) {
-                log.warn("Job execute failed, jobId: {}, msg : {}", jobId, result.getExecutorSql());
-                jobTask.setErrorMsg(result.getErrorMsg());
-            }
-            jobTask.setExecuteSql(result.getExecutorSql());
-        } catch (Exception e) {
-            log.warn("Job execute failed, jobId: {}, msg : {}", jobId, e.getMessage());
-            jobTask.setErrorMsg(e.getMessage());
-            jobTask.setIsSuccessful(false);
-        }
-        jobTask.setEndTimeMs(System.currentTimeMillis());
-        if (null == jobTaskManager) {
-            jobTaskManager = Env.getCurrentEnv().getJobTaskManager();
-        }
-        boolean isPersistent = job.getJobCategory().isPersistent();
-        jobTaskManager.addJobTask(jobTask, isPersistent);
-        timerJobManager.setJobLatestStatus(jobId, jobTask.getIsSuccessful());
     }
 
     public void onTransientTaskHandle(TaskEvent taskEvent) {
@@ -162,20 +73,6 @@ public class TaskHandler implements WorkHandler<TaskEvent> {
         } catch (JobException e) {
             log.warn("Memory task execute failed, taskId: {}, msg : {}", taskId, e.getMessage());
         }
-    }
-
-    private void updateJobStatusIfPastEndTime(Job job) {
-        if (job.isExpired()) {
-            timerJobManager.finishJob(job.getJobId());
-        }
-    }
-
-    private void updateOnceTimeJobStatus(Job job) {
-        if (job.getJobType().equals(JobType.STREAMING)) {
-            timerJobManager.putOneJobToQueen(job.getJobId());
-            return;
-        }
-        job.finish();
     }
 
 }

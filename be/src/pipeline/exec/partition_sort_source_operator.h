@@ -49,24 +49,30 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
-class PartitionSortSourceOperatorX;
-class PartitionSortSourceLocalState final : public PipelineXLocalState<PartitionSortDependency> {
-    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
-
+class PartitionSortSourceDependency final : public Dependency {
 public:
-    using Base = PipelineXLocalState<PartitionSortDependency>;
+    using SharedState = PartitionSortNodeSharedState;
+    PartitionSortSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "PartitionSortSourceDependency", query_ctx) {}
+    ~PartitionSortSourceDependency() override = default;
+};
+
+class PartitionSortSourceOperatorX;
+class PartitionSortSourceLocalState final
+        : public PipelineXLocalState<PartitionSortSourceDependency> {
+public:
+    ENABLE_FACTORY_CREATOR(PartitionSortSourceLocalState);
+    using Base = PipelineXLocalState<PartitionSortSourceDependency>;
     PartitionSortSourceLocalState(RuntimeState* state, OperatorXBase* parent)
-            : PipelineXLocalState<PartitionSortDependency>(state, parent),
-              _get_sorted_timer(nullptr),
-              _get_next_timer(nullptr) {}
+            : PipelineXLocalState<PartitionSortSourceDependency>(state, parent),
+              _get_sorted_timer(nullptr) {}
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
 private:
     friend class PartitionSortSourceOperatorX;
     RuntimeProfile::Counter* _get_sorted_timer;
-    RuntimeProfile::Counter* _get_next_timer;
-    int _sort_idx = 0;
+    std::atomic<int> _sort_idx = 0;
 };
 
 class PartitionSortSourceOperatorX final : public OperatorX<PartitionSortSourceLocalState> {

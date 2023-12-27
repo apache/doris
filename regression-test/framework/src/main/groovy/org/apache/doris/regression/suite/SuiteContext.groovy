@@ -43,6 +43,7 @@ class SuiteContext implements Closeable {
     public final String group
     public final String dbName
     public final ThreadLocal<ConnectionInfo> threadLocalConn = new ThreadLocal<>()
+    public final ThreadLocal<ConnectionInfo> threadArrowFlightSqlConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveDockerConn = new ThreadLocal<>()
     public final ThreadLocal<Connection> threadHiveRemoteConn = new ThreadLocal<>()
     private final ThreadLocal<Syncer> syncer = new ThreadLocal<>()
@@ -51,6 +52,7 @@ class SuiteContext implements Closeable {
     public final File outputFile
     public final File realOutputFile
     public final ScriptContext scriptContext
+    public final SuiteCluster cluster
     public final String flowName
     public final String flowId
     public final ThreadLocal<OutputUtils.OutputBlocksIterator> threadLocalOutputIterator = new ThreadLocal<>()
@@ -62,13 +64,14 @@ class SuiteContext implements Closeable {
     private long finishTime
     private volatile Throwable throwable
 
-    SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext,
+    SuiteContext(File file, String suiteName, String group, ScriptContext scriptContext, SuiteCluster cluster,
                  ExecutorService suiteExecutors, ExecutorService actionExecutors, Config config) {
         this.file = file
         this.suiteName = suiteName
         this.group = group
         this.config = config
         this.scriptContext = scriptContext
+        this.cluster = cluster
 
         String packageName = getPackageName()
         String className = getClassName()
@@ -126,6 +129,14 @@ class SuiteContext implements Closeable {
         return getConnection()
     }
 
+    boolean useArrowFlightSql() {
+        if (group.contains("arrow_flight_sql") && config.groups.contains("arrow_flight_sql")) {
+            return true
+        }
+        return false
+    }
+
+    // jdbc:mysql
     Connection getConnection() {
         def threadConnInfo = threadLocalConn.get()
         if (threadConnInfo == null) {
@@ -135,6 +146,19 @@ class SuiteContext implements Closeable {
             threadConnInfo.password = config.jdbcPassword
             threadLocalConn.set(threadConnInfo)
         }
+        return threadConnInfo.conn
+    }
+
+    Connection getArrowFlightSqlConnection(){
+        def threadConnInfo = threadArrowFlightSqlConn.get()
+        if (threadConnInfo == null) {
+            threadConnInfo = new ConnectionInfo()
+            threadConnInfo.conn = config.getConnectionByArrowFlightSql(dbName)
+            threadConnInfo.username = config.jdbcUser
+            threadConnInfo.password = config.jdbcPassword
+            threadArrowFlightSqlConn.set(threadConnInfo)
+        }
+        println("Use arrow flight sql connection")
         return threadConnInfo.conn
     }
 
@@ -217,6 +241,15 @@ class SuiteContext implements Closeable {
         return context.targetConnection
     }
 
+    InetSocketAddress getFeHttpAddress() {
+        if (cluster.isRunning()) {
+            def fe = cluster.getMasterFe()
+            return new InetSocketAddress(fe.host, fe.httpPort)
+        } else {
+            return config.feHttpInetSocketAddress
+        }
+    }
+
     public <T> T connect(String user, String password, String url, Closure<T> actionSupplier) {
         def originConnection = threadLocalConn.get()
         try {
@@ -237,6 +270,32 @@ class SuiteContext implements Closeable {
                 threadLocalConn.set(originConnection)
             }
         }
+    }
+
+    public void reconnectFe() {
+        ConnectionInfo connInfo = threadLocalConn.get()
+        if (connInfo == null) {
+            return
+        }
+        connectTo(connInfo.conn.getMetaData().getURL(), connInfo.username, connInfo.password);
+    }
+
+    public void connectTo(String url, String username, String password) {
+        ConnectionInfo oldConn = threadLocalConn.get()
+        if (oldConn != null) {
+            threadLocalConn.remove()
+            try {
+                oldConn.conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+
+        def newConnInfo = new ConnectionInfo()
+        newConnInfo.conn = DriverManager.getConnection(url, username, password)
+        newConnInfo.username = username
+        newConnInfo.password = password
+        threadLocalConn.set(newConnInfo)
     }
 
     OutputUtils.OutputBlocksIterator getOutputIterator() {
@@ -334,7 +393,17 @@ class SuiteContext implements Closeable {
                 log.warn("Close connection failed", t)
             }
         }
-        
+
+        ConnectionInfo arrow_flight_sql_conn = threadArrowFlightSqlConn.get()
+        if (arrow_flight_sql_conn != null) {
+            threadArrowFlightSqlConn.remove()
+            try {
+                arrow_flight_sql_conn.conn.close()
+            } catch (Throwable t) {
+                log.warn("Close connection failed", t)
+            }
+        }
+
         Connection hive_docker_conn = threadHiveDockerConn.get()
         if (hive_docker_conn != null) {
             threadHiveDockerConn.remove()

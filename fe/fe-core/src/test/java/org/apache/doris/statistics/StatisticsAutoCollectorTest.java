@@ -20,13 +20,14 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogIf;
@@ -34,16 +35,17 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mock;
 import mockit.MockUp;
-import org.apache.hadoop.util.Lists;
+import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
@@ -52,6 +54,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class StatisticsAutoCollectorTest {
 
@@ -60,8 +63,7 @@ public class StatisticsAutoCollectorTest {
         new MockUp<CatalogIf>() {
             @Mock
             public Collection<DatabaseIf> getAllDbs() {
-                Database db1 = new Database(1, SystemInfoService.DEFAULT_CLUSTER
-                        + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
+                Database db1 = new Database(1, FeConstants.INTERNAL_DB_NAME);
                 Database db2 = new Database(2, "anyDB");
                 List<DatabaseIf> databaseIfs = new ArrayList<>();
                 databaseIfs.add(db1);
@@ -175,15 +177,16 @@ public class StatisticsAutoCollectorTest {
                 return tableIf;
             }
         };
-        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setAnalysisMethod(AnalysisMethod.FULL).setAnalysisType(
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().setAnalysisMethod(AnalysisMethod.FULL)
+                .setColToPartitions(new HashMap<>()).setAnalysisType(
                 AnalysisType.FUNDAMENTALS).setColName("col1").setJobType(JobType.SYSTEM).build();
         new MockUp<AnalysisManager>() {
 
             int count = 0;
 
             TableStatsMeta[] tableStatsArr =
-                    new TableStatsMeta[] {new TableStatsMeta(0, 0, analysisInfo),
-                            new TableStatsMeta(0, 0, analysisInfo), null};
+                    new TableStatsMeta[] {new TableStatsMeta(0, analysisInfo, tableIf),
+                            new TableStatsMeta(0, analysisInfo, tableIf), null};
 
             {
                 tableStatsArr[0].updatedRows.addAndGet(100);
@@ -212,5 +215,235 @@ public class StatisticsAutoCollectorTest {
         // uncomment it when updatedRows gets ready
         // Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
         Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo2));
+    }
+
+    @Test
+    public void testSkipWideTable() {
+
+        TableIf tableIf = new OlapTable();
+
+        new MockUp<OlapTable>() {
+            @Mock
+            public List<Column> getBaseSchema() {
+                return Lists.newArrayList(new Column("col1", Type.INT), new Column("col2", Type.INT));
+            }
+        };
+
+        new MockUp<StatisticsUtil>() {
+            int count = 0;
+            int [] thresholds = {1, 10};
+            @Mock
+            public TableIf findTable(long catalogName, long dbName, long tblName) {
+                return tableIf;
+            }
+
+            @Mock
+            public int getAutoAnalyzeTableWidthThreshold() {
+                return thresholds[count++];
+            }
+        };
+        AnalysisInfo analysisInfo = new AnalysisInfoBuilder().build();
+        StatisticsAutoCollector statisticsAutoCollector = new StatisticsAutoCollector();
+        Assertions.assertNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
+        Assertions.assertNotNull(statisticsAutoCollector.getReAnalyzeRequiredPart(analysisInfo));
+    }
+
+    @Test
+    public void testLoop() {
+        AtomicBoolean timeChecked = new AtomicBoolean();
+        AtomicBoolean switchChecked = new AtomicBoolean();
+        new MockUp<StatisticsUtil>() {
+
+            @Mock
+            public boolean inAnalyzeTime(LocalTime now) {
+                timeChecked.set(true);
+                return true;
+            }
+
+            @Mock
+            public boolean enableAutoAnalyze() {
+                switchChecked.set(true);
+                return true;
+            }
+        };
+        StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
+        autoCollector.collect();
+        Assertions.assertTrue(timeChecked.get() && switchChecked.get());
+
+    }
+
+    @Test
+    public void checkAvailableThread() {
+        StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
+        Assertions.assertEquals(Config.auto_analyze_simultaneously_running_task_num,
+                autoCollector.analysisTaskExecutor.executors.getMaximumPoolSize());
+    }
+
+    @Test
+    public void testSkip(@Mocked OlapTable olapTable, @Mocked TableStatsMeta stats, @Mocked TableIf anyOtherTable) {
+        new MockUp<OlapTable>() {
+
+            @Mock
+            public long getDataSize(boolean singleReplica) {
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 5 + 1000000000;
+            }
+        };
+
+        new MockUp<AnalysisManager>() {
+
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return stats;
+            }
+        };
+        // A very huge table has been updated recently, so we should skip it this time
+        stats.updatedTime = System.currentTimeMillis() - 1000;
+        StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
+        Assertions.assertTrue(autoCollector.skip(olapTable));
+        // The update of this huge table is long time ago, so we shouldn't skip it this time
+        stats.updatedTime = System.currentTimeMillis()
+                - StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis() - 10000;
+        Assertions.assertFalse(autoCollector.skip(olapTable));
+        new MockUp<AnalysisManager>() {
+
+            @Mock
+            public TableStatsMeta findTableStatsStatus(long tblId) {
+                return null;
+            }
+        };
+        // can't find table stats meta, which means this table never get analyzed,  so we shouldn't skip it this time
+        Assertions.assertFalse(autoCollector.skip(olapTable));
+        // this is not olap table nor external table, so we should skip it this time
+        Assertions.assertTrue(autoCollector.skip(anyOtherTable));
+    }
+
+    // For small table, use full
+    @Test
+    public void testCreateAnalyzeJobForTbl1(
+            @Injectable OlapTable t1,
+            @Injectable Database db
+    ) throws Exception {
+        new MockUp<Database>() {
+
+            @Mock
+            public CatalogIf getCatalog() {
+                return Env.getCurrentInternalCatalog();
+            }
+
+            @Mock
+            public long getId() {
+                return 0;
+            }
+        };
+        new MockUp<OlapTable>() {
+
+            int count = 0;
+
+            @Mock
+            public List<Column> getBaseSchema() {
+                return Lists.newArrayList(new Column("test", PrimitiveType.INT));
+            }
+
+            @Mock
+            public long getDataSize(boolean singleReplica) {
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
+            }
+
+            @Mock
+            public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+                return new OlapAnalysisTask(info);
+            }
+        };
+
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public TableIf findTable(long catalogId, long dbId, long tblId) {
+                return t1;
+            }
+        };
+
+        StatisticsAutoCollector sac = new StatisticsAutoCollector();
+        List<AnalysisInfo> jobInfos = new ArrayList<>();
+        sac.createAnalyzeJobForTbl(db, jobInfos, t1);
+        AnalysisInfo jobInfo = jobInfos.get(0);
+        Map<String, Set<String>> colToPartitions = new HashMap<>();
+        colToPartitions.put("test", new HashSet<String>() {
+            {
+                add("p1");
+            }
+        });
+        jobInfo = new AnalysisInfoBuilder(jobInfo).setColToPartitions(colToPartitions).build();
+        Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
+        Assertions.assertEquals(1, analysisTasks.size());
+        for (BaseAnalysisTask task : analysisTasks.values()) {
+            Assertions.assertNull(task.getTableSample());
+        }
+    }
+
+    // for big table, use sample
+    @Test
+    public void testCreateAnalyzeJobForTbl2(
+            @Injectable OlapTable t1,
+            @Injectable Database db
+    ) throws Exception {
+        new MockUp<Database>() {
+
+            @Mock
+            public CatalogIf getCatalog() {
+                return Env.getCurrentInternalCatalog();
+            }
+
+            @Mock
+            public long getId() {
+                return 0;
+            }
+        };
+        new MockUp<OlapTable>() {
+
+            int count = 0;
+
+            @Mock
+            public List<Column> getBaseSchema() {
+                return Lists.newArrayList(new Column("test", PrimitiveType.INT));
+            }
+
+            @Mock
+            public long getDataSize(boolean singleReplica) {
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() * 2;
+            }
+
+            @Mock
+            public BaseAnalysisTask createAnalysisTask(AnalysisInfo info) {
+                return new OlapAnalysisTask(info);
+            }
+        };
+
+        new MockUp<StatisticsUtil>() {
+            @Mock
+            public TableIf findTable(long catalogId, long dbId, long tblId) {
+                return t1;
+            }
+        };
+
+        StatisticsAutoCollector sac = new StatisticsAutoCollector();
+        List<AnalysisInfo> jobInfos = new ArrayList<>();
+        sac.createAnalyzeJobForTbl(db, jobInfos, t1);
+        AnalysisInfo jobInfo = jobInfos.get(0);
+        Map<String, Set<String>> colToPartitions = new HashMap<>();
+        colToPartitions.put("test", new HashSet<String>() {
+            {
+                add("p1");
+            }
+        });
+        jobInfo = new AnalysisInfoBuilder(jobInfo).setColToPartitions(colToPartitions).build();
+        Map<Long, BaseAnalysisTask> analysisTasks = new HashMap<>();
+        AnalysisManager analysisManager = Env.getCurrentEnv().getAnalysisManager();
+        analysisManager.createTaskForEachColumns(jobInfo, analysisTasks, false);
+        Assertions.assertEquals(1, analysisTasks.size());
+        for (BaseAnalysisTask task : analysisTasks.values()) {
+            Assertions.assertNotNull(task.getTableSample());
+        }
     }
 }

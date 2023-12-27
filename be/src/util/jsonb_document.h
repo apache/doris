@@ -77,7 +77,6 @@
 #include <string>
 #include <type_traits>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 
 // #include "util/string_parser.hpp"
@@ -197,27 +196,33 @@ public:
 
 public:
     bool operator==(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator!=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator<=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator>=(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator<(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
     bool operator>(const JsonbDocument& other) const {
-        LOG(FATAL) << "comparing between JsonbDocument is not supported";
+        assert(false);
+        return false;
     }
 
 private:
@@ -313,13 +318,13 @@ public:
 
 private:
     /// The current position in the stream.
-    const char* m_position;
+    const char* m_position = nullptr;
 
     /// The end of the stream.
     const char* const m_end;
 
     ///path leg ptr
-    char* leg_ptr;
+    char* leg_ptr = nullptr;
 
     ///path leg len
     unsigned int leg_len;
@@ -330,7 +335,7 @@ private:
 
 struct leg_info {
     ///path leg ptr
-    char* leg_ptr;
+    char* leg_ptr = nullptr;
 
     ///path leg len
     unsigned int leg_len;
@@ -1568,6 +1573,9 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
             stream->skip(1);
             stream->add_leg_len();
             stream->set_has_escapes(true);
+            if (stream->exhausted()) {
+                return false;
+            }
             continue;
         } else if (stream->peek() == DOUBLE_QUOTE) {
             if (left_quotation_marks == nullptr) {

@@ -55,8 +55,9 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(INVALID_TYPE);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::INVALID_TYPE;
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_NONE;
     }
 
     MutableColumnPtr create_column() const override;
@@ -67,7 +68,6 @@ public:
     bool text_can_contain_only_valid_utf8() const override { return true; }
     bool have_maximum_size_of_value() const override { return true; }
     size_t get_size_of_value_in_memory() const override { return 0; }
-    bool can_be_inside_nullable() const override { return true; }
 
     int64_t get_uncompressed_serialized_bytes(const IColumn& column,
                                               int be_exec_version) const override {
@@ -78,10 +78,12 @@ public:
 
     [[noreturn]] Field get_default() const override {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
+        __builtin_unreachable();
     }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for Nothing";
+        __builtin_unreachable();
     }
 
     void insert_default_into(IColumn&) const override {

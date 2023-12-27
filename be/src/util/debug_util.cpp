@@ -27,6 +27,7 @@
 #include <utility>
 
 #include "common/version_internal.h"
+#include "fmt/core.h"
 #include "util/uid_util.h"
 
 namespace doris {
@@ -124,14 +125,11 @@ std::string PrintFrontendInfos(const std::vector<TFrontendInfo>& fe_infos) {
 std::string PrintFrontendInfo(const TFrontendInfo& fe_info) {
     std::stringstream ss;
     fe_info.printTo(ss);
-
     return ss.str();
 }
 
 std::string PrintInstanceStandardInfo(const TUniqueId& qid, const TUniqueId& iid) {
-    std::stringstream ss;
-    ss << print_id(iid) << '|' << print_id(qid);
-    return ss.str();
+    return fmt::format("{}|{}", print_id(iid), print_id(qid));
 }
 
 } // namespace doris

@@ -24,7 +24,7 @@ suite("test_cast_map_function", "query") {
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
               `k1` int(11) NULL COMMENT "",
-              `k2` Map<char(7), int(11)> NOT NULL COMMENT "",
+              `k2` Map<char(7), int(11)> NOT NULL COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
             DISTRIBUTED BY HASH(`k1`) BUCKETS 1

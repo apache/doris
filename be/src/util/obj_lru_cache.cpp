@@ -23,7 +23,7 @@ ObjLRUCache::ObjLRUCache(int64_t capacity, uint32_t num_shards) {
     _enabled = (capacity > 0);
     if (_enabled) {
         _cache = std::unique_ptr<Cache>(
-                new_lru_cache("ObjLRUCache", capacity, LRUCacheType::NUMBER, num_shards));
+                new ShardedLRUCache("ObjLRUCache", capacity, LRUCacheType::NUMBER, num_shards));
     }
 }
 

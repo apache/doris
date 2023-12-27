@@ -78,8 +78,9 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_AGG_STATE);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::AGG_STATE;
+
+    doris::FieldType get_storage_field_type() const override {
+        return doris::FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
 
     std::string to_string(const IColumn& column, size_t row_num) const override {

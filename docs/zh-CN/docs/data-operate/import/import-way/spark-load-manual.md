@@ -609,7 +609,7 @@ WITH RESOURCE 'spark0'
 
 适用于 Doris 表聚合列的数据类型为 Bitmap 类型。 在 Load 命令中指定需要构建全局字典的字段即可，格式为：`Doris 字段名称=bitmap_dict(Hive 表字段名称)` 需要注意的是目前只有在上游数据源为 Hive 表时才支持全局字典的构建。
 
-** Hive binary（bitmap）类型列的导入**
+**Hive binary（bitmap）类型列的导入**
 
 适用于 Doris 表聚合列的数据类型为 Bitmap 类型，且数据源 Hive 表中对应列的数据类型为 binary（通过 FE 中 spark-dpp 中的 `org.apache.doris.load.loadv2.dpp.BitmapValue` 类序列化）类型。 无需构建全局字典，在 Load 命令中指定相应字段即可，格式为：`Doris 字段名称= binary_bitmap( Hive 表字段名称)` 同样，目前只有在上游数据源为 Hive 表时才支持 binary（ bitmap ）类型的数据导入 Hive bitmap 使用可参考 [hive-bitmap-udf](../../../ecosystem/hive-bitmap-udf.md) 。
 
@@ -730,23 +730,39 @@ LoadFinishTime: 2019-07-27 11:50:16
 - 现在 Spark Load 还不支持 Doris 表字段是 String 类型的导入，如果你的表字段有 String 类型的请改成 Varchar 类型，不然会导入失败，提示 `type:ETL_QUALITY_UNSATISFIED; msg:quality not good enough to cancel`
 - 使用 Spark Load 时没有在 Spark 客户端的 `spark-env.sh` 配置 `HADOOP_CONF_DIR` 环境变量。
 
-如果 `HADOOP_CONF_DIR` 环境变量没有设置，会报 `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment.` 错误。
+  如果 `HADOOP_CONF_DIR` 环境变量没有设置，会报 `When running with master 'yarn' either HADOOP_CONF_DIR or YARN_CONF_DIR must be set in the environment.` 错误。
 
 - 使用 Spark Load 时`spark_home_default_dir`配置项没有指定 Spark 客户端根目录。
 
-提交 Spark Job 时用到 spark-submit 命令，如果 `spark_home_default_dir` 设置错误，会报 `Cannot run program "xxx/bin/spark-submit": error=2, No such file or directory` 错误。
+  提交 Spark Job 时用到 spark-submit 命令，如果 `spark_home_default_dir` 设置错误，会报 `Cannot run program "xxx/bin/spark-submit": error=2, No such file or directory` 错误。
 
 - 使用 Spark Load 时 `spark_resource_path` 配置项没有指向打包好的 zip 文件。
 
-如果 `spark_resource_path `没有设置正确，会报 `File xxx/jars/spark-2x.zip does not exist` 错误。
+  如果 `spark_resource_path `没有设置正确，会报 `File xxx/jars/spark-2x.zip does not exist` 错误。
 
 - 使用 Spark Load 时 `yarn_client_path` 配置项没有指定 Yarn 的可执行文件。
 
-如果 `yarn_client_path `没有设置正确，会报 `yarn client does not exist in path: xxx/yarn-client/hadoop/bin/yarn` 错误
+  如果 `yarn_client_path `没有设置正确，会报 `yarn client does not exist in path: xxx/yarn-client/hadoop/bin/yarn` 错误
 
 - 使用 Spark Load 时没有在 Yarn 客户端的 `hadoop-config.sh` 配置 `JAVA_HOME` 环境变量。
 
-如果 `JAVA_HOME` 环境变量没有设置，会报 `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` 错误
+  如果 `JAVA_HOME` 环境变量没有设置，会报 `yarn application kill failed. app id: xxx, load job id: xxx, msg: which: no xxx/lib/yarn-client/hadoop/bin/yarn in ((null))  Error: JAVA_HOME is not set and could not be found` 错误
+
+- 使用 Spark Load 时没有打印 SparkLauncher 的启动日志或者报错`start spark app failed. error: Waiting too much time to get appId from handle. spark app state: UNKNOWN, loadJobId:xxx`
+
+  在`<`SPARK_HOME`>`/conf下，添加log4j.properties配置文件，并配置日志级别为INFO。
+
+- 使用 Spark Load 时 SparkLauncher 启动失败。
+
+  将`<`SPARK_HOME`>`/lib下的spark-launcher_`<`xxx`>`.jar包复制到fe的lib下，并重启fe进程。
+
+- 报错：`Compression codec com.hadoop.compression.lzo.LzoCodec not found`。
+
+  将`<`HADOOP_HOME`>`/share/hadoop/yarn/lib/hadoop-lzo-`<`xxx`>`.jar复制到`<`SPARK_HOME`>`/lib下，并重新打包成zip上传到hdfs。
+
+- 报错：`NoClassDefFoundError com/sun/jersey/api/client/config/ClientConfig`。
+
+  将原来的`<`SPARK_HOME`>`/lib下的jersey-client-`<`xxx`>`.jar删除或者重命名，将`<`HADOOP_HOME`>`/share/hadoop/yarn/lib/jersey-client-`<`xxx`>`.jar复制到`<`SPARK_HOME`>`/lib下，并重新打包成zip上传到hdfs。
 
 ## 更多帮助
 

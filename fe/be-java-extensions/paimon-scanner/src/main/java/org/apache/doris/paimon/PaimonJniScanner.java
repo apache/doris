@@ -124,7 +124,9 @@ public class PaimonJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
-        reader.close();
+        if (reader != null) {
+            reader.close();
+        }
     }
 
     @Override

@@ -33,7 +33,7 @@ suite("test_datev1") {
     qt_sql2 """ select dt
              from
              (
-             select cast(k1 as date) as dt
+             select cast(k1 as datev1) as dt
              from ${tbName}
              ) r; """
     sql "DROP TABLE ${tbName}"
@@ -56,29 +56,37 @@ suite("test_datev1") {
 
     sql " set runtime_filter_type = 1; "
     qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql3 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 2; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql4 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql5 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 4; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql6 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql7 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 8; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql8 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql9 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
 
     sql " set runtime_filter_wait_time_ms = 0; "
 
     sql " set runtime_filter_type = 1; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql10 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql11 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 2; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql12 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql13 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 4; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql14 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql15 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 8; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql16 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
+    qt_sql17 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
 
-    sql "DROP TABLE ${tbName}"
+//     sql "DROP TABLE ${tbName}"
 }

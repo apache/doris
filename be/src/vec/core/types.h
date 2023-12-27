@@ -32,8 +32,6 @@
 #include "vec/core/wide_integer.h"
 #include "vec/core/wide_integer_to_string.h"
 
-using wide::Int256;
-
 namespace doris {
 
 class BitmapValue;
@@ -228,6 +226,26 @@ struct TypeName<QuantileState> {
     static const char* get() { return "QuantileState"; }
 };
 
+template <>
+struct TypeName<DecimalV2Value> {
+    static const char* get() { return "decimalv2"; }
+};
+
+template <>
+struct TypeName<VecDateTimeValue> {
+    static const char* get() { return "Datetime"; }
+};
+
+template <>
+struct TypeName<DateV2Value<DateV2ValueType>> {
+    static const char* get() { return "DateV2"; }
+};
+
+template <>
+struct TypeName<DateV2Value<DateTimeV2ValueType>> {
+    static const char* get() { return "DatetimeV2"; }
+};
+
 template <typename T>
 struct TypeId;
 template <>
@@ -290,9 +308,9 @@ struct TypeName<Int128> {
     static const char* get() { return "Int128"; }
 };
 template <>
-inline constexpr bool IsNumber<Int256> = true;
+inline constexpr bool IsNumber<wide::Int256> = true;
 template <>
-struct TypeName<Int256> {
+struct TypeName<wide::Int256> {
     static const char* get() { return "Int256"; }
 };
 template <>
@@ -301,7 +319,7 @@ struct TypeId<Int128> {
 };
 
 template <>
-struct TypeId<Int256> {
+struct TypeId<wide::Int256> {
     static constexpr const TypeIndex value = TypeIndex::Int256;
 };
 
@@ -326,42 +344,189 @@ inline constexpr Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
 }
 // gcc report error if add constexpr in declaration
 template <>
-inline Int256 decimal_scale_multiplier<Int256>(UInt32 scale) {
+inline wide::Int256 decimal_scale_multiplier<wide::Int256>(UInt32 scale) {
     return common::exp10_i256(scale);
 }
+template <typename T>
+std::string decimal_to_string(const T& value, UInt32 scale) {
+    if (value == std::numeric_limits<T>::min()) {
+        if constexpr (std::is_same_v<T, wide::Int256>) {
+            std::string res {wide::to_string(value)};
+            res.insert(res.size() - scale, ".");
+            return res;
+        } else {
+            fmt::memory_buffer buffer;
+            fmt::format_to(buffer, "{}", value);
+            std::string res {buffer.data(), buffer.size()};
+            res.insert(res.size() - scale, ".");
+            return res;
+        }
+    }
+
+    static constexpr auto precision =
+            std::is_same_v<T, Int32>
+                    ? BeConsts::MAX_DECIMAL32_PRECISION
+                    : (std::is_same_v<T, Int64> ? BeConsts::MAX_DECIMAL64_PRECISION
+                                                : (std::is_same_v<T, __int128>
+                                                           ? BeConsts::MAX_DECIMAL128_PRECISION
+                                                           : BeConsts::MAX_DECIMAL256_PRECISION));
+    bool is_nagetive = value < 0;
+    int max_result_length = precision + (scale > 0) // Add a space for decimal place
+                            + (scale == precision)  // Add a space for leading 0
+                            + (is_nagetive);        // Add a space for negative sign
+    std::string str = std::string(max_result_length, '0');
+
+    T abs_value = value;
+    int pos = 0;
+
+    if (is_nagetive) {
+        abs_value = -value;
+        str[pos++] = '-';
+    }
+
+    T whole_part = abs_value;
+    T frac_part;
+    if (scale) {
+        whole_part = abs_value / decimal_scale_multiplier<T>(scale);
+        frac_part = abs_value % decimal_scale_multiplier<T>(scale);
+    }
+    if constexpr (std::is_same_v<T, wide::Int256>) {
+        std::string num_str {wide::to_string(whole_part)};
+        auto end = fmt::format_to(str.data() + pos, "{}", num_str);
+        pos = end - str.data();
+    } else {
+        auto end = fmt::format_to(str.data() + pos, "{}", whole_part);
+        pos = end - str.data();
+    }
+
+    if (scale) {
+        str[pos++] = '.';
+        for (auto end_pos = pos + scale - 1; end_pos >= pos && frac_part > 0;
+             --end_pos, frac_part /= 10) {
+            str[end_pos] += (int)(frac_part % 10);
+        }
+    }
+
+    str.resize(pos + scale);
+    return str;
+}
+
+template <typename T>
+size_t decimal_to_string(const T& value, char* dst, UInt32 scale, const T& scale_multiplier) {
+    if (UNLIKELY(value == std::numeric_limits<T>::min())) {
+        if constexpr (std::is_same_v<T, wide::Int256>) {
+            // handle scale?
+            std::string num_str {wide::to_string(value)};
+            auto* end = fmt::format_to(dst, "{}", num_str);
+            return end - dst;
+        } else {
+            auto end = fmt::format_to(dst, "{}", value);
+            return end - dst;
+        }
+    }
+
+    bool is_negative = value < 0;
+    T abs_value = value;
+    int pos = 0;
+
+    if (is_negative) {
+        abs_value = -value;
+        dst[pos++] = '-';
+    }
+
+    T whole_part = abs_value;
+    T frac_part;
+    if (LIKELY(scale)) {
+        whole_part = abs_value / scale_multiplier;
+        frac_part = abs_value % scale_multiplier;
+    }
+    if constexpr (std::is_same_v<T, wide::Int256>) {
+        std::string num_str {wide::to_string(whole_part)};
+        auto* end = fmt::format_to(dst + pos, "{}", num_str);
+        pos = end - dst;
+    } else {
+        auto end = fmt::format_to(dst + pos, "{}", whole_part);
+        pos = end - dst;
+    }
+
+    if (LIKELY(scale)) {
+        int low_scale = 0;
+        int high_scale = scale;
+        while (low_scale < high_scale) {
+            int mid_scale = (high_scale + low_scale) >> 1;
+            const auto mid_scale_factor = decimal_scale_multiplier<T>(mid_scale);
+            if (mid_scale_factor <= frac_part) {
+                low_scale = mid_scale + 1;
+            } else {
+                high_scale = mid_scale;
+            }
+        }
+        dst[pos++] = '.';
+        if (low_scale < scale) {
+            memset(&dst[pos], '0', scale - low_scale);
+            pos += scale - low_scale;
+        }
+        if (frac_part) {
+            if constexpr (std::is_same_v<T, wide::Int256>) {
+                std::string num_str {wide::to_string(frac_part)};
+                auto* end = fmt::format_to(&dst[pos], "{}", num_str);
+                pos = end - dst;
+            } else {
+                auto end = fmt::format_to(&dst[pos], "{}", frac_part);
+                pos = end - dst;
+            }
+        }
+    }
+
+    return pos;
+}
+
+template <typename T>
+static constexpr int max_decimal_string_length() {
+    constexpr auto precision =
+            std::is_same_v<T, Int32>
+                    ? BeConsts::MAX_DECIMAL32_PRECISION
+                    : (std::is_same_v<T, Int64> ? BeConsts::MAX_DECIMAL64_PRECISION
+                                                : (std::is_same_v<T, __int128>
+                                                           ? BeConsts::MAX_DECIMAL128_PRECISION
+                                                           : BeConsts::MAX_DECIMAL256_PRECISION));
+    return precision + 1 // Add a space for decimal place
+           + 1           // Add a space for leading 0
+           + 1;          // Add a space for negative sign
+}
+
+template <typename T>
+concept DecimalNativeTypeConcept = std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
+                                   std::is_same_v<T, Int128> || std::is_same_v<T, wide::Int256>;
 
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
-template <typename T>
+template <DecimalNativeTypeConcept T>
 struct Decimal {
-    static_assert(std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
-                  std::is_same_v<T, Int128>);
     using NativeType = T;
+
+    static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
 
     Decimal() = default;
     Decimal(Decimal<T>&&) = default;
     Decimal(const Decimal<T>&) = default;
 
-#define DECLARE_NUMERIC_CTOR(TYPE) \
-    Decimal(const TYPE& value_) : value(value_) {}
+    explicit(IsInt256) Decimal(Int32 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Int64 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Int128 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(wide::Int256 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(UInt64 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(UInt32 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Float32 value) noexcept : value(type_round(value)) {}
+    explicit(IsInt256) Decimal(Float64 value) noexcept : value(type_round(value)) {}
 
-    DECLARE_NUMERIC_CTOR(Int256)
-    DECLARE_NUMERIC_CTOR(Int128)
-    DECLARE_NUMERIC_CTOR(Int32)
-    DECLARE_NUMERIC_CTOR(Int64)
-    DECLARE_NUMERIC_CTOR(UInt32)
-    DECLARE_NUMERIC_CTOR(UInt64)
-
-#undef DECLARE_NUMERIC_CTOR
-    Decimal(const Float32& value_) : value(value_) {
-        if constexpr (std::is_integral<T>::value) {
-            value = round(value_);
+    /// If T is integral, the given value will be rounded to integer.
+    template <std::floating_point U>
+    static constexpr U type_round(U value) noexcept {
+        if constexpr (wide::IntegralConcept<T>()) {
+            return round(value);
         }
-    }
-    Decimal(const Float64& value_) : value(value_) {
-        if constexpr (std::is_integral<T>::value) {
-            value = round(value_);
-        }
+        return value;
     }
 
     static Decimal double_to_decimal(double value_) {
@@ -370,9 +535,17 @@ struct Decimal {
         return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
     }
 
+    static Decimal from_int_frac(T integer, T fraction, int scale) {
+        return Decimal(integer * int_exp10(scale) + fraction);
+    }
+
     template <typename U>
     Decimal(const Decimal<U>& x) {
-        value = x;
+        if constexpr (IsInt256) {
+            value = x.value;
+        } else {
+            value = x;
+        }
     }
 
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
@@ -380,10 +553,18 @@ struct Decimal {
 
     operator T() const { return value; }
 
-    operator wide::Int256() const {
+    operator wide::Int256() const
+        requires(!IsInt256)
+    {
         wide::Int256 result;
         wide::Int256::_impl::wide_integer_from_builtin(result, value);
         return result;
+    }
+
+    operator Int128() const
+        requires(IsInt256)
+    {
+        return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64);
     }
 
     const Decimal<T>& operator++() {
@@ -416,85 +597,17 @@ struct Decimal {
         return *this;
     }
 
-    auto operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
-
-    static constexpr int max_string_length() {
-        constexpr auto precision =
-                std::is_same_v<T, Int32>
-                        ? BeConsts::MAX_DECIMAL32_PRECISION
-                        : (std::is_same_v<T, Int64>
-                                   ? BeConsts::MAX_DECIMAL64_PRECISION
-                                   : (std::is_same_v<T, __int128>
-                                              ? BeConsts::MAX_DECIMAL128_PRECISION
-                                              : BeConsts::MAX_DECIMAL256_PRECISION));
-        return precision + 1 // Add a space for decimal place
-               + 1           // Add a space for leading 0
-               + 1;          // Add a space for negative sign
+    auto operator<=>(const Decimal<T>& x) const
+        requires(!Decimal<T>::IsInt256)
+    {
+        return value <=> x.value;
     }
 
-    std::string to_string(UInt32 scale) const {
-        if (value == std::numeric_limits<T>::min()) {
-            if constexpr (std::is_same_v<T, Int256>) {
-                std::string res {wide::to_string(value)};
-                res.insert(res.size() - scale, ".");
-                return res;
-            } else {
-                fmt::memory_buffer buffer;
-                fmt::format_to(buffer, "{}", value);
-                std::string res {buffer.data(), buffer.size()};
-                res.insert(res.size() - scale, ".");
-                return res;
-            }
-        }
+    auto operator==(const Decimal<T>& x) const { return value == x.value; }
 
-        static constexpr auto precision =
-                std::is_same_v<T, Int32>
-                        ? BeConsts::MAX_DECIMAL32_PRECISION
-                        : (std::is_same_v<T, Int64>
-                                   ? BeConsts::MAX_DECIMAL64_PRECISION
-                                   : (std::is_same_v<T, __int128>
-                                              ? BeConsts::MAX_DECIMAL128_PRECISION
-                                              : BeConsts::MAX_DECIMAL256_PRECISION));
-        bool is_nagetive = value < 0;
-        int max_result_length = precision + (scale > 0) // Add a space for decimal place
-                                + (scale == precision)  // Add a space for leading 0
-                                + (is_nagetive);        // Add a space for negative sign
-        std::string str = std::string(max_result_length, '0');
+    static constexpr int max_string_length() { return max_decimal_string_length<T>(); }
 
-        T abs_value = value;
-        int pos = 0;
-
-        if (is_nagetive) {
-            abs_value = -value;
-            str[pos++] = '-';
-        }
-
-        T whole_part = abs_value;
-        T frac_part;
-        if (scale) {
-            whole_part = abs_value / decimal_scale_multiplier<T>(scale);
-            frac_part = abs_value % decimal_scale_multiplier<T>(scale);
-        }
-        if constexpr (std::is_same_v<T, Int256>) {
-            std::string num_str {wide::to_string(whole_part)};
-            auto end = fmt::format_to(str.data() + pos, "{}", num_str);
-            pos = end - str.data();
-        } else {
-            auto end = fmt::format_to(str.data() + pos, "{}", whole_part);
-            pos = end - str.data();
-        }
-
-        if (scale) {
-            str[pos++] = '.';
-            for (auto end_pos = pos + scale - 1; end_pos >= pos && frac_part > 0;
-                 --end_pos, frac_part /= 10) {
-                str[end_pos] += (int)(frac_part % 10);
-            }
-        }
-
-        str.resize(pos + scale);
-        return str;
-    }
+    std::string to_string(UInt32 scale) const { return decimal_to_string(value, scale); }
 
     /**
      * Got the string representation of a decimal.
@@ -505,76 +618,37 @@ struct Decimal {
      */
     __attribute__((always_inline)) size_t to_string(char* dst, UInt32 scale,
                                                     const T& scale_multiplier) const {
-        if (UNLIKELY(value == std::numeric_limits<T>::min())) {
-            if constexpr (std::is_same_v<T, Int256>) {
-                // handle scale?
-                std::string num_str {wide::to_string(value)};
-                auto end = fmt::format_to(dst, "{}", num_str);
-                return end - dst;
-            } else {
-                auto end = fmt::format_to(dst, "{}", value);
-                return end - dst;
-            }
-        }
-
-        bool is_negative = value < 0;
-        T abs_value = value;
-        int pos = 0;
-
-        if (is_negative) {
-            abs_value = -value;
-            dst[pos++] = '-';
-        }
-
-        T whole_part = abs_value;
-        T frac_part;
-        if (LIKELY(scale)) {
-            whole_part = abs_value / scale_multiplier;
-            frac_part = abs_value % scale_multiplier;
-        }
-        if constexpr (std::is_same_v<T, Int256>) {
-            std::string num_str {wide::to_string(whole_part)};
-            auto end = fmt::format_to(dst + pos, "{}", num_str);
-            pos = end - dst;
-        } else {
-            auto end = fmt::format_to(dst + pos, "{}", whole_part);
-            pos = end - dst;
-        }
-
-        if (LIKELY(scale)) {
-            int low_scale = 0;
-            int high_scale = scale;
-            while (low_scale < high_scale) {
-                int mid_scale = (high_scale + low_scale) >> 1;
-                const auto mid_scale_factor = decimal_scale_multiplier<T>(mid_scale);
-                if (mid_scale_factor <= frac_part) {
-                    low_scale = mid_scale + 1;
-                } else {
-                    high_scale = mid_scale;
-                }
-            }
-            dst[pos++] = '.';
-            if (low_scale < scale) {
-                memset(&dst[pos], '0', scale - low_scale);
-                pos += scale - low_scale;
-            }
-            if (frac_part) {
-                if constexpr (std::is_same_v<T, Int256>) {
-                    std::string num_str {wide::to_string(whole_part)};
-                    auto end = fmt::format_to(&dst[pos], "{}", num_str);
-                    pos = end - dst;
-                } else {
-                    auto end = fmt::format_to(&dst[pos], "{}", frac_part);
-                    pos = end - dst;
-                }
-            }
-        }
-
-        return pos;
+        return decimal_to_string(value, dst, scale, scale_multiplier);
     }
 
     T value;
 };
+
+template <typename T>
+inline Decimal<T> operator-(const Decimal<T>& x) {
+    return Decimal<T>(-x.value);
+}
+
+template <typename T>
+inline Decimal<T> operator+(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value + y.value);
+}
+template <typename T>
+inline Decimal<T> operator-(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value - y.value);
+}
+template <typename T>
+inline Decimal<T> operator*(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value * y.value);
+}
+template <typename T>
+inline Decimal<T> operator/(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value / y.value);
+}
+template <typename T>
+inline Decimal<T> operator%(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value % y.value);
+}
 
 struct Decimal128I : public Decimal<Int128> {
     Decimal128I() = default;
@@ -582,7 +656,7 @@ struct Decimal128I : public Decimal<Int128> {
 #define DECLARE_NUMERIC_CTOR(TYPE) \
     Decimal128I(const TYPE& value_) : Decimal<Int128>(value_) {}
 
-    DECLARE_NUMERIC_CTOR(Int256)
+    DECLARE_NUMERIC_CTOR(wide::Int256)
     DECLARE_NUMERIC_CTOR(Int128)
     DECLARE_NUMERIC_CTOR(Int32)
     DECLARE_NUMERIC_CTOR(Int64)
@@ -598,270 +672,10 @@ struct Decimal128I : public Decimal<Int128> {
     }
 };
 
-template <>
-struct Decimal<Int256> {
-    using T = Int256;
-    using NativeType = Int256;
-
-    Decimal() = default;
-    Decimal(Decimal<T>&&) = default;
-    Decimal(const Decimal<T>&) = default;
-
-#define DECLARE_NUMERIC_CTOR(TYPE) \
-    explicit Decimal(const TYPE& value_) : value(value_) {}
-
-    DECLARE_NUMERIC_CTOR(Int256)
-    DECLARE_NUMERIC_CTOR(Int128)
-    DECLARE_NUMERIC_CTOR(Int32)
-    DECLARE_NUMERIC_CTOR(Int64)
-    DECLARE_NUMERIC_CTOR(UInt32)
-    DECLARE_NUMERIC_CTOR(UInt64)
-
-#undef DECLARE_NUMERIC_CTOR
-
-    explicit Decimal(const Float32& value_) : value(value_) {
-        if constexpr (std::is_integral<T>::value) {
-            value = round(value_);
-        }
-    }
-    explicit Decimal(const Float64& value_) : value(value_) {
-        if constexpr (std::is_integral<T>::value) {
-            value = round(value_);
-        }
-    }
-
-    static Decimal double_to_decimal(double value_) {
-        DecimalV2Value decimal_value;
-        decimal_value.assign_from_double(value_);
-        return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
-    }
-
-    template <typename U>
-    explicit Decimal(const Decimal<U>& x) {
-        value = x.value;
-    }
-
-    constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
-    constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
-
-    operator T() const { return value; }
-
-    operator Int128() const { return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64); }
-
-    const Decimal<T>& operator++() {
-        value++;
-        return *this;
-    }
-    const Decimal<T>& operator--() {
-        value--;
-        return *this;
-    }
-
-    const Decimal<T>& operator+=(const T& x) {
-        value += x;
-        return *this;
-    }
-    const Decimal<T>& operator-=(const T& x) {
-        value -= x;
-        return *this;
-    }
-    const Decimal<T>& operator*=(const T& x) {
-        value *= x;
-        return *this;
-    }
-    const Decimal<T>& operator/=(const T& x) {
-        value /= x;
-        return *this;
-    }
-    const Decimal<T>& operator%=(const T& x) {
-        value %= x;
-        return *this;
-    }
-
-    static constexpr int max_string_length() {
-        constexpr auto precision =
-                std::is_same_v<T, Int32>
-                        ? BeConsts::MAX_DECIMAL32_PRECISION
-                        : (std::is_same_v<T, Int64>
-                                   ? BeConsts::MAX_DECIMAL64_PRECISION
-                                   : (std::is_same_v<T, Int128>
-                                              ? BeConsts::MAX_DECIMAL128_PRECISION
-                                              : BeConsts::MAX_DECIMAL256_PRECISION));
-        return precision + 1 // Add a space for decimal place
-               + 1           // Add a space for leading 0
-               + 1;          // Add a space for negative sign
-    }
-
-    std::string to_string(UInt32 scale) const {
-        if (value == std::numeric_limits<T>::min()) {
-            if constexpr (std::is_same_v<T, Int256>) {
-                std::string res {wide::to_string(value)};
-                res.insert(res.size() - scale, ".");
-                return res;
-            } else {
-                fmt::memory_buffer buffer;
-                fmt::format_to(buffer, "{}", value);
-                std::string res {buffer.data(), buffer.size()};
-                res.insert(res.size() - scale, ".");
-                return res;
-            }
-        }
-
-        static constexpr auto precision =
-                std::is_same_v<T, Int32>
-                        ? BeConsts::MAX_DECIMAL32_PRECISION
-                        : (std::is_same_v<T, Int64>
-                                   ? BeConsts::MAX_DECIMAL64_PRECISION
-                                   : (std::is_same_v<T, Int128>
-                                              ? BeConsts::MAX_DECIMAL128_PRECISION
-                                              : BeConsts::MAX_DECIMAL256_PRECISION));
-        bool is_nagetive = value < 0;
-        int max_result_length = precision + (scale > 0) // Add a space for decimal place
-                                + (scale == precision)  // Add a space for leading 0
-                                + (is_nagetive);        // Add a space for negative sign
-        std::string str = std::string(max_result_length, '0');
-
-        T abs_value = value;
-        int pos = 0;
-
-        if (is_nagetive) {
-            abs_value = -value;
-            str[pos++] = '-';
-        }
-
-        T whole_part = abs_value;
-        T frac_part;
-        if (scale) {
-            whole_part = abs_value / decimal_scale_multiplier<T>(scale);
-            frac_part = abs_value % decimal_scale_multiplier<T>(scale);
-        }
-        if constexpr (std::is_same_v<T, Int256>) {
-            std::string num_str {wide::to_string(whole_part)};
-            auto end = fmt::format_to(str.data() + pos, "{}", num_str);
-            pos = end - str.data();
-        } else {
-            auto end = fmt::format_to(str.data() + pos, "{}", whole_part);
-            pos = end - str.data();
-        }
-
-        if (scale) {
-            str[pos++] = '.';
-            for (auto end_pos = pos + scale - 1; end_pos >= pos && frac_part > 0;
-                 --end_pos, frac_part /= 10) {
-                str[end_pos] += (int)(frac_part % 10);
-            }
-        }
-
-        str.resize(pos + scale);
-        return str;
-    }
-
-    /**
-     * Got the string representation of a decimal.
-     * @param dst Store the result, should be pre-allocated.
-     * @param scale Decimal's scale.
-     * @param scale_multiplier Decimal's scale multiplier.
-     * @return The length of string.
-     */
-    __attribute__((always_inline)) size_t to_string(char* dst, UInt32 scale,
-                                                    const T& scale_multiplier) const {
-        if (UNLIKELY(value == std::numeric_limits<T>::min())) {
-            if constexpr (std::is_same_v<T, Int256>) {
-                std::string num_str {wide::to_string(value)};
-                auto end = fmt::format_to(dst, "{}", num_str);
-                return end - dst;
-            } else {
-                auto end = fmt::format_to(dst, "{}", value);
-                return end - dst;
-            }
-        }
-
-        bool is_negative = value < 0;
-        T abs_value = value;
-        int pos = 0;
-
-        if (is_negative) {
-            abs_value = -value;
-            dst[pos++] = '-';
-        }
-
-        T whole_part = abs_value;
-        T frac_part;
-        if (LIKELY(scale)) {
-            whole_part = abs_value / scale_multiplier;
-            frac_part = abs_value % scale_multiplier;
-        }
-        if constexpr (std::is_same_v<T, Int256>) {
-            std::string num_str {wide::to_string(whole_part)};
-            auto end = fmt::format_to(dst + pos, "{}", num_str);
-            pos = end - dst;
-        } else {
-            auto end = fmt::format_to(dst + pos, "{}", whole_part);
-            pos = end - dst;
-        }
-
-        if (LIKELY(scale)) {
-            int low_scale = 0;
-            int high_scale = scale;
-            while (low_scale < high_scale) {
-                int mid_scale = (high_scale + low_scale) >> 1;
-                const auto mid_scale_factor = decimal_scale_multiplier<T>(mid_scale);
-                if (mid_scale_factor <= frac_part) {
-                    low_scale = mid_scale + 1;
-                } else {
-                    high_scale = mid_scale;
-                }
-            }
-            dst[pos++] = '.';
-            if (low_scale < scale) {
-                memset(&dst[pos], '0', scale - low_scale);
-                pos += scale - low_scale;
-            }
-            if (frac_part) {
-                if constexpr (std::is_same_v<T, Int256>) {
-                    std::string num_str {wide::to_string(frac_part)};
-                    auto end = fmt::format_to(dst + pos, "{}", num_str);
-                    pos = end - dst;
-                } else {
-                    auto end = fmt::format_to(&dst[pos], "{}", frac_part);
-                    pos = end - dst;
-                }
-            }
-        }
-
-        return pos;
-    }
-
-    T value;
-};
-
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
 using Decimal128 = Decimal<Int128>;
-using Decimal256 = Decimal<Int256>;
-template <typename T>
-inline Decimal<T> operator-(const Decimal<T>& x) {
-    return -x.value;
-}
-
-inline Decimal256 operator+(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value + y.value);
-}
-inline Decimal256 operator-(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value - y.value);
-}
-inline Decimal256 operator*(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value * y.value);
-}
-inline Decimal256 operator/(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value / y.value);
-}
-inline Decimal256 operator%(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value % y.value);
-}
-inline Decimal256 operator-(const Decimal256& x) {
-    return Decimal256(-x.value);
-}
+using Decimal256 = Decimal<wide::Int256>;
 
 inline bool operator<(const Decimal256& x, const Decimal256& y) {
     return x.value < y.value;
@@ -874,12 +688,6 @@ inline bool operator<=(const Decimal256& x, const Decimal256& y) {
 }
 inline bool operator>=(const Decimal256& x, const Decimal256& y) {
     return x.value >= y.value;
-}
-inline bool operator==(const Decimal256& x, const Decimal256& y) {
-    return x.value == y.value;
-}
-inline bool operator!=(const Decimal256& x, const Decimal256& y) {
-    return x.value != y.value;
 }
 
 template <>
@@ -993,7 +801,7 @@ struct NativeType<Decimal128I> {
 };
 template <>
 struct NativeType<Decimal256> {
-    using Type = Int256;
+    using Type = wide::Int256;
 };
 
 inline const char* getTypeName(TypeIndex idx) {
@@ -1021,7 +829,7 @@ inline const char* getTypeName(TypeIndex idx) {
     case TypeIndex::Int128:
         return TypeName<Int128>::get();
     case TypeIndex::Int256:
-        return TypeName<Int256>::get();
+        return TypeName<wide::Int256>::get();
     case TypeIndex::Float32:
         return TypeName<Float32>::get();
     case TypeIndex::Float64:

@@ -14,7 +14,7 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-suite("test_window_fn") {
+suite("test_window_fn", "arrow_flight_sql") {
     def tbName1 = "empsalary"
     def tbName2 = "tenk1"
     sql """ DROP TABLE IF EXISTS ${tbName1} """
@@ -383,10 +383,9 @@ suite("test_window_fn") {
         "storage_format" = "V2"
         );
         """
-    test {
-        sql """SELECT SUM(MAX(c1) OVER (PARTITION BY c2, c3)) FROM  test_window_in_agg;"""
-        exception "errCode = 2, detailMessage = AGGREGATE clause must not contain analytic expressions"
-    }
+    sql """set enable_nereids_planner=true;"""
+    sql """SELECT SUM(MAX(c1) OVER (PARTITION BY c2, c3)) FROM  test_window_in_agg;"""
+
     sql "DROP TABLE IF EXISTS test_window_in_agg;"
 }
 

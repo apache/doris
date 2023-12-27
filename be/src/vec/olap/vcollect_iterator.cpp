@@ -26,7 +26,6 @@
 #include <set>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "io/io_common.h"
@@ -771,7 +770,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     int target_block_row = 0;
     auto target_columns = block->mutate_columns();
-    size_t column_count = block->columns();
+    size_t column_count = target_columns.size();
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
@@ -810,6 +809,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
+            block->set_columns(std::move(target_columns));
             return res;
         }
 
@@ -826,6 +826,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          continuous_row_in_block);
                 }
             }
+            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
         if (continuous_row_in_block == 0) {

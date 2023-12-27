@@ -156,52 +156,53 @@ class SuiteCluster {
 
     final String name
     final Config config
-    private boolean inited
+    private boolean running
 
     SuiteCluster(String name, Config config) {
         this.name = name
         this.config = config
-        this.inited = false
+        this.running = false
     }
 
     void init(ClusterOptions options) {
-        if (inited) {
-            return
-        }
-
         assert name != null && name != ''
         assert options.feNum > 0 || options.beNum > 0
         assert config.image != null && config.image != ''
 
-        def sb = new StringBuilder()
-        sb.append('up ' + name + ' ')
-        sb.append(config.image + ' ')
+        def cmd = [
+            'up', name, config.image
+        ]
+
         if (options.feNum > 0) {
-            sb.append('--add-fe-num ' + options.feNum + ' ')
+            cmd += ['--add-fe-num', String.valueOf(options.feNum)]
         }
         if (options.beNum > 0) {
-            sb.append('--add-be-num ' + options.beNum + ' ')
+            cmd += ['--add-be-num', String.valueOf(options.beNum)]
         }
         // TODO: need escape white space in config
         if (options.feConfigs != null && options.feConfigs.size() > 0) {
-            sb.append('--fe-config ')
-            options.feConfigs.forEach(item -> sb.append(' ' + item + ' '))
+            cmd += ['--fe-config']
+            cmd += options.feConfigs
         }
         if (options.beConfigs != null && options.beConfigs.size() > 0) {
-            sb.append('--be-config ')
-            options.beConfigs.forEach(item -> sb.append(' ' + item + ' '))
+            cmd += ['--be-config']
+            cmd += options.beConfigs
         }
         if (options.beDisks != null) {
-            sb.append('--be-disks ' + options.beDisks.join(" ") + ' ')
+            cmd += ['--be-disks']
+            cmd += options.beDisks
         }
-        sb.append('--wait-timeout 180')
+        if (config.dockerCoverageOutputDir != null && config.dockerCoverageOutputDir != '') {
+            cmd += ['--coverage-dir', config.dockerCoverageOutputDir]
+        }
+        cmd += ['--wait-timeout', String.valueOf(180)]
 
-        runCmd(sb.toString(), -1)
+        runCmd(cmd.join(' '), -1)
 
         // wait be report disk
         Thread.sleep(5000)
 
-        inited = true
+        running = true
     }
 
     void injectDebugPoints(NodeType type, Map<String, Map<String, String>> injectPoints) {
@@ -326,12 +327,19 @@ class SuiteCluster {
     }
 
     void destroy(boolean clean) throws Exception {
-        def cmd = 'down ' + name
-        if (clean) {
-            cmd += ' --clean'
+        try {
+            def cmd = 'down ' + name
+            if (clean) {
+                cmd += ' --clean'
+            }
+            runCmd(cmd)
+        } finally {
+            running = false
         }
-        runCmd(cmd)
-        inited = false
+    }
+
+    boolean isRunning() {
+        return running
     }
 
     // if not specific fe indices, then start all frontends
@@ -430,7 +438,7 @@ class SuiteCluster {
     }
 
     private void waitHbChanged() {
-        Thread.sleep(6000)
+        Thread.sleep(7000)
     }
 
     private void runFrontendsCmd(String op, int... indices) {

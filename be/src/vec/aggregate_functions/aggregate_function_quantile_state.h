@@ -22,7 +22,6 @@
 #include <memory>
 #include <string>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/quantile_state.h"
 #include "vec/aggregate_functions/aggregate_function.h"

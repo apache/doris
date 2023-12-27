@@ -70,6 +70,9 @@ public:
 
     virtual Status close(RuntimeState* state);
 
+    // Try to stop scanner, and all running readers.
+    virtual void try_stop() { _should_stop = true; };
+
     virtual std::string get_name() { return ""; }
 
     // return the readable name of current scan range.
@@ -160,13 +163,13 @@ protected:
         _conjuncts.clear();
     }
 
-    RuntimeState* _state;
-    VScanNode* _parent;
-    pipeline::ScanLocalStateBase* _local_state;
+    RuntimeState* _state = nullptr;
+    VScanNode* _parent = nullptr;
+    pipeline::ScanLocalStateBase* _local_state = nullptr;
     // Set if scan node has sort limit info
     int64_t _limit = -1;
 
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
 
     const TupleDescriptor* _output_tuple_desc = nullptr;
 
@@ -219,8 +222,11 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+
+    bool _should_stop = false;
 };
 
 using VScannerSPtr = std::shared_ptr<VScanner>;
+using VScannerWPtr = std::weak_ptr<VScanner>;
 
 } // namespace doris::vectorized

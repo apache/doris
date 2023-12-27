@@ -79,14 +79,22 @@ private:
                                                    TFetchSchemaTableDataRequest* request);
     Status _build_workload_groups_metadata_request(const TMetaScanRange& meta_scan_range,
                                                    TFetchSchemaTableDataRequest* request);
+    Status _build_workload_sched_policy_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                         TFetchSchemaTableDataRequest* request);
     Status _build_catalogs_metadata_request(const TMetaScanRange& meta_scan_range,
                                             TFetchSchemaTableDataRequest* request);
+    Status _build_materialized_views_metadata_request(const TMetaScanRange& meta_scan_range,
+                                                      TFetchSchemaTableDataRequest* request);
+    Status _build_jobs_metadata_request(const TMetaScanRange& meta_scan_range,
+                                        TFetchSchemaTableDataRequest* request);
+    Status _build_tasks_metadata_request(const TMetaScanRange& meta_scan_range,
+                                         TFetchSchemaTableDataRequest* request);
     Status _build_queries_metadata_request(const TMetaScanRange& meta_scan_range,
                                            TFetchSchemaTableDataRequest* request);
     bool _meta_eos;
     TupleId _tuple_id;
     TUserIdentity _user_identity;
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
     std::vector<TRow> _batch_data;
     const TScanRange& _scan_range;
 };

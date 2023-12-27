@@ -19,21 +19,18 @@
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Metrics_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <algorithm>
 #include <ostream>
 #include <utility>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/exception.h"
 #include "common/logging.h"
 #include "runtime/descriptors.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type.h"
@@ -642,6 +639,19 @@ void VAnalyticEvalNode::_insert_result_info(int64_t current_block_rows) {
 
     for (int i = 0; i < _agg_functions_size; ++i) {
         for (int j = get_result_start; j < _window_end_position; ++j) {
+            if (!_agg_functions[i]->function()->get_return_type()->is_nullable() &&
+                _result_window_columns[i]->is_nullable()) {
+                if (_current_window_empty) {
+                    _result_window_columns[i]->insert_default();
+                } else {
+                    auto* dst = assert_cast<ColumnNullable*>(_result_window_columns[i].get());
+                    dst->get_null_map_data().push_back(0);
+                    _agg_functions[i]->insert_result_info(
+                            _fn_place_ptr + _offsets_of_aggregate_states[i],
+                            &dst->get_nested_column());
+                }
+                continue;
+            }
             _agg_functions[i]->insert_result_info(_fn_place_ptr + _offsets_of_aggregate_states[i],
                                                   _result_window_columns[i].get());
         }
@@ -686,6 +696,10 @@ void VAnalyticEvalNode::_execute_for_win_func(int64_t partition_start, int64_t p
                 partition_start, partition_end, frame_start, frame_end,
                 _fn_place_ptr + _offsets_of_aggregate_states[i], _agg_columns.data(), nullptr);
     }
+
+    // If the end is not greater than the start, the current window should be empty.
+    _current_window_empty =
+            std::min(frame_end, partition_end) <= std::max(frame_start, partition_start);
 }
 
 //binary search for range to calculate peer group

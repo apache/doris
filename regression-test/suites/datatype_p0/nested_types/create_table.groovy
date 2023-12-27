@@ -19,6 +19,5 @@ suite("create_table_with_nested_type") {
     // register testPlugin function in ${DORIS_HOME}/regression-test/plugins/plugins_create_table_nested_type.groovy
     // input the nested depth and table name, the output is table schema
     // run "bash run-regression-test.sh --run -s create_table_with_nested_type" and watch the logger
-    def result = create_table_with_nested_type(1, "test")
-    logger.info(result)
+    get_create_table_with_nested_type(1, "test")
 }

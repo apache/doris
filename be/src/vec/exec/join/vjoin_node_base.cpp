@@ -20,8 +20,6 @@
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
-#include <opentelemetry/nostd/shared_ptr.h>
-#include <opentelemetry/trace/tracer.h>
 #include <stddef.h>
 
 #include <sstream>
@@ -31,7 +29,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -123,8 +120,8 @@ Status VJoinNodeBase::prepare(RuntimeState* state) {
             ADD_CHILD_TIMER(_probe_phase_profile, "BuildOutputBlock", "ProbeTime");
     _probe_rows_counter = ADD_COUNTER_WITH_LEVEL(_probe_phase_profile, "ProbeRows", TUnit::UNIT, 1);
 
-    _push_down_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
-    _push_compute_timer = ADD_TIMER(runtime_profile(), "PushDownComputeTime");
+    _publish_runtime_filter_timer = ADD_TIMER(runtime_profile(), "PublishRuntimeFilterTime");
+    _runtime_filter_compute_timer = ADD_TIMER(runtime_profile(), "RunmtimeFilterComputeTime");
 
     return Status::OK();
 }
@@ -180,6 +177,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         }
     };
+
     if (rows != 0) {
         auto& mutable_columns = mutable_block.mutable_columns();
         if (_output_expr_ctxs.empty()) {
@@ -210,9 +208,7 @@ Status VJoinNodeBase::_build_output_block(Block* origin_block, Block* output_blo
             }
         }
 
-        if (!is_mem_reuse || !keep_origin) {
-            output_block->swap(mutable_block.to_block());
-        }
+        output_block->swap(mutable_block.to_block());
         DCHECK(output_block->rows() == rows);
     }
 

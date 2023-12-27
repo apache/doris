@@ -19,7 +19,6 @@
 
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/PlanNodes_types.h>
-#include <opentelemetry/nostd/shared_ptr.h>
 
 #include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
@@ -31,7 +30,6 @@
 #include "common/status.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/columns/column_vector.h"
 #include "vec/columns/columns_number.h"
 #include "vec/core/block.h"
@@ -207,6 +205,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
             ++_child_idx;
         }
     }
+    block->set_columns(std::move(mblock.mutable_columns()));
 
     DCHECK_LE(_child_idx, _children.size());
     return Status::OK();
@@ -235,6 +234,7 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
             tmp_block.clear();
         }
     }
+    block->set_columns(std::move(mblock.mutable_columns()));
 
     // some insert query like "insert into string_test select 1, repeat('a', 1024 * 1024);"
     // the const expr will be in output expr cause the union node return a empty block. so here we
@@ -258,6 +258,8 @@ Status VUnionNode::materialize_child_block(RuntimeState* state, int child_id,
         Block res;
         RETURN_IF_ERROR(materialize_block(input_block, child_id, &res));
         RETURN_IF_ERROR(mblock.merge(res));
+
+        output_block->set_columns(std::move(mblock.mutable_columns()));
     }
     return Status::OK();
 }

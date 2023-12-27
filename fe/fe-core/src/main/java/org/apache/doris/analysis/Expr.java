@@ -39,7 +39,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
@@ -68,6 +68,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 
 /**
@@ -295,7 +296,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Flag to indicate whether to wrap this expr's toSql() in parenthesis. Set by parser.
     // Needed for properly capturing expr precedences in the SQL string.
     protected boolean printSqlInParens = false;
-    protected final String exprName = Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME);
+    protected Optional<String> exprName = Optional.empty();
+
+    protected List<TupleId> boundTupleIds = null;
 
     protected Expr() {
         super();
@@ -339,8 +342,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     // Name of expr, this is used by generating column name automatically when there is no
     // alias or is not slotRef
-    protected String getExprName() {
-        return this.exprName;
+    public String getExprName() {
+        if (!this.exprName.isPresent()) {
+            this.exprName = Optional.of(Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
+        }
+        return this.exprName.get();
     }
 
     public Type getType() {
@@ -1014,6 +1020,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return toSql();
     }
 
+    public List<String> toSubColumnLabel() {
+        return Lists.newArrayList();
+    }
+
     // Convert this expr, including all children, to its Thrift representation.
     public TExpr treeToThrift() {
         TExpr result = new TExpr();
@@ -1059,7 +1069,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             }
             assignmentCompatibleType = assignmentCompatibleType.isInvalid() ? children.get(i).type
                     : ScalarType.getAssignmentCompatibleType(assignmentCompatibleType, children.get(i).type,
-                    true);
+                    true, SessionVariable.getEnableDecimal256());
         }
         return assignmentCompatibleType;
     }
@@ -1285,12 +1295,19 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      * Returns true if expr is fully bound by tids, otherwise false.
      */
     public boolean isBoundByTupleIds(List<TupleId> tids) {
+        if (boundTupleIds != null && !boundTupleIds.isEmpty()) {
+            return boundTupleIds.stream().anyMatch(id -> tids.contains(id));
+        }
         for (Expr child : children) {
             if (!child.isBoundByTupleIds(tids)) {
                 return false;
             }
         }
         return true;
+    }
+
+    public void setBoundTupleIds(List<TupleId> tids) {
+        boundTupleIds = tids;
     }
 
 
@@ -2215,6 +2232,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return "";
     }
 
+    public String getStringValueInFe() {
+        return getStringValue();
+    }
+
     // A special method only for array literal, all primitive type in array
     // will be wrapped by double quote. eg:
     // ["1", "2", "3"]
@@ -2351,22 +2372,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
         if (fn.functionName().equalsIgnoreCase(Operator.MULTIPLY.getName())
                 && fn.getReturnType().isDecimalV3()) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
-                return true;
-            } else {
-                return hasNullableChild(children);
-            }
+            return hasNullableChild(children);
         }
         if ((fn.functionName().equalsIgnoreCase(Operator.ADD.getName())
                 || fn.functionName().equalsIgnoreCase(Operator.SUBTRACT.getName()))
                 && fn.getReturnType().isDecimalV3()) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
-                return true;
-            } else {
-                return hasNullableChild(children);
-            }
+            return hasNullableChild(children);
         }
         if (fn.functionName().equalsIgnoreCase("group_concat")) {
             int size = Math.min(fn.getNumArgs(), children.size());
@@ -2554,7 +2565,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     private MapType getActualMapType(MapType originMapType) {
-        return new MapType(getActualType(originMapType.getKeyType()), getActualType(originMapType.getValueType()));
+        return new MapType(originMapType.getKeyType(), originMapType.getValueType());
     }
 
     private ArrayType getActualArrayType(ArrayType originArrayType) {

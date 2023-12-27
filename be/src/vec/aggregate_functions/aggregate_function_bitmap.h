@@ -25,7 +25,6 @@
 #include <string>
 #include <vector>
 
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"
@@ -143,7 +142,7 @@ struct AggregateFunctionBitmapData {
 
     void reset() {
         is_first = true;
-        value.clear();
+        value.reset(); // it's better to call reset function by self firstly.
     }
 
     BitmapValue& get() { return value; }

@@ -51,37 +51,28 @@ bool ResultSinkOperator::can_write() {
 }
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     static const std::string timer_name = "WaitForDependencyTime";
-    _wait_for_dependency_timer = ADD_TIMER(_profile, timer_name);
-    _wait_for_queue_timer = ADD_CHILD_TIMER(_profile, "WaitForQueue", timer_name);
-    _wait_for_buffer_timer = ADD_CHILD_TIMER(_profile, "WaitForBuffer", timer_name);
-    _wait_for_cancel_timer = ADD_CHILD_TIMER(_profile, "WaitForCancel", timer_name);
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_profile, timer_name, 1);
     auto fragment_instance_id = state->fragment_instance_id();
     // create sender
     std::shared_ptr<BufferControlBlock> sender = nullptr;
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
             state->fragment_instance_id(), vectorized::RESULT_SINK_BUFFER_SIZE, &_sender, true,
             state->execution_timeout()));
-    _result_sink_dependency = OrDependency::create_shared(_parent->operator_id());
-    _buffer_dependency = ResultBufferDependency::create_shared(_parent->operator_id());
-    _cancel_dependency = CancelDependency::create_shared(_parent->operator_id());
-    _result_sink_dependency->add_child(_cancel_dependency);
-    _result_sink_dependency->add_child(_buffer_dependency);
-    _queue_dependency = ResultQueueDependency::create_shared(_parent->operator_id());
-    _result_sink_dependency->add_child(_queue_dependency);
-
-    ((PipBufferControlBlock*)_sender.get())
-            ->set_dependency(_buffer_dependency, _queue_dependency, _cancel_dependency);
+    auto result_sink_dependency = dependency_sptr();
+    _blocks_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "BlocksProduced", TUnit::UNIT, 1);
+    _rows_sent_counter = ADD_COUNTER_WITH_LEVEL(_profile, "RowsProduced", TUnit::UNIT, 1);
+    ((PipBufferControlBlock*)_sender.get())->set_dependency(result_sink_dependency);
     return Status::OK();
 }
 
 Status ResultSinkLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::open(state));
+    RETURN_IF_ERROR(Base::open(state));
     auto& p = _parent->cast<ResultSinkOperatorX>();
     _output_vexpr_ctxs.resize(p._output_vexpr_ctxs.size());
     for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
@@ -140,6 +131,8 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block,
                                  SourceState source_state) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
+    COUNTER_UPDATE(local_state.rows_sent_counter(), (int64_t)block->rows());
+    COUNTER_UPDATE(local_state.blocks_sent_counter(), 1);
     if (_fetch_option.use_two_phase_fetch && block->rows() > 0) {
         RETURN_IF_ERROR(_second_phase_fetch_data(state, block));
     }
@@ -156,7 +149,7 @@ Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state,
                                                      vectorized::Block* final_block) {
     auto row_id_col = final_block->get_by_position(final_block->columns() - 1);
     CHECK(row_id_col.name == BeConsts::ROWID_COL);
-    auto tuple_desc = _row_desc.tuple_descriptors()[0];
+    auto* tuple_desc = _row_desc.tuple_descriptors()[0];
     FetchOption fetch_option;
     fetch_option.desc = tuple_desc;
     fetch_option.t_fetch_opt = _fetch_option;
@@ -172,13 +165,8 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
         return Status::OK();
     }
     SCOPED_TIMER(_close_timer);
-    COUNTER_UPDATE(_wait_for_queue_timer, _queue_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(exec_time_counter(), _queue_dependency->write_watcher_elapse_time());
-    COUNTER_SET(_wait_for_buffer_timer, _buffer_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(exec_time_counter(), _buffer_dependency->write_watcher_elapse_time());
-    COUNTER_SET(_wait_for_cancel_timer, _cancel_dependency->write_watcher_elapse_time());
-    COUNTER_UPDATE(exec_time_counter(), _cancel_dependency->write_watcher_elapse_time());
     SCOPED_TIMER(exec_time_counter());
+    COUNTER_SET(_wait_for_dependency_timer, _dependency->watcher_elapse_time());
     Status final_status = exec_status;
     if (_writer) {
         // close the writer
@@ -200,7 +188,7 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
     static_cast<void>(state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
             state->fragment_instance_id()));
-    RETURN_IF_ERROR(PipelineXSinkLocalState<>::close(state, exec_status));
+    RETURN_IF_ERROR(Base::close(state, exec_status));
     return final_status;
 }
 

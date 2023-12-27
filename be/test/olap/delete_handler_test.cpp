@@ -95,13 +95,14 @@ static void tear_down() {
     EXPECT_TRUE(io::global_local_filesystem()
                         ->delete_directory(string(getenv("DORIS_HOME")) + "/" + UNUSED_PREFIX)
                         .ok());
-    ExecEnv::GetInstance()->set_storage_engine(nullptr);
     k_engine.reset();
+    ExecEnv::GetInstance()->set_storage_engine(nullptr);
 }
 
 static void set_default_create_tablet_request(TCreateTabletReq* request) {
     request->tablet_id = 10003;
     request->__set_version(1);
+    request->partition_id = 10004;
     request->tablet_schema.schema_hash = 270068375;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::AGG_KEYS;

@@ -33,7 +33,6 @@
 #include <utility>
 
 #include "beta_rowset_writer.h"
-// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/logging.h"
 #include "gutil/stringprintf.h"
@@ -46,7 +45,6 @@
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/reader.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -56,6 +54,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
@@ -136,16 +135,17 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
                                        strings::Substitute("Failed to delete file=$0", seg_path));
         // Delete inverted index files
         for (auto column : schema->columns()) {
-            if (schema->has_inverted_index(column.unique_id())) {
-                auto index_id = schema->get_inverted_index(column.unique_id())->index_id();
+            if (schema->has_inverted_index(column)) {
+                auto index_info = schema->get_inverted_index(column);
+                auto index_id = index_info->index_id();
                 auto idx_path = InvertedIndexDescriptor::inverted_index_file_path(
-                        ctx.rowset_dir, ctx.rowset_id, i, index_id);
+                        ctx.rowset_dir, ctx.rowset_id, i, index_id, index_info->get_index_suffix());
                 VLOG_DEBUG << "segcompaction index. delete file " << idx_path;
                 RETURN_NOT_OK_STATUS_WITH_WARN(
                         fs->delete_file(idx_path),
                         strings::Substitute("Failed to delete file=$0", idx_path));
                 // Erase the origin index file cache
-                static_cast<void>(InvertedIndexSearcherCache::instance()->erase(idx_path));
+                RETURN_IF_ERROR(InvertedIndexSearcherCache::instance()->erase(idx_path));
             }
         }
     }

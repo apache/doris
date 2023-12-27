@@ -63,15 +63,14 @@ class Block;
 // This class is NOT thread-safe, external synchronization is required.
 class DeltaWriterV2 {
 public:
-    static Status open(WriteRequest* req,
-                       const std::vector<std::shared_ptr<LoadStreamStub>>& streams,
-                       DeltaWriterV2** writer);
+    static std::unique_ptr<DeltaWriterV2> open(
+            WriteRequest* req, const std::vector<std::shared_ptr<LoadStreamStub>>& streams);
 
     ~DeltaWriterV2();
 
     Status init();
 
-    Status write(const vectorized::Block* block, const std::vector<int>& row_idxs,
+    Status write(const vectorized::Block* block, const std::vector<uint32_t>& row_idxs,
                  bool is_append = false);
 
     Status append(const vectorized::Block* block);
@@ -120,6 +119,7 @@ private:
     int64_t _total_received_rows = 0;
 
     int64_t _write_memtable_time = 0;
+    int64_t _wait_flush_limit_time = 0;
     int64_t _close_wait_time = 0;
 
     std::shared_ptr<MemTableWriter> _memtable_writer;

@@ -21,7 +21,6 @@ package org.apache.doris.external.iceberg.util;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.ColumnDef;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.DecimalLiteral;
@@ -34,39 +33,18 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.Subquery;
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.thrift.TExprOpcode;
 
-import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
-import com.google.common.collect.Sets;
-import org.apache.iceberg.CombinedScanTask;
-import org.apache.iceberg.MetadataTableType;
-import org.apache.iceberg.MetadataTableUtils;
-import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
-import org.apache.iceberg.TableOperations;
-import org.apache.iceberg.TableScan;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.expressions.Expressions;
-import org.apache.iceberg.transforms.PartitionSpecVisitor;
-import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Iceberg utils
@@ -80,147 +58,6 @@ public class IcebergUtils {
         }
     };
     static long MILLIS_TO_NANO_TIME = 1000;
-
-    /**
-     * Create Iceberg schema from Doris ColumnDef.
-     *
-     * @param columnDefs columns for create iceberg table
-     * @return Iceberg schema
-     * @throws UserException if has aggregate type in create table statement
-     */
-    public static Schema createIcebergSchema(List<ColumnDef> columnDefs) throws UserException {
-        columnIdThreadLocal.set(1);
-        List<Types.NestedField> nestedFields = Lists.newArrayList();
-        for (ColumnDef columnDef : columnDefs) {
-            columnDef.analyze(false);
-            if (columnDef.getAggregateType() != null) {
-                throw new DdlException("Do not support aggregation column: " + columnDef.getName());
-            }
-            boolean isNullable = columnDef.isAllowNull();
-            org.apache.iceberg.types.Type icebergType = convertDorisToIceberg(columnDef.getType());
-            if (isNullable) {
-                nestedFields.add(
-                        Types.NestedField.optional(nextId(), columnDef.getName(), icebergType, columnDef.getComment()));
-            } else {
-                nestedFields.add(
-                        Types.NestedField.required(nextId(), columnDef.getName(), icebergType, columnDef.getComment()));
-            }
-        }
-        return new Schema(nestedFields);
-    }
-
-    public static List<Column> createSchemaFromIcebergSchema(Schema schema) throws DdlException {
-        List<Column> columns = Lists.newArrayList();
-        for (Types.NestedField nestedField : schema.columns()) {
-            try {
-                columns.add(nestedFieldToColumn(nestedField));
-            } catch (UnsupportedOperationException e) {
-                if (Config.iceberg_table_creation_strict_mode) {
-                    throw e;
-                }
-                LOG.warn("Unsupported data type in Doris, ignore column[{}], with error: {}",
-                        nestedField.name(), e.getMessage());
-                continue;
-            }
-        }
-        return columns;
-    }
-
-    public static Column nestedFieldToColumn(Types.NestedField field) {
-        Type type = convertIcebergToDoris(field.type());
-        return new Column(field.name(), type, true, null, field.isOptional(), null, field.doc());
-    }
-
-    /**
-     * get iceberg table schema id to name mapping
-     *
-     * @param schema iceberg table schema
-     * @return id to name mapping
-     */
-    public static Map<Integer, String> getIdToName(Schema schema) {
-        Map<Integer, String> idToName = new HashMap<>();
-        for (Types.NestedField nestedField : schema.columns()) {
-            idToName.put(nestedField.fieldId(), nestedField.name());
-        }
-        return idToName;
-    }
-
-    public static List<String> getIdentityPartitionField(PartitionSpec spec) {
-        return PartitionSpecVisitor.visit(spec,
-                new PartitionSpecVisitor<String>() {
-                    @Override
-                    public String identity(String sourceName, int sourceId) {
-                        return sourceName;
-                    }
-
-                    @Override
-                    public String bucket(String sourceName, int sourceId, int numBuckets) {
-                        return null;
-                    }
-
-                    @Override
-                    public String truncate(String sourceName, int sourceId, int width) {
-                        return null;
-                    }
-
-                    @Override
-                    public String year(String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String month(String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String day(String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String hour(String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String alwaysNull(int fieldId, String sourceName, int sourceId) {
-                        return null;
-                    }
-
-                    @Override
-                    public String unknown(int fieldId, String sourceName, int sourceId, String transform) {
-                        return null;
-                    }
-                }
-        ).stream().filter(Objects::nonNull).collect(Collectors.toList());
-    }
-
-    /**
-     * Convert a {@link org.apache.iceberg.types.Type} to a {@link Type doris type}.
-     *
-     * @param type a iceberg Type
-     * @return the equivalent doris type
-     * @throws IllegalArgumentException if the type cannot be converted to doris
-     */
-    public static Type convertIcebergToDoris(org.apache.iceberg.types.Type type) {
-        return TypeUtil.visit(type, new TypeToDorisType());
-    }
-
-    /**
-     * Convert a doris {@link Type struct} to a {@link org.apache.iceberg.types.Type} with new field ids.
-     * <p>
-     * This conversion assigns fresh ids.
-     * <p>
-     * Some data types are represented as the same doris type. These are converted to a default type.
-     *
-     * @param type a doris Type
-     * @return the equivalent Type
-     * @throws IllegalArgumentException if the type cannot be converted
-     */
-    public static org.apache.iceberg.types.Type convertDorisToIceberg(Type type) {
-        return DorisTypeVisitor.visit(type, new DorisTypeToType());
-    }
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
         if (expr == null) {
@@ -397,45 +234,4 @@ public class IcebergUtils {
         }
         return slotRef;
     }
-
-    private static int findWidth(IntLiteral literal) {
-        Preconditions.checkArgument(literal.getValue() > 0 && literal.getValue() < Integer.MAX_VALUE,
-                "Unsupported width " + literal.getValue());
-        return (int) literal.getValue();
-    }
-
-    public static int nextId() {
-        int nextId = columnIdThreadLocal.get();
-        columnIdThreadLocal.set(nextId + 1);
-        return nextId;
-    }
-
-    public static Set<String> getAllDataFilesPath(org.apache.iceberg.Table table, TableOperations ops) {
-        org.apache.iceberg.Table dataFilesTable = MetadataTableUtils.createMetadataTableInstance(
-                ops, table.name(), table.name(), MetadataTableType.ALL_DATA_FILES);
-
-        Set<String> dataFilesPath = Sets.newHashSet();
-        TableScan tableScan = dataFilesTable.newScan();
-        List<CombinedScanTask> tasks = Lists.newArrayList(tableScan.planTasks());
-        tasks.forEach(task ->
-                task.files().forEach(fileScanTask -> {
-                    Lists.newArrayList(fileScanTask.asDataTask().rows())
-                            .forEach(row -> dataFilesPath.add(row.get(1, String.class)));
-                })
-        );
-
-        return dataFilesPath;
-    }
-
-    public static PartitionSpec buildPartitionSpec(Schema schema, List<String> partitionNames) {
-        if (partitionNames == null || partitionNames.isEmpty()) {
-            return null;
-        }
-        PartitionSpec.Builder builder = PartitionSpec.builderFor(schema);
-        for (String partitionName : partitionNames) {
-            builder.identity(partitionName);
-        }
-        return builder.build();
-    }
-
 }

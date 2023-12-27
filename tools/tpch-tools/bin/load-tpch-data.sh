@@ -116,49 +116,49 @@ echo "DB: ${DB}"
 
 function load_region() {
     echo "$*"
-    curl --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
+    curl -s --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
         -H "columns: r_regionkey, r_name, r_comment, temp" \
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/region/_stream_load
 }
 function load_nation() {
     echo "$*"
-    curl --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
+    curl -s --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
         -H "columns: n_nationkey, n_name, n_regionkey, n_comment, temp" \
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/nation/_stream_load
 }
 function load_supplier() {
     echo "$*"
-    curl --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
+    curl -s --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
         -H "columns: s_suppkey, s_name, s_address, s_nationkey, s_phone, s_acctbal, s_comment, temp" \
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/supplier/_stream_load
 }
 function load_customer() {
     echo "$*"
-    curl --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
+    curl -s --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
         -H "columns: c_custkey, c_name, c_address, c_nationkey, c_phone, c_acctbal, c_mktsegment, c_comment, temp" \
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/customer/_stream_load
 }
 function load_part() {
     echo "$*"
-    curl --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
+    curl -s --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
         -H "columns: p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment, temp" \
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/part/_stream_load
 }
 function load_partsupp() {
     echo "$*"
-    curl --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
+    curl -s --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
         -H "columns: ps_partkey, ps_suppkey, ps_availqty, ps_supplycost, ps_comment, temp" \
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/partsupp/_stream_load
 }
 function load_orders() {
     echo "$*"
-    curl --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
+    curl -s --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
         -H "columns: o_orderkey, o_custkey, o_orderstatus, o_totalprice, o_orderdate, o_orderpriority, o_clerk, o_shippriority, o_comment, temp" \
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/orders/_stream_load
 }
 function load_lineitem() {
     echo "$*"
-    curl --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
+    curl -s --location-trusted -u "${USER}":"${PASSWORD}" -H "column_separator:|" \
         -H "columns: l_orderkey, l_partkey, l_suppkey, l_linenumber, l_quantity, l_extendedprice, l_discount, l_tax, l_returnflag,l_linestatus, l_shipdate,l_commitdate,l_receiptdate,l_shipinstruct,l_shipmode,l_comment,temp" \
         -T "$*" http://"${FE_HOST}":"${FE_HTTP_PORT}"/api/"${DB}"/lineitem/_stream_load
 }

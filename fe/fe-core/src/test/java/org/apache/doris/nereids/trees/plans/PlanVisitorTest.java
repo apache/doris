@@ -23,6 +23,8 @@ import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Uuid;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
 import org.apache.doris.nereids.trees.plans.visitor.TableCollector;
@@ -76,7 +78,7 @@ public class PlanVisitorTest extends TestWithFeService {
                 + "\"replication_num\" = \"1\"\n"
                 + ");");
 
-        createView("CREATE VIEW `view1` AS SELECT t1.*, current_date() FROM\n"
+        createView("CREATE VIEW `view1` AS SELECT t1.*, random() FROM\n"
                 + "`table1` t1 LEFT JOIN\n"
                 + "`table2` t2 ON t1.c1 = t2.c1;");
     }
@@ -84,7 +86,7 @@ public class PlanVisitorTest extends TestWithFeService {
     @Test
     public void test1() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("SELECT *, now() FROM table1 "
+                .checkPlannerResult("SELECT *, random() FROM table1 "
                                 + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
                                 + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR table1.c1 < 10",
                         nereidsPlanner -> {
@@ -93,7 +95,7 @@ public class PlanVisitorTest extends TestWithFeService {
                             // Check nondeterministic collect
                             physicalPlan.accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
                             Assertions.assertEquals(1, collectResult.size());
-                            Assertions.assertTrue(collectResult.get(0) instanceof Now);
+                            Assertions.assertTrue(collectResult.get(0) instanceof Random);
                             // Check get tables
                             TableCollectorContext collectorContext =
                                     new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.OLAP));
@@ -114,7 +116,7 @@ public class PlanVisitorTest extends TestWithFeService {
     @Test
     public void test2() {
         PlanChecker.from(connectContext)
-                .checkPlannerResult("SELECT view1.*, now() FROM view1 "
+                .checkPlannerResult("SELECT view1.*, uuid() FROM view1 "
                                 + "LEFT SEMI JOIN table2 ON view1.c1 = table2.c1 "
                                 + "WHERE view1.c1 IN (SELECT c1 FROM table2) OR view1.c1 < 10",
                         nereidsPlanner -> {
@@ -123,8 +125,8 @@ public class PlanVisitorTest extends TestWithFeService {
                             // Check nondeterministic collect
                             physicalPlan.accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
                             Assertions.assertEquals(2, collectResult.size());
-                            Assertions.assertTrue(collectResult.get(0) instanceof Now);
-                            Assertions.assertTrue(collectResult.get(1) instanceof CurrentDate);
+                            Assertions.assertTrue(collectResult.get(0) instanceof Uuid);
+                            Assertions.assertTrue(collectResult.get(1) instanceof Random);
                             // Check get tables
                             TableCollectorContext collectorContext =
                                     new TableCollector.TableCollectorContext(Sets.newHashSet(TableType.OLAP));
@@ -140,6 +142,22 @@ public class PlanVisitorTest extends TestWithFeService {
                                             .map(TableIf::getName)
                                             .collect(Collectors.toList()),
                                     expectedTables);
+                        });
+    }
+
+    @Test
+    public void testTimeFunction() {
+        PlanChecker.from(connectContext)
+                .checkExplain("SELECT *, now() FROM table1 "
+                                + "LEFT SEMI JOIN table2 ON table1.c1 = table2.c1 "
+                                + "WHERE table1.c1 IN (SELECT c1 FROM table2) OR CURDATE() < '2023-01-01'",
+                        nereidsPlanner -> {
+                            List<TreeNode<Expression>> collectResult = new ArrayList<>();
+                            // Check nondeterministic collect
+                            nereidsPlanner.getAnalyzedPlan().accept(NondeterministicFunctionCollector.INSTANCE, collectResult);
+                            Assertions.assertEquals(2, collectResult.size());
+                            Assertions.assertTrue(collectResult.get(0) instanceof Now);
+                            Assertions.assertTrue(collectResult.get(1) instanceof CurrentDate);
                         });
     }
 }

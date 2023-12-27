@@ -19,10 +19,12 @@ package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Objects;
@@ -108,6 +110,11 @@ public class InSubquery extends SubqueryExpr {
     }
 
     @Override
+    public List<Expression> children() {
+        return Lists.newArrayList(compareExpr, listQuery);
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (!super.equals(o)) {
             return false;
@@ -131,5 +138,10 @@ public class InSubquery extends SubqueryExpr {
                 ? Optional.of(listQuery.queryPlan.getOutput().get(0))
                 : Optional.of(new Cast(listQuery.queryPlan.getOutput().get(0), dataType)),
             isNot);
+    }
+
+    @Override
+    public InSubquery withSubquery(LogicalPlan subquery) {
+        return new InSubquery(compareExpr, listQuery.withSubquery(subquery), correlateSlots, typeCoercionExpr, isNot);
     }
 }

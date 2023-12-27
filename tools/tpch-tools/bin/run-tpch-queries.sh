@@ -180,5 +180,6 @@ for i in ${query_array[@]}; do
 done
 
 echo "Total cold run time: ${cold_run_sum} ms"
+# tpch 流水线依赖这个'Total hot run time'字符串
 echo "Total hot run time: ${best_hot_run_sum} ms"
 echo 'Finish tpch queries.'

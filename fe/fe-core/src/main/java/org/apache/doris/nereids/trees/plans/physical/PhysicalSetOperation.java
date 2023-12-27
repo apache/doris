@@ -173,9 +173,9 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
                 if (projIndex < 0 || projIndex >= project.getProjects().size()) {
                     continue;
                 }
-                NamedExpression newProbeExpr = project.getProjects().get(projIndex);
+                Expression newProbeExpr = project.getProjects().get(projIndex);
                 if (newProbeExpr instanceof Alias) {
-                    newProbeExpr = (NamedExpression) newProbeExpr.child(0);
+                    newProbeExpr = newProbeExpr.child(0);
                 }
                 Slot newProbeSlot = RuntimeFilterGenerator.checkTargetChild(newProbeExpr);
                 if (!RuntimeFilterGenerator.checkPushDownPreconditionsForJoin(builderNode, ctx, newProbeSlot)) {
@@ -193,5 +193,9 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
         return outputs.stream()
                 .map(NamedExpression::toSlot)
                 .collect(ImmutableList.toImmutableList());
+    }
+
+    public boolean isDistinct() {
+        return qualifier == Qualifier.DISTINCT;
     }
 }

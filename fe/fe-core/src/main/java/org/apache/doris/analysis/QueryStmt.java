@@ -527,6 +527,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     }
 
+    @Override
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+    }
+
 
     /**
      * register expr_id of expr and its children, if not set
@@ -590,6 +594,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      * UnionStmt and SelectStmt have different implementations.
      */
     public abstract ArrayList<String> getColLabels();
+
+    public abstract ArrayList<List<String>> getSubColPath();
 
     /**
      * Returns the materialized tuple ids of the output of this stmt.

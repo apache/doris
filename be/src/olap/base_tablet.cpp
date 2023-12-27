@@ -19,8 +19,10 @@
 
 #include <fmt/format.h>
 
+#include "olap/tablet_fwd.h"
 #include "olap/tablet_schema_cache.h"
 #include "util/doris_metrics.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -63,6 +65,19 @@ void BaseTablet::update_max_version_schema(const TabletSchemaSPtr& tablet_schema
         tablet_schema->schema_version() > _max_version_schema->schema_version()) {
         _max_version_schema = tablet_schema;
     }
+}
+
+Status BaseTablet::update_by_least_common_schema(const TabletSchemaSPtr& update_schema) {
+    std::lock_guard wrlock(_meta_lock);
+    CHECK(_max_version_schema->schema_version() >= update_schema->schema_version());
+    TabletSchemaSPtr final_schema;
+    bool check_column_size = true;
+    RETURN_IF_ERROR(vectorized::schema_util::get_least_common_schema(
+            {_max_version_schema, update_schema}, _max_version_schema, final_schema,
+            check_column_size));
+    _max_version_schema = final_schema;
+    VLOG_DEBUG << "dump updated tablet schema: " << final_schema->dump_structure();
+    return Status::OK();
 }
 
 } /* namespace doris */

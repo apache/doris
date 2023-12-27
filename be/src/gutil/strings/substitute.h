@@ -131,7 +131,7 @@ public:
 private:
     inline SubstituteArg() : text_(NULL), size_(-1) {}
 
-    const char* text_;
+    const char* text_ = nullptr;
     int size_;
     char scratch_[kFastToBufferSize];
 };

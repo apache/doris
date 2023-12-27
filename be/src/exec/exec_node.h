@@ -36,7 +36,6 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "util/runtime_profile.h"
-#include "util/telemetry/telemetry.h"
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr_fwd.h"
 
@@ -231,8 +230,6 @@ public:
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
-    OpentelemetrySpan get_next_span() { return _span; }
-
     virtual std::string get_name();
 
     // Names of counters shared by all exec nodes
@@ -255,7 +252,7 @@ protected:
 
     int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<TupleId> _tuple_ids;
 
     vectorized::VExprContextSPtrs _conjuncts;
@@ -279,18 +276,15 @@ protected:
     // which will providea reference for operator memory.
     std::unique_ptr<MemTracker> _mem_tracker;
 
-    RuntimeProfile::Counter* _exec_timer;
-    RuntimeProfile::Counter* _rows_returned_counter;
-    RuntimeProfile::Counter* _output_bytes_counter;
-    RuntimeProfile::Counter* _block_count_counter;
-    RuntimeProfile::Counter* _rows_returned_rate;
-    RuntimeProfile::Counter* _memory_used_counter;
-    RuntimeProfile::Counter* _projection_timer;
+    RuntimeProfile::Counter* _exec_timer = nullptr;
+    RuntimeProfile::Counter* _rows_returned_counter = nullptr;
+    RuntimeProfile::Counter* _output_bytes_counter = nullptr;
+    RuntimeProfile::Counter* _block_count_counter = nullptr;
+    RuntimeProfile::Counter* _rows_returned_rate = nullptr;
+    RuntimeProfile::Counter* _memory_used_counter = nullptr;
+    RuntimeProfile::Counter* _projection_timer = nullptr;
     // Account for peak memory used by this node
-    RuntimeProfile::Counter* _peak_memory_usage_counter;
-
-    //
-    OpentelemetrySpan _span;
+    RuntimeProfile::Counter* _peak_memory_usage_counter = nullptr;
 
     //NOTICE: now add a faker profile, because sometimes the profile record is useless
     //so we want remove some counters and timers, eg: in join node, if it's broadcast_join
