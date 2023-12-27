@@ -41,6 +41,7 @@ import org.apache.doris.nereids.minidump.NereidsTracer;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.rules.exploration.mv.MaterializationContext;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -399,7 +400,9 @@ public class NereidsPlanner extends Planner {
             case MEMO_PLAN:
                 plan = cascadesContext.getMemo().toString()
                     + "\n\n========== OPTIMIZED PLAN ==========\n"
-                    + optimizedPlan.treeString();
+                    + optimizedPlan.treeString()
+                    + "\n\n========== MATERIALIZATIONS ==========\n"
+                    + MaterializationContext.toString(cascadesContext.getMaterializationContexts());
                 break;
             case ALL_PLAN:
                 plan = "========== PARSED PLAN ==========\n"

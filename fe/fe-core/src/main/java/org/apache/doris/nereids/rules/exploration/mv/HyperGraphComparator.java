@@ -69,7 +69,7 @@ public class HyperGraphComparator {
     private final Map<Edge, List<? extends Expression>> pullUpViewExprWithEdge = new HashMap<>();
     private final LogicalCompatibilityContext logicalCompatibilityContext;
 
-    HyperGraphComparator(HyperGraph queryHyperGraph, HyperGraph viewHyperGraph,
+    public HyperGraphComparator(HyperGraph queryHyperGraph, HyperGraph viewHyperGraph,
             LogicalCompatibilityContext logicalCompatibilityContext) {
         this.queryHyperGraph = queryHyperGraph;
         this.viewHyperGraph = viewHyperGraph;
@@ -114,7 +114,7 @@ public class HyperGraphComparator {
                     .filter(expr -> !ExpressionUtils.isInferred(expr))
                     .collect(Collectors.toList());
             if (!rawFilter.isEmpty() && !canPullUp(e.getKey())) {
-                return ComparisonResult.INVALID;
+                return ComparisonResult.newInvalidResWithErrorMessage(getErrorMessage() + "\nwith error edge " + e);
             }
             builder.addQueryExpressions(rawFilter);
         }
@@ -123,7 +123,7 @@ public class HyperGraphComparator {
                     .filter(expr -> !ExpressionUtils.isInferred(expr))
                     .collect(Collectors.toList());
             if (!rawFilter.isEmpty() && !canPullUp(e.getKey())) {
-                return ComparisonResult.INVALID;
+                return ComparisonResult.newInvalidResWithErrorMessage(getErrorMessage() + "\nwith error edge " + e);
             }
             builder.addViewExpressions(rawFilter);
         }
@@ -131,6 +131,20 @@ public class HyperGraphComparator {
             builder.addViewNoNullableSlot(inferredCond.second);
         }
         return builder.build();
+    }
+
+    /**
+     * get error message
+     */
+    public String getErrorMessage() {
+        return String.format(
+                "graph logical is not equal, query join edges is %s,\n" + "query filter edges is %s,\n"
+                        + "view join edges is %s,\n" + "view filter edges is %s\n" + "inferred edge with conds %s",
+                getQueryJoinEdges(),
+                getQueryFilterEdges(),
+                getViewJoinEdges(),
+                getViewFilterEdges(),
+                inferredViewEdgeMap);
     }
 
     private boolean canPullUp(Edge edge) {
