@@ -31,15 +31,18 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
 import org.apache.doris.datasource.infoschema.ExternalInfoSchemaDatabase;
+import org.apache.doris.datasource.infoschema.ExternalInfoSchemaTable;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import com.google.gson.internal.LinkedTreeMap;
 import org.apache.commons.lang3.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -345,10 +348,20 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     @Override
     public void gsonPostProcess() throws IOException {
         tableNameToId = Maps.newConcurrentMap();
-        LOG.info("debug gsonPostProcess() db: {}, {}, size: {}", name, id, idToTbl.size());
-        for (T tbl : idToTbl.values()) {
-            tableNameToId.put(tbl.getName(), tbl.getId());
+        Map<Long, T> tmpIdToTbl = Maps.newConcurrentMap();
+        for (Object obj : idToTbl.values()) {
+            if (obj instanceof LinkedTreeMap) {
+                ExternalInfoSchemaTable table = GsonUtils.GSON.fromJson(GsonUtils.GSON.toJson(obj),
+                        ExternalInfoSchemaTable.class);
+                tmpIdToTbl.put(table.getId(), (T) table);
+                tableNameToId.put(table.getName(), table.getId());
+            } else {
+                Preconditions.checkState(obj instanceof ExternalTable);
+                tmpIdToTbl.put(((ExternalTable)obj).getId(), (T)obj);
+                tableNameToId.put(((ExternalTable)obj).getName(), ((ExternalTable)obj).getId());
+            }
         }
+        idToTbl = tmpIdToTbl;
         rwLock = new ReentrantReadWriteLock(true);
     }
 
