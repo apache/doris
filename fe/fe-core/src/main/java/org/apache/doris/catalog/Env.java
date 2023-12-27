@@ -2158,7 +2158,7 @@ public class Env {
     }
 
     public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
-        insertOverwriteManager.write(out);
+        this.insertOverwriteManager.write(out);
         LOG.info("finished save iot to image");
         return checksum;
     }
