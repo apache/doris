@@ -2150,13 +2150,13 @@ public class Env {
         return checksum;
     }
 
-    public long loadIot(DataInputStream in, long checksum) throws IOException {
+    public long loadInsertOverwrite(DataInputStream in, long checksum) throws IOException {
         this.insertOverwriteManager = InsertOverwriteManager.read(in);
         LOG.info("finished replay iot from image");
         return checksum;
     }
 
-    public long saveIot(CountingDataOutputStream out, long checksum) throws IOException {
+    public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
         insertOverwriteManager.write(out);
         LOG.info("finished save iot to image");
         return checksum;

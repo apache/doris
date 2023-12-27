@@ -242,9 +242,9 @@ public class MetaPersistMethod {
                 break;
             case "insertOverwrite":
                 metaPersistMethod.readMethod =
-                        Env.class.getDeclaredMethod("loadIot", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadInsertOverwrite", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Env.class.getDeclaredMethod("saveIot", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveInsertOverwrite", CountingDataOutputStream.class, long.class);
                 break;
             default:
                 break;
