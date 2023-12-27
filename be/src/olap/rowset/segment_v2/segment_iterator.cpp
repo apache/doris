@@ -2189,7 +2189,7 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 }
                 throw Exception(
                         ErrorCode::INTERNAL_ERROR,
-                        "filter_block_internal column id(index) greater than block->columns(), "
+                        "filter block column id(index) greater than block->columns(), "
                         "column id={}, all columns that need filter={}, block columns num={}",
                         col, ss.str().substr(0, ss.str().length() - 1), block->columns());
             }
