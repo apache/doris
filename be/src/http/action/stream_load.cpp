@@ -672,8 +672,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     }
     if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
         if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            size_t content_length = 0;
-            content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
             if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
                 ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
                 ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
