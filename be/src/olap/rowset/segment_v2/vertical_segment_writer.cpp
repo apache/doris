@@ -414,7 +414,7 @@ Status VerticalSegmentWriter::_append_block_with_partial_content(RowsInBlock& da
                     }
                 }
                 return Status::Error<INVALID_SCHEMA, false>(
-                        "the unmentioned column {} should have default value or be nullable for "
+                        "the unmentioned column `{}` should have default value or be nullable for "
                         "newly inserted rows in non-strict mode partial update", error_column);
             }
             has_default_or_nullable = true;
