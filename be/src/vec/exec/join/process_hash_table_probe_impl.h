@@ -247,7 +247,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
         if (current_offset < _batch_size) {
             while (probe_index < probe_rows) {
                 if constexpr (ignore_null && need_null_map_for_probe) {
-                    if ((*null_map)[probe_index]) {
+                    if (!is_mark_join && (*null_map)[probe_index]) {
                         if constexpr (probe_all) {
                             // only full outer / left outer need insert the data of right table
                             if (LIKELY(current_offset < _build_block_rows.size())) {
