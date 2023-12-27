@@ -161,8 +161,11 @@ public interface TableIf {
 
     void write(DataOutput out) throws IOException;
 
+    // Don't use it outside due to its thread-unsafe, use get specific constraints instead.
     default Map<String, Constraint> getConstraintsMap() {
-        throw new RuntimeException(String.format("Not implemented constraint for table %s", this));
+        throw new RuntimeException(String.format("Not implemented constraint for table %s. "
+                + "And the function can't be called outside, consider get specific function "
+                + "like getForeignKeyConstraints/getPrimaryKeyConstraints/getUniqueConstraints.", this));
     }
 
     default Set<ForeignKeyConstraint> getForeignKeyConstraints() {
@@ -172,6 +175,8 @@ public interface TableIf {
                     .filter(ForeignKeyConstraint.class::isInstance)
                     .map(ForeignKeyConstraint.class::cast)
                     .collect(ImmutableSet.toImmutableSet());
+        } catch (Exception ignored) {
+            return ImmutableSet.of();
         } finally {
             readUnlock();
         }
@@ -184,6 +189,8 @@ public interface TableIf {
                     .filter(PrimaryKeyConstraint.class::isInstance)
                     .map(PrimaryKeyConstraint.class::cast)
                     .collect(ImmutableSet.toImmutableSet());
+        } catch (Exception ignored) {
+            return ImmutableSet.of();
         } finally {
             readUnlock();
         }
@@ -196,6 +203,8 @@ public interface TableIf {
                     .filter(UniqueConstraint.class::isInstance)
                     .map(UniqueConstraint.class::cast)
                     .collect(ImmutableSet.toImmutableSet());
+        } catch (Exception ignored) {
+            return ImmutableSet.of();
         } finally {
             readUnlock();
         }
