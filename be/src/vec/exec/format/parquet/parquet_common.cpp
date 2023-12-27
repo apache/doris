@@ -75,23 +75,26 @@ void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& ru
             if (is_null) {
                 _num_nulls += run_length;
                 for (int i = 0; i < run_length; ++i) {
-                    _data_map[map_index++] = FILTERED_NULL;
+                    //_data_map[map_index++] = FILTERED_NULL;
+                    _data_map[map_index++] = NULL_DATA;
                 }
             } else {
                 for (int i = 0; i < run_length; ++i) {
-                    _data_map[map_index++] = FILTERED_CONTENT;
+                    //_data_map[map_index++] = FILTERED_CONTENT;
+                    _data_map[map_index++] = CONTENT;
                 }
             }
             is_null = !is_null;
         }
         size_t num_read = 0;
-        DCHECK_LE(_filter_map_index + num_values, _filter_map_size);
+        /*DCHECK_LE(_filter_map_index + num_values, _filter_map_size);
         for (size_t i = 0; i < num_values; ++i) {
             if (_filter_map[_filter_map_index++]) {
                 _data_map[i] = _data_map[i] == FILTERED_NULL ? NULL_DATA : CONTENT;
                 num_read++;
             }
-        }
+        }*/
+        num_read = num_values;
         _num_filtered = num_values - num_read;
         if (null_map != nullptr && num_read > 0) {
             NullMap& map_data_column = *null_map;
