@@ -169,7 +169,7 @@ suite("sort") {
       `col_varchar`         VARCHAR(10) NOT NULL,
       `col_varchar_null`    VARCHAR(10) NULL,
       `col_char`            CHAR(10) NOT NULL,
-      `col_char_null`       CHAR(10) NULL,
+      `col_char_null`       CHAR(10) NULL
     ) ENGINE=OLAP
     DUPLICATE KEY(`row_id`)
     DISTRIBUTED BY HASH(`row_id`) BUCKETS 1

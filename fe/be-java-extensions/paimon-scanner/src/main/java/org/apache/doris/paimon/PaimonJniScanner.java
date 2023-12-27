@@ -57,6 +57,7 @@ public class PaimonJniScanner extends JniScanner {
     private long dbId;
     private long tblId;
     private long lastUpdateTime;
+    private RecordReader.RecordIterator<InternalRow> recordIterator = null;
 
     public PaimonJniScanner(int batchSize, Map<String, String> params) {
         LOG.debug("params:{}", params);
@@ -133,18 +134,25 @@ public class PaimonJniScanner extends JniScanner {
     protected int getNext() throws IOException {
         int rows = 0;
         try {
-            RecordReader.RecordIterator<InternalRow> batch;
-            while ((batch = reader.readBatch()) != null) {
+            if (recordIterator == null) {
+                recordIterator = reader.readBatch();
+            }
+
+            while (recordIterator != null) {
                 InternalRow record;
-                while ((record = batch.next()) != null) {
+                while ((record = recordIterator.next()) != null) {
                     columnValue.setOffsetRow(record);
                     for (int i = 0; i < fields.length; i++) {
                         columnValue.setIdx(i, types[i]);
                         appendData(i, columnValue);
                     }
                     rows++;
+                    if (rows >= batchSize) {
+                        return rows;
+                    }
                 }
-                batch.releaseBatch();
+                recordIterator.releaseBatch();
+                recordIterator = reader.readBatch();
             }
         } catch (IOException e) {
             LOG.warn("failed to getNext columnValue ", e);

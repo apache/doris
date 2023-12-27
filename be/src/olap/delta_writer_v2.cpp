@@ -37,7 +37,6 @@
 #include "gutil/strings/numbers.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/data_dir.h"
-#include "olap/memtable_flush_executor.h"
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/beta_rowset_writer_v2.h"
@@ -82,8 +81,10 @@ DeltaWriterV2::DeltaWriterV2(WriteRequest* req,
 void DeltaWriterV2::_update_profile(RuntimeProfile* profile) {
     auto child = profile->create_child(fmt::format("DeltaWriterV2 {}", _req.tablet_id), true, true);
     auto write_memtable_timer = ADD_TIMER(child, "WriteMemTableTime");
+    auto wait_flush_limit_timer = ADD_TIMER(child, "WaitFlushLimitTime");
     auto close_wait_timer = ADD_TIMER(child, "CloseWaitTime");
     COUNTER_SET(write_memtable_timer, _write_memtable_time);
+    COUNTER_SET(wait_flush_limit_timer, _wait_flush_limit_time);
     COUNTER_SET(close_wait_timer, _close_wait_time);
 }
 
@@ -153,9 +154,12 @@ Status DeltaWriterV2::write(const vectorized::Block* block, const std::vector<ui
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    while (_memtable_writer->get_flush_token_stats().flush_running_count >=
-           config::memtable_flush_running_count_limit) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    {
+        SCOPED_RAW_TIMER(&_wait_flush_limit_time);
+        while (_memtable_writer->flush_running_count() >=
+               config::memtable_flush_running_count_limit) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
     SCOPED_RAW_TIMER(&_write_memtable_time);
     return _memtable_writer->write(block, row_idxs, is_append);

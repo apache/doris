@@ -115,7 +115,7 @@ void JoinBuildSinkOperatorX<LocalStateType>::_init_join_op() {
 }
 
 template class JoinBuildSinkOperatorX<HashJoinBuildSinkLocalState>;
-template class JoinBuildSinkLocalState<HashJoinBuildSinkDependency, HashJoinBuildSinkLocalState>;
+template class JoinBuildSinkLocalState<SharedHashTableDependency, HashJoinBuildSinkLocalState>;
 template class JoinBuildSinkOperatorX<NestedLoopJoinBuildSinkLocalState>;
 template class JoinBuildSinkLocalState<NestedLoopJoinBuildSinkDependency,
                                        NestedLoopJoinBuildSinkLocalState>;

@@ -50,6 +50,7 @@ private:
     Status _read_wal_header(const std::string& wal, std::string& columns);
     bool _need_replay(const replay_wal_info& info);
     Status _replay_wal_internal(const std::string& wal);
+    Status _delete_wal(int64_t wal_id);
 
 private:
     ExecEnv* _exec_env;

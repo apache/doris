@@ -224,6 +224,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String IGNORE_STORAGE_DATA_DISTRIBUTION = "ignore_storage_data_distribution";
 
+    public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+
+    // Limit the max count of scanners to prevent generate too many scanners.
+    public static final String PARALLEL_SCAN_MAX_SCANNERS_COUNT = "parallel_scan_max_scanners_count";
+
+    // Avoid splitting small segments, each scanner should scan `parallel_scan_min_rows_per_scanner` rows.
+    public static final String PARALLEL_SCAN_MIN_ROWS_PER_SCANNER = "parallel_scan_min_rows_per_scanner";
+
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
     public static final String ENABLE_AGG_STATE = "enable_agg_state";
@@ -451,8 +459,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DECIMAL256 = "enable_decimal256";
 
-    public static final String ENABLE_EXTERNAL_MV_REWRITE = "enable_external_mv_rewrite";
-    public static final String ENABLE_MV_REWRITE = "enable_mv_rewrite";
     public static final String STATS_INSERT_MERGE_ITEM_COUNT = "stats_insert_merge_item_count";
 
     public static final String HUGE_TABLE_DEFAULT_SAMPLE_ROWS = "huge_table_default_sample_rows";
@@ -786,7 +792,19 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_SHARED_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
-    private boolean enableSharedScan = false;
+    private boolean enableSharedScan = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            needForward = true)
+    private boolean enableParallelScan = true;
+
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MAX_SCANNERS_COUNT, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private int parallelScanMaxScannersCount = 48;
+
+    @VariableMgr.VarAttr(name = PARALLEL_SCAN_MIN_ROWS_PER_SCANNER, fuzzy = false,
+            varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
+    private long parallelScanMinRowsPerScanner = 65536; // 2MB
 
     @VariableMgr.VarAttr(name = IGNORE_STORAGE_DATA_DISTRIBUTION, fuzzy = false,
             varType = VariableAnnotation.EXPERIMENTAL, needForward = true)
@@ -812,12 +830,6 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY, needForward = true)
     public boolean trimTailingSpacesForExternalTableQuery = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_EXTERNAL_MV_REWRITE, needForward = true)
-    public boolean enableExternalMvRewrite = false;
-
-    @VariableMgr.VarAttr(name = ENABLE_MV_REWRITE, needForward = true)
-    public boolean enableMvRewrite = false;
 
     // the maximum size in bytes for a table that will be broadcast to all be nodes
     // when performing a join, By setting this value to -1 broadcasting can be disabled.
@@ -1333,7 +1345,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableMemtableOnSinkNode = false;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
-    public int loadStreamPerNode = 20;
+    public int loadStreamPerNode = 60;
 
     @VariableMgr.VarAttr(name = GROUP_COMMIT)
     public String groupCommit = "off_mode";
@@ -1430,7 +1442,7 @@ public class SessionVariable implements Serializable, Writable {
                             + "When enable_auto_sample is enabled, tables"
                             + "larger than this value will automatically collect "
                             + "statistics through sampling"})
-    public long hugeTableLowerBoundSizeInBytes = 5L * 1024 * 1024 * 1024;
+    public long hugeTableLowerBoundSizeInBytes = 0;
 
     @VariableMgr.VarAttr(name = HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS, flag = VariableMgr.GLOBAL,
             description = {"控制对大表的自动ANALYZE的最小时间间隔，"
@@ -2612,22 +2624,6 @@ public class SessionVariable implements Serializable, Writable {
                         : maxTableCountUseCascadesJoinReorder;
     }
 
-    public boolean isEnableExternalMvRewrite() {
-        return enableExternalMvRewrite;
-    }
-
-    public void setEnableExternalMvRewrite(boolean enableExternalMvRewrite) {
-        this.enableExternalMvRewrite = enableExternalMvRewrite;
-    }
-
-    public boolean isEnableMvRewrite() {
-        return enableMvRewrite;
-    }
-
-    public void setEnableMvRewrite(boolean enableMvRewrite) {
-        this.enableMvRewrite = enableMvRewrite;
-    }
-
     public boolean isShowUserDefaultRole() {
         return showUserDefaultRole;
     }
@@ -2769,6 +2765,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipMissingVersion(skipMissingVersion);
 
         tResult.setInvertedIndexSkipThreshold(invertedIndexSkipThreshold);
+
+        tResult.setEnableParallelScan(enableParallelScan);
+        tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
+        tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
 
         return tResult;
     }
@@ -3081,6 +3081,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableSharedScan() {
         return enableSharedScan;
+    }
+
+    public void setEnableSharedScan(boolean value) {
+        enableSharedScan = value;
+    }
+
+    public boolean getEnableParallelScan() {
+        return enableParallelScan;
     }
 
     public boolean getEnablePipelineXEngine() {

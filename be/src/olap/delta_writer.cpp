@@ -73,6 +73,7 @@ DeltaWriter::DeltaWriter(StorageEngine& engine, WriteRequest* req, RuntimeProfil
 void BaseDeltaWriter::_init_profile(RuntimeProfile* profile) {
     _profile = profile->create_child(fmt::format("DeltaWriter {}", _req.tablet_id), true, true);
     _close_wait_timer = ADD_TIMER(_profile, "CloseWaitTime");
+    _wait_flush_limit_timer = ADD_TIMER(_profile, "WaitFlushLimitTime");
 }
 
 void DeltaWriter::_init_profile(RuntimeProfile* profile) {
@@ -126,9 +127,12 @@ Status BaseDeltaWriter::write(const vectorized::Block* block, const std::vector<
     if (!_is_init && !_is_cancelled) {
         RETURN_IF_ERROR(init());
     }
-    while (_memtable_writer->get_flush_token_stats().flush_running_count >=
-           config::memtable_flush_running_count_limit) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    {
+        SCOPED_TIMER(_wait_flush_limit_timer);
+        while (_memtable_writer->flush_running_count() >=
+               config::memtable_flush_running_count_limit) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
     }
     return _memtable_writer->write(block, row_idxs, is_append);
 }

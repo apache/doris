@@ -154,16 +154,19 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
     public void schedulerInstantJob(T job, TaskType taskType, C context) {
         List<? extends AbstractTask> tasks = job.commonCreateTasks(taskType, context);
         if (CollectionUtils.isEmpty(tasks)) {
-            log.info("job create task is empty, skip scheduler, job id is {},job name is {}", job.getJobId(),
+            log.info("job create task is empty, skip scheduler, job id is {}, job name is {}", job.getJobId(),
                     job.getJobName());
             if (job.getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
                 job.setJobStatus(JobStatus.FINISHED);
             }
             return;
         }
-        tasks.forEach(task -> taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
-                job.getJobConfig()));
-
+        tasks.forEach(task -> {
+            taskDisruptorGroupManager.dispatchInstantTask(task, job.getJobType(),
+                    job.getJobConfig());
+            log.info("dispatch instant job, job id is {}, job name is {}, task id is {}", job.getJobId(),
+                    job.getJobName(), task.getTaskId());
+        });
     }
 
     /**

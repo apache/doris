@@ -47,9 +47,12 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     private static final Logger LOG = LogManager.getLogger(MTMVJob.class);
+    private ReentrantReadWriteLock jobRwLock;
+
     private static final ShowResultSetMetaData JOB_META_DATA =
             ShowResultSetMetaData.builder()
                     .addColumn(new Column("JobId", ScalarType.createVarchar(20)))
@@ -98,12 +101,14 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     private long mtmvId;
 
     public MTMVJob() {
+        jobRwLock = new ReentrantReadWriteLock(true);
     }
 
     public MTMVJob(long dbId, long mtmvId) {
         this.dbId = dbId;
         this.mtmvId = mtmvId;
         super.setCreateTimeMs(System.currentTimeMillis());
+        jobRwLock = new ReentrantReadWriteLock(true);
     }
 
     @Override
@@ -120,7 +125,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         task.setTaskType(taskType);
         ArrayList<MTMVTask> tasks = new ArrayList<>();
         tasks.add(task);
-        super.initTasks(tasks);
+        super.initTasks(tasks, taskType);
         return tasks;
     }
 
@@ -201,6 +206,22 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     private MTMV getMTMV() throws DdlException, MetaNotFoundException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
         return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+    }
+
+    public void readLock() {
+        this.jobRwLock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        this.jobRwLock.readLock().unlock();
+    }
+
+    public void writeLock() {
+        this.jobRwLock.writeLock().lock();
+    }
+
+    public void writeUnlock() {
+        this.jobRwLock.writeLock().unlock();
     }
 
     @Override

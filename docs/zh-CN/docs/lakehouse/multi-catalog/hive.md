@@ -168,6 +168,8 @@ CREATE CATALOG hive PROPERTIES (
 
 ### Hive With Glue
 
+> 连接Glue时，如果是在非EC2环境，需要将EC2环境里的 `~/.aws` 目录拷贝到当前环境里。也可以下载[AWS Cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html)工具进行配置，这种方式也会在当前用户目录下创建`.aws`目录。
+
 ```sql
 CREATE CATALOG hive PROPERTIES (
     "type"="hms",

@@ -229,6 +229,7 @@ public:
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
         this->_routine_load_task_executor = r;
     }
+    void set_wal_mgr(std::shared_ptr<WalManager> wm) { this->_wal_manager = wm; }
 
 #endif
     stream_load::LoadStreamStubPool* load_stream_stub_pool() {

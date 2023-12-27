@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include <memory>
+
 #include "common/config.h"
 #include "event2/buffer.h"
 #include "event2/event.h"
@@ -34,6 +36,7 @@
 #include "http/http_request.h"
 #include "http/utils.h"
 #include "olap/wal_manager.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -51,10 +54,14 @@ void http_request_done_cb(struct evhttp_request* req, void* arg) {
 
 TEST_F(StreamLoadTest, TestHeader) {
     // 1G
-    config::wal_max_disk_size = 1073741824;
+    auto wal_mgr = WalManager::create_shared(ExecEnv::GetInstance(), config::group_commit_wal_path);
+    static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_1", 1000, 0, 0));
+    static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_2", 10000, 0, 0));
+    static_cast<void>(wal_mgr->_wal_dirs_info->add("test_path_3", 100000, 0, 0));
+    ExecEnv::GetInstance()->set_wal_mgr(wal_mgr);
     // 1. empty info
     {
-        auto evhttp_req = evhttp_request_new(nullptr, nullptr);
+        auto* evhttp_req = evhttp_request_new(nullptr, nullptr);
         HttpRequest req(evhttp_req);
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), false);
         evhttp_request_free(evhttp_req);
@@ -86,7 +93,7 @@ TEST_F(StreamLoadTest, TestHeader) {
         evhttp_req->uri = uri;
         evhttp_req->uri_elems = evhttp_uri_parse(uri);
         evhttp_add_header(evhttp_req->input_headers, HTTP_GROUP_COMMIT.c_str(), "true");
-        evhttp_add_header(evhttp_req->input_headers, HttpHeaders::CONTENT_LENGTH, "1000");
+        evhttp_add_header(evhttp_req->input_headers, HttpHeaders::CONTENT_LENGTH, "20000");
         HttpRequest req(evhttp_req);
         req.init_from_evhttp();
         EXPECT_EQ(load_size_smaller_than_wal_limit(&req), true);

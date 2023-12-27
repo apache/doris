@@ -1412,11 +1412,11 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
 
         set_remaining_rows(get_remaining_rows() - rows);
-
-        for (auto& col : block->mutate_columns()) {
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-
+        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         if (get_remaining_rows() == 0) {
             *eof = true;

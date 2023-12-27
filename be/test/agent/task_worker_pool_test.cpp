@@ -44,6 +44,7 @@ TEST(TaskWorkerPoolTest, TaskWorkerPool) {
     workers.submit_task(task);
     workers.submit_task(task); // Pending and ignored when stop
 
+    std::this_thread::sleep_for(200ms);
     workers.stop();
 
     workers.submit_task(task); // Ignore
@@ -92,6 +93,7 @@ TEST(TaskWorkerPoolTest, PriorTaskWorkerPool) {
     workers.submit_task(task);
     workers.submit_task(task);
     workers.submit_task(task); // Pending and ignored when stop
+    std::this_thread::sleep_for(100ms);
     workers.stop();
 
     EXPECT_EQ(normal_count.load(), 2);

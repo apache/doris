@@ -174,7 +174,10 @@ public class DdlExecutor {
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            env.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            CancelLoadStmt cs = (CancelLoadStmt) ddlStmt;
+            // cancel all
+            env.getJobManager().cancelLoadJob(cs);
+            env.getLoadManager().cancelLoadJob(cs);
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             env.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);
         } else if (ddlStmt instanceof PauseRoutineLoadStmt) {

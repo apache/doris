@@ -20,6 +20,8 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.exploration.mv.AbstractMaterializedViewRule;
+import org.apache.doris.nereids.rules.exploration.mv.ComparisonResult;
+import org.apache.doris.nereids.rules.exploration.mv.HyperGraphComparator;
 import org.apache.doris.nereids.rules.exploration.mv.LogicalCompatibilityContext;
 import org.apache.doris.nereids.rules.exploration.mv.StructInfo;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.RelationMapping;
@@ -62,7 +64,8 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        Assertions.assertTrue(h1.isLogicCompatible(h2, constructContext(p1, p2)) != null);
+        Assertions.assertFalse(
+                HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2)).isInvalid());
     }
 
     @Test
@@ -79,7 +82,8 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        Assertions.assertTrue(h1.isLogicCompatible(h2, constructContext(p1, p2)) != null);
+        Assertions.assertFalse(
+                HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2)).isInvalid());
     }
 
     @Test
@@ -104,9 +108,9 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
-        Assertions.assertEquals(1, exprList.size());
-        Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        Assertions.assertEquals(1, res.getQueryExpressions().size());
+        Assertions.assertEquals("(id = 0)", res.getQueryExpressions().get(0).toSql());
     }
 
     @Disabled
@@ -132,7 +136,7 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
+        List<Expression> exprList = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2)).getQueryExpressions();
         Assertions.assertEquals(0, exprList.size());
     }
 
@@ -159,9 +163,9 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
-        Assertions.assertEquals(1, exprList.size());
-        Assertions.assertEquals("(id = 0)", exprList.get(0).toSql());
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        Assertions.assertEquals(1, res.getQueryExpressions().size());
+        Assertions.assertEquals("(id = 0)", res.getQueryExpressions().get(0).toSql());
     }
 
     @Test
@@ -187,8 +191,8 @@ class CompareOuterJoinTest extends SqlTestBase {
                 .getAllPlan().get(0).child(0);
         HyperGraph h1 = HyperGraph.toStructInfo(p1).get(0);
         HyperGraph h2 = HyperGraph.toStructInfo(p2).get(0);
-        List<Expression> exprList = h1.isLogicCompatible(h2, constructContext(p1, p2));
-        Assertions.assertEquals(null, exprList);
+        ComparisonResult res = HyperGraphComparator.isLogicCompatible(h1, h2, constructContext(p1, p2));
+        Assertions.assertTrue(res.isInvalid());
     }
 
     LogicalCompatibilityContext constructContext(Plan p1, Plan p2) {

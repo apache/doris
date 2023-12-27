@@ -251,8 +251,8 @@ private:
             if (block_cid >= block->columns()) {
                 continue;
             }
-            vectorized::DataTypePtr storage_type =
-                    _segment->get_data_type_of(*_schema->column(cid), false);
+            vectorized::DataTypePtr storage_type = _segment->get_data_type_of(
+                    _schema->column(cid)->path(), _schema->column(cid)->is_nullable(), false);
             if (storage_type && !storage_type->equals(*block->get_by_position(block_cid).type)) {
                 // Do additional cast
                 vectorized::MutableColumnPtr tmp = storage_type->create_column();
@@ -285,8 +285,6 @@ private:
     void _convert_dict_code_for_predicate_if_necessary();
 
     void _convert_dict_code_for_predicate_if_necessary_impl(ColumnPredicate* predicate);
-
-    void _update_max_row(const vectorized::Block* block);
 
     bool _check_apply_by_bitmap_index(ColumnPredicate* pred);
     bool _check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound = false);
@@ -442,9 +440,6 @@ private:
     // the actual init process is delayed to the first call to next_batch()
     bool _lazy_inited;
     bool _inited;
-    bool _estimate_row_size;
-    // Read up to 100 rows at a time while waiting for the estimated row size.
-    int _wait_times_estimate_row_size;
 
     StorageReadOptions _opts;
     // make a copy of `_opts.column_predicates` in order to make local changes

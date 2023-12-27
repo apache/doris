@@ -110,7 +110,7 @@ Status EngineBatchLoadTask::_init() {
 
     // check disk capacity
     if (_push_req.push_type == TPushType::LOAD_V2) {
-        if (tablet->data_dir()->reach_capacity_limit(_push_req.__isset.http_file_size)) {
+        if (tablet->data_dir()->reach_capacity_limit(_push_req.http_file_size)) {
             return Status::IOError("Disk does not have enough capacity");
         }
     }
