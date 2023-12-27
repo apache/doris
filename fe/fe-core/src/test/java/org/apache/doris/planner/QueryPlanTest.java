@@ -2185,11 +2185,11 @@ public class QueryPlanTest extends TestWithFeService {
                 + " \"replication_num\" = \"1\"\n"
                 + ");");
 
-        String queryBaseTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
+        String queryBaseTableStr = "explain select id,id2,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id,id2";
         String explainString1 = getSQLPlanOrErrorMsg(queryBaseTableStr);
         Assert.assertTrue(explainString1.contains("PREAGGREGATION: ON"));
 
-        String queryTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
+        String queryTableStr = "explain select id,orthogonal_bitmap_union_count(id3) from test.bitmap_tb t1 group by id";
         String explainString2 = getSQLPlanOrErrorMsg(queryTableStr);
         Assert.assertTrue(explainString2.contains("PREAGGREGATION: ON"));
     }
@@ -2212,7 +2212,7 @@ public class QueryPlanTest extends TestWithFeService {
                 + "    \"in_memory\"=\"false\"\n"
                 + ");");
 
-        String queryBaseTableStr = "explain select /*+ SET_VAR(enable_nereids_planner=false) */ dt, hll_union(pv) from test.test_hll group by dt";
+        String queryBaseTableStr = "explain select dt, hll_union(pv) from test.test_hll group by dt";
         String explainString = getSQLPlanOrErrorMsg(queryBaseTableStr);
         Assert.assertTrue(explainString.contains("PREAGGREGATION: ON"));
     }
