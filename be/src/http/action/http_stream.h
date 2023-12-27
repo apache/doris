@@ -43,6 +43,8 @@ public:
 
     void on_chunk_data(HttpRequest* req) override;
     void free_handler_ctx(std::shared_ptr<void> ctx) override;
+    static Status process_wal_relay(ExecEnv* exec_env, int64_t wal_id, std::string& sql_str,
+                                    const std::string& label);
 
 private:
     Status _on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);

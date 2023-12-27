@@ -350,6 +350,66 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
 
+Status HttpStreamAction::process_wal_relay(ExecEnv* exec_env, int64_t wal_id, std::string& sql_str,
+                                           const std::string& label) {
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(exec_env);
+    ctx->wal_id = wal_id;
+    ctx->auth.auth_code = wal_id;
+    UniqueId load_id = UniqueId::gen_uid();
+    TUniqueId tload_id;
+    tload_id.__set_hi(load_id.hi);
+    tload_id.__set_lo(load_id.lo);
+    TStreamLoadPutRequest request;
+    request.__set_auth_code(ctx->auth.auth_code);
+    request.__set_load_sql(sql_str);
+    request.__set_loadId(tload_id);
+    request.__set_label(label);
+    if (exec_env->master_info()->__isset.backend_id) {
+        request.__set_backend_id(exec_env->master_info()->backend_id);
+    } else {
+        LOG(WARNING) << "_exec_env->master_info not set backend_id";
+    }
+    // plan this load
+    TNetworkAddress master_addr = exec_env->master_info()->network_address;
+    int64_t stream_load_put_start_time = MonotonicNanos();
+    RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
+            master_addr.hostname, master_addr.port,
+            [&request, ctx](FrontendServiceConnection& client) {
+                client->streamLoadPut(ctx->put_result, request);
+            }));
+    ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
+    Status plan_status(Status::create(ctx->put_result.status));
+    if (!plan_status.ok()) {
+        auto msg = plan_status.msg();
+        LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
+        return plan_status;
+    } else {
+        ctx->db = ctx->put_result.params.db_name;
+        ctx->table = ctx->put_result.params.table_name;
+        ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
+        ctx->label = ctx->put_result.params.import_label;
+        ctx->put_result.params.__set_wal_id(ctx->wal_id);
+        auto st = exec_env->stream_load_executor()->execute_plan_fragment(ctx);
+        if (st.ok()) {
+            // wait stream load finish
+            RETURN_IF_ERROR(ctx->future.get());
+            if (ctx->status.ok()) {
+                auto commit_st = exec_env->stream_load_executor()->commit_txn(ctx.get());
+                return commit_st;
+            } else if (!ctx->status.ok()) {
+                LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
+                             << ", errmsg=" << ctx->status;
+                exec_env->stream_load_executor()->rollback_txn(ctx.get());
+                return ctx->status;
+            }
+        } else {
+            LOG(WARNING) << "execute_plan_fragment fail, id=" << ctx->id << ", errmsg=" << st;
+            return st;
+        }
+    }
+    return Status::OK();
+}
+
 void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
                                                 const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();

@@ -280,9 +280,15 @@ Status GroupCommitTable::_create_group_commit_load(
         _exec_env->wal_mgr()->add_wal_status_queue(_table_id, txn_id,
                                                    WalManager::WAL_STATUS::PREPARE);
         //create wal
-        RETURN_IF_ERROR(
-                load_block_queue->create_wal(_db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
-                                             params.desc_tbl.slotDescriptors, be_exe_version));
+        if (!is_pipeline) {
+            RETURN_IF_ERROR(load_block_queue->create_wal(
+                    _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
+                    params.desc_tbl.slotDescriptors, be_exe_version));
+        } else {
+            RETURN_IF_ERROR(load_block_queue->create_wal(
+                    _db_id, _table_id, txn_id, label, _exec_env->wal_mgr(),
+                    pipeline_params.desc_tbl.slotDescriptors, be_exe_version));
+        }
         _cv.notify_all();
     }
     st = _exec_plan_fragment(_db_id, _table_id, label, txn_id, is_pipeline, params,
