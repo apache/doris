@@ -59,6 +59,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     protected Optional<String> exprName = Optional.empty();
     private final int depth;
     private final int width;
+    // Mark this expression is from predicate infer or something else infer
+    private final boolean inferred;
 
     protected Expression(Expression... children) {
         super(children);
@@ -69,6 +71,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 .mapToInt(e -> e.width)
                 .sum() + (children.length == 0 ? 1 : 0);
         checkLimit();
+        this.inferred = false;
     }
 
     protected Expression(List<Expression> children) {
@@ -80,6 +83,19 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 .mapToInt(e -> e.width)
                 .sum() + (children.isEmpty() ? 1 : 0);
         checkLimit();
+        this.inferred = false;
+    }
+
+    protected Expression(List<Expression> children, boolean inferred) {
+        super(children);
+        depth = children.stream()
+                .mapToInt(e -> e.depth)
+                .max().orElse(0) + 1;
+        width = children.stream()
+                .mapToInt(e -> e.width)
+                .sum() + (children.isEmpty() ? 1 : 0);
+        checkLimit();
+        this.inferred = inferred;
     }
 
     private void checkLimit() {
@@ -216,9 +232,17 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return depth;
     }
 
+    public boolean isInferred() {
+        return inferred;
+    }
+
     @Override
     public Expression withChildren(List<Expression> children) {
         throw new RuntimeException();
+    }
+
+    public Expression withInferred(boolean inferred) {
+        throw new RuntimeException("current expression has not impl the withInferred method");
     }
 
     /**
