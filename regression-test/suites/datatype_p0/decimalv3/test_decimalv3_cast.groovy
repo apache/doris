@@ -418,6 +418,18 @@ suite("test_decimalv3_cast") {
     // old type: 2.4
     // cast to narrow scale: x.3
     // same integral: 2.3
+    // overflow after round
+    test {
+        sql """
+        select cast(k1 as decimalv3(5, 3)) from test_decimal32_cast2;
+        """
+        exception "Arithmetic overflow"
+    }
+    // not overflow after round
+    prepare_test_decimal32_cast2()
+    sql """
+        insert into test_decimal32_cast2 values (99.9989);
+    """
     qt_cast32_2_narrow_scale_5 """
         select cast(k1 as decimalv3(5, 3)) from test_decimal32_cast2;
     """
@@ -765,6 +777,18 @@ suite("test_decimalv3_cast") {
     // old type: 12.6
     // cast to narrow scale: x.5
     //======= same integral: 12.5
+    // overflow after round
+    test {
+        sql """
+        select cast(k1 as decimalv3(17, 5)) from test_decimal64_cast1;
+        """
+        exception "Arithmetic overflow"
+    }
+    // not overflow after round
+    prepare_test_decimal64_cast1()
+    sql """
+        insert into test_decimal64_cast1 values (999999999999.999994);
+    """
     qt_cast64_narrow_scale_4 """
         select cast(k1 as decimalv3(17, 5)) from test_decimal64_cast1;
     """
@@ -1154,6 +1178,19 @@ suite("test_decimalv3_cast") {
     sql "set enable_decimal256=false;"
 
     //======= same integral: 32.5
+    // overflow after round
+    test {
+        sql """
+        select cast(k1 as decimalv3(37, 5)) from test_decimal128_cast1 order by 1;
+        """
+        exception "Arithmetic overflow"
+    }
+    prepare_test_decimal128_cast1()
+    sql """
+        insert into test_decimal128_cast1 values
+            (99999999999999999999999999999999.999989),
+            (-99999999999999999999999999999999.999989);
+    """
     qt_cast128_narrow_scale_3 """
         select cast(k1 as decimalv3(37, 5)) from test_decimal128_cast1 order by 1;
     """

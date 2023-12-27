@@ -322,8 +322,10 @@ struct ConvertImpl {
             vec_to.resize(size);
 
             if constexpr (IsDataTypeDecimal<FromDataType> || IsDataTypeDecimal<ToDataType>) {
+                // the result is rounded when doing cast, so it may still overflow after rounding
+                // if destination integer digit count is the same as source integer digit count.
                 bool narrow_integral = context->check_overflow_for_decimal() &&
-                                       (to_precision - to_scale) < (from_precision - from_scale);
+                                       (to_precision - to_scale) <= (from_precision - from_scale);
 
                 bool multiply_may_overflow = context->check_overflow_for_decimal();
                 if (to_scale > from_scale) {
