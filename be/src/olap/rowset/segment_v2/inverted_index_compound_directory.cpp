@@ -672,8 +672,7 @@ void DorisCompoundDirectory::renameFile(const char* from, const char* to) {
     if (exists) {
         LOG_AND_THROW_IF_ERROR(fs->delete_directory(nu), fmt::format("Delete {} IO error", nu))
     }
-    LOG_AND_THROW_IF_ERROR(fs->rename_dir(old, nu),
-                           fmt::format("Rename {} to {} IO error", old, nu))
+    LOG_AND_THROW_IF_ERROR(fs->rename(old, nu), fmt::format("Rename {} to {} IO error", old, nu))
 }
 
 lucene::store::IndexOutput* DorisCompoundDirectory::createOutput(const char* name) {

@@ -103,8 +103,17 @@ Status get_thread_stats(int64_t tid, ThreadStats* stats) {
         return Status::NotSupported("ThreadStats not supported");
     }
     std::string buf;
-    RETURN_IF_ERROR(io::global_local_filesystem()->read_file_to_string(
-            strings::Substitute("/proc/self/task/$0/stat", tid), &buf));
+    auto path = fmt::format("/proc/self/task/{}/stat", tid);
+    std::ifstream file(path);
+    if (file.is_open()) {
+        std::ostringstream oss;
+        oss << file.rdbuf();
+        buf = oss.str();
+        file.close();
+    } else {
+        return Status::InternalError("failed to open {}: {}", path, std::strerror(errno));
+    }
+
     return parse_stat(buf, nullptr, stats);
 }
 void disable_core_dumps() {
