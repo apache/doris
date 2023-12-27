@@ -1374,7 +1374,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean truncateCharOrVarcharColumns = false;
 
     @VariableMgr.VarAttr(name = ENABLE_MEMTABLE_ON_SINK_NODE, needForward = true)
-    public boolean enableMemtableOnSinkNode = false;
+    public boolean enableMemtableOnSinkNode = true;
 
     @VariableMgr.VarAttr(name = LOAD_STREAM_PER_NODE)
     public int loadStreamPerNode = 20;
