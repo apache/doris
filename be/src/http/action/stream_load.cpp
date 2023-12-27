@@ -649,7 +649,12 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         request.__set_memtable_on_sink_node(value);
     }
     if (ctx->group_commit) {
-        request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
+        if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
+            request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
+        } else {
+            // used for wait_internal_group_commit_finish
+            request.__set_group_commit_mode("sync_mode");
+        }
     }
 
 #ifndef BE_TEST
