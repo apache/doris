@@ -538,7 +538,7 @@ Status VTabletWriterV2::close(Status exec_status) {
                 for (const auto& stream : streams->streams()) {
                     LOG(INFO) << "begin waiting stream close load_id=" << print_id(_load_id)
                               << ", stream_id=" << stream->stream_id();
-                    RETURN_IF_ERROR(stream->close_wait());
+                    DCHECK(stream->close_wait().ok());
                     LOG(INFO) << "end waiting stream close load_id=" << print_id(_load_id)
                               << ", stream_id=" << stream->stream_id();
                 }
