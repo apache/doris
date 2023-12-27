@@ -271,10 +271,15 @@ public:
         return _output_row_descriptor ? *_output_row_descriptor : _row_descriptor;
     }
 
+    [[nodiscard]] const RowDescriptor* output_row_descriptor() {
+        return _output_row_descriptor.get();
+    }
+
     [[nodiscard]] bool is_source() const override { return false; }
 
-    Status get_next_after_projects(RuntimeState* state, vectorized::Block* block,
-                                   SourceState& source_state);
+    [[nodiscard]] virtual Status get_block_after_projects(RuntimeState* state,
+                                                          vectorized::Block* block,
+                                                          SourceState& source_state);
 
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(RuntimeState* state, vectorized::Block* origin_block,
@@ -286,6 +291,7 @@ protected:
     template <typename Dependency>
     friend class PipelineXLocalState;
     friend class PipelineXLocalStateBase;
+    friend class VScanner;
     const int _operator_id;
     const int _node_id; // unique w/in single plan tree
     TPlanNodeType::type _type;
