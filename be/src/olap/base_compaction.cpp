@@ -56,7 +56,6 @@ Status BaseCompaction::prepare_compact() {
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
     COUNTER_UPDATE(_input_rowsets_counter, _input_rowsets.size());
-    _tablet->set_clone_occurred(false);
 
     return Status::OK();
 }
@@ -71,13 +70,6 @@ Status BaseCompaction::execute_compact_impl() {
     if (!lock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED, false>(
                 "another base compaction is running. tablet={}", _tablet->tablet_id());
-    }
-
-    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
-    // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED, false>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
