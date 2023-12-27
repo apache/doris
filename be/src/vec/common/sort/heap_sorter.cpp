@@ -147,8 +147,9 @@ Status HeapSorter::prepare_for_read() {
         for (int i = capacity - 1; i >= 0; i--) {
             auto rid = vector_to_reverse[i].row_id();
             const auto cur_block = vector_to_reverse[i].block();
+            Columns columns = cur_block->get_columns();
             for (size_t j = 0; j < num_columns; ++j) {
-                result_columns[j]->insert_from(*(cur_block->get_columns()[j]), rid);
+                result_columns[j]->insert_from(*(columns[j]), rid);
             }
         }
         _return_block = vector_to_reverse[0].block()->clone_with_columns(std::move(result_columns));

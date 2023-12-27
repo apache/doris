@@ -30,6 +30,7 @@ import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.FunctionUtil;
 import org.apache.doris.catalog.MapType;
+import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
@@ -1617,8 +1618,25 @@ public class FunctionCallExpr extends Expr {
             // now first find table function in table function sets
             if (isTableFnCall) {
                 Type[] childTypes = collectChildReturnTypes();
-                fn = getTableFunction(fnName.getFunction(), childTypes,
-                        Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                // when we call explode<Array<Decimal>> with nested decimal has specific precision and scale,
+                // collectChildReturnTypes will return specific precision and scale decimal type witch may not match
+                // builtln func we defined in fe code, because we make array_support_type is actual origin type.here we
+                // temp write this if to get matched explode function and then set actually decimal type from sql to
+                // func return type. if we switch nereid would hasn't this problems.
+                if (fnName.getFunction().equalsIgnoreCase("explode") && childTypes[0].isArrayType()) {
+                    // get origin type to match builtln func
+                    Type[] matchFuncChildTypes = getActualArgTypes(childTypes);
+                    fn = getTableFunction(fnName.getFunction(), matchFuncChildTypes,
+                            Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                    if (fn == null) {
+                        throw new AnalysisException(getFunctionNotFoundError(argTypes));
+                    }
+                    // set param child types
+                    fn.setReturnType(((ArrayType) childTypes[0]).getItemType());
+                } else {
+                    fn = getTableFunction(fnName.getFunction(), childTypes,
+                            Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+                }
                 if (fn == null) {
                     throw new AnalysisException(getFunctionNotFoundError(argTypes));
                 }
@@ -1679,6 +1697,25 @@ public class FunctionCallExpr extends Expr {
                     children.set(1, new StringLiteral("%Y-%m-%d"));
                 } else if (fmtLiteral.getStringValue().equals("yyyy-MM-dd HH:mm:ss")) {
                     children.set(1, new StringLiteral("%Y-%m-%d %H:%i:%s"));
+                }
+            }
+
+            if (fnName.getFunction().equalsIgnoreCase("unix_timestamp") && children.size() == 1) {
+                if (getChild(0).type.isDatetimeV2()) {
+                    ScalarType type = (ScalarType) getChild(0).type;
+                    Preconditions.checkArgument(type.getScalarScale() <= 6,
+                            "DatetimeV2's scale shouldn't exceed 6 but meet " + type.getScalarScale());
+                    fn.setReturnType(
+                            ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + type.getScalarScale(),
+                                    type.getScalarScale()));
+                } else if (getChild(0).type.isStringType()) {
+                    // use DATETIME to make scale adaptive
+                    ScalarType type = ((ScalarType) (getChild(0).uncheckedCastTo(ScalarType.DATETIME).type));
+                    if (type.isDatetimeV2()) {
+                        int scale = type.getScalarScale();
+                        fn.setReturnType(
+                                ScalarType.createDecimalType(PrimitiveType.DECIMAL64, 10 + scale, scale));
+                    }
                 }
             }
         }
@@ -1838,6 +1875,14 @@ public class FunctionCallExpr extends Expr {
                         && fnName.getFunction().equalsIgnoreCase("map")) {
                     ix = i % 2 == 0 ? 0 : 1;
                 }
+                // array_zip varargs special case array_zip(array1, array2, ...)
+                // we only specialize array_zip with first array type, next type we same with custom type
+                if (i >= args.length && (fnName.getFunction().equalsIgnoreCase("array_zip"))) {
+                    if (argTypes[i].isNull()) {
+                        uncheckedCastChild(args[i - 1], i);
+                    }
+                    continue;
+                }
 
                 if (i == 0 && (fnName.getFunction().equalsIgnoreCase("char"))) {
                     continue;
@@ -1879,6 +1924,9 @@ public class FunctionCallExpr extends Expr {
                         || fnName.getFunction().equalsIgnoreCase("array_shuffle")
                         || fnName.getFunction().equalsIgnoreCase("shuffle")
                         || fnName.getFunction().equalsIgnoreCase("array_except")
+                        || fnName.getFunction().equalsIgnoreCase("array_apply")
+                        || fnName.getFunction().equalsIgnoreCase("array_position")
+                        || fnName.getFunction().equalsIgnoreCase("array_contains")
                         || fnName.getFunction().equalsIgnoreCase("width_bucket"))
                         && (args[ix].isDecimalV3() || (children.get(0).getType().isArrayType()
                         && (((ArrayType) children.get(0).getType()).getItemType().isDecimalV3())

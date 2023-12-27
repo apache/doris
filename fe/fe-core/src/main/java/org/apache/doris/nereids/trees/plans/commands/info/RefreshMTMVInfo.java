@@ -17,8 +17,22 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
 
+import org.apache.commons.collections.CollectionUtils;
+
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -26,23 +40,64 @@ import java.util.Objects;
  */
 public class RefreshMTMVInfo {
     private final TableNameInfo mvName;
+    private List<String> partitions;
+    private boolean isComplete;
 
-    public RefreshMTMVInfo(TableNameInfo mvName) {
+    public RefreshMTMVInfo(TableNameInfo mvName, List<String> partitions, boolean isComplete) {
         this.mvName = Objects.requireNonNull(mvName, "require mvName object");
+        this.partitions = Utils.copyRequiredList(partitions);
+        this.isComplete = Objects.requireNonNull(isComplete, "require isComplete object");
     }
 
     /**
      * analyze refresh info
+     *
      * @param ctx ConnectContext
      */
     public void analyze(ConnectContext ctx) {
+        mvName.analyze(ctx);
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(),
+                mvName.getTbl(), PrivPredicate.CREATE)) {
+            String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("CREATE",
+                    ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
+                    mvName.getDb() + ": " + mvName.getTbl());
+            throw new AnalysisException(message);
+        }
+        try {
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
+            MTMV mtmv = (MTMV) db.getTableOrMetaException(mvName.getTbl(), TableType.MATERIALIZED_VIEW);
+            if (!CollectionUtils.isEmpty(partitions)) {
+                MTMVUtil.getPartitionsIdsByNames(mtmv, partitions);
+            }
+        } catch (org.apache.doris.common.AnalysisException | MetaNotFoundException | DdlException e) {
+            throw new AnalysisException(e.getMessage());
+        }
     }
 
     /**
      * getMvName
+     *
      * @return TableNameInfo
      */
     public TableNameInfo getMvName() {
         return mvName;
+    }
+
+    /**
+     * getPartitions
+     *
+     * @return partitionNames
+     */
+    public List<String> getPartitions() {
+        return partitions;
+    }
+
+    /**
+     * isComplete
+     *
+     * @return isComplete
+     */
+    public boolean isComplete() {
+        return isComplete;
     }
 }

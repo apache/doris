@@ -88,4 +88,8 @@ public class PlanContext {
     public List<Statistics> getChildrenStatistics() {
         return childrenStats;
     }
+
+    public StatementContext getStatementContext() {
+        return connectContext.getStatementContext();
+    }
 }

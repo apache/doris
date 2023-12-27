@@ -543,7 +543,7 @@ private:
     };
 
 private:
-    OS_TYPE* os_;
+    OS_TYPE* os_ = nullptr;
     bool alloc_;
     bool hasHdr_;
     WriteState kvState_; // key or value state

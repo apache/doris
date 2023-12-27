@@ -29,6 +29,14 @@ import org.junit.Test;
 public class DateLiteralTest {
 
     @Test
+    public void testGetStringInFe() throws AnalysisException {
+        DateLiteral literal = new DateLiteral("1997-10-07", Type.DATE);
+        String s = literal.getStringValueInFe();
+        Assert.assertEquals(s, "1997-10-07");
+
+    }
+
+    @Test
     public void twoDigitYear() {
         boolean hasException = false;
         try {

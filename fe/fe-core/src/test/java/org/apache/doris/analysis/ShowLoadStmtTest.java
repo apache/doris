@@ -53,15 +53,11 @@ public class ShowLoadStmtTest {
             {
                 analyzer.getDefaultDb();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 analyzer.getQualifiedUser();
                 minTimes = 0;
-                result = "testCluster:testUser";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
+                result = "testUser";
 
                 analyzer.getEnv();
                 minTimes = 0;
@@ -74,7 +70,7 @@ public class ShowLoadStmtTest {
     public void testNormal() throws UserException, AnalysisException {
         ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb`", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testDb`", stmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -84,10 +80,6 @@ public class ShowLoadStmtTest {
                 analyzer.getDefaultDb();
                 minTimes = 0;
                 result = "";
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
             }
         };
 
@@ -100,26 +92,26 @@ public class ShowLoadStmtTest {
     public void testWhere() throws UserException, AnalysisException {
         ShowLoadStmt stmt = new ShowLoadStmt(null, null, null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb`", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testDb`", stmt.toString());
 
         SlotRef slotRef = new SlotRef(null, "label");
         StringLiteral stringLiteral = new StringLiteral("abc");
         BinaryPredicate binaryPredicate = new BinaryPredicate(Operator.EQ, slotRef, stringLiteral);
         stmt = new ShowLoadStmt(null, binaryPredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` = \'abc\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE `label` = \'abc\' LIMIT 10", stmt.toString());
 
         StringLiteral stringLiteralLike = new StringLiteral("ab%");
         LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef, stringLiteralLike);
 
         stmt = new ShowLoadStmt(null, likePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `label` LIKE \'ab%\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE `label` LIKE \'ab%\' LIMIT 10", stmt.toString());
 
         BinaryPredicate statePredicate = new BinaryPredicate(Operator.EQ, new SlotRef(null, "state"), new StringLiteral("PENDING"));
         stmt = new ShowLoadStmt(null, statePredicate, null, new LimitElement(10));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW LOAD FROM `testCluster:testDb` WHERE `state` = \'PENDING\' LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW LOAD FROM `testDb` WHERE `state` = \'PENDING\' LIMIT 10", stmt.toString());
     }
 
     @Test

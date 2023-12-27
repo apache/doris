@@ -218,10 +218,15 @@ public class TablePartitionValues {
 
     @Data
     public static class TablePartitionKey {
-        private String dbName;
-        private String tblName;
+        private final String dbName;
+        private final String tblName;
         // not in key
         private List<Type> types;
+
+        public TablePartitionKey(String dbName, String tblName) {
+            this.dbName = dbName;
+            this.tblName = tblName;
+        }
 
         public TablePartitionKey(String dbName, String tblName, List<Type> types) {
             this.dbName = dbName;

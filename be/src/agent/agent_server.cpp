@@ -31,12 +31,14 @@
 #include "agent/topic_subscriber.h"
 #include "agent/utils.h"
 #include "agent/workload_group_listener.h"
+#include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
 #include "olap/olap_define.h"
 #include "olap/options.h"
 #include "olap/snapshot_manager.h"
+#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 
 using std::string;
@@ -46,7 +48,7 @@ namespace doris {
 
 AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
         : _master_info(master_info), _topic_subscriber(new TopicSubscriber()) {
-    for (auto& path : exec_env->store_paths()) {
+    for (const auto& path : exec_env->store_paths()) {
         try {
             string dpp_download_path_str = path.path + "/" + DPP_PREFIX;
             std::filesystem::path dpp_download_path(dpp_download_path_str);
@@ -60,73 +62,9 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 
     MasterServerClient::create(master_info);
 
-    // It is the same code to create workers of each type, so we use a macro
-    // to make code to be more readable.
-
 #ifndef BE_TEST
-#define CREATE_AND_START_POOL(type, pool_name)                                                    \
-    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, exec_env,            \
-                                       master_info, TaskWorkerPool::ThreadModel::MULTI_THREADS)); \
-    pool_name->start();
-
-#define CREATE_AND_START_THREAD(type, pool_name)                                                  \
-    pool_name.reset(new TaskWorkerPool(TaskWorkerPool::TaskWorkerType::type, exec_env,            \
-                                       master_info, TaskWorkerPool::ThreadModel::SINGLE_THREAD)); \
-    pool_name->start();
-#else
-#define CREATE_AND_START_POOL(type, pool_name)
-#define CREATE_AND_START_THREAD(type, pool_name)
-#endif // BE_TEST
-
-#ifndef BE_TEST
-    _create_tablet_workers.reset(
-            new CreateTableTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
-    _create_tablet_workers->start();
-    _drop_tablet_workers.reset(
-            new DropTableTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
-    _drop_tablet_workers->start();
-
-    // Both PUSH and REALTIME_PUSH type use _push_load_workers
-    _push_load_workers.reset(new PushTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS,
-                                              PushTaskPool::PushWokerType::LOAD_V2));
-    _push_load_workers->start();
-    _publish_version_workers.reset(
-            new PublishVersionTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
-    _publish_version_workers->start();
-    _clear_transaction_task_workers.reset(
-            new ClearTransactionTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
-    _clear_transaction_task_workers->start();
-    _push_delete_workers.reset(new PushTaskPool(exec_env,
-                                                TaskWorkerPool::ThreadModel::MULTI_THREADS,
-                                                PushTaskPool::PushWokerType::DELETE));
-    _push_delete_workers->start();
-    _alter_tablet_workers.reset(
-            new AlterTableTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
-    _alter_tablet_workers->start();
-    _clone_workers.reset(new CloneTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
-    _clone_workers->start();
-    _storage_medium_migrate_workers.reset(
-            new StorageMediumMigrateTaskPool(exec_env, TaskWorkerPool::ThreadModel::MULTI_THREADS));
-    _storage_medium_migrate_workers->start();
+    start_workers(exec_env);
 #endif
-    CREATE_AND_START_POOL(ALTER_INVERTED_INDEX, _alter_inverted_index_workers);
-    CREATE_AND_START_POOL(CHECK_CONSISTENCY, _check_consistency_workers);
-    CREATE_AND_START_POOL(UPLOAD, _upload_workers);
-    CREATE_AND_START_POOL(DOWNLOAD, _download_workers);
-    CREATE_AND_START_POOL(MAKE_SNAPSHOT, _make_snapshot_workers);
-    CREATE_AND_START_POOL(RELEASE_SNAPSHOT, _release_snapshot_workers);
-    CREATE_AND_START_POOL(MOVE, _move_dir_workers);
-    CREATE_AND_START_POOL(UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers);
-    CREATE_AND_START_THREAD(PUSH_COOLDOWN_CONF, _push_cooldown_conf_workers);
-
-    CREATE_AND_START_THREAD(REPORT_TASK, _report_task_workers);
-    CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
-    CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
-    CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
-    CREATE_AND_START_POOL(PUSH_STORAGE_POLICY, _push_storage_policy_workers);
-    CREATE_AND_START_THREAD(GC_BINLOG, _gc_binlog_workers);
-#undef CREATE_AND_START_POOL
-#undef CREATE_AND_START_THREAD
 
 #if !defined(BE_TEST) && !defined(__APPLE__)
     // Add subscriber here and register listeners
@@ -137,7 +75,85 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
 #endif
 }
 
-AgentServer::~AgentServer() {}
+AgentServer::~AgentServer() = default;
+
+void AgentServer::start_workers(ExecEnv* exec_env) {
+    // TODO(plat1ko): CloudStorageEngine
+    auto& engine = *StorageEngine::instance();
+    // clang-format off
+    _alter_inverted_index_workers = std::make_unique<TaskWorkerPool>(
+            "ALTER_INVERTED_INDEX", config::alter_index_worker_count, [&engine](auto&& task) { return alter_inverted_index_callback(engine, task); });
+
+    _check_consistency_workers = std::make_unique<TaskWorkerPool>(
+            "CHECK_CONSISTENCY", config::check_consistency_worker_count, [&engine](auto&& task) { return check_consistency_callback(engine, task); });
+
+    _upload_workers = std::make_unique<TaskWorkerPool>(
+            "UPLOAD", config::upload_worker_count, [&engine, exec_env](auto&& task) { return upload_callback(engine, exec_env, task); });
+
+    _download_workers = std::make_unique<TaskWorkerPool>(
+            "DOWNLOAD", config::download_worker_count, [&engine, exec_env](auto&& task) { return download_callback(engine, exec_env, task); });
+
+    _make_snapshot_workers = std::make_unique<TaskWorkerPool>(
+            "MAKE_SNAPSHOT", config::make_snapshot_worker_count, [&engine](auto&& task) { return make_snapshot_callback(engine, task); });
+
+    _release_snapshot_workers = std::make_unique<TaskWorkerPool>(
+            "RELEASE_SNAPSHOT", config::release_snapshot_worker_count, [&engine](auto&& task) { return release_snapshot_callback(engine, task); });
+
+    _move_dir_workers = std::make_unique<TaskWorkerPool>(
+            "MOVE", 1, [&engine, exec_env](auto&& task) { return move_dir_callback(engine, exec_env, task); });
+
+    _submit_table_compaction_workers = std::make_unique<TaskWorkerPool>(
+            "SUBMIT_TABLE_COMPACTION", 1, [&engine](auto&& task) { return submit_table_compaction_callback(engine, task); });
+
+    _push_storage_policy_workers = std::make_unique<TaskWorkerPool>(
+            "PUSH_STORAGE_POLICY", 1, [&engine](auto&& task) { return push_storage_policy_callback(engine, task); });
+
+    _push_cooldown_conf_workers = std::make_unique<TaskWorkerPool>(
+            "PUSH_COOLDOWN_CONF", 1, [&engine](auto&& task) { return push_cooldown_conf_callback(engine, task); });
+
+    _create_tablet_workers = std::make_unique<TaskWorkerPool>(
+            "CREATE_TABLE", config::create_tablet_worker_count, [&engine](auto&& task) { return create_tablet_callback(engine, task); });
+
+    _drop_tablet_workers = std::make_unique<TaskWorkerPool>(
+            "DROP_TABLE", config::drop_tablet_worker_count, [&engine](auto&& task) { return drop_tablet_callback(engine, task); });
+
+    _publish_version_workers = std::make_unique<PublishVersionWorkerPool>(engine);
+
+    _clear_transaction_task_workers = std::make_unique<TaskWorkerPool>(
+            "CLEAR_TRANSACTION_TASK", config::clear_transaction_task_worker_count, [&engine](auto&& task) { return clear_transaction_task_callback(engine, task); });
+
+    _push_delete_workers = std::make_unique<TaskWorkerPool>(
+            "DELETE", config::delete_worker_count, push_callback);
+
+    // Both PUSH and REALTIME_PUSH type use push_callback
+    _push_load_workers = std::make_unique<PriorTaskWorkerPool>(
+            "PUSH", config::push_worker_count_normal_priority, config::push_worker_count_high_priority, push_callback);
+
+    _update_tablet_meta_info_workers = std::make_unique<TaskWorkerPool>(
+            "UPDATE_TABLET_META_INFO", 1, [&engine](auto&& task) { return update_tablet_meta_callback(engine, task); });
+
+    _alter_tablet_workers = std::make_unique<TaskWorkerPool>(
+            "ALTER_TABLE", config::alter_tablet_worker_count, [&engine](auto&& task) { return alter_tablet_callback(engine, task); });
+
+    _clone_workers = std::make_unique<TaskWorkerPool>(
+            "CLONE", config::clone_worker_count, [&engine, &master_info = _master_info](auto&& task) { return clone_callback(engine, master_info, task); });
+
+    _storage_medium_migrate_workers = std::make_unique<TaskWorkerPool>(
+            "STORAGE_MEDIUM_MIGRATE", config::storage_medium_migrate_count, [&engine](auto&& task) { return storage_medium_migrate_callback(engine, task); });
+
+    _gc_binlog_workers = std::make_unique<TaskWorkerPool>(
+            "GC_BINLOG", 1, [&engine](auto&& task) { return gc_binlog_callback(engine, task); });
+
+    _report_task_workers = std::make_unique<ReportWorker>(
+            "REPORT_TASK", _master_info, config::report_task_interval_seconds, [&master_info = _master_info] { report_task_callback(master_info); });
+
+    _report_disk_state_workers = std::make_unique<ReportWorker>(
+            "REPORT_DISK_STATE", _master_info, config::report_disk_state_interval_seconds, [&engine, &master_info = _master_info] { report_disk_callback(engine, master_info); });
+
+    _report_tablet_workers = std::make_unique<ReportWorker>(
+            "REPORT_OLAP_TABLE", _master_info, config::report_tablet_interval_seconds,[&engine, &master_info = _master_info] { report_tablet_callback(engine, master_info); });
+    // clang-format on
+}
 
 // TODO(lingbin): each task in the batch may have it own status or FE must check and
 // resend request when something is wrong(BE may need some logic to guarantee idempotence.
@@ -152,7 +168,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
         return;
     }
 
-    for (auto task : tasks) {
+    for (auto&& task : tasks) {
         VLOG_RPC << "submit one task: " << apache::thrift::ThriftDebugString(task).c_str();
         TTaskType::type task_type = task.task_type;
         int64_t signature = task.signature;

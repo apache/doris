@@ -26,6 +26,12 @@
 #include "common/status.h"
 #include "exprs/json_functions.h"
 #include "runtime/jsonb_value.h"
+
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
 namespace doris {
 namespace vectorized {
 
@@ -199,7 +205,7 @@ void DataTypeJsonbSerDe::write_one_cell_to_json(const IColumn& column, rapidjson
     auto& data = assert_cast<const ColumnString&>(column);
     const auto jsonb_val = data.get_data_at(row_num);
     if (jsonb_val.empty()) {
-        result.SetNull();
+        return;
     }
     JsonbValue* val = JsonbDocument::createValue(jsonb_val.data, jsonb_val.size);
     if (val == nullptr) {

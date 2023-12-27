@@ -58,7 +58,7 @@ private:
     Status _write(const uint8_t* buf, size_t buf_len, size_t* written_bytes);
 
 private:
-    ExecEnv* _env;
+    ExecEnv* _env = nullptr;
     const TNetworkAddress _address;
     const std::map<std::string, std::string>& _properties;
     int64_t _cur_offset;

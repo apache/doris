@@ -39,7 +39,7 @@ import java.util.Set;
 public class DistributionDescriptor {
     private final boolean isHash;
     private final boolean isAutoBucket;
-    private final int bucketNum;
+    private int bucketNum;
     private List<String> cols;
 
     public DistributionDescriptor(boolean isHash, boolean isAutoBucket, int bucketNum, List<String> cols) {
@@ -53,11 +53,19 @@ public class DistributionDescriptor {
         return isHash;
     }
 
+    public boolean isAutoBucket() {
+        return isAutoBucket;
+    }
+
     public void updateCols(String col) {
         Objects.requireNonNull(col, "col should not be null");
         if (CollectionUtils.isEmpty(cols)) {
             cols = Lists.newArrayList(col);
         }
+    }
+
+    public void updateBucketNum(int bucketNum) {
+        this.bucketNum = bucketNum;
     }
 
     /**

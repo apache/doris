@@ -235,7 +235,7 @@ public:
     ExecEnv* exec_env() { return _exec_env; }
 
 private:
-    ExecEnv* _exec_env;
+    ExecEnv* _exec_env = nullptr;
 };
 
 } // namespace doris

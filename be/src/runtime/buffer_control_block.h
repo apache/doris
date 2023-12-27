@@ -48,9 +48,7 @@ class Controller;
 namespace doris {
 
 namespace pipeline {
-class ResultBufferDependency;
-class CancelDependency;
-class ResultQueueDependency;
+class ResultSinkDependency;
 } // namespace pipeline
 
 class PFetchDataResult;
@@ -169,18 +167,15 @@ public:
 
     Status cancel() override;
 
-    void set_dependency(std::shared_ptr<pipeline::ResultBufferDependency> buffer_dependency,
-                        std::shared_ptr<pipeline::ResultQueueDependency> queue_dependency,
-                        std::shared_ptr<pipeline::CancelDependency> cancel_dependency);
+    void set_dependency(std::shared_ptr<pipeline::ResultSinkDependency> result_sink_dependency);
 
 private:
+    void _update_dependency();
     bool _get_batch_queue_empty() override { return _batch_queue_empty; }
     void _update_batch_queue_empty() override;
 
-    std::atomic_bool _batch_queue_empty = false;
-    std::shared_ptr<pipeline::ResultBufferDependency> _buffer_dependency = nullptr;
-    std::shared_ptr<pipeline::ResultQueueDependency> _queue_dependency = nullptr;
-    std::shared_ptr<pipeline::CancelDependency> _cancel_dependency = nullptr;
+    std::atomic_bool _batch_queue_empty {false};
+    std::shared_ptr<pipeline::ResultSinkDependency> _result_sink_dependency;
 };
 
 } // namespace doris

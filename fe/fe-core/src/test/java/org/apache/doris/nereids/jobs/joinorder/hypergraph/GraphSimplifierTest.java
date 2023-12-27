@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.node.DPhyperNode;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -30,8 +32,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
-import org.apache.hadoop.util.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
@@ -61,9 +63,9 @@ class GraphSimplifierTest {
                 .join(project3, JoinType.INNER_JOIN, Lists.newArrayList(new EqualTo(alias2.toSlot(), alias3.toSlot())), new ArrayList<>())
                 .build();
         HyperGraph hyperGraph = HyperGraphBuilder.buildHyperGraphFromPlan(join);
-        for (Node node : hyperGraph.getNodes()) {
-            node.getGroup().setStatistics(new Statistics(1, new HashMap<>()));
-        }
+        hyperGraph.getNodes().forEach(
+                n -> ((DPhyperNode) n).getGroup().setStatistics(new Statistics(1, new HashMap<>()))
+        );
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         while (graphSimplifier.applySimplificationStep()) {
         }
@@ -260,7 +262,7 @@ class GraphSimplifierTest {
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
         graphSimplifier.simplifyGraph(1);
 
-        for (Edge edge : hyperGraph.getEdges()) {
+        for (Edge edge : hyperGraph.getJoinEdges()) {
             System.out.println(edge);
         }
         Assertions.assertTrue(subgraphEnumerator.enumerate());

@@ -267,6 +267,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
             ComparisonPredicate comparisonPredicate, Expression left, BigDecimal literal) {
         // we only process isIntegerLikeType, which are tinyint, smallint, int, bigint
         if (literal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0) {
+            literal = literal.stripTrailingZeros();
             if (literal.scale() > 0) {
                 if (comparisonPredicate instanceof EqualTo) {
                     if (left.nullable()) {
@@ -303,14 +304,14 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
 
     private IntegerLikeLiteral convertDecimalToIntegerLikeLiteral(BigDecimal decimal) {
         Preconditions.checkArgument(
-                decimal.scale() == 0 && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
+                decimal.scale() <= 0 && decimal.compareTo(new BigDecimal(Long.MAX_VALUE)) <= 0,
                 "decimal literal must have 0 scale and smaller than Long.MAX_VALUE");
         long val = decimal.longValue();
-        if (val <= Byte.MAX_VALUE) {
+        if (val >= Byte.MIN_VALUE && val <= Byte.MAX_VALUE) {
             return new TinyIntLiteral((byte) val);
-        } else if (val <= Short.MAX_VALUE) {
+        } else if (val >= Short.MIN_VALUE && val <= Short.MAX_VALUE) {
             return new SmallIntLiteral((short) val);
-        } else if (val <= Integer.MAX_VALUE) {
+        } else if (val >= Integer.MIN_VALUE && val <= Integer.MAX_VALUE) {
             return new IntegerLiteral((int) val);
         } else {
             return new BigIntLiteral(val);

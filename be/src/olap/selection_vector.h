@@ -158,7 +158,7 @@ public:
     }
 
 private:
-    SelectionVector* _sel_vec;
+    SelectionVector* _sel_vec = nullptr;
     size_t _row_offset;
 };
 

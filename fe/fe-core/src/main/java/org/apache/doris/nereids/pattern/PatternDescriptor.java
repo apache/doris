@@ -93,6 +93,22 @@ public class PatternDescriptor<INPUT_TYPE extends Plan> {
         return new PatternMatcher<>(pattern, defaultPromise, matchedAction);
     }
 
+    /**
+     * Apply rule to return multi result, catch exception to make sure no influence on other rule
+     */
+    public <OUTPUT_TYPE extends Plan> PatternMatcher<INPUT_TYPE, OUTPUT_TYPE> thenApplyMultiNoThrow(
+            MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> matchedMultiAction) {
+        MatchedMultiAction<INPUT_TYPE, OUTPUT_TYPE> adaptMatchedMultiAction = ctx -> {
+            try {
+                return matchedMultiAction.apply(ctx);
+            } catch (Exception ex) {
+                LOG.warn("nereids apply rule failed, because {}", ex.getMessage(), ex);
+                return null;
+            }
+        };
+        return new PatternMatcher<>(pattern, defaultPromise, adaptMatchedMultiAction);
+    }
+
     public Pattern<INPUT_TYPE> getPattern() {
         return pattern;
     }

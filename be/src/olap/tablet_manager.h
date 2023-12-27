@@ -206,6 +206,8 @@ private:
 
     std::shared_mutex& _get_tablets_shard_lock(TTabletId tabletId);
 
+    bool _move_tablet_to_trash(const TabletSharedPtr& tablet);
+
 private:
     DISALLOW_COPY_AND_ASSIGN(TabletManager);
 
@@ -223,8 +225,8 @@ private:
         std::set<int64_t> tablets_under_clone;
     };
 
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
     // trace the memory use by meta of tablet
-    std::shared_ptr<MemTracker> _mem_tracker;
     std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
@@ -237,11 +239,9 @@ private:
     std::shared_mutex _shutdown_tablets_lock;
     // partition_id => tablet_info
     std::map<int64_t, std::set<TabletInfo>> _partition_tablet_map;
-    std::vector<TabletSharedPtr> _shutdown_tablets;
-
-    // gc thread will move _shutdown_tablets to _shutdown_deleting_tablets
-    std::shared_mutex _shutdown_deleting_tablets_lock;
-    std::list<TabletSharedPtr> _shutdown_deleting_tablets;
+    // the delete tablets. notice only allow function `start_trash_sweep` can erase tablets in _shutdown_tablets
+    std::list<TabletSharedPtr> _shutdown_tablets;
+    std::mutex _gc_tablets_lock;
 
     std::mutex _tablet_stat_cache_mutex;
     std::shared_ptr<std::vector<TTabletStat>> _tablet_stat_list_cache =

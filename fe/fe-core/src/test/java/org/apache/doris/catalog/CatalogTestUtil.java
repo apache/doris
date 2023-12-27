@@ -27,7 +27,6 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.system.Backend;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 
@@ -232,7 +231,6 @@ public class CatalogTestUtil {
         // db
         Database db = new Database(dbId, testDb1);
         db.createTable(table);
-        db.setClusterName(SystemInfoService.DEFAULT_CLUSTER);
 
         // add a es table to catalog
         try {
@@ -373,5 +371,51 @@ public class CatalogTestUtil {
         } finally {
             olapTable.readUnlock();
         }
+    }
+
+    public static long getReplicaPathHash(long tabletId, long backendId) {
+        Env env = Env.getCurrentEnv();
+        TabletInvertedIndex invertedIndex = env.getTabletInvertedIndex();
+        TabletMeta tabletMeta = invertedIndex.getTabletMeta(tabletId);
+        if (tabletMeta == null) {
+            return -1L;
+        }
+
+        long dbId = tabletMeta.getDbId();
+        long tableId = tabletMeta.getTableId();
+        long partitionId = tabletMeta.getPartitionId();
+        long indexId = tabletMeta.getIndexId();
+        Database db = env.getInternalCatalog().getDbNullable(dbId);
+        if (db == null) {
+            return -1L;
+        }
+        Table table = db.getTableNullable(tableId);
+        if (table == null) {
+            return -1L;
+        }
+        if (table.getType() != Table.TableType.OLAP) {
+            return -1L;
+        }
+        OlapTable olapTable = (OlapTable) table;
+        olapTable.readLock();
+        try {
+            Partition partition = olapTable.getPartition(partitionId);
+            if (partition == null) {
+                return -1L;
+            }
+            MaterializedIndex materializedIndex = partition.getIndex(indexId);
+            if (materializedIndex == null) {
+                return -1L;
+            }
+            Tablet tablet = materializedIndex.getTablet(tabletId);
+            for (Replica replica : tablet.getReplicas()) {
+                if (replica.getBackendId() == backendId) {
+                    return replica.getPathHash();
+                }
+            }
+        } finally {
+            olapTable.readUnlock();
+        }
+        return -1;
     }
 }

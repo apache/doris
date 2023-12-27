@@ -94,37 +94,4 @@ TEST(HashFunctionTest, murmur_hash_3_64_test) {
     };
 }
 
-TEST(HashFunctionTest, murmur_hash_2_test) {
-    std::string func_name = "murmurHash2_64";
-
-    {
-        InputTypeSet input_types = {TypeIndex::String};
-
-        DataSet data_set = {{{Null()}, Null()},
-                            {{std::string("hello")}, (uint64_t)2191231550387646743ull}};
-
-        static_cast<void>(check_function<DataTypeUInt64, true>(func_name, input_types, data_set));
-    };
-
-    {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String};
-
-        DataSet data_set = {
-                {{std::string("hello"), std::string("world")}, (uint64_t)11978658642541747642ull},
-                {{std::string("hello"), Null()}, Null()}};
-
-        static_cast<void>(check_function<DataTypeUInt64, true>(func_name, input_types, data_set));
-    };
-
-    {
-        InputTypeSet input_types = {TypeIndex::String, TypeIndex::String, TypeIndex::String};
-
-        DataSet data_set = {{{std::string("hello"), std::string("world"), std::string("!")},
-                             (uint64_t)1367324781703025231ull},
-                            {{std::string("hello"), std::string("world"), Null()}, Null()}};
-
-        static_cast<void>(check_function<DataTypeUInt64, true>(func_name, input_types, data_set));
-    };
-}
-
 } // namespace doris::vectorized

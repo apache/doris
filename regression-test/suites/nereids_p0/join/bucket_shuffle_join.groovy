@@ -59,6 +59,9 @@ suite("bucket-shuffle-join") {
     sql """analyze table shuffle_join_t1 with sync;"""
     sql """analyze table shuffle_join_t2 with sync;"""
 
+    // we must disable join reorder since right xx join cannot be bucket shuffle join now
+    sql """set disable_join_reorder=true"""
+
     explain {
         sql("select * from shuffle_join_t1 t1 left join shuffle_join_t2 t2 on t1.a = t2.a;")
         contains "BUCKET_SHUFFLE"

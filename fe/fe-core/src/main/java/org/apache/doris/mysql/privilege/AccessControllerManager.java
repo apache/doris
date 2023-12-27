@@ -21,14 +21,12 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.HashMultimap;
@@ -154,8 +152,7 @@ public class AccessControllerManager {
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        String qualifiedDb = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
-        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, qualifiedDb, wanted);
+        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, db, wanted);
     }
 
     // ==== Table ====
@@ -182,8 +179,7 @@ public class AccessControllerManager {
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        String qualifiedDb = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
-        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, qualifiedDb, tbl, wanted);
+        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
     }
 
     // ==== Column ====
@@ -193,8 +189,8 @@ public class AccessControllerManager {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
         CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
         for (TableName tableName : tableToColsMap.keySet()) {
-            accessController.checkColsPriv(hasGlobal, currentUser, ctl, ClusterNamespace
-                            .getFullName(SystemInfoService.DEFAULT_CLUSTER, tableName.getDb()),
+            accessController.checkColsPriv(hasGlobal, currentUser, ctl,
+                    tableName.getDb(),
                     tableName.getTbl(), tableToColsMap.get(tableName), wanted);
         }
     }

@@ -49,7 +49,6 @@ class Thread;
 class LoadChannelMgr {
 public:
     LoadChannelMgr();
-    ~LoadChannelMgr();
 
     Status init(int64_t process_mem_limit);
 
@@ -77,7 +76,7 @@ protected:
     std::mutex _lock;
     // load id -> load channel
     std::unordered_map<UniqueId, std::shared_ptr<LoadChannel>> _load_channels;
-    Cache* _last_success_channel = nullptr;
+    std::unique_ptr<Cache> _last_success_channel;
 
     MemTableMemoryLimiter* _memtable_memory_limiter = nullptr;
 

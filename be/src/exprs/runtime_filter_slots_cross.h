@@ -61,7 +61,7 @@ public:
     Status insert(vectorized::Block* block) {
         for (int i = 0; i < _runtime_filters.size(); ++i) {
             auto* filter = _runtime_filters[i];
-            auto& vexpr_ctx = filter_src_expr_ctxs[i];
+            const auto& vexpr_ctx = filter_src_expr_ctxs[i];
 
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
@@ -70,25 +70,7 @@ public:
                     block->get_by_position(result_column_id)
                             .column->convert_to_full_column_if_const();
 
-            auto& column = block->get_by_position(result_column_id).column;
-            if (auto* nullable =
-                        vectorized::check_and_get_column<vectorized::ColumnNullable>(*column)) {
-                auto& column_nested = nullable->get_nested_column_ptr();
-                auto& column_nullmap = nullable->get_null_map_column_ptr();
-                std::vector<int> indexs;
-                for (int row_index = 0; row_index < column->size(); ++row_index) {
-                    if (assert_cast<const vectorized::ColumnUInt8*>(column_nullmap.get())
-                                ->get_bool(row_index)) {
-                        continue;
-                    }
-                    indexs.push_back(row_index);
-                }
-                filter->insert_batch(column_nested, indexs);
-            } else {
-                std::vector<int> rows(column->size());
-                std::iota(rows.begin(), rows.end(), 0);
-                filter->insert_batch(column, rows);
-            }
+            filter->insert_batch(block->get_by_position(result_column_id).column, 0);
         }
         return Status::OK();
     }
@@ -100,7 +82,7 @@ public:
         return Status::OK();
     }
 
-    bool empty() { return !_runtime_filters.size(); }
+    bool empty() { return _runtime_filters.empty(); }
 
 private:
     const std::vector<TRuntimeFilterDesc>& _runtime_filter_descs;

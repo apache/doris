@@ -214,7 +214,7 @@ public class Checkpoint extends MasterDaemon {
                 }
             }
 
-            LOG.info("push image.{} to other nodes. totally {} nodes, push succeed {} nodes",
+            LOG.info("push image.{} to other nodes. totally {} nodes, push succeeded {} nodes",
                     replayedJournalId, otherNodesCount, successPushed);
         }
         if (successPushed == otherNodesCount) {

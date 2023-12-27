@@ -112,16 +112,15 @@ void ColumnSelectVector::set_run_length_null_map(const std::vector<uint16_t>& ru
             NullMap& map_data_column = *null_map;
             auto null_map_index = map_data_column.size();
             map_data_column.resize(null_map_index + num_values);
+
             for (auto& run_length : run_length_null_map) {
                 if (is_null) {
+                    memset(map_data_column.data() + null_map_index, 1, run_length);
+                    null_map_index += run_length;
                     _num_nulls += run_length;
-                    for (int i = 0; i < run_length; ++i) {
-                        map_data_column[null_map_index++] = 1;
-                    }
                 } else {
-                    for (int i = 0; i < run_length; ++i) {
-                        map_data_column[null_map_index++] = 0;
-                    }
+                    memset(map_data_column.data() + null_map_index, 0, run_length);
+                    null_map_index += run_length;
                 }
                 is_null = !is_null;
             }

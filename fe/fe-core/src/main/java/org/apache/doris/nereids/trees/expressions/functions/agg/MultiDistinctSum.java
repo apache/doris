@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecisionForSum;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
@@ -35,7 +34,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** MultiDistinctSum */
-public class MultiDistinctSum extends AggregateFunction implements UnaryExpression, AlwaysNotNullable,
+public class MultiDistinctSum extends NullableAggregateFunction implements UnaryExpression,
         ExplicitlyCastableSignature, ComputePrecisionForSum, MultiDistinction {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
@@ -45,11 +44,15 @@ public class MultiDistinctSum extends AggregateFunction implements UnaryExpressi
     );
 
     public MultiDistinctSum(Expression arg0) {
-        super("multi_distinct_sum", true, arg0);
+        super("multi_distinct_sum", true, false, arg0);
     }
 
     public MultiDistinctSum(boolean distinct, Expression arg0) {
-        super("multi_distinct_sum", true, arg0);
+        super("multi_distinct_sum", true, false, arg0);
+    }
+
+    public MultiDistinctSum(boolean distinct, boolean alwaysNullable, Expression arg0) {
+        super("multi_distinct_sum", true, alwaysNullable, arg0);
     }
 
     @Override
@@ -62,6 +65,11 @@ public class MultiDistinctSum extends AggregateFunction implements UnaryExpressi
     @Override
     public List<FunctionSignature> getSignatures() {
         return new Sum(getArgument(0)).getSignatures();
+    }
+
+    @Override
+    public NullableAggregateFunction withAlwaysNullable(boolean alwaysNullable) {
+        return new MultiDistinctSum(distinct, alwaysNullable, children.get(0));
     }
 
     @Override

@@ -56,7 +56,7 @@ distribution_desc
 * `column_definition`
     列定义：
 
-    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [column_comment]`
+    `column_name column_type [KEY] [aggr_type] [NULL] [AUTO_INCREMENT] [default_value] [on update current_timestamp] [column_comment]`
     * `column_type`
         列类型，支持以下类型：
         ```
@@ -129,6 +129,10 @@ distribution_desc
             // 只用于DATETIME类型，导入数据缺失该值时系统将赋予当前时间
             dt DATETIME DEFAULT CURRENT_TIMESTAMP
         ```
+  * `on update current_timestamp`
+
+        是否在该行有列更新时将该列的值更新为当前时间(`current_timestamp`)。该特性只能在开启了merge-on-write的unique表上使用，开启了这个特性的列必须声明默认值，且默认值必须为`current_timestamp`。如果此处声明了时间戳的精度，则该列默认值中的时间戳精度必须与该处的时间戳精度相同。
+
       
   示例：
       
@@ -140,6 +144,7 @@ distribution_desc
   v2 BITMAP BITMAP_UNION,
   v3 HLL HLL_UNION,
   v4 INT SUM NOT NULL DEFAULT "1" COMMENT "This is column v4"
+  dt datetime(6) default current_timestamp(6) on update current_timestamp(6)
   ```
     
 #### index_definition_list
@@ -360,6 +365,12 @@ UNIQUE KEY(k1, k2)
     这里我们仅需指定顺序列的类型，支持时间类型或整型。Doris 会创建一个隐藏的顺序列。
 
     `"function_column.sequence_type" = 'Date'`
+
+* `enable_unique_key_merge_on_write`
+
+    <version since="1.2" type="inline"> unique表是否使用merge on write实现。</version>
+
+    该属性在 2.1 版本之前默认关闭，从 2.1 版本开始默认开启。
 
 * `light_schema_change`
 

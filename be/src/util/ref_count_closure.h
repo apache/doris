@@ -21,38 +21,10 @@
 
 #include <atomic>
 
-#include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 
 namespace doris {
-
-template <typename T>
-class RefCountClosure : public google::protobuf::Closure {
-public:
-    RefCountClosure() : _refs(0) {}
-    ~RefCountClosure() override = default;
-
-    void ref() { _refs.fetch_add(1); }
-
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
-
-    void Run() override {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
-        if (unref()) {
-            delete this;
-        }
-    }
-
-    void join() { brpc::Join(cntl.call_id()); }
-
-    brpc::Controller cntl;
-    T result;
-
-private:
-    std::atomic<int> _refs;
-};
 
 template <typename Response>
 class DummyBrpcCallback {
@@ -65,9 +37,11 @@ public:
         response_ = std::make_shared<Response>();
     }
 
-    void call() {}
+    virtual ~DummyBrpcCallback() = default;
 
-    void join() { brpc::Join(cntl_->call_id()); }
+    virtual void call() {}
+
+    virtual void join() { brpc::Join(cntl_->call_id()); }
 
     // controller has to be the same lifecycle with the closure, because brpc may use
     // it in any stage of the rpc.
@@ -102,7 +76,7 @@ class AutoReleaseClosure : public google::protobuf::Closure {
 
 public:
     AutoReleaseClosure(std::shared_ptr<Request> req, std::shared_ptr<Callback> callback)
-            : callback_(callback) {
+            : request_(req), callback_(callback) {
         this->cntl_ = callback->cntl_;
         this->response_ = callback->response_;
     }
@@ -111,7 +85,6 @@ public:
 
     //  Will delete itself
     void Run() override {
-        SCOPED_TRACK_MEMORY_TO_UNKNOWN();
         Defer defer {[&]() { delete this; }};
         // If lock failed, it means the callback object is deconstructed, then no need
         // to deal with the callback any more.

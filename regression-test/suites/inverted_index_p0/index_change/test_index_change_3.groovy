@@ -113,9 +113,11 @@ suite("test_index_change_3") {
     wait_for_latest_op_on_table_finish(tableName, timeout)
     // build index
     sql """ BUILD INDEX idx_city ON ${tableName} """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
 
     // drop inverted index idx_user_id, idx_note
     sql """ DROP INDEX idx_city ON ${tableName} """
+    wait_for_latest_op_on_table_finish(tableName, timeout)
     sql """ DROP INDEX idx_note ON ${tableName} """
     wait_for_build_index_on_partition_finish(tableName, timeout)
 

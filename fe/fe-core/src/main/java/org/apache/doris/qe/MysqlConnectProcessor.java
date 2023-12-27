@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.ExecuteStmt;
+import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.QueryStmt;
@@ -136,7 +137,10 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             executor = new StmtExecutor(ctx, executeStmt);
             ctx.setExecutor(executor);
             executor.execute();
-            stmtStr = executeStmt.toSql();
+            PrepareStmtContext preparedStmtContext = ConnectContext.get().getPreparedStmt(String.valueOf(stmtId));
+            if (preparedStmtContext != null && !(preparedStmtContext.stmt.getInnerStmt() instanceof InsertStmt)) {
+                stmtStr = executeStmt.toSql();
+            }
         } catch (Throwable e) {
             // Catch all throwable.
             // If reach here, maybe palo bug.
@@ -144,7 +148,9 @@ public class MysqlConnectProcessor extends ConnectProcessor {
             ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + e.getMessage());
         }
-        auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
+        if (!stmtStr.isEmpty()) {
+            auditAfterExec(stmtStr, prepareCtx.stmt.getInnerStmt(), null, false);
+        }
     }
 
     // Process COM_QUERY statement,

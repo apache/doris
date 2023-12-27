@@ -95,4 +95,9 @@ public class CreateRepositoryStmt extends DdlStmt {
         sb.append("REPOSITORY `").append(name).append("` WITH ").append(storage.toSql());
         return sb.toString();
     }
+
+    @Override
+    public boolean needAuditEncryption() {
+        return true;
+    }
 }

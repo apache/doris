@@ -40,7 +40,7 @@ import org.apache.doris.thrift.TPaimonFileDesc;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
-import avro.shaded.com.google.common.base.Preconditions;
+import com.google.common.base.Preconditions;
 import org.apache.paimon.predicate.Predicate;
 import org.apache.paimon.table.AbstractFileStoreTable;
 import org.apache.paimon.table.source.ReadBuilder;
@@ -54,8 +54,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 public class PaimonScanNode extends FileQueryScanNode {
-    private static PaimonSource source = null;
-    private static List<Predicate> predicates;
+    private PaimonSource source = null;
+    private List<Predicate> predicates;
 
     public PaimonScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
         super(id, desc, "PAIMON_SCAN_NODE", StatisticalType.PAIMON_SCAN_NODE, needCheckColumnPriv);
@@ -91,7 +91,14 @@ public class PaimonScanNode extends FileQueryScanNode {
         }
     }
 
-    public static void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (split instanceof PaimonSplit) {
+            setPaimonParams(rangeDesc, (PaimonSplit) split);
+        }
+    }
+
+    public void setPaimonParams(TFileRangeDesc rangeDesc, PaimonSplit paimonSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(paimonSplit.getTableFormatType().value());
         TPaimonFileDesc fileDesc = new TPaimonFileDesc();

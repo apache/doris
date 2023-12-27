@@ -109,7 +109,7 @@ public class CreateViewTest {
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.view8 as select * from test.tbl2;"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
 
         View view1 = (View) db.getTableOrDdlException("view1");
         Assert.assertEquals(4, view1.getFullSchema().size());
@@ -175,10 +175,10 @@ public class CreateViewTest {
         String originStmt = "select k1 as kc1, sum(k2) as kc2 from test.tbl1 group by kc1";
         ExceptionChecker.expectThrowsNoException(
                 () -> createView("create view test.alter1 as " + originStmt));
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         View alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
-                "SELECT `k1` AS `kc1`, sum(`k2`) AS `kc2` FROM `default_cluster:test`.`tbl1` GROUP BY `kc1`",
+                "SELECT `k1` AS `kc1`, sum(`k2`) AS `kc2` FROM `test`.`tbl1` GROUP BY `kc1`",
                 alter1.getInlineViewDef());
 
         String alterStmt
@@ -189,7 +189,7 @@ public class CreateViewTest {
 
         alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
-                "WITH test1_cte(w1, w2) AS (SELECT `k1`, `k2` FROM `default_cluster:test`.`tbl1`) "
+                "WITH test1_cte(w1, w2) AS (SELECT `k1`, `k2` FROM `test`.`tbl1`) "
                         + "SELECT `w1` AS `c1`, sum(`w2`) AS `c2` FROM `test1_cte` WHERE `w1` > 10 GROUP BY `w1` "
                         + "ORDER BY `w1` ASC NULLS FIRST",
                 alter1.getInlineViewDef());

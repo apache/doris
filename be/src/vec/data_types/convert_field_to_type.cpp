@@ -69,25 +69,42 @@ public:
     String operator()(const Int64& x) const { return std::to_string(x); }
     String operator()(const Float64& x) const { return std::to_string(x); }
     String operator()(const String& x) const { return x; }
-    [[noreturn]] String operator()(const UInt128& x) const { LOG(FATAL) << "not implemeted"; }
-    [[noreturn]] String operator()(const Array& x) const { LOG(FATAL) << "not implemeted"; }
-    [[noreturn]] String operator()(const Tuple& x) const { LOG(FATAL) << "not implemeted"; }
+    [[noreturn]] String operator()(const UInt128& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
+    [[noreturn]] String operator()(const Array& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
+    [[noreturn]] String operator()(const Tuple& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
     [[noreturn]] String operator()(const DecimalField<Decimal32>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
     [[noreturn]] String operator()(const DecimalField<Decimal64>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
     [[noreturn]] String operator()(const DecimalField<Decimal128>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
     [[noreturn]] String operator()(const DecimalField<Decimal128I>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
     [[noreturn]] String operator()(const DecimalField<Decimal256>& x) const {
         LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
     }
-    [[noreturn]] String operator()(const JsonbField& x) const { LOG(FATAL) << "not implemeted"; }
+    [[noreturn]] String operator()(const JsonbField& x) const {
+        LOG(FATAL) << "not implemeted";
+        __builtin_unreachable();
+    }
 };
 
 class FieldVisitorToJsonb : public StaticVisitor<void> {

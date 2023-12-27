@@ -206,7 +206,7 @@ Assuming the number of history partitions to be created is `expect_create_partit
         `expect_create_partition_num` = `end` - `start`; 
 
    - `dynamic_partition.history_partition_num` is set   
-        `expect_create_partition_num` = `end` - max(`start`, `-histoty_partition_num`);
+        `expect_create_partition_num` = `end` - max(`start`, `-history_partition_num`);
 
 2. `create_history_partition` = `false`  
     No history partition will be created, `expect_create_partition_num` = `end` - 0;

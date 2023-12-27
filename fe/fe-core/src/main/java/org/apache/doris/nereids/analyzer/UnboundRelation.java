@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -43,7 +44,7 @@ import java.util.Optional;
 /**
  * Represent a relation plan node that has not been bound.
  */
-public class UnboundRelation extends LogicalRelation implements Unbound {
+public class UnboundRelation extends LogicalRelation implements Unbound, BlockFuncDepsPropagation {
 
     private final List<String> nameParts;
     private final List<String> partNames;

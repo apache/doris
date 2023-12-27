@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
@@ -44,7 +45,7 @@ import java.util.Optional;
  * @param <RIGHT_CHILD_TYPE> subquery.
  */
 public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
-        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+        extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements PropagateFuncDeps {
 
     // correlation column
     private final List<Expression> correlationSlot;
@@ -197,8 +198,13 @@ public class LogicalApply<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends
                 .build();
     }
 
+    public LogicalApply<Plan, Plan> withSubqueryExprAndChildren(SubqueryExpr subqueryExpr, List<Plan> children) {
+        return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
+                markJoinSlotReference, needAddSubOutputToProjects, inProject, children.get(0), children.get(1));
+    }
+
     @Override
-    public LogicalBinary<Plan, Plan> withChildren(List<Plan> children) {
+    public LogicalApply<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalApply<>(correlationSlot, subqueryExpr, correlationFilter,
                 markJoinSlotReference, needAddSubOutputToProjects, inProject,

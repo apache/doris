@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.qe.AutoCloseConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -36,6 +37,7 @@ import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.text.MessageFormat;
 import java.util.Collections;
 import java.util.concurrent.TimeUnit;
 
@@ -43,46 +45,80 @@ public abstract class BaseAnalysisTask {
 
     public static final Logger LOG = LogManager.getLogger(BaseAnalysisTask.class);
 
-    protected static final String NDV_MULTIPLY_THRESHOLD = "0.3";
-
-    protected static final String NDV_SAMPLE_TEMPLATE = "case when NDV(`${colName}`)/count('${colName}') < "
-            + NDV_MULTIPLY_THRESHOLD
-            + " then NDV(`${colName}`) "
-            + "else NDV(`${colName}`) * ${scaleFactor} end AS ndv, "
-            ;
+    public static final long LIMIT_SIZE = 1024 * 1024 * 1024; // 1GB
+    public static final double LIMIT_FACTOR = 1.2;
 
     protected static final String COLLECT_COL_STATISTICS =
-            "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
-            + "         ${catalogId} AS catalog_id, "
-            + "         ${dbId} AS db_id, "
-            + "         ${tblId} AS tbl_id, "
-            + "         ${idxId} AS idx_id, "
-            + "         '${colId}' AS col_id, "
-            + "         NULL AS part_id, "
-            + "         COUNT(1) AS row_count, "
-            + "         NDV(`${colName}`) AS ndv, "
-            + "         COUNT(1) - COUNT(${colName}) AS null_count, "
-            + "         CAST(MIN(${colName}) AS STRING) AS min, "
-            + "         CAST(MAX(${colName}) AS STRING) AS max, "
-            + "         ${dataSizeFunction} AS data_size, "
-            + "         NOW() AS update_time "
-            + " FROM `${dbName}`.`${tblName}`";
+            "SELECT CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
+            + "         ${catalogId} AS `catalog_id`, "
+            + "         ${dbId} AS `db_id`, "
+            + "         ${tblId} AS `tbl_id`, "
+            + "         ${idxId} AS `idx_id`, "
+            + "         '${colId}' AS `col_id`, "
+            + "         NULL AS `part_id`, "
+            + "         COUNT(1) AS `row_count`, "
+            + "         NDV(`${colName}`) AS `ndv`, "
+            + "         COUNT(1) - COUNT(`${colName}`) AS `null_count`, "
+            + "         SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS `min`, "
+            + "         SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS `max`, "
+            + "         ${dataSizeFunction} AS `data_size`, "
+            + "         NOW() AS `update_time` "
+            + " FROM `${catalogName}`.`${dbName}`.`${tblName}`";
 
-    protected static final String ANALYZE_PARTITION_COLUMN_TEMPLATE =
-            " SELECT "
-            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS id, "
-            + "${catalogId} AS catalog_id, "
-            + "${dbId} AS db_id, "
-            + "${tblId} AS tbl_id, "
-            + "${idxId} AS idx_id, "
-            + "'${colId}' AS col_id, "
-            + "NULL AS part_id, "
-            + "${row_count} AS row_count, "
-            + "${ndv} AS ndv, "
-            + "${null_count} AS null_count, "
-            + "'${min}' AS min, "
-            + "'${max}' AS max, "
-            + "${data_size} AS data_size, "
+    protected static final String LINEAR_ANALYZE_TEMPLATE = " SELECT "
+            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
+            + "${catalogId} AS `catalog_id`, "
+            + "${dbId} AS `db_id`, "
+            + "${tblId} AS `tbl_id`, "
+            + "${idxId} AS `idx_id`, "
+            + "'${colId}' AS `col_id`, "
+            + "NULL AS `part_id`, "
+            + "${rowCount} AS `row_count`, "
+            + "${ndvFunction} as `ndv`, "
+            + "ROUND(SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) * ${scaleFactor}) AS `null_count`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
+            + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
+            + "NOW() "
+            + "FROM `${catalogName}`.`${dbName}`.`${tblName}` ${sampleHints} ${limit}";
+
+    protected static final String DUJ1_ANALYZE_TEMPLATE = "SELECT "
+            + "CONCAT('${tblId}', '-', '${idxId}', '-', '${colId}') AS `id`, "
+            + "${catalogId} AS `catalog_id`, "
+            + "${dbId} AS `db_id`, "
+            + "${tblId} AS `tbl_id`, "
+            + "${idxId} AS `idx_id`, "
+            + "'${colId}' AS `col_id`, "
+            + "NULL AS `part_id`, "
+            + "${rowCount} AS `row_count`, "
+            + "${ndvFunction} as `ndv`, "
+            + "IFNULL(SUM(IF(`t1`.`column_key` IS NULL, `t1`.`count`, 0)), 0) * ${scaleFactor} as `null_count`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
+            + "${dataSizeFunction} * ${scaleFactor} AS `data_size`, "
+            + "NOW() "
+            + "FROM ( "
+            + "    SELECT t0.`${colName}` as `column_key`, COUNT(1) as `count` "
+            + "    FROM "
+            + "    (SELECT `${colName}` FROM `${catalogName}`.`${dbName}`.`${tblName}` "
+            + "    ${sampleHints} ${limit}) as `t0` "
+            + "    GROUP BY `t0`.`${colName}` "
+            + ") as `t1` ";
+
+    protected static final String ANALYZE_PARTITION_COLUMN_TEMPLATE = " SELECT "
+            + "CONCAT(${tblId}, '-', ${idxId}, '-', '${colId}') AS `id`, "
+            + "${catalogId} AS `catalog_id`, "
+            + "${dbId} AS `db_id`, "
+            + "${tblId} AS `tbl_id`, "
+            + "${idxId} AS `idx_id`, "
+            + "'${colId}' AS `col_id`, "
+            + "NULL AS `part_id`, "
+            + "${row_count} AS `row_count`, "
+            + "${ndv} AS `ndv`, "
+            + "${null_count} AS `null_count`, "
+            + "SUBSTRING(CAST(${min} AS STRING), 1, 1024) AS `min`, "
+            + "SUBSTRING(CAST(${max} AS STRING), 1, 1024) AS `max`, "
+            + "${data_size} AS `data_size`, "
             + "NOW() ";
 
     protected AnalysisInfo info;
@@ -146,7 +182,7 @@ public abstract class BaseAnalysisTask {
 
     protected void executeWithRetry() {
         int retriedTimes = 0;
-        while (retriedTimes <= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+        while (retriedTimes < StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
             if (killed) {
                 break;
             }
@@ -158,7 +194,7 @@ public abstract class BaseAnalysisTask {
                     throw new RuntimeException(t);
                 }
                 LOG.warn("Failed to execute analysis task, retried times: {}", retriedTimes++, t);
-                if (retriedTimes > StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
+                if (retriedTimes >= StatisticConstants.ANALYZE_TASK_RETRY_TIMES) {
                     job.taskFailed(this, t.getMessage());
                     throw new RuntimeException(t);
                 }
@@ -199,21 +235,43 @@ public abstract class BaseAnalysisTask {
         return info.jobId;
     }
 
-    // TODO : time cost is intolerable when column is string type, return 0 directly for now.
-    protected String getDataSizeFunction(Column column) {
-        if (column.getType().isStringType()) {
-            return "SUM(LENGTH(`${colName}`))";
+    protected String getDataSizeFunction(Column column, boolean useDuj1) {
+        if (useDuj1) {
+            if (column.getType().isStringType()) {
+                return "SUM(LENGTH(`column_key`) * count)";
+            } else {
+                return "SUM(t1.count) * " + column.getType().getSlotSize();
+            }
+        } else {
+            if (column.getType().isStringType()) {
+                return "SUM(LENGTH(`${colName}`))";
+            } else {
+                return "COUNT(1) * " + column.getType().getSlotSize();
+            }
         }
-        return "COUNT(1) * " + column.getType().getSlotSize();
     }
 
-    // Min value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
     protected String getMinFunction() {
         if (tableSample == null) {
             return "CAST(MIN(`${colName}`) as ${type}) ";
         } else {
-            return "NULL ";
+            // Min value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
+            return "NULL";
         }
+    }
+
+    protected String getNdvFunction(String totalRows) {
+        String sampleRows = "SUM(`t1`.`count`)";
+        String onceCount = "SUM(IF(`t1`.`count` = 1, 1, 0))";
+        String countDistinct = "COUNT(1)";
+        // DUJ1 estimator: n*d / (n - f1 + f1*n/N)
+        // f1 is the count of element that appears only once in the sample.
+        // (https://github.com/postgres/postgres/blob/master/src/backend/commands/analyze.c)
+        // (http://citeseerx.ist.psu.edu/viewdoc/download?doi=10.1.1.93.8637&rep=rep1&type=pdf)
+        // sample_row * count_distinct / ( sample_row - once_count + once_count * sample_row / total_row)
+        String fn = MessageFormat.format("{0} * {1} / ({0} - {2} + {2} * {0} / {3})", sampleRows,
+                countDistinct, onceCount, totalRows);
+        return fn;
     }
 
     // Max value is not accurate while sample, so set it to NULL to avoid optimizer generate bad plan.
@@ -221,7 +279,7 @@ public abstract class BaseAnalysisTask {
         if (tableSample == null) {
             return "CAST(MAX(`${colName}`) as ${type}) ";
         } else {
-            return "NULL ";
+            return "NULL";
         }
     }
 
@@ -256,13 +314,15 @@ public abstract class BaseAnalysisTask {
 
     protected void runQuery(String sql) {
         long startTime = System.currentTimeMillis();
+        String queryId = "";
         try (AutoCloseConnectContext a  = StatisticsUtil.buildConnectContext()) {
             stmtExecutor = new StmtExecutor(a.connectContext, sql);
-            stmtExecutor.executeInternalQuery();
             ColStatsData colStatsData = new ColStatsData(stmtExecutor.executeInternalQuery().get(0));
+            queryId = DebugUtil.printId(stmtExecutor.getContext().queryId());
             job.appendBuf(this, Collections.singletonList(colStatsData));
         } finally {
-            LOG.debug("End cost time in secs: " + (System.currentTimeMillis() - startTime) / 1000);
+            LOG.debug("End cost time in millisec: " + (System.currentTimeMillis() - startTime)
+                    + " Analyze SQL: " + sql + " QueryId: " + queryId);
         }
     }
 

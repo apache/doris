@@ -104,7 +104,6 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
         : ExecNode(pool, tnode, descs),
           _hash_table_compute_timer(nullptr),
           _hash_table_input_counter(nullptr),
-          _build_timer(nullptr),
           _expr_timer(nullptr),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
           _intermediate_tuple_desc(nullptr),
@@ -250,7 +249,6 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _serialize_key_arena_memory_usage = runtime_profile()->AddHighWaterMarkCounter(
             "SerializeKeyArena", TUnit::BYTES, "MemoryUsage");
 
-    _build_timer = ADD_TIMER_WITH_LEVEL(runtime_profile(), "BuildTime", 1);
     _build_table_convert_timer = ADD_TIMER(runtime_profile(), "BuildConvertToPartitionedTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTime");
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
@@ -293,7 +291,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
 
     // set profile timer to evaluators
     for (auto& evaluator : _aggregate_evaluators) {
-        evaluator->set_timer(_exec_timer, _merge_timer, _expr_timer);
+        evaluator->set_timer(_merge_timer, _expr_timer);
     }
 
     _offsets_of_aggregate_states.resize(_aggregate_evaluators.size());
@@ -404,7 +402,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                    _is_merge ? "true" : "false", _needs_finalize ? "true" : "false",
                    _is_streaming_preagg ? "true" : "false",
                    std::to_string(_aggregate_evaluators.size()), std::to_string(_limit));
-    runtime_profile()->add_info_string("AggInfos:", fmt::to_string(msg));
+    runtime_profile()->add_info_string("AggInfos", fmt::to_string(msg));
     return Status::OK();
 }
 
@@ -675,7 +673,6 @@ Status AggregationNode::_serialize_without_key(RuntimeState* state, Block* block
 
 Status AggregationNode::_execute_without_key(Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
-    SCOPED_TIMER(_build_timer);
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
         RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_single_add(
                 block, _agg_data->without_key + _offsets_of_aggregate_states[i],
@@ -850,13 +847,20 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                 agg_method.init_serialized_keys(key_columns, num_rows);
 
                 auto creator = [this](const auto& ctor, auto& key, auto& origin) {
-                    HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
-                    auto mapped = _aggregate_data_container->append_data(origin);
-                    auto st = _create_agg_status(mapped);
-                    if (!st) {
-                        throw Exception(st.code(), st.to_string());
+                    try {
+                        HashMethodType::try_presis_key(key, origin, *_agg_arena_pool);
+                        auto mapped = _aggregate_data_container->append_data(origin);
+                        auto st = _create_agg_status(mapped);
+                        if (!st) {
+                            throw Exception(st.code(), st.to_string());
+                        }
+                        ctor(key, mapped);
+                    } catch (...) {
+                        // Exception-safety - if it can not allocate memory or create status,
+                        // the destructors will not be called.
+                        ctor(key, nullptr);
+                        throw;
                     }
-                    ctor(key, mapped);
                 };
 
                 auto creator_for_null_key = [this](auto& mapped) {
@@ -901,7 +905,6 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
 
 Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* in_block,
                                                      doris::vectorized::Block* out_block) {
-    SCOPED_TIMER(_build_timer);
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();

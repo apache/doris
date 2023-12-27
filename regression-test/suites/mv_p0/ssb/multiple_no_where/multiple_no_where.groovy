@@ -231,4 +231,5 @@ suite ("multiple_no_where") {
         contains "(temp_2)"
     }
     qt_select_temp_2 """SELECT lo_orderkey, sum(lo_extendedprice),max(lo_extendedprice), min(lo_extendedprice)  from  lineorder_flat  group by lo_orderkey order by lo_orderkey;"""
+    qt_select """ select min(lo_extendedprice),max(lo_extendedprice) from lineorder_flat;"""
 }

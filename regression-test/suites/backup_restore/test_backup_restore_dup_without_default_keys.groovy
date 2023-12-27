@@ -69,7 +69,7 @@ suite("test_backup_restore_dup_without_default_keys", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
     """
     while (!syncer.checkAllRestoreFinish(dbName)) {

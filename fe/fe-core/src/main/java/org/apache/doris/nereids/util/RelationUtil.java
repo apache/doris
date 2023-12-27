@@ -20,7 +20,6 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -52,9 +51,6 @@ public class RelationUtil {
                 String catalogName = context.getCurrentCatalog().getName();
                 // if the relation is view, nameParts.get(0) is dbName.
                 String dbName = nameParts.get(0);
-                if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
-                    dbName = context.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
-                }
                 String tableName = nameParts.get(1);
                 return ImmutableList.of(catalogName, dbName, tableName);
             }
@@ -62,9 +58,6 @@ public class RelationUtil {
                 // Use catalog and database name from name parts.
                 String catalogName = nameParts.get(0);
                 String dbName = nameParts.get(1);
-                if (!dbName.contains(ClusterNamespace.CLUSTER_DELIMITER)) {
-                    dbName = context.getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
-                }
                 String tableName = nameParts.get(2);
                 return ImmutableList.of(catalogName, dbName, tableName);
             }

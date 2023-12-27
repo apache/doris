@@ -18,6 +18,8 @@
 package org.apache.doris.nereids.trees.plans.logical;
 
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.properties.FunctionalDependencies;
+import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -34,6 +36,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 /**
  * Logical limit plan
@@ -139,5 +142,17 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     public LogicalLimit<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalLimit<>(limit, offset, phase, children.get(0));
+    }
+
+    @Override
+    public FunctionalDependencies computeFuncDeps(Supplier<List<Slot>> outputSupplier) {
+        FunctionalDependencies fd = child(0).getLogicalProperties().getFunctionalDependencies();
+        if (getLimit() == 1 && !phase.isLocal()) {
+            Builder builder = new Builder();
+            outputSupplier.get().forEach(builder::addUniformSlot);
+            outputSupplier.get().forEach(builder::addUniqueSlot);
+            fd = builder.build();
+        }
+        return fd;
     }
 }

@@ -36,7 +36,6 @@ DistinctAggregationNode::DistinctAggregationNode(ObjectPool* pool, const TPlanNo
 Status DistinctAggregationNode::_distinct_pre_agg_with_serialized_key(
         doris::vectorized::Block* in_block, doris::vectorized::Block* out_block) {
     SCOPED_TIMER(_exec_timer);
-    SCOPED_TIMER(_build_timer);
     DCHECK(!_probe_expr_ctxs.empty());
 
     size_t key_size = _probe_expr_ctxs.size();

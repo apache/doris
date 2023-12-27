@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AccessPrivilegeWithCols;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -135,10 +134,9 @@ public class GrantStmt extends DdlStmt {
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
         if (userIdent != null) {
-            userIdent.analyze(analyzer.getClusterName());
+            userIdent.analyze();
         } else {
             FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not grant to role");
-            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
         }
 
         if (tblPattern != null) {
@@ -151,10 +149,8 @@ public class GrantStmt extends DdlStmt {
             for (int i = 0; i < roles.size(); i++) {
                 String originalRoleName = roles.get(i);
                 FeNameFormat.checkRoleName(originalRoleName, true /* can be admin */, "Can not grant role");
-                roles.set(i, ClusterNamespace.getFullName(analyzer.getClusterName(), originalRoleName));
             }
         }
-
 
         if (!CollectionUtils.isEmpty(accessPrivileges)) {
             checkAccessPrivileges(accessPrivileges);

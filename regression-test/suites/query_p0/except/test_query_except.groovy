@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_query_except") {
+suite("test_query_except", "arrow_flight_sql") {
     // test query except, depend on query_test_data_load.groovy
     sql "use test_query_db"
     qt_select_except1 """

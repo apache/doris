@@ -1562,8 +1562,6 @@ public:
 
     bool use_default_implementation_for_nulls() const override { return true; }
 
-    bool use_default_implementation_for_constants() const override { return false; }
-
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) const override {
         DCHECK_EQ(arguments.size(), 3);
@@ -1576,9 +1574,10 @@ public:
         auto& res_offsets = res->get_offsets();
         auto& res_chars = res->get_chars();
         res_offsets.resize(input_rows_count);
-
-        ColumnPtr content_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr content_column;
+        bool content_const = false;
+        std::tie(content_column, content_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
 
         if (auto* nullable = check_and_get_column<const ColumnNullable>(*content_column)) {
             // Danger: Here must dispose the null map data first! Because
@@ -1588,25 +1587,16 @@ public:
             content_column = nullable->get_nested_column_ptr();
         }
 
-        for (size_t i = 1; i <= 2; i++) {
-            ColumnPtr columnPtr = remove_nullable(block.get_by_position(arguments[i]).column);
-
-            if (!is_column_const(*columnPtr)) {
-                return Status::RuntimeError("Argument at index {} for function {} must be constant",
-                                            i + 1, get_name());
-            }
-        }
-
         auto str_col = assert_cast<const ColumnString*>(content_column.get());
 
-        const IColumn& delimiter_col = *block.get_by_position(arguments[1]).column;
-        const auto* delimiter_const = typeid_cast<const ColumnConst*>(&delimiter_col);
-        auto delimiter = delimiter_const->get_field().get<String>();
-        int32_t delimiter_size = delimiter.size();
+        [[maybe_unused]] const auto& [delimiter_col, delimiter_const] =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+        auto delimiter = delimiter_col->get_data_at(0);
+        int32_t delimiter_size = delimiter.size;
 
-        const IColumn& part_num_col = *block.get_by_position(arguments[2]).column;
-        const auto* part_num_col_const = typeid_cast<const ColumnConst*>(&part_num_col);
-        auto part_number = part_num_col_const->get_field().get<Int32>();
+        [[maybe_unused]] const auto& [part_num_col, part_const] =
+                unpack_if_const(block.get_by_position(arguments[2]).column);
+        auto part_number = *((int*)part_num_col->get_data_at(0).data);
 
         if (part_number == 0 || delimiter_size == 0) {
             for (size_t i = 0; i < input_rows_count; ++i) {
@@ -1622,7 +1612,7 @@ public:
                     while (num < part_number) {
                         size_t n = str.size - offset - 1;
                         const char* pos = reinterpret_cast<const char*>(
-                                memchr(str.data + offset + 1, delimiter[0], n));
+                                memchr(str.data + offset + 1, delimiter.data[0], n));
                         if (pos != nullptr) {
                             offset = pos - str.data;
                             num++;
@@ -1755,6 +1745,7 @@ public:
         const auto& [right_column, right_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
+        DataTypePtr right_column_type = block.get_by_position(arguments[1]).type;
         DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
         auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
                                                    ColumnArray::ColumnOffsets::create());
@@ -1770,27 +1761,42 @@ public:
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
-            if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
-                if (right_const) {
-                    _execute_constant(*col_left, col_right->get_data_at(0), *dest_nested_column,
-                                      dest_offsets, dest_nested_null_map);
-                } else {
-                    _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets,
-                                    dest_nested_null_map);
-                }
-
-                block.replace_by_position(result, std::move(dest_column_ptr));
-                return Status::OK();
-            }
+        auto col_left = check_and_get_column<ColumnString>(src_column.get());
+        if (!col_left) {
+            return Status::InternalError("Left operator of function {} can not be {}", get_name(),
+                                         src_column_type->get_name());
         }
-        return Status::RuntimeError("unimplements function {}", get_name());
+
+        auto col_right = check_and_get_column<ColumnString>(right_column.get());
+        if (!col_right) {
+            return Status::InternalError("Right operator of function {} can not be {}", get_name(),
+                                         right_column_type->get_name());
+        }
+
+        // split_by_string(ColumnString, "xxx")
+        if (right_const) {
+            _execute_constant_delimiter(*col_left, col_right->get_data_at(0), *dest_nested_column,
+                                        dest_offsets, dest_nested_null_map);
+        } else if (left_const) {
+            // split_by_string("xxx", ColumnString)
+            _execute_constant_src_string(col_left->get_data_at(0), *col_right, *dest_nested_column,
+                                         dest_offsets, dest_nested_null_map);
+        } else {
+            // split_by_string(ColumnString, ColumnString)
+            _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets,
+                            dest_nested_null_map);
+        }
+
+        block.replace_by_position(result, std::move(dest_column_ptr));
+
+        return Status::OK();
     }
 
 private:
-    void _execute_constant(const ColumnString& src_column_string, const StringRef& delimiter_ref,
-                           IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
-                           NullMapType* dest_nested_null_map) const {
+    void _execute_constant_delimiter(const ColumnString& src_column_string,
+                                     const StringRef& delimiter_ref, IColumn& dest_nested_column,
+                                     ColumnArray::Offsets64& dest_offsets,
+                                     NullMapType* dest_nested_null_map) const {
         ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -1875,6 +1881,58 @@ private:
                 dest_offsets.push_back(dest_pos);
                 continue;
             }
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref);
+                    str_pos += delimiter_ref.size;
+                    const size_t new_size = old_size + split_part_size;
+                    column_string_chars.resize(new_size);
+                    if (split_part_size > 0) {
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
+                    }
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos += split_part_size;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+
+    void _execute_constant_src_string(const StringRef& str_ref, const ColumnString& delimiter_col,
+                                      IColumn& dest_nested_column,
+                                      ColumnArray::Offsets64& dest_offsets,
+                                      NullMapType* dest_nested_null_map) const {
+        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        column_string_chars.reserve(0);
+
+        ColumnArray::Offset64 string_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        const ColumnArray::Offset64 delimiter_offsets_size = delimiter_col.get_offsets().size();
+
+        for (size_t i = 0; i < delimiter_offsets_size; ++i) {
+            const StringRef delimiter_ref = delimiter_col.get_data_at(i);
+
             if (delimiter_ref.size == 0) {
                 for (size_t str_pos = 0; str_pos < str_ref.size;) {
                     const size_t str_offset = str_pos;

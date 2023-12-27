@@ -337,7 +337,7 @@ public class RoutineLoadJobTest {
 
     @Test
     public void testGetShowCreateInfo() throws UserException {
-        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", "test", 1,
+        KafkaRoutineLoadJob routineLoadJob = new KafkaRoutineLoadJob(111L, "test_load", 1,
                 11, "localhost:9092", "test_topic", UserIdentity.ADMIN);
         Deencapsulation.setField(routineLoadJob, "maxErrorNum", 10);
         Deencapsulation.setField(routineLoadJob, "maxBatchRows", 10);

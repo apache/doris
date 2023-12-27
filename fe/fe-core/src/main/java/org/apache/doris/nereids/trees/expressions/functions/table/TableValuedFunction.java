@@ -109,7 +109,7 @@ public abstract class TableValuedFunction extends BoundFunction implements Unary
     }
 
     public PhysicalProperties getPhysicalProperties() {
-        return PhysicalProperties.ANY;
+        return PhysicalProperties.STORAGE_ANY;
     }
 
     @Override

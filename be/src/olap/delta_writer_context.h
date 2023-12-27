@@ -38,7 +38,7 @@ struct WriteRequest {
     PUniqueId load_id;
     TupleDescriptor* tuple_desc = nullptr;
     // slots are in order of tablet's schema
-    const std::vector<SlotDescriptor*>* slots;
+    const std::vector<SlotDescriptor*>* slots = nullptr;
     OlapTableSchemaParam* table_schema_param = nullptr;
     bool is_high_priority = false;
     bool write_file_cache = false;

@@ -40,7 +40,7 @@ public class CreateViewStmtTest extends TestWithFeService {
 
     @Test
     public void testCreateView() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         String createViewStr1 = "create view 1view1 as select k1,k2 from test.table1;";
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
                 String.format("Incorrect table name '1view1'. Table name regex is '%s'", FeNameFormat.getTableNameRegex()),

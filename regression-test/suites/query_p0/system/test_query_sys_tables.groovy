@@ -114,7 +114,7 @@ suite("test_query_sys_tables", "query,p0") {
     // test table_privileges
     sql """  DROP USER if exists 'cywtable'; """   
     qt_desc_table_privileges """desc `information_schema`.`table_privileges` """
-    order_qt_table_privileges """  select * from information_schema.table_privileges   """  
+    order_qt_table_privileges """  select * from information_schema.table_privileges where GRANTEE = "'cywtable'@'%'" ;  """  
     sql """  CREATE USER 'cywtable'; """
     sql """ CREATE DATABASE IF NOT EXISTS table_privileges_demo  """
     sql """ create table IF NOT EXISTS table_privileges_demo.test_table_privileges( 
@@ -129,9 +129,9 @@ suite("test_query_sys_tables", "query,p0") {
         );"""
     
     sql """ GRANT SELECT_PRIV,ALTER_PRIV,LOAD_PRIV ON table_privileges_demo.test_table_privileges  TO 'cywtable'@'%'; """
-    order_qt_table_privileges2  """  select * from information_schema.table_privileges order by PRIVILEGE_TYPE ; """
+    order_qt_table_privileges2  """  select * from information_schema.table_privileges where GRANTEE = "'cywtable'@'%'" order by PRIVILEGE_TYPE ; """
     sql """ REVOKE SELECT_PRIV ON table_privileges_demo.test_table_privileges FROM 'cywtable'@'%'; """ 
-    order_qt_table_privileges3  """  select * from information_schema.table_privileges order by PRIVILEGE_TYPE ; """
+    order_qt_table_privileges3  """  select * from information_schema.table_privileges where GRANTEE = "'cywtable'@'%'" order by PRIVILEGE_TYPE ; """
 
 
     // test partitions

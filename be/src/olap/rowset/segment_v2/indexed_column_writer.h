@@ -94,8 +94,8 @@ private:
     Status _flush_index(IndexPageBuilder* index_builder, BTreeMetaPB* meta);
 
     IndexedColumnWriterOptions _options;
-    const TypeInfo* _type_info;
-    io::FileWriter* _file_writer;
+    const TypeInfo* _type_info = nullptr;
+    io::FileWriter* _file_writer = nullptr;
     // only used for `_first_value`
     vectorized::Arena _arena;
 
@@ -115,8 +115,8 @@ private:
     // builder for index pages of value index, null if write_value_index == false
     std::unique_ptr<IndexPageBuilder> _value_index_builder;
     // encoder for value index's key
-    const KeyCoder* _value_key_coder;
-    BlockCompressionCodec* _compress_codec;
+    const KeyCoder* _value_key_coder = nullptr;
+    BlockCompressionCodec* _compress_codec = nullptr;
 
     DISALLOW_COPY_AND_ASSIGN(IndexedColumnWriter);
 };

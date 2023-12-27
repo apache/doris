@@ -75,33 +75,42 @@ struct ExtraInfo {
     int32_t parent_unique_id = -1;
     vectorized::PathInData path_info;
 };
-void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
-                        TabletColumn& column, const ExtraInfo& ext_info);
+
+TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
+                                const ExtraInfo& ext_info);
 
 TabletColumn get_least_type_column(const TabletColumn& original, const DataTypePtr& new_type,
                                    const ExtraInfo& ext_info, bool* changed);
 
-// Two steps to parse variant columns into flatterned columns
+// thread steps to parse and encode variant columns into flatterned columns
 // 1. parse variant from raw json string
 // 2. finalize variant column to each subcolumn least commn types, default ignore sparse sub columns
 // 2. encode sparse sub columns
-void parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
+Status parse_and_encode_variant_columns(Block& block, const std::vector<int>& variant_pos);
+Status parse_variant_columns(Block& block, const std::vector<int>& variant_pos);
 void finalize_variant_columns(Block& block, const std::vector<int>& variant_pos,
                               bool ignore_sparse = true);
 void encode_variant_sparse_subcolumns(Block& block, const std::vector<int>& variant_pos);
 
 // Pick the tablet schema with the highest schema version as the reference.
 // Then update all variant columns to there least common types.
-// Return the final merged schema as common schema
-void get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
-                             TabletSchemaSPtr& common_schema);
+// Return the final merged schema as common schema.
+// If base_schema == nullptr then, max schema version tablet schema will be picked as base schema
+Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
+                               const TabletSchemaSPtr& base_schema, TabletSchemaSPtr& result,
+                               bool check_schema_size = false);
 
 // Get least common types for extracted columns which has Path info,
 // with a speicified variant column's unique id
 void update_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
                                 TabletSchemaSPtr& common_schema, int32_t variant_col_unique_id);
 
+// inherit index info from it's parent column
+void inherit_tablet_index(TabletSchemaSPtr& schema);
+
 // Extract json data from source with path
 Status extract(ColumnPtr source, const PathInData& path, MutableColumnPtr& dst);
+
+std::string dump_column(DataTypePtr type, const ColumnPtr& col);
 
 } // namespace  doris::vectorized::schema_util

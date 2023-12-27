@@ -60,14 +60,14 @@ protected:
 private:
 #ifdef USE_HADOOP_HDFS
     struct HDFSProfile {
-        RuntimeProfile::Counter* total_bytes_read;
-        RuntimeProfile::Counter* total_local_bytes_read;
-        RuntimeProfile::Counter* total_short_circuit_bytes_read;
-        RuntimeProfile::Counter* total_total_zero_copy_bytes_read;
+        RuntimeProfile::Counter* total_bytes_read = nullptr;
+        RuntimeProfile::Counter* total_local_bytes_read = nullptr;
+        RuntimeProfile::Counter* total_short_circuit_bytes_read = nullptr;
+        RuntimeProfile::Counter* total_total_zero_copy_bytes_read = nullptr;
 
-        RuntimeProfile::Counter* total_hedged_read;
-        RuntimeProfile::Counter* hedged_read_in_cur_thread;
-        RuntimeProfile::Counter* hedged_read_wins;
+        RuntimeProfile::Counter* total_hedged_read = nullptr;
+        RuntimeProfile::Counter* hedged_read_in_cur_thread = nullptr;
+        RuntimeProfile::Counter* hedged_read_wins = nullptr;
     };
 #endif
 
@@ -76,7 +76,7 @@ private:
     FileHandleCache::Accessor _accessor;
     CachedHdfsFileHandle* _handle = nullptr; // owned by _cached_file_handle
     std::atomic<bool> _closed = false;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
 #ifdef USE_HADOOP_HDFS
     HDFSProfile _hdfs_profile;
 #endif

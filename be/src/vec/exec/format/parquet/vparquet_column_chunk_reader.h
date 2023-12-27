@@ -91,9 +91,17 @@ public:
     Status init();
 
     // Whether the chunk reader has a more page to read.
-    bool has_next_page() { return _page_reader->has_next_page(); }
+    bool has_next_page() { return _chunk_parsed_values < _metadata.num_values; }
 
+    // Deprecated
     // Seek to the specific page, page_header_offset must be the start offset of the page header.
+    // _end_offset may exceed the actual data area, so we can only use the number of parsed values
+    // to determine whether there are remaining pages to read. That's to say we can't use the
+    // PageLocation in parquet metadata to seek to the specified page. We should call next_page()
+    // and skip_page() to skip pages one by one.
+    // todo: change this interface to seek_to_page(int64_t page_header_offset, size_t num_parsed_values)
+    // and set _chunk_parsed_values = num_parsed_values
+    // [[deprecated]]
     void seek_to_page(int64_t page_header_offset) {
         _remaining_num_values = 0;
         _page_reader->seek_to_page(page_header_offset);
@@ -186,21 +194,22 @@ private:
     void _get_uncompressed_levels(const tparquet::DataPageHeaderV2& page_v2, Slice& page_data);
 
     ColumnChunkReaderState _state = NOT_INIT;
-    FieldSchema* _field_schema;
+    FieldSchema* _field_schema = nullptr;
     level_t _max_rep_level;
     level_t _max_def_level;
     tparquet::LogicalType _parquet_logical_type;
 
-    io::BufferedStreamReader* _stream_reader;
+    io::BufferedStreamReader* _stream_reader = nullptr;
     tparquet::ColumnMetaData _metadata;
     //    cctz::time_zone* _ctz;
-    io::IOContext* _io_ctx;
+    io::IOContext* _io_ctx = nullptr;
 
-    std::unique_ptr<PageReader> _page_reader = nullptr;
+    std::unique_ptr<PageReader> _page_reader;
     BlockCompressionCodec* _block_compress_codec = nullptr;
 
     LevelDecoder _rep_level_decoder;
     LevelDecoder _def_level_decoder;
+    size_t _chunk_parsed_values = 0;
     uint32_t _remaining_num_values = 0;
     Slice _page_data;
     std::unique_ptr<uint8_t[]> _decompress_buf;

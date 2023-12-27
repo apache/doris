@@ -98,6 +98,12 @@ suite("or_expansion") {
         sql "insert into oe1 values(${i}, ${i})"
         sql "insert into oe2 values(${i+20}, ${i+20})"
     }
+    sql "insert into oe1 values(null, 1)"
+    sql "insert into oe1 values(1, null)"
+    sql "insert into oe1 values(null, null)"
+    sql "insert into oe2 values(null, 1)"
+    sql "insert into oe2 values(1, null)"
+    sql "insert into oe2 values(null, null)"
 
     qt_order_ij """
         select oe1.k0, oe2.k0

@@ -41,7 +41,7 @@ public:
     static MemRange null() { return MemRange(nullptr, 0); }
 
 private:
-    uint8_t* data_;
+    uint8_t* data_ = nullptr;
     int64_t len_;
 };
 } // namespace doris

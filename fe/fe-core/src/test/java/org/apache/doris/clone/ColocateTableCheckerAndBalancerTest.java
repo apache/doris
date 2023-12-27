@@ -637,7 +637,7 @@ public class ColocateTableCheckerAndBalancerTest {
             }
         };
 
-        List<Long> availableBeIds = Deencapsulation.invoke(balancer, "getAvailableBeIds", "cluster1",
+        List<Long> availableBeIds = Deencapsulation.invoke(balancer, "getAvailableBeIds",
                 Tag.DEFAULT_BACKEND_TAG, Sets.newHashSet(999L), infoService);
         System.out.println(availableBeIds);
         Assert.assertArrayEquals(new long[]{2L, 4L}, availableBeIds.stream().mapToLong(i -> i).sorted().toArray());

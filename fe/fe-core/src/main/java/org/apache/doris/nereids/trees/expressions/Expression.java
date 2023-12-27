@@ -22,6 +22,8 @@ import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.AbstractTreeNode;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
+import org.apache.doris.nereids.trees.expressions.functions.Nondeterministic;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
@@ -57,6 +59,8 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     protected Optional<String> exprName = Optional.empty();
     private final int depth;
     private final int width;
+    // Mark this expression is from predicate infer or something else infer
+    private final boolean inferred;
 
     protected Expression(Expression... children) {
         super(children);
@@ -67,6 +71,7 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 .mapToInt(e -> e.width)
                 .sum() + (children.length == 0 ? 1 : 0);
         checkLimit();
+        this.inferred = false;
     }
 
     protected Expression(List<Expression> children) {
@@ -78,6 +83,19 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
                 .mapToInt(e -> e.width)
                 .sum() + (children.isEmpty() ? 1 : 0);
         checkLimit();
+        this.inferred = false;
+    }
+
+    protected Expression(List<Expression> children, boolean inferred) {
+        super(children);
+        depth = children.stream()
+                .mapToInt(e -> e.depth)
+                .max().orElse(0) + 1;
+        width = children.stream()
+                .mapToInt(e -> e.width)
+                .sum() + (children.isEmpty() ? 1 : 0);
+        checkLimit();
+        this.inferred = inferred;
     }
 
     private void checkLimit() {
@@ -214,19 +232,31 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return depth;
     }
 
+    public boolean isInferred() {
+        return inferred;
+    }
+
     @Override
     public Expression withChildren(List<Expression> children) {
         throw new RuntimeException();
+    }
+
+    public Expression withInferred(boolean inferred) {
+        throw new RuntimeException("current expression has not impl the withInferred method");
     }
 
     /**
      * Whether the expression is a constant.
      */
     public boolean isConstant() {
+        if (this instanceof AggregateFunction) {
+            // agg_fun(literal) is not constant, the result depends on the group by keys
+            return false;
+        }
         if (this instanceof LeafExpression) {
             return this instanceof Literal;
         } else {
-            return children().stream().allMatch(Expression::isConstant);
+            return !(this instanceof Nondeterministic) && children().stream().allMatch(Expression::isConstant);
         }
     }
 

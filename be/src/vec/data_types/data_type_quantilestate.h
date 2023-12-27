@@ -56,9 +56,7 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_QUANTILE_STATE);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::QUANTILE_STATE;
-    }
+
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE;
     }
@@ -96,6 +94,7 @@ public:
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for quantilestate";
+        __builtin_unreachable();
     }
 
     static void serialize_as_stream(const QuantileState& value, BufferWritable& buf);

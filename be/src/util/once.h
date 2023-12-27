@@ -21,10 +21,10 @@
 #pragma once
 
 #include <atomic>
+#include <mutex>
 
 #include "common/exception.h"
 #include "olap/olap_common.h"
-#include "util/lock.h"
 
 namespace doris {
 
@@ -56,16 +56,10 @@ public:
     // lambda and stores its return value. Otherwise, returns the stored Status.
     template <typename Fn>
     ReturnType call(Fn fn) {
-        if (!_has_called.load(std::memory_order_acquire)) {
-            do {
-                std::lock_guard l(_mutex);
-                if (_has_called.load(std::memory_order_acquire)) break;
-
-                _status = [&]() { RETURN_IF_CATCH_EXCEPTION({ return fn(); }); }();
-                _has_called.store(true, std::memory_order_release);
-
-            } while (false);
-        }
+        std::call_once(_once_flag, [this, fn] {
+            _status = fn();
+            _has_called.store(true, std::memory_order_release);
+        });
         return _status;
     }
 
@@ -82,7 +76,7 @@ public:
 
 private:
     std::atomic<bool> _has_called;
-    doris::Mutex _mutex;
+    std::once_flag _once_flag;
     ReturnType _status;
 };
 

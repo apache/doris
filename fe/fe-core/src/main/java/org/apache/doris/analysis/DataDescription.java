@@ -46,7 +46,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -358,6 +357,9 @@ public class DataDescription implements InsertStmt.DataDesc {
                     case FORMAT_WAL:
                         this.fileFormat = "wal";
                         break;
+                    case FORMAT_ARROW:
+                        this.fileFormat = "arrow";
+                        break;
                     default:
                         this.fileFormat = "unknown";
                         break;
@@ -636,10 +638,6 @@ public class DataDescription implements InsertStmt.DataDesc {
         return lineDelimiter;
     }
 
-    public void setLineDelimiter(Separator lineDelimiter) {
-        this.lineDelimiter = lineDelimiter;
-    }
-
     public byte getEnclose() {
         return enclose;
     }
@@ -714,14 +712,6 @@ public class DataDescription implements InsertStmt.DataDesc {
 
     public void setJsonRoot(String jsonRoot) {
         this.jsonRoot = jsonRoot;
-    }
-
-    @Deprecated
-    public void addColumnMapping(String functionName, Pair<String, List<String>> pair) {
-        if (Strings.isNullOrEmpty(functionName) || pair == null) {
-            return;
-        }
-        columnToHadoopFunction.put(functionName, pair);
     }
 
     public Map<String, Pair<String, List<String>>> getColumnToHadoopFunction() {
@@ -1061,7 +1051,7 @@ public class DataDescription implements InsertStmt.DataDesc {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            this.dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            this.dbName = dbName;
             return this.dbName;
         } else {
             this.dbName = labelDbName;
@@ -1137,57 +1127,11 @@ public class DataDescription implements InsertStmt.DataDesc {
                     && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ORC)
                     && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_JSON)
                     && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_WAL)
+                    && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_ARROW)
                     && !fileFormat.equalsIgnoreCase(FileFormatConstants.FORMAT_HIVE_TEXT)) {
                 throw new AnalysisException("File Format Type " + fileFormat + " is invalid.");
             }
         }
-    }
-
-    /*
-     * If user does not specify COLUMNS in load stmt, we fill it here.
-     * eg1:
-     *      both COLUMNS and SET clause is empty. after fill:
-     *      (k1,k2,k3)
-     *
-     * eg2:
-     *      COLUMNS is empty, SET is not empty
-     *      SET ( k2 = default_value("2") )
-     *      after fill:
-     *      (k1, k2, k3)
-     *      SET ( k2 = default_value("2") )
-     *
-     * eg3:
-     *      COLUMNS is empty, SET is not empty
-     *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
-     *      after fill:
-     *      (k1,k2,k3)
-     *      SET (k2 = strftime("%Y-%m-%d %H:%M:%S", k2)
-     *
-     */
-    public void fillColumnInfoIfNotSpecified(List<Column> baseSchema) {
-        if (fileFieldNames != null && !fileFieldNames.isEmpty()) {
-            return;
-        }
-
-        fileFieldNames = Lists.newArrayList();
-
-        Set<String> mappingColNames = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
-        for (ImportColumnDesc importColumnDesc : parsedColumnExprList) {
-            mappingColNames.add(importColumnDesc.getColumnName());
-        }
-
-        for (Column column : baseSchema) {
-            if (!mappingColNames.contains(column.getName())) {
-                parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
-            }
-            if ("json".equals(this.fileFormat)) {
-                fileFieldNames.add(column.getName());
-            } else {
-                fileFieldNames.add(column.getName().toLowerCase());
-            }
-        }
-
-        LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);
     }
 
     public String toSql() {

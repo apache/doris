@@ -41,9 +41,9 @@ public:
             : CachePolicy(type, stale_sweep_time_s) {
         _cache = num_shards == -1
                          ? std::unique_ptr<Cache>(
-                                   new_lru_cache(type_string(type), capacity, lru_cache_type))
-                         : std::unique_ptr<Cache>(new_lru_cache(type_string(type), capacity,
-                                                                lru_cache_type, num_shards));
+                                   new ShardedLRUCache(type_string(type), capacity, lru_cache_type))
+                         : std::unique_ptr<Cache>(new ShardedLRUCache(type_string(type), capacity,
+                                                                      lru_cache_type, num_shards));
     }
 
     ~LRUCachePolicy() override = default;

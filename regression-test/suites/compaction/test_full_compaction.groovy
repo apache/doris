@@ -100,6 +100,8 @@ suite("test_full_compaction") {
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
+        def replicaNum = get_table_replica_num(tableName)
+        logger.info("get table replica num: " + replicaNum)
         // before full compaction, there are 7 rowsets.
         int rowsetCount = 0
         for (String[] tablet in tablets) {
@@ -112,7 +114,7 @@ suite("test_full_compaction") {
             assert tabletJson.rowsets instanceof List
             rowsetCount +=((List<String>) tabletJson.rowsets).size()
         }
-        assert (rowsetCount == 7)
+        assert (rowsetCount == 7 * replicaNum)
 
         // trigger full compactions for all tablets in ${tableName}
         for (String[] tablet in tablets) {
@@ -166,7 +168,7 @@ suite("test_full_compaction") {
             assert tabletJson.rowsets instanceof List
             rowsetCount +=((List<String>) tabletJson.rowsets).size()
         }
-        assert (rowsetCount == 1)
+        assert (rowsetCount == 1 * replicaNum)
 
         // make sure all hidden data has been deleted
         // (1,100)(2,200)

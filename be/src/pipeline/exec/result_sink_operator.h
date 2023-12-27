@@ -20,6 +20,7 @@
 #include <stdint.h>
 
 #include "operator.h"
+#include "pipeline/pipeline_x/dependency.h"
 #include "pipeline/pipeline_x/operator.h"
 #include "vec/sink/vresult_sink.h"
 
@@ -43,44 +44,28 @@ public:
     bool can_write() override;
 };
 
-class ResultBufferDependency final : public WriteDependency {
+class ResultSinkDependency final : public Dependency {
 public:
-    ENABLE_FACTORY_CREATOR(ResultBufferDependency);
-    ResultBufferDependency(int id) : WriteDependency(id, "ResultBufferDependency") {}
-    ~ResultBufferDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
+    using SharedState = BasicSharedState;
+    ENABLE_FACTORY_CREATOR(ResultSinkDependency);
+    ResultSinkDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "ResultSinkDependency", true, query_ctx) {}
+    ~ResultSinkDependency() override = default;
 };
 
-class ResultQueueDependency final : public WriteDependency {
-public:
-    ENABLE_FACTORY_CREATOR(ResultQueueDependency);
-    ResultQueueDependency(int id) : WriteDependency(id, "ResultQueueDependency") {}
-    ~ResultQueueDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
-};
-
-class CancelDependency final : public WriteDependency {
-public:
-    ENABLE_FACTORY_CREATOR(CancelDependency);
-    CancelDependency(int id) : WriteDependency(id, "CancelDependency") { _ready_for_write = false; }
-    ~CancelDependency() override = default;
-
-    void* shared_state() override { return nullptr; }
-};
-
-class ResultSinkLocalState final : public PipelineXSinkLocalState<> {
+class ResultSinkLocalState final : public PipelineXSinkLocalState<ResultSinkDependency> {
     ENABLE_FACTORY_CREATOR(ResultSinkLocalState);
+    using Base = PipelineXSinkLocalState<ResultSinkDependency>;
 
 public:
     ResultSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
-            : PipelineXSinkLocalState<>(parent, state) {}
+            : Base(parent, state) {}
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    WriteDependency* dependency() override { return _result_sink_dependency.get(); }
+    RuntimeProfile::Counter* blocks_sent_counter() { return _blocks_sent_counter; }
+    RuntimeProfile::Counter* rows_sent_counter() { return _rows_sent_counter; }
 
 private:
     friend class ResultSinkOperatorX;
@@ -89,15 +74,8 @@ private:
 
     std::shared_ptr<BufferControlBlock> _sender;
     std::shared_ptr<ResultWriter> _writer;
-    std::shared_ptr<OrDependency> _result_sink_dependency;
-    std::shared_ptr<pipeline::ResultBufferDependency> _buffer_dependency;
-    std::shared_ptr<pipeline::ResultQueueDependency> _queue_dependency;
-    std::shared_ptr<pipeline::CancelDependency> _cancel_dependency;
-
-    RuntimeProfile::Counter* _wait_for_queue_timer = nullptr;
-    RuntimeProfile::Counter* _wait_for_buffer_timer = nullptr;
-    // time of prefilter input block from scanner
-    RuntimeProfile::Counter* _wait_for_cancel_timer = nullptr;
+    RuntimeProfile::Counter* _blocks_sent_counter = nullptr;
+    RuntimeProfile::Counter* _rows_sent_counter = nullptr;
 };
 
 class ResultSinkOperatorX final : public DataSinkOperatorX<ResultSinkLocalState> {
@@ -116,7 +94,7 @@ private:
     Status _second_phase_fetch_data(RuntimeState* state, vectorized::Block* final_block);
     TResultSinkType::type _sink_type;
     // set file options when sink type is FILE
-    std::unique_ptr<vectorized::ResultFileOptions> _file_opts;
+    std::unique_ptr<vectorized::ResultFileOptions> _file_opts = nullptr;
 
     // Owned by the RuntimeState.
     const RowDescriptor& _row_desc;

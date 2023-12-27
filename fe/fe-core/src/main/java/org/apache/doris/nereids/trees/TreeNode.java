@@ -24,6 +24,7 @@ import com.google.common.collect.ImmutableSet;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.List;
+import java.util.Set;
 import java.util.function.BiFunction;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -185,6 +186,23 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
     }
 
     /**
+     * iterate top down and test predicate if any matched. Top-down traverse implicitly.
+     * @param predicate predicate
+     * @return the first node which match the predicate
+     */
+    default TreeNode<NODE_TYPE> firstMatch(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        if (predicate.test(this)) {
+            return this;
+        }
+        for (NODE_TYPE child : children()) {
+            if (child.anyMatch(predicate)) {
+                return child;
+            }
+        }
+        return this;
+    }
+
+    /**
      * Collect the nodes that satisfied the predicate.
      */
     default <T> T collect(Predicate<TreeNode<NODE_TYPE>> predicate) {
@@ -208,6 +226,19 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             }
         });
         return (List<T>) result.build();
+    }
+
+    /**
+     * Collect the nodes that satisfied the predicate to set.
+     */
+    default <T> Set<T> collectToSet(Predicate<TreeNode<NODE_TYPE>> predicate) {
+        ImmutableSet.Builder<TreeNode<NODE_TYPE>> result = ImmutableSet.builder();
+        foreach(node -> {
+            if (predicate.test(node)) {
+                result.add(node);
+            }
+        });
+        return (Set<T>) result.build();
     }
 
     /**

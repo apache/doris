@@ -30,7 +30,7 @@ public class UnsupportedTypeTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "create table type_tb (\n"
                 + "            id int NOT NULL, \n"

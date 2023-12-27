@@ -64,8 +64,6 @@ if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh &&
-    -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh &&
-    -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh &&
     -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh ]]; then
     echo "ERROR: depending files missing" && exit 1
 fi

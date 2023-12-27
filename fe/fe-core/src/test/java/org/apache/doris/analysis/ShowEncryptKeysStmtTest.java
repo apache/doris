@@ -63,10 +63,6 @@ public class ShowEncryptKeysStmtTest {
                 analyzer.getEnv();
                 minTimes = 0;
                 result = env;
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
             }
         };
     }

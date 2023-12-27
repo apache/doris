@@ -31,8 +31,14 @@ import java.util.List;
  * when matching a particular instantiation. That is, their fixed arguments.
  */
 public interface NullOrIdenticalSignature extends ComputeSignature {
-    /** isNullOrIdentical */
+
     static boolean isNullOrIdentical(DataType signatureType, DataType realType) {
+        return ComputeSignature.processComplexType(
+                signatureType, realType, NullOrIdenticalSignature::isPrimitiveNullOrIdentical);
+    }
+
+    /** isNullOrIdentical */
+    static boolean isPrimitiveNullOrIdentical(DataType signatureType, DataType realType) {
         try {
             // TODO: copy matchesType to DataType
             // TODO: resolve AnyDataType invoke toCatalogDataType

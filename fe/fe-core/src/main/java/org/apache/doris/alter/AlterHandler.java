@@ -173,16 +173,16 @@ public abstract class AlterHandler extends MasterDaemon {
     /*
      * entry function. handle alter ops
      */
-    public abstract void process(String rawSql, List<AlterClause> alterClauses, String clusterName, Database db,
+    public abstract void process(String rawSql, List<AlterClause> alterClauses, Database db,
                                  OlapTable olapTable)
             throws UserException;
 
     /*
      * entry function. handle alter ops
      */
-    public void process(List<AlterClause> alterClauses, String clusterName, Database db, OlapTable olapTable)
+    public void process(List<AlterClause> alterClauses, Database db, OlapTable olapTable)
             throws UserException {
-        process("", alterClauses, clusterName, db, olapTable);
+        process("", alterClauses, db, olapTable);
     }
 
     /*

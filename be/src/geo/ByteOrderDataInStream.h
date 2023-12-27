@@ -84,8 +84,8 @@ public:
 
 private:
     int byteOrder;
-    const unsigned char* buf;
-    const unsigned char* end;
+    const unsigned char* buf = nullptr;
+    const unsigned char* end = nullptr;
 };
 
 } // namespace doris

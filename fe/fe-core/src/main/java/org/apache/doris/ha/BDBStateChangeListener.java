@@ -28,8 +28,10 @@ import org.apache.logging.log4j.Logger;
 
 public class BDBStateChangeListener implements StateChangeListener {
     public static final Logger LOG = LogManager.getLogger(BDBStateChangeListener.class);
+    private final boolean isElectable;
 
-    public BDBStateChangeListener() {
+    public BDBStateChangeListener(boolean isElectable) {
+        this.isElectable = isElectable;
     }
 
     @Override
@@ -41,7 +43,7 @@ public class BDBStateChangeListener implements StateChangeListener {
                 break;
             }
             case REPLICA: {
-                if (Env.getCurrentEnv().isElectable()) {
+                if (isElectable) {
                     newType = FrontendNodeType.FOLLOWER;
                 } else {
                     newType = FrontendNodeType.OBSERVER;

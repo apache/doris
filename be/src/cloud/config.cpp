@@ -20,7 +20,7 @@
 namespace doris {
 namespace config {
 
-DEFINE_Bool(cloud_mode, "false");
+// TODO
 
 } // namespace config
 } // namespace doris

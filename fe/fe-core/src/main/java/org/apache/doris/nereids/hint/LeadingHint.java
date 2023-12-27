@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.collect.Maps;
@@ -61,9 +62,13 @@ public class LeadingHint extends Hint {
 
     private final List<Pair<Long, Expression>> filters = new ArrayList<>();
 
+    private final Map<Expression, JoinType> conditionJoinType = Maps.newLinkedHashMap();
+
     private final List<JoinConstraint> joinConstraintList = new ArrayList<>();
 
     private Long innerJoinBitmap = 0L;
+
+    private Long totalBitmap = 0L;
 
     public LeadingHint(String hintName) {
         super(hintName);
@@ -191,6 +196,30 @@ public class LeadingHint extends Hint {
         return filters;
     }
 
+    public void putConditionJoinType(Expression filter, JoinType joinType) {
+        conditionJoinType.put(filter, joinType);
+    }
+
+    /**
+     * find out whether conditions can match original joinType
+     * @param conditions conditions needs to put on this join
+     * @param joinType join type computed by join constraint
+     * @return can conditions matched
+     */
+    public boolean isConditionJoinTypeMatched(List<Expression> conditions, JoinType joinType) {
+        for (Expression condition : conditions) {
+            JoinType originalJoinType = conditionJoinType.get(condition);
+            if (originalJoinType.equals(joinType)
+                    || originalJoinType.isOneSideOuterJoin() && joinType.isOneSideOuterJoin()
+                    || originalJoinType.isSemiJoin() && joinType.isSemiJoin()
+                    || originalJoinType.isAntiJoin() && joinType.isAntiJoin()) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
     public List<JoinConstraint> getJoinConstraintList() {
         return joinConstraintList;
     }
@@ -201,6 +230,31 @@ public class LeadingHint extends Hint {
 
     public void setInnerJoinBitmap(Long innerJoinBitmap) {
         this.innerJoinBitmap = innerJoinBitmap;
+    }
+
+    public Long getTotalBitmap() {
+        return totalBitmap;
+    }
+
+    /**
+     * set total bitmap used in leading before we get into leading join
+     */
+    public void setTotalBitmap() {
+        Long totalBitmap = 0L;
+        if (hasSameName()) {
+            this.setStatus(HintStatus.SYNTAX_ERROR);
+            this.setErrorMessage("duplicated table");
+        }
+        for (int index = 0; index < getTablelist().size(); index++) {
+            RelationId id = findRelationIdAndTableName(getTablelist().get(index));
+            if (id == null) {
+                this.setStatus(HintStatus.SYNTAX_ERROR);
+                this.setErrorMessage("can not find table: " + getTablelist().get(index));
+                return;
+            }
+            totalBitmap = LongBitmap.set(totalBitmap, id.asInt());
+        }
+        this.totalBitmap = totalBitmap;
     }
 
     /**
@@ -218,6 +272,22 @@ public class LeadingHint extends Hint {
         JoinConstraint matchedJoinConstraint = null;
 
         for (JoinConstraint joinConstraint : joinConstraintList) {
+            if (joinConstraint.getJoinType().isFullOuterJoin()) {
+                if (leftTableBitmap.equals(joinConstraint.getLeftHand())
+                        && rightTableBitmap.equals(joinConstraint.getRightHand())
+                        || rightTableBitmap.equals(joinConstraint.getLeftHand())
+                        && leftTableBitmap.equals(joinConstraint.getRightHand())) {
+                    if (matchedJoinConstraint != null) {
+                        return Pair.of(null, false);
+                    }
+                    matchedJoinConstraint = joinConstraint;
+                    reversed = false;
+                    break;
+                } else {
+                    continue;
+                }
+            }
+
             if (!LongBitmap.isOverlap(joinConstraint.getMinRightHand(), joinTableBitmap)) {
                 continue;
             }
@@ -337,7 +407,6 @@ public class LeadingHint extends Hint {
      * @return plan
      */
     public Plan generateLeadingJoinPlan() {
-        this.setStatus(HintStatus.SUCCESS);
         Stack<Pair<Integer, LogicalPlan>> stack = new Stack<>();
         int index = 0;
         LogicalPlan logicalPlan = getLogicalPlanByName(getTablelist().get(index));
@@ -365,8 +434,16 @@ public class LeadingHint extends Hint {
                             getFilters(), newStackTop.second, logicalPlan);
                     Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
                             newStackTop.second.getOutput(), logicalPlan.getOutput(), conditions);
+                    // leading hint would set status inside if not success
                     JoinType joinType = computeJoinType(getBitmap(newStackTop.second),
                             getBitmap(logicalPlan), conditions);
+                    if (joinType == null) {
+                        this.setStatus(HintStatus.SYNTAX_ERROR);
+                        this.setErrorMessage("JoinType can not be null");
+                    } else if (!isConditionJoinTypeMatched(conditions, joinType)) {
+                        this.setStatus(HintStatus.UNUSED);
+                        this.setErrorMessage("condition does not matched joinType");
+                    }
                     if (!this.isSuccess()) {
                         return null;
                     }
@@ -379,7 +456,13 @@ public class LeadingHint extends Hint {
                             logicalPlan);
                     logicalJoin.setBitmap(LongBitmap.or(getBitmap(newStackTop.second), getBitmap(logicalPlan)));
                     if (stackTopLevel > 0) {
-                        stackTopLevel--;
+                        if (index < getTablelist().size()) {
+                            if (stackTopLevel > getLevellist().get(index)) {
+                                stackTopLevel--;
+                            }
+                        } else {
+                            stackTopLevel--;
+                        }
                     }
                     if (!stack.isEmpty()) {
                         newStackTop = stack.peek();
@@ -401,17 +484,7 @@ public class LeadingHint extends Hint {
 
         LogicalJoin finalJoin = (LogicalJoin) stack.pop().second;
         // we want all filters been remove
-        if (!getFilters().isEmpty()) {
-            List<Expression> conditions = getLastConditions(getFilters());
-            Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(
-                    finalJoin.left().getOutput(), finalJoin.right().getOutput(), conditions);
-            finalJoin = new LogicalJoin<>(finalJoin.getJoinType(), pair.first,
-                pair.second,
-                JoinHint.NONE,
-                Optional.empty(),
-                finalJoin.left(),
-                finalJoin.right());
-        }
+        assert (filters.isEmpty());
         if (finalJoin != null) {
             this.setStatus(HintStatus.SUCCESS);
         }
@@ -468,6 +541,8 @@ public class LeadingHint extends Hint {
             return getBitmap((LogicalPlan) root.child(0));
         } else if (root instanceof LogicalProject) {
             return getBitmap((LogicalPlan) root.child(0));
+        } else if (root instanceof LogicalSubQueryAlias) {
+            return LongBitmap.set(0L, (((LogicalSubQueryAlias) root).getRelationId().asInt()));
         } else {
             return null;
         }
@@ -482,11 +557,6 @@ public class LeadingHint extends Hint {
         if (hasSameName()) {
             this.setStatus(HintStatus.SYNTAX_ERROR);
             this.setErrorMessage("duplicated table");
-            return totalBitmap;
-        }
-        if (tables != null && getTablelist().size() != tables.size()) {
-            this.setStatus(HintStatus.SYNTAX_ERROR);
-            this.setErrorMessage("tables should be same as join tables");
             return totalBitmap;
         }
         for (int index = 0; index < getTablelist().size(); index++) {

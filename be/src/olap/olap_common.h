@@ -313,7 +313,6 @@ struct OlapReaderStatistics {
 
     int64_t rows_vec_cond_filtered = 0;
     int64_t rows_short_circuit_cond_filtered = 0;
-    int64_t rows_common_expr_filtered = 0;
     int64_t vec_cond_input_rows = 0;
     int64_t short_circuit_cond_input_rows = 0;
     int64_t rows_vec_del_cond_filtered = 0;
@@ -326,6 +325,7 @@ struct OlapReaderStatistics {
 
     int64_t rows_key_range_filtered = 0;
     int64_t rows_stats_filtered = 0;
+    int64_t rows_stats_rp_filtered = 0;
     int64_t rows_bf_filtered = 0;
     int64_t rows_dict_filtered = 0;
     // Including the number of rows filtered out according to the Delete information in the Tablet,
@@ -338,6 +338,10 @@ struct OlapReaderStatistics {
     // the number of rows filtered by various column indexes.
     int64_t rows_conditions_filtered = 0;
     int64_t block_conditions_filtered_ns = 0;
+    int64_t block_conditions_filtered_bf_ns = 0;
+    int64_t block_conditions_filtered_zonemap_ns = 0;
+    int64_t block_conditions_filtered_zonemap_rp_ns = 0;
+    int64_t block_conditions_filtered_dict_ns = 0;
 
     int64_t index_load_ns = 0;
 

@@ -32,7 +32,6 @@ import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
 import org.apache.doris.statistics.util.DBObjects;
 import org.apache.doris.statistics.util.StatisticsUtil;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import mockit.Mock;
@@ -53,7 +52,7 @@ public class HistogramTaskTest extends TestWithFeService {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("histogram_task_test");
-        connectContext.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ":" + "histogram_task_test");
+        connectContext.setDatabase("histogram_task_test");
         createTable(
                 "CREATE TABLE t1 (\n"
                         + "    col1 date not null, \n"

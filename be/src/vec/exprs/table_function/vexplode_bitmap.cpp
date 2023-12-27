@@ -19,6 +19,7 @@
 
 #include <glog/logging.h>
 
+#include <memory>
 #include <ostream>
 #include <vector>
 
@@ -53,22 +54,21 @@ Status VExplodeBitmapTableFunction::process_init(Block* block, RuntimeState* sta
     return Status::OK();
 }
 
-Status VExplodeBitmapTableFunction::reset() {
+void VExplodeBitmapTableFunction::reset() {
     _eos = false;
     _cur_offset = 0;
     if (!current_empty()) {
-        _cur_iter.reset(new BitmapValueIterator(*_cur_bitmap));
+        _cur_iter = std::make_unique<BitmapValueIterator>(*_cur_bitmap);
     }
-    return Status::OK();
 }
 
-Status VExplodeBitmapTableFunction::forward(int step) {
+void VExplodeBitmapTableFunction::forward(int step) {
     if (!current_empty()) {
         for (int i = 0; i < step; i++) {
             ++(*_cur_iter);
         }
     }
-    return TableFunction::forward(step);
+    TableFunction::forward(step);
 }
 
 void VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column) {
@@ -88,8 +88,8 @@ void VExplodeBitmapTableFunction::get_value(MutableColumnPtr& column) {
     }
 }
 
-Status VExplodeBitmapTableFunction::process_row(size_t row_idx) {
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+void VExplodeBitmapTableFunction::process_row(size_t row_idx) {
+    TableFunction::process_row(row_idx);
 
     StringRef value = _value_column->get_data_at(row_idx);
 
@@ -98,16 +98,13 @@ Status VExplodeBitmapTableFunction::process_row(size_t row_idx) {
 
         _cur_size = _cur_bitmap->cardinality();
         if (!current_empty()) {
-            _cur_iter.reset(new BitmapValueIterator(*_cur_bitmap));
+            _cur_iter = std::make_unique<BitmapValueIterator>(*_cur_bitmap);
         }
     }
-
-    return Status::OK();
 }
 
-Status VExplodeBitmapTableFunction::process_close() {
+void VExplodeBitmapTableFunction::process_close() {
     _value_column = nullptr;
-    return Status::OK();
 }
 
 } // namespace doris::vectorized

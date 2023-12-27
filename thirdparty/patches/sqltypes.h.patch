@@ -26,3 +26,26 @@
  typedef char*               LPSTR;
  typedef DWORD*           	LPDWORD;
  
+--- a/include/sqlext.h	2023-12-05 15:56:09.623865253 +0800
++++ a/include/sqlext.h	2023-12-05 15:55:28.852847283 +0800
+@@ -2190,7 +2190,7 @@ void	FireVSDebugEvent(PODBC_VS_ARGS);
+  * connection pooling retry times
+  */
+
+-BOOL ODBCSetTryWaitValue ( DWORD dwValue );
++int ODBCSetTryWaitValue ( DWORD dwValue );
+ #ifdef __cplusplus
+ DWORD ODBCGetTryWaitValue ( );
+ #else
+
+--- a/include/sqltypes.h	2023-12-05 15:56:24.372871756 +0800
++++ a/include/sqltypes.h	2023-12-05 15:17:26.558878980 +0800
+@@ -68,7 +68,7 @@ extern "C" {
+ #else
+ #define SQL_API
+ #endif
+-#define	BOOL				int
++// #define	BOOL				int
+ #ifndef _WINDOWS_
+ typedef void*				HWND;
+ #endif

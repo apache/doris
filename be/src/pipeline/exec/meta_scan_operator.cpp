@@ -22,7 +22,7 @@
 namespace doris::pipeline {
 
 Status MetaScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* scanners) {
-    if (Base::_eos_dependency->read_blocked_by() == nullptr) {
+    if (Base::_eos) {
         return Status::OK();
     }
 

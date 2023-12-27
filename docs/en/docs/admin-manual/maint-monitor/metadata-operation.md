@@ -124,7 +124,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 		* begin to generate new image: image.xxxx
 		*  start save image to /path/to/doris-meta/image/image.ckpt. is ckpt: true
 		*  finished save image /path/to/doris-meta/image/image.ckpt in xxx ms. checksum is xxxx
-		*  push image.xxx to other nodes. totally xx nodes, push successed xx nodes
+		*  push image.xxx to other nodes. totally xx nodes, push succeeded xx nodes
 		* QE service start
 		* thrift server started
 
@@ -274,7 +274,7 @@ curl -u $root_user:$password http://$master_hostname:8030/dump
 ```
 3. Replace the image file in the `meta_dir/image` directory on the OBSERVER FE node with the image_mem file, restart the OBSERVER FE node, and verify the integrity and correctness of the image_mem file. You can check whether the DB and Table metadata are normal on the FE Web page, whether there is an exception in `fe.log`, whether it is in a normal replayed jour.
 
-    Since 1.2.0, it is recommanded to use following method to verify the `image_mem` file:
+    Since 1.2.0, it is recommended to use following method to verify the `image_mem` file:
 
     ```
     sh start_fe.sh --image path_to_image_mem
@@ -380,7 +380,7 @@ The deployment recommendation of FE is described in the Installation and [Deploy
 
 4. The size of the `bdb/` directory is very large, reaching several Gs or more.
 
-	The BDB directory will remain large for some time after eliminating the error that the new image cannot be generated. Maybe it's because Master FE failed to push image. You can search `push image.XXXX to other nodes. totally XX nodes, push successed YY nodes` in the fe. log of Master FE. If YY is smaller than xx, then some FEs are not pushed successfully. You can see the specific error `Exception when pushing image file.url = xxx` in the fe. log.
+	The BDB directory will remain large for some time after eliminating the error that the new image cannot be generated. Maybe it's because Master FE failed to push image. You can search `push image.XXXX to other nodes. totally XX nodes, push succeeded YY nodes` in the fe. log of Master FE. If YY is smaller than xx, then some FEs are not pushed successfully. You can see the specific error `Exception when pushing image file.url = xxx` in the fe. log.
 
 	At the same time, you can add the configuration in the FE configuration file: `edit_log_roll_num = xxxx`. This parameter sets the number of metadata journals and makes an image once. The default is 50000. This number can be reduced appropriately to make images more frequent, thus speeding up the deletion of old journals.
 
@@ -398,7 +398,7 @@ The deployment recommendation of FE is described in the Installation and [Deploy
 
 8. Configuration of FE `master_sync_policy`, `replica_sync_policy`, and `txn_rollback_limit.`
 
-	`master_sync_policy` is used to specify whether fsync (), `replica_sync_policy` is called when Leader FE writes metadata log, and `replica_sync_policy` is used to specify whether other Follower FE calls fsync () when FE HA deploys synchronous metadata. In earlier versions of Oris, these two parameters defaulted to `WRITE_NO_SYNC`, i.e., fsync () was not called. In the latest version of Oris, the default has been changed to `SYNC`, that is, fsync () is called. Calling fsync () significantly reduces the efficiency of metadata disk writing. In some environments, IOPS may drop to several hundred and the latency increases to 2-3ms (but it's still enough for Doris metadata manipulation). Therefore, we recommend the following configuration:
+	`master_sync_policy` is used to specify whether fsync (), `replica_sync_policy` is called when Leader FE writes metadata log, and `replica_sync_policy` is used to specify whether other Follower FE calls fsync () when FE HA deploys synchronous metadata. In earlier versions of Doris, these two parameters defaulted to `WRITE_NO_SYNC`, i.e., fsync () was not called. In the latest version of Doris, the default has been changed to `SYNC`, that is, fsync () is called. Calling fsync () significantly reduces the efficiency of metadata disk writing. In some environments, IOPS may drop to several hundred and the latency increases to 2-3ms (but it's still enough for Doris metadata manipulation). Therefore, we recommend the following configuration:
 
 	1. For a single Follower FE deployment, `master_sync_policy` is set to `SYNC`, which prevents the loss of metadata due to the downtime of the FE system.
 	2. For multi-Follower FE deployment, we can set `master_sync_policy` and `replica_sync_policy` to `WRITE_NO_SYNC`, because we think that the probability of simultaneous outage of multiple systems is very low.

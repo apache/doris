@@ -20,6 +20,7 @@ package org.apache.doris.statistics;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
@@ -54,6 +55,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -221,6 +223,11 @@ public class CacheTest extends TestWithFeService {
             public List<ResultRow> execStatisticQuery(String sql) {
                 return null;
             }
+
+            @Mock
+            public TableIf findTable(long catalogId, long dbId, long tblId) {
+                return table;
+            }
         };
         new MockUp<Env>() {
             @Mock
@@ -229,26 +236,16 @@ public class CacheTest extends TestWithFeService {
             }
         };
 
-        new Expectations() {
-            {
-                env.getCatalogMgr();
-                result = mgr;
-
-                mgr.getCatalog(1);
-                result = catalog;
-
-                catalog.getDbOrMetaException(1);
-                result = db;
-
-                db.getTableOrMetaException(1);
-                result = table;
-
-                table.getColumnStatistic("col");
-                result = new ColumnStatistic(1, 2,
+        new MockUp<HMSExternalTable>() {
+            @Mock
+            public Optional<ColumnStatistic> getColumnStatistic(String colName) {
+                return Optional.of(new ColumnStatistic(1, 2,
                         null, 3, 4, 5, 6, 7,
-                        null, null, false, null, new Date().toString(), null);
+                        null, null, false,
+                        new Date().toString()));
             }
         };
+
         try {
             StatisticsCache statisticsCache = new StatisticsCache();
             ColumnStatistic columnStatistic = statisticsCache.getColumnStatistics(1, 1, 1, "col");
@@ -359,7 +356,7 @@ public class CacheTest extends TestWithFeService {
     }
 
     @Test
-    public void testEvict() {
+    public void testEvict() throws InterruptedException {
         ThreadPoolExecutor threadPool
                 = ThreadPoolManager.newDaemonFixedThreadPool(
                 1, Integer.MAX_VALUE, "STATS_FETCH", true);
@@ -380,6 +377,7 @@ public class CacheTest extends TestWithFeService {
         columnStatisticsCache.get(1);
         columnStatisticsCache.get(2);
         Assertions.assertTrue(columnStatisticsCache.synchronous().asMap().containsKey(2));
+        Thread.sleep(100);
         Assertions.assertEquals(1, columnStatisticsCache.synchronous().asMap().size());
     }
 }

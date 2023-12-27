@@ -34,7 +34,11 @@ public abstract class BinaryOperator extends Expression implements BinaryExpress
     protected final String symbol;
 
     public BinaryOperator(List<Expression> children, String symbol) {
-        super(children);
+        this(children, symbol, false);
+    }
+
+    public BinaryOperator(List<Expression> children, String symbol, boolean inferred) {
+        super(children, inferred);
         this.symbol = symbol;
     }
 

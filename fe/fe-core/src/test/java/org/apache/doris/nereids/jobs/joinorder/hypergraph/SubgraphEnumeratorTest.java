@@ -19,6 +19,7 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmapSubsetIterator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
@@ -129,7 +130,7 @@ public class SubgraphEnumeratorTest {
             }
             visited.add(left);
             visited.add(right);
-            for (Edge edge : hyperGraph.getEdges()) {
+            for (Edge edge : hyperGraph.getJoinEdges()) {
                 if ((LongBitmap.isSubset(edge.getLeftExtendedNodes(), left) && LongBitmap.isSubset(edge.getRightExtendedNodes(), right)) || (
                         LongBitmap.isSubset(edge.getLeftExtendedNodes(), right) && LongBitmap.isSubset(edge.getRightExtendedNodes(), left))) {
                     count += countAndCheck(left, hyperGraph, counter, cache) * countAndCheck(right, hyperGraph,

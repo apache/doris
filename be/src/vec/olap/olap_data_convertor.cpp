@@ -217,9 +217,11 @@ void OlapBlockDataConvertor::set_source_content(const vectorized::Block* block, 
 void OlapBlockDataConvertor::set_source_content_with_specifid_columns(
         const vectorized::Block* block, size_t row_pos, size_t num_rows,
         std::vector<uint32_t> cids) {
-    DCHECK(block && num_rows > 0 && row_pos + num_rows <= block->rows() &&
-           block->columns() <= _convertors.size());
+    DCHECK(block != nullptr);
+    DCHECK(num_rows > 0);
+    DCHECK(row_pos + num_rows <= block->rows());
     for (auto i : cids) {
+        DCHECK(i < _convertors.size());
         _convertors[i]->set_source_column(block->get_by_position(i), row_pos, num_rows);
     }
 }
@@ -1059,16 +1061,24 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
 void OlapBlockDataConvertor::OlapColumnDataConvertorVariant::set_source_column(
         const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
     // set
-    auto variant = assert_cast<const ColumnObject&>(*typed_column.column);
-    if (!variant.is_finalized()) {
-        variant.finalize();
+    const ColumnNullable* nullable_column = nullptr;
+    if (typed_column.column->is_nullable()) {
+        nullable_column = assert_cast<const ColumnNullable*>(typed_column.column.get());
+        _nullmap = nullable_column->get_null_map_data().data();
     }
-    auto root = variant.get_root();
-    auto nullable = assert_cast<const ColumnNullable*>(root.get());
+    const auto& variant =
+            nullable_column == nullptr
+                    ? assert_cast<const vectorized::ColumnObject&>(*typed_column.column)
+                    : assert_cast<const vectorized::ColumnObject&>(
+                              nullable_column->get_nested_column());
+
+    const_cast<ColumnObject&>(variant).finalize_if_not();
+    auto root_of_variant = variant.get_root();
+    auto nullable = assert_cast<const ColumnNullable*>(root_of_variant.get());
     CHECK(nullable);
     _root_data_column = assert_cast<const ColumnString*>(&nullable->get_nested_column());
-    _nullmap = nullable->get_null_map_data().data();
-    _root_data_convertor->set_source_column({root->get_ptr(), nullptr, ""}, row_pos, num_rows);
+    _root_data_convertor->set_source_column({root_of_variant->get_ptr(), nullptr, ""}, row_pos,
+                                            num_rows);
     OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
                                                                            num_rows);
 }

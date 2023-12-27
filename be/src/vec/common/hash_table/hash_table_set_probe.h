@@ -58,7 +58,7 @@ struct HashTableProbe {
     }
 
 private:
-    int64_t* _valid_element_in_hash_tbl;
+    int64_t* _valid_element_in_hash_tbl = nullptr;
     const size_t _probe_rows;
     ColumnRawPtrs& _probe_raw_ptrs;
     std::vector<StringRef> _probe_keys;

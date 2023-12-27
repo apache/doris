@@ -39,6 +39,7 @@ grammar:
 
 ```sql
 SELECT
+    [hint_statement, ...]
     [ALL | DISTINCT | DISTINCTROW | ALL EXCEPT ( col_name1 [, col_name2, col_name3, ...] )]
     select_expr [, select_expr ...]
     [FROM table_references
@@ -86,6 +87,8 @@ SELECT
    11. SELECT supports explicit partition selection using PARTITION containing a list of partitions or subpartitions (or both) following the name of the table in `table_reference`
 
    12. `[TABLET tids] TABLESAMPLE n [ROWS | PERCENT] [REPEATABLE seek]`: Limit the number of rows read from the table in the FROM clause, select a number of Tablets pseudo-randomly from the table according to the specified number of rows or percentages, and specify the number of seeds in REPEATABLE to return the selected samples again. In addition, you can also manually specify the TableID, Note that this can only be used for OLAP tables.
+   
+   13. `hint_statement`:  hint in front of the selectlist indicates that hints can be used to influence the behavior of the optimizer in order to obtain the desired execution plan. Details refer to [joinHint using document] (https://doris.apache.org/en/docs/query-acceleration/hint/joinHint.md)
 
 **Syntax constraints:**
 

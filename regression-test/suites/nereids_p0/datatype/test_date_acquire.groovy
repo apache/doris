@@ -26,22 +26,12 @@ suite("test_date_acquire") {
 
     sql "set enable_fold_constant_by_be=true"
 
-    test {
-        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
-        result([['2019-03-21 15:10:55', 1196389819]])
-    }
+    sql "set time_zone='+08:00'"
+    qt_sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
 
     sql "set time_zone='+00:00'"
-
-    test {
-        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
-        result([['2019-03-21 07:10:55', 1196418619]])
-    }
+    qt_sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
 
     sql "set time_zone='+04:00'"
-
-    test {
-        sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
-        result([['2019-03-21 11:10:55', 1196404219]])
-    }
+    qt_sql "select from_unixtime(1553152255), unix_timestamp('2007-11-30 10:30%3A19', '%Y-%m-%d %H:%i%%3A%s')"
 }

@@ -37,7 +37,7 @@ suite("test_s3_tvf", "p0") {
         CREATE TABLE IF NOT EXISTS ${table_name} (
             `user_id` LARGEINT NOT NULL COMMENT "用户id",
             `name` STRING COMMENT "用户名称",
-            `age` INT COMMENT "用户年龄",
+            `age` INT COMMENT "用户年龄"
             )
             DISTRIBUTED BY HASH(user_id) PROPERTIES("replication_num" = "1");
         """
@@ -79,7 +79,7 @@ suite("test_s3_tvf", "p0") {
     // 1. normal
     try {
         order_qt_select_1 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.orc",
+                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
                             "ACCESS_KEY"= "${ak}",
                             "SECRET_KEY" = "${sk}",
                             "format" = "orc",
@@ -107,7 +107,7 @@ suite("test_s3_tvf", "p0") {
     // 3.test use_path_style
     try {
         order_qt_select_3 """ SELECT * FROM S3 (
-                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4)}0.orc",
+                            "uri" = "http://${s3_endpoint}${outfile_url.substring(4, outfile_url.length() - 1)}0.orc",
                             "s3.access_key"= "${ak}",
                             "s3.secret_key" = "${sk}",
                             "format" = "orc",
@@ -117,4 +117,60 @@ suite("test_s3_tvf", "p0") {
                         """
     } finally {
     }
+
+    try {
+        order_qt_select_4 """ SELECT * FROM S3 (
+                            "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
+                            "s3.access_key"= "${ak}",
+                            "s3.secret_key" = "${sk}",
+                            "format" = "hive_text",
+                            "use_path_style" = "true",
+                            "region" = "${region}"
+                        ) order by c1,c2,c3;
+                        """
+    } finally {
+    }
+
+    try {
+        order_qt_select_5 """ SELECT * FROM S3 (
+                            "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
+                            "s3.access_key"= "${ak}",
+                            "s3.secret_key" = "${sk}",
+                            "format" = "hive_text",
+                            "use_path_style" = "true",
+                            "region" = "${region}",
+                            "csv_schema"="k1:int;k2:string;k3:double"
+                        ) order by k1,k2,k3;
+                        """
+    } finally {
+    }
+
+    try {
+        order_qt_select_6 """ SELECT * FROM S3 (
+                            "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
+                            "s3.access_key"= "${ak}",
+                            "s3.secret_key" = "${sk}",
+                            "format" = "hive_text",
+                            "use_path_style" = "true",
+                            "region" = "${region}",
+                            "csv_schema"="k1:int;k2:string;k3:double"
+                        )  where k3 > 1.5  order by k3,k2,k1;
+                        """
+    } finally {
+    }
+
+    try {
+        order_qt_select_7 """ SELECT * FROM S3 (
+                            "uri" = "https://${bucket}.${s3_endpoint}/regression/tvf/test_hive_text.text",
+                            "s3.access_key"= "${ak}",
+                            "s3.secret_key" = "${sk}",
+                            "format" = "hive_text",
+                            "use_path_style" = "true",
+                            "region" = "${region}",
+                            "csv_schema"="k1:int;k2:string;k3:double"
+                        )  where k1 > 100  order by k3,k2,k1;
+                        """
+    } finally {
+    }
+
 }

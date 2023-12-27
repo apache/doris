@@ -17,7 +17,7 @@
 
 
 /*
-exception throw before bug fix:  Unknown column 'mv_bitmap_union_mh' in 'default_cluster:test.original_table'
+exception throw before bug fix:  Unknown column 'mv_bitmap_union_mh' in 'test.original_table'
 */
 suite("test_mv_alias_table_name") {
     sql """

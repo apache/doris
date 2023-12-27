@@ -110,7 +110,11 @@ public class EsNodeInfo {
         String[] scratch = seed.split(":");
         int port = 80;
         if (scratch.length == 3) {
-            port = Integer.parseInt(scratch[2]);
+            String portStr = scratch[2];
+            if (portStr.contains("/")) {
+                portStr = portStr.substring(0, portStr.indexOf('/'));
+            }
+            port = Integer.parseInt(portStr);
         }
         String remoteHost = scratch[0] + ":" + scratch[1];
         this.name = remoteHost;

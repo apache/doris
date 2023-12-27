@@ -98,33 +98,11 @@ public:
         return TypeDescriptor(INVALID_TYPE);
     }
 
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
-            return TPrimitiveType::TINYINT;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int16>>) {
-            return TPrimitiveType::SMALLINT;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int32>>) {
-            return TPrimitiveType::INT;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int64>>) {
-            return TPrimitiveType::BIGINT;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Int128>>) {
-            return TPrimitiveType::LARGEINT;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float32>>) {
-            return TPrimitiveType::FLOAT;
-        }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
-            return TPrimitiveType::DOUBLE;
-        }
-        LOG(FATAL) << "__builtin_unreachable";
-        __builtin_unreachable();
-    }
-
     doris::FieldType get_storage_field_type() const override {
+        // Doris does not support uint8 at present, use uint8 as boolean type
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<UInt8>>) {
+            return doris::FieldType::OLAP_FIELD_TYPE_BOOL;
+        }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Int8>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_TINYINT;
         }
@@ -146,6 +124,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Float64>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DOUBLE;
         }
+        LOG(FATAL) << "__builtin_unreachable";
         __builtin_unreachable();
     }
 

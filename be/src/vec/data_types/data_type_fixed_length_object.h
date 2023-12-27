@@ -56,10 +56,6 @@ public:
         return TypeDescriptor(INVALID_TYPE);
     }
 
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::INVALID_TYPE;
-    }
-
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;
     }
@@ -68,6 +64,7 @@ public:
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for DataTypeFixedLengthObject";
+        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }

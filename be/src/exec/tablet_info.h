@@ -127,7 +127,7 @@ struct VOlapTablePartition {
     int64_t num_buckets = 0;
     std::vector<OlapTableIndexTablets> indexes;
     bool is_mutable;
-    // -1 indicates load_to_single_tablet = false
+    // -1 indicates partition with hash distribution
     int64_t load_tablet_idx = -1;
 
     VOlapTablePartition(vectorized::Block* partition_block)
@@ -187,7 +187,7 @@ public:
             const std::vector<VOlapTablePartition*>& partitions,
             std::vector<uint32_t>& tablet_indexes /*result*/,
             /*TODO: check if flat hash map will be better*/
-            std::map<int64_t, int64_t>* partition_tablets_buffer = nullptr) const {
+            std::map<VOlapTablePartition*, int64_t>* partition_tablets_buffer = nullptr) const {
         std::function<uint32_t(vectorized::Block*, uint32_t, const VOlapTablePartition&)>
                 compute_function;
         if (!_distributed_slot_locs.empty()) {
@@ -212,10 +212,9 @@ public:
             compute_function = [](vectorized::Block* block, uint32_t row,
                                   const VOlapTablePartition& partition) -> uint32_t {
                 if (partition.load_tablet_idx == -1) {
-                    // load_to_single_tablet = false, just do random
+                    // for compatible with old version, just do random
                     return butil::fast_rand() % partition.num_buckets;
                 }
-                // load_to_single_tablet = ture, do round-robin
                 return partition.load_tablet_idx % partition.num_buckets;
             };
         }
@@ -226,14 +225,15 @@ public:
             }
         } else { // use buffer
             for (auto index : indexes) {
-                auto& partition_id = partitions[index]->id;
-                if (auto it = partition_tablets_buffer->find(partition_id);
+                auto* partition = partitions[index];
+                if (auto it = partition_tablets_buffer->find(partition);
                     it != partition_tablets_buffer->end()) {
                     tablet_indexes[index] = it->second; // tablet
+                } else {
+                    // compute and save in buffer
+                    (*partition_tablets_buffer)[partition] = tablet_indexes[index] =
+                            compute_function(block, index, *partitions[index]);
                 }
-                // compute and save in buffer
-                (*partition_tablets_buffer)[partition_id] = tablet_indexes[index] =
-                        compute_function(block, index, *partitions[index]);
             }
         }
     }
@@ -241,16 +241,15 @@ public:
     const std::vector<VOlapTablePartition*>& get_partitions() const { return _partitions; }
 
     // it's same with auto now because we only support transformed partition in auto partition. may expand in future
-    bool is_projection_partition() const { return _is_auto_partiton; }
-    bool is_auto_partition() const { return _is_auto_partiton; }
+    bool is_projection_partition() const { return _is_auto_partition; }
+    bool is_auto_partition() const { return _is_auto_partition; }
 
     std::vector<uint16_t> get_partition_keys() const { return _partition_slot_locs; }
 
     Status add_partitions(const std::vector<TOlapTablePartition>& partitions);
 
-    //TODO: use vector when we support multi partition column for auto-partition
-    vectorized::VExprContextSPtr get_part_func_ctx() { return _part_func_ctx; }
-    vectorized::VExprSPtr get_partition_function() { return _partition_function; }
+    vectorized::VExprContextSPtrs get_part_func_ctx() { return _part_func_ctx; }
+    vectorized::VExprSPtrs get_partition_function() { return _partition_function; }
 
     // which will affect _partition_block
     Status generate_partition_from(const TOlapTablePartition& t_part,
@@ -293,9 +292,9 @@ private:
     VOlapTablePartition* _default_partition = nullptr;
 
     // for auto partition, now only support 1 column. TODO: use vector to save them when we support multi column auto-partition.
-    bool _is_auto_partiton = false;
-    vectorized::VExprContextSPtr _part_func_ctx = nullptr;
-    vectorized::VExprSPtr _partition_function = nullptr;
+    bool _is_auto_partition = false;
+    vectorized::VExprContextSPtrs _part_func_ctx = {nullptr};
+    vectorized::VExprSPtrs _partition_function = {nullptr};
     TPartitionType::type _part_type; // support list or range
 };
 

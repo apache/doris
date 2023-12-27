@@ -222,7 +222,8 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             if (ok) {
                 // The local time zone can change by session variable `time_zone`
                 // We should use the user specified time zone, not the actual system local time zone.
-                success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
+                success = true;
+                dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
             }
         } else if (str_length == 19) {
             // YYYY-MM-DDTHH:MM:SS
@@ -231,8 +232,8 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
                 const bool ok =
                         cctz::parse("%Y-%m-%dT%H:%M:%S", str_date, cctz::utc_time_zone(), &tp);
                 if (ok) {
-                    success = dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp),
-                                                   time_zone);
+                    success = true;
+                    dt_val.from_unixtime(std::chrono::system_clock::to_time_t(tp), time_zone);
                 }
             } else {
                 // YYYY-MM-DD HH:MM:SS
@@ -243,7 +244,8 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
             // string long like "1677895728000"
             int64_t time_long = std::atol(str_date.c_str());
             if (time_long > 0) {
-                success = dt_val.from_unixtime(time_long / 1000, time_zone);
+                success = true;
+                dt_val.from_unixtime(time_long / 1000, time_zone);
             }
         } else {
             // YYYY-MM-DD or others
@@ -255,9 +257,7 @@ Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool 
         }
 
     } else {
-        if (!dt_val.from_unixtime(col.GetInt64() / 1000, time_zone)) {
-            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-        }
+        dt_val.from_unixtime(col.GetInt64() / 1000, time_zone);
     }
     if constexpr (is_datetime_v1) {
         if (type == TYPE_DATE) {

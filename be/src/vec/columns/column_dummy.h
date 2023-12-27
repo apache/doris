@@ -48,6 +48,7 @@ public:
 
     [[noreturn]] Field operator[](size_t) const override {
         LOG(FATAL) << "Cannot get value from " << get_name();
+        __builtin_unreachable();
     }
 
     void get(size_t, Field&) const override {
@@ -61,6 +62,8 @@ public:
     StringRef get_data_at(size_t) const override { return {}; }
 
     void insert_data(const char*, size_t) override { ++s; }
+
+    void clear() override {};
 
     StringRef serialize_value_into_arena(size_t /*n*/, Arena& arena,
                                          char const*& begin) const override {
@@ -78,8 +81,8 @@ public:
         s += length;
     }
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override {
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override {
         s += (indices_end - indices_begin);
     }
 

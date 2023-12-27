@@ -134,7 +134,7 @@ public:
 private:
     Status _read_data_page(const PagePointer& pp);
 
-    const IndexedColumnReader* _reader;
+    const IndexedColumnReader* _reader = nullptr;
     // iterator for ordinal index page
     IndexPageIterator _ordinal_iter;
     // iterator for value index page

@@ -20,6 +20,7 @@ package org.apache.doris.qe;
 import org.apache.doris.proto.Types;
 
 public interface CoordInterface {
+
     public void exec() throws Exception;
 
     public RowBatch getNext() throws Exception;
@@ -27,5 +28,9 @@ public interface CoordInterface {
     public int getInstanceTotalNum();
 
     public void cancel(Types.PPlanFragmentCancelReason cancelReason);
+
+    // When call exec or get next data finished, should call this method to release
+    // some resource.
+    public default void close() {}
 }
 

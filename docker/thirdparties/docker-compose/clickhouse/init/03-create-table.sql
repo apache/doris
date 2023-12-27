@@ -280,3 +280,12 @@ CREATE TABLE doris_test.ts
 )
 ENGINE = MergeTree
 ORDER BY id;
+
+CREATE TABLE doris_test.dt_with_tz
+(
+    id Int64,
+    dt1 DateTime('Asia/Shanghai'),
+    dt2 DateTime64(6, 'Asia/Shanghai')
+)
+ENGINE = MergeTree
+ORDER BY id;

@@ -45,8 +45,16 @@ public:
     Status open(RuntimeState*) override { return Status::OK(); }
 };
 
+class SortSourceDependency final : public Dependency {
+public:
+    using SharedState = SortSharedState;
+    SortSourceDependency(int id, int node_id, QueryContext* query_ctx)
+            : Dependency(id, node_id, "SortSourceDependency", query_ctx) {}
+    ~SortSourceDependency() override = default;
+};
+
 class SortSourceOperatorX;
-class SortLocalState final : public PipelineXLocalState<SortDependency> {
+class SortLocalState final : public PipelineXLocalState<SortSourceDependency> {
 public:
     ENABLE_FACTORY_CREATOR(SortLocalState);
     SortLocalState(RuntimeState* state, OperatorXBase* parent);

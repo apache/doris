@@ -21,7 +21,7 @@ suite("test_rowstore", "p0") {
     sql """
               CREATE TABLE IF NOT EXISTS ${tableName} (
                 `k1` int(11) NULL COMMENT "",
-                `k2` text NULL COMMENT "",
+                `k2` text NULL COMMENT ""
               ) ENGINE=OLAP
               UNIQUE KEY(`k1`)
               DISTRIBUTED BY HASH(`k1`) BUCKETS 1

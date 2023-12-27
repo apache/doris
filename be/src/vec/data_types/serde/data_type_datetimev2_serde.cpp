@@ -19,10 +19,18 @@
 
 #include <arrow/builder.h>
 
+#include <chrono> // IWYU pragma: keep
 #include <type_traits>
 
 #include "vec/columns/column_const.h"
 #include "vec/io/io_helper.h"
+
+enum {
+    DIVISOR_FOR_SECOND = 1,
+    DIVISOR_FOR_MILLI = 1000,
+    DIVISOR_FOR_MICRO = 1000000,
+    DIVISOR_FOR_NANO = 1000000000
+};
 
 namespace doris {
 namespace vectorized {
@@ -82,7 +90,7 @@ Status DataTypeDateTimeV2SerDe::deserialize_one_cell_from_json(IColumn& column, 
         }
 
     } else if (ReadBuffer rb(slice.data, slice.size);
-               !read_datetime_v2_text_impl<UInt64>(val, rb)) {
+               !read_datetime_v2_text_impl<UInt64>(val, rb, scale)) {
         return Status::InvalidArgument("parse date fail, string: '{}'",
                                        std::string(rb.position(), rb.count()).c_str());
     }
@@ -107,6 +115,52 @@ void DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column, const
             checkArrowStatus(string_builder.Append(buf, len), column.get_name(),
                              array_builder->type()->name());
         }
+    }
+}
+
+void DataTypeDateTimeV2SerDe::read_column_from_arrow(IColumn& column,
+                                                     const arrow::Array* arrow_array, int start,
+                                                     int end, const cctz::time_zone& ctz) const {
+    auto& col_data = static_cast<ColumnVector<Int64>&>(column).get_data();
+    int64_t divisor = 1;
+    if (arrow_array->type()->id() == arrow::Type::TIMESTAMP) {
+        auto concrete_array = dynamic_cast<const arrow::TimestampArray*>(arrow_array);
+        const auto type = std::static_pointer_cast<arrow::TimestampType>(arrow_array->type());
+        switch (type->unit()) {
+        case arrow::TimeUnit::type::SECOND: {
+            divisor = DIVISOR_FOR_SECOND;
+            break;
+        }
+        case arrow::TimeUnit::type::MILLI: {
+            divisor = DIVISOR_FOR_MILLI;
+            break;
+        }
+        case arrow::TimeUnit::type::MICRO: {
+            divisor = DIVISOR_FOR_MICRO;
+            break;
+        }
+        case arrow::TimeUnit::type::NANO: {
+            divisor = DIVISOR_FOR_NANO;
+            break;
+        }
+        default: {
+            LOG(WARNING) << "not support convert to datetimev2 from time_unit:" << type->unit();
+            return;
+        }
+        }
+        for (size_t value_i = start; value_i < end; ++value_i) {
+            auto utc_epoch = static_cast<UInt64>(concrete_array->Value(value_i));
+
+            DateV2Value<DateTimeV2ValueType> v;
+            // convert second
+            v.from_unixtime(utc_epoch / divisor, ctz);
+            // get rest time
+            v.set_microsecond(utc_epoch % divisor);
+            col_data.emplace_back(binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(v));
+        }
+    } else {
+        LOG(WARNING) << "not support convert to datetimev2 from arrow type:"
+                     << arrow_array->type()->id();
     }
 }
 

@@ -72,10 +72,6 @@ LoadChannelMgr::LoadChannelMgr() : _stop_background_threads_latch(1) {
     });
 }
 
-LoadChannelMgr::~LoadChannelMgr() {
-    delete _last_success_channel;
-}
-
 void LoadChannelMgr::stop() {
     DEREGISTER_HOOK_METRIC(load_channel_count);
     DEREGISTER_HOOK_METRIC(load_channel_mem_consumption);
@@ -86,7 +82,8 @@ void LoadChannelMgr::stop() {
 }
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
-    _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
+    _last_success_channel =
+            std::unique_ptr<Cache>(new ShardedLRUCache("LastestSuccessChannelCache", 1024));
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }

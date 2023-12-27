@@ -44,6 +44,7 @@ struct TTabletSchema {
     16: optional bool store_row_column = false
     17: optional bool enable_single_replica_compaction = false
     18: optional bool skip_write_index_on_load = false
+    19: optional list<i32> cluster_key_idxes
 }
 
 // this enum stands for different storage format in src_backends
@@ -257,7 +258,7 @@ struct TCloneReq {
     3: required list<Types.TBackend> src_backends
     4: optional Types.TStorageMedium storage_medium
     // these are visible version(hash) actually
-    5: optional Types.TVersion committed_version
+    5: optional Types.TVersion version
     6: optional Types.TVersionHash committed_version_hash // Deprecated
     7: optional i32 task_version;
     8: optional i64 src_path_hash;
@@ -417,6 +418,7 @@ struct TTabletMetaInfo {
     13: optional i64 time_series_compaction_time_threshold_seconds
     14: optional bool enable_single_replica_compaction
     15: optional bool skip_write_index_on_load
+    16: optional bool disable_auto_compaction
 }
 
 struct TUpdateTabletMetaInfoReq {

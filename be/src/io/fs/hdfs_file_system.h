@@ -156,8 +156,8 @@ private:
     std::string _fs_name;
     // do not use std::shared_ptr or std::unique_ptr
     // _fs_handle is managed by HdfsFileSystemCache
-    HdfsFileSystemHandle* _fs_handle;
-    RuntimeProfile* _profile;
+    HdfsFileSystemHandle* _fs_handle = nullptr;
+    RuntimeProfile* _profile = nullptr;
 };
 } // namespace io
 } // namespace doris

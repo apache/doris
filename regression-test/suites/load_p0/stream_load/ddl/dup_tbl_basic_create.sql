@@ -48,7 +48,7 @@ CREATE TABLE stream_load_dup_tbl_basic
     INDEX idx_ngrambf_k117 (`k17`) USING NGRAM_BF PROPERTIES("gram_size"="3", "bf_size"="256"),
 
     INDEX idx_bitmap_k104 (`k02`) USING BITMAP,
-    INDEX idx_bitmap_k110 (`kd01`) USING BITMAP,
+    INDEX idx_bitmap_k110 (`kd01`) USING BITMAP
     
 )
 DUPLICATE KEY(k00)

@@ -59,7 +59,7 @@ suite("test_broker_load_func", "p0,external,hive,external_docker,external_docker
             """
 
             def check_load_result = {checklabel, testTablex ->
-                max_try_milli_secs = 60000
+                max_try_milli_secs = 120000
                 while(max_try_milli_secs) {
                     result = sql "show load where label = '${checklabel}'"
                     if(result[0][2] == "FINISHED") {

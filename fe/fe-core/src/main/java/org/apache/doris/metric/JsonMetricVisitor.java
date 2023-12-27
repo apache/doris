@@ -40,9 +40,9 @@ public class JsonMetricVisitor extends MetricVisitor {
     private static final String JVM_NON_HEAP_SIZE_BYTES = "jvm_non_heap_size_bytes";
     private static final String JVM_YOUNG_SIZE_BYTES = "jvm_young_size_bytes";
     private static final String JVM_OLD_SIZE_BYTES = "jvm_old_size_bytes";
-    private static final String JVM_YOUNG_GC = "jvm_young_gc";
-    private static final String JVM_OLD_GC = "jvm_old_gc";
     private static final String JVM_THREAD = "jvm_thread";
+
+    private static final String JVM_GC = "jvm_gc";
 
     public JsonMetricVisitor() {
         super();
@@ -52,59 +52,59 @@ public class JsonMetricVisitor extends MetricVisitor {
     @Override
     public void visitJvm(JvmStats jvmStats) {
         // heap
-        setJvmJsonMetric(sb, JVM_HEAP_SIZE_BYTES, "max", "bytes", jvmStats.getMem().getHeapMax().getBytes());
-        setJvmJsonMetric(sb, JVM_HEAP_SIZE_BYTES, "committed", "bytes",
+        setJvmJsonMetric(sb, JVM_HEAP_SIZE_BYTES, null, "max", "bytes", jvmStats.getMem().getHeapMax().getBytes());
+        setJvmJsonMetric(sb, JVM_HEAP_SIZE_BYTES, null, "committed", "bytes",
                 jvmStats.getMem().getHeapCommitted().getBytes());
-        setJvmJsonMetric(sb, JVM_HEAP_SIZE_BYTES, "used", "bytes", jvmStats.getMem().getHeapUsed().getBytes());
+        setJvmJsonMetric(sb, JVM_HEAP_SIZE_BYTES, null, "used", "bytes", jvmStats.getMem().getHeapUsed().getBytes());
 
         // non heap
-        setJvmJsonMetric(sb, JVM_NON_HEAP_SIZE_BYTES, "committed", "bytes",
+        setJvmJsonMetric(sb, JVM_NON_HEAP_SIZE_BYTES, null, "committed", "bytes",
                 jvmStats.getMem().getNonHeapCommitted().getBytes());
-        setJvmJsonMetric(sb, JVM_NON_HEAP_SIZE_BYTES, "used", "bytes", jvmStats.getMem().getNonHeapUsed().getBytes());
+        setJvmJsonMetric(sb, JVM_NON_HEAP_SIZE_BYTES, null, "used", "bytes",
+                jvmStats.getMem().getNonHeapUsed().getBytes());
 
         // mem pool
         Iterator<MemoryPool> memIter = jvmStats.getMem().iterator();
         while (memIter.hasNext()) {
             MemoryPool memPool = memIter.next();
             if (memPool.getName().equalsIgnoreCase("young")) {
-                setJvmJsonMetric(sb, JVM_YOUNG_SIZE_BYTES, "used", "bytes", memPool.getUsed().getBytes());
-                setJvmJsonMetric(sb, JVM_YOUNG_SIZE_BYTES, "peak_used", "bytes", memPool.getPeakUsed().getBytes());
-                setJvmJsonMetric(sb, JVM_YOUNG_SIZE_BYTES, "max", "bytes", memPool.getMax().getBytes());
+                setJvmJsonMetric(sb, JVM_YOUNG_SIZE_BYTES, null, "used", "bytes", memPool.getUsed().getBytes());
+                setJvmJsonMetric(sb, JVM_YOUNG_SIZE_BYTES, null, "peak_used", "bytes",
+                        memPool.getPeakUsed().getBytes());
+                setJvmJsonMetric(sb, JVM_YOUNG_SIZE_BYTES, null, "max", "bytes", memPool.getMax().getBytes());
             } else if (memPool.getName().equalsIgnoreCase("old")) {
-                setJvmJsonMetric(sb, JVM_OLD_SIZE_BYTES, "used", "bytes", memPool.getUsed().getBytes());
-                setJvmJsonMetric(sb, JVM_OLD_SIZE_BYTES, "peak_used", "bytes", memPool.getPeakUsed().getBytes());
-                setJvmJsonMetric(sb, JVM_OLD_SIZE_BYTES, "max", "bytes", memPool.getMax().getBytes());
+                setJvmJsonMetric(sb, JVM_OLD_SIZE_BYTES, null, "used", "bytes", memPool.getUsed().getBytes());
+                setJvmJsonMetric(sb, JVM_OLD_SIZE_BYTES, null, "peak_used", "bytes", memPool.getPeakUsed().getBytes());
+                setJvmJsonMetric(sb, JVM_OLD_SIZE_BYTES, null, "max", "bytes", memPool.getMax().getBytes());
             }
         }
 
         // gc
-        Iterator<GarbageCollector> gcIter = jvmStats.getGc().iterator();
-        while (gcIter.hasNext()) {
-            GarbageCollector gc = gcIter.next();
-            if (gc.getName().equalsIgnoreCase("young")) {
-                setJvmJsonMetric(sb, JVM_YOUNG_GC, "count", "nounit", gc.getCollectionCount());
-                setJvmJsonMetric(sb, JVM_YOUNG_GC, "time", "milliseconds", gc.getCollectionTime().getMillis());
-            } else if (gc.getName().equalsIgnoreCase("old")) {
-                setJvmJsonMetric(sb, JVM_OLD_GC, "count", "nounit", gc.getCollectionCount());
-                setJvmJsonMetric(sb, JVM_OLD_GC, "time", "milliseconds", gc.getCollectionTime().getMillis());
-            }
+        for (GarbageCollector gc : jvmStats.getGc()) {
+            setJvmJsonMetric(sb, JVM_GC, gc.getName() + " Count", "count", "nounit", gc.getCollectionCount());
+            setJvmJsonMetric(sb, JVM_GC, gc.getName() + " Time", "time", "milliseconds",
+                    gc.getCollectionTime().getMillis());
         }
 
         // threads
         Threads threads = jvmStats.getThreads();
-        setJvmJsonMetric(sb, JVM_THREAD, "count", "nounit", threads.getCount());
-        setJvmJsonMetric(sb, JVM_THREAD, "peak_count", "nounit", threads.getPeakCount());
-        setJvmJsonMetric(sb, JVM_THREAD, "new_count", "nounit", threads.getThreadsNewCount());
-        setJvmJsonMetric(sb, JVM_THREAD, "runnable_count", "nounit", threads.getThreadsRunnableCount());
-        setJvmJsonMetric(sb, JVM_THREAD, "blocked_count", "nounit", threads.getThreadsBlockedCount());
-        setJvmJsonMetric(sb, JVM_THREAD, "waiting_count", "nounit", threads.getThreadsWaitingCount());
-        setJvmJsonMetric(sb, JVM_THREAD, "timed_waiting_count", "nounit", threads.getThreadsTimedWaitingCount());
-        setJvmJsonMetric(sb, JVM_THREAD, "terminated_count", "nounit", threads.getThreadsTerminatedCount());
+        setJvmJsonMetric(sb, JVM_THREAD, null, "count", "nounit", threads.getCount());
+        setJvmJsonMetric(sb, JVM_THREAD, null, "peak_count", "nounit", threads.getPeakCount());
+        setJvmJsonMetric(sb, JVM_THREAD, null, "new_count", "nounit", threads.getThreadsNewCount());
+        setJvmJsonMetric(sb, JVM_THREAD, null,  "runnable_count", "nounit", threads.getThreadsRunnableCount());
+        setJvmJsonMetric(sb, JVM_THREAD, null,  "blocked_count", "nounit", threads.getThreadsBlockedCount());
+        setJvmJsonMetric(sb, JVM_THREAD, null,  "waiting_count", "nounit", threads.getThreadsWaitingCount());
+        setJvmJsonMetric(sb, JVM_THREAD, null, "timed_waiting_count", "nounit", threads.getThreadsTimedWaitingCount());
+        setJvmJsonMetric(sb, JVM_THREAD, null, "terminated_count", "nounit", threads.getThreadsTerminatedCount());
     }
 
-    private void setJvmJsonMetric(StringBuilder sb, String metric, String type, String unit, long value) {
+    private void setJvmJsonMetric(StringBuilder sb, String metric, String name, String type, String unit, long value) {
         sb.append("{\n\t\"tags\":\n\t{\n");
         sb.append("\t\t\"metric\":\"").append(metric).append("\"");
+        if (name != null) {
+            sb.append(",\n");
+            sb.append("\t\t\"name\":\"").append(name).append("\"\n");
+        }
         if (type != null) {
             sb.append(",\n");
             sb.append("\t\t\"type\":\"").append(type).append("\"\n");

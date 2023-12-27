@@ -23,21 +23,29 @@ import com.google.gson.annotations.SerializedName;
  * EnvInfo
  */
 public class EnvInfo {
-    @SerializedName("cn")
-    private String ctlName;
-    @SerializedName("dn")
-    private String dbName;
+    @SerializedName("ci")
+    private long ctlId;
+    @SerializedName("di")
+    private long dbId;
 
-    public EnvInfo(String ctlName, String dbName) {
-        this.ctlName = ctlName;
-        this.dbName = dbName;
+    public EnvInfo(long ctlId, long dbId) {
+        this.ctlId = ctlId;
+        this.dbId = dbId;
     }
 
-    public String getCtlName() {
-        return ctlName;
+    public long getCtlId() {
+        return ctlId;
     }
 
-    public String getDbName() {
-        return dbName;
+    public long getDbId() {
+        return dbId;
+    }
+
+    @Override
+    public String toString() {
+        return "EnvInfo{"
+                + "ctlId='" + ctlId + '\''
+                + ", dbId='" + dbId + '\''
+                + '}';
     }
 }

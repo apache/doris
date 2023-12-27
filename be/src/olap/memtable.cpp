@@ -44,6 +44,7 @@
 namespace doris {
 
 bvar::Adder<int64_t> g_memtable_cnt("memtable_cnt");
+bvar::Adder<int64_t> g_memtable_input_block_allocated_size("memtable_input_block_allocated_size");
 
 using namespace ErrorCode;
 
@@ -137,6 +138,7 @@ void MemTable::_init_agg_functions(const vectorized::Block* block) {
 }
 
 MemTable::~MemTable() {
+    g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
     g_memtable_cnt << -1;
     if (_keys_type != KeysType::DUP_KEYS) {
         for (auto it = _row_in_blocks.begin(); it != _row_in_blocks.end(); it++) {
@@ -166,7 +168,7 @@ int RowInBlockComparator::operator()(const RowInBlock* left, const RowInBlock* r
                                *_pblock, -1);
 }
 
-void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs,
+void MemTable::insert(const vectorized::Block* input_block, const std::vector<uint32_t>& row_idxs,
                       bool is_append) {
     SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     vectorized::Block target_block = *input_block;
@@ -198,6 +200,7 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
 
     auto num_rows = row_idxs.size();
     size_t cursor_in_mutableblock = _input_mutable_block.rows();
+    auto block_size0 = _input_mutable_block.allocated_bytes();
     if (is_append) {
         // Append the block, call insert range from
         _input_mutable_block.add_rows(&target_block, 0, target_block.rows());
@@ -205,7 +208,10 @@ void MemTable::insert(const vectorized::Block* input_block, const std::vector<in
     } else {
         _input_mutable_block.add_rows(&target_block, row_idxs.data(), row_idxs.data() + num_rows);
     }
-    size_t input_size = target_block.allocated_bytes() * num_rows / target_block.rows();
+    auto block_size1 = _input_mutable_block.allocated_bytes();
+    g_memtable_input_block_allocated_size << block_size1 - block_size0;
+    size_t input_size = target_block.bytes() * num_rows / target_block.rows() *
+                        config::memtable_insert_memory_ratio;
     _mem_usage += input_size;
     _insert_mem_tracker->consume(input_size);
     for (int i = 0; i < num_rows; i++) {
@@ -239,7 +245,7 @@ void MemTable::_aggregate_two_row_in_block(vectorized::MutableBlock& mutable_blo
 }
 void MemTable::_put_into_output(vectorized::Block& in_block) {
     SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
-    std::vector<int> row_pos_vec;
+    std::vector<uint32_t> row_pos_vec;
     DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
     row_pos_vec.reserve(in_block.rows());
     for (int i = 0; i < _row_in_blocks.size(); i++) {
@@ -288,6 +294,56 @@ size_t MemTable::_sort() {
     std::inplace_merge(_row_in_blocks.begin(), new_row_it, _row_in_blocks.end(), cmp_func);
     _last_sorted_pos = _row_in_blocks.size();
     return same_keys_num;
+}
+
+void MemTable::_sort_by_cluster_keys() {
+    SCOPED_RAW_TIMER(&_stat.sort_ns);
+    _stat.sort_times++;
+    // sort all rows
+    vectorized::Block in_block = _output_mutable_block.to_block();
+    vectorized::MutableBlock mutable_block =
+            vectorized::MutableBlock::build_mutable_block(&in_block);
+    auto clone_block = in_block.clone_without_columns();
+    _output_mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
+
+    std::vector<RowInBlock*> row_in_blocks;
+    std::unique_ptr<int, std::function<void(int*)>> row_in_blocks_deleter((int*)0x01, [&](int*) {
+        std::for_each(row_in_blocks.begin(), row_in_blocks.end(),
+                      std::default_delete<RowInBlock>());
+    });
+    row_in_blocks.reserve(mutable_block.rows());
+    for (size_t i = 0; i < mutable_block.rows(); i++) {
+        row_in_blocks.emplace_back(new RowInBlock {i});
+    }
+    Tie tie = Tie(0, mutable_block.rows());
+
+    for (auto i : _tablet_schema->cluster_key_idxes()) {
+        auto cmp = [&](const RowInBlock* lhs, const RowInBlock* rhs) -> int {
+            return mutable_block.compare_one_column(lhs->_row_pos, rhs->_row_pos, i, -1);
+        };
+        _sort_one_column(row_in_blocks, tie, cmp);
+    }
+
+    // sort extra round by _row_pos to make the sort stable
+    auto iter = tie.iter();
+    while (iter.next()) {
+        pdqsort(std::next(row_in_blocks.begin(), iter.left()),
+                std::next(row_in_blocks.begin(), iter.right()),
+                [](const RowInBlock* lhs, const RowInBlock* rhs) -> bool {
+                    return lhs->_row_pos < rhs->_row_pos;
+                });
+    }
+
+    in_block = mutable_block.to_block();
+    SCOPED_RAW_TIMER(&_stat.put_into_output_ns);
+    std::vector<uint32_t> row_pos_vec;
+    DCHECK(in_block.rows() <= std::numeric_limits<int>::max());
+    row_pos_vec.reserve(in_block.rows());
+    for (int i = 0; i < row_in_blocks.size(); i++) {
+        row_pos_vec.emplace_back(row_in_blocks[i]->_row_pos);
+    }
+    _output_mutable_block.add_rows(&in_block, row_pos_vec.data(),
+                                   row_pos_vec.data() + in_block.rows());
 }
 
 void MemTable::_sort_one_column(std::vector<RowInBlock*>& row_in_blocks, Tie& tie,
@@ -401,6 +457,8 @@ void MemTable::_aggregate() {
         _output_mutable_block =
                 vectorized::MutableBlock::build_mutable_block(empty_input_block.get());
         _output_mutable_block.clear_column_data();
+        _row_in_blocks = temp_row_in_blocks;
+        _last_sorted_pos = _row_in_blocks.size();
     }
 }
 
@@ -410,10 +468,7 @@ void MemTable::shrink_memtable_by_agg() {
         return;
     }
     size_t same_keys_num = _sort();
-    if (same_keys_num == 0) {
-        vectorized::Block in_block = _input_mutable_block.to_block();
-        _put_into_output(in_block);
-    } else {
+    if (same_keys_num != 0) {
         _aggregate<false>();
     }
 }
@@ -448,6 +503,14 @@ std::unique_ptr<vectorized::Block> MemTable::to_block() {
     } else {
         _aggregate<true>();
     }
+    if (_keys_type == KeysType::UNIQUE_KEYS && _enable_unique_key_mow &&
+        !_tablet_schema->cluster_key_idxes().empty()) {
+        _sort_by_cluster_keys();
+    }
+    g_memtable_input_block_allocated_size << -_input_mutable_block.allocated_bytes();
+    _input_mutable_block.clear();
+    _insert_mem_tracker->release(_mem_usage);
+    _mem_usage = 0;
     return vectorized::Block::create_unique(_output_mutable_block.to_block());
 }
 

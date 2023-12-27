@@ -46,19 +46,42 @@ suite("test_grouping_sets", "p0") {
 
     test {
         sql """
-              SELECT k1, k2, SUM(k3) FROM test_query_db.test
+              SELECT /*+ SET_VAR(enable_nereids_planner=false) */ k1, k2, SUM(k3) FROM test_query_db.test
               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
             """
         exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
     }
 
+    sql """set enable_nereids_planner=true;"""
+    sql """set enable_fallback_to_original_planner=false;"""
+    test {
+        sql """
+              SELECT k1, k2, SUM(k3) FROM test_query_db.test
+              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
+            """
+        exception "errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions"
+    }
+    sql """set enable_nereids_planner=false;"""
+    sql """set enable_fallback_to_original_planner=true;"""
+    test {
+        sql """
+              SELECT /*+ SET_VAR(enable_nereids_planner=false) */ k1, k2, SUM(k3)/(SUM(k3)+1) FROM test_query_db.test
+              GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
+            """
+        exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
+    }
+
+    sql """set enable_nereids_planner=true;"""
+    sql """set enable_fallback_to_original_planner=false;"""
     test {
         sql """
               SELECT k1, k2, SUM(k3)/(SUM(k3)+1) FROM test_query_db.test
               GROUP BY GROUPING SETS ((k1, k2), (k1), (k2), ( ), (k3) ) order by k1, k2
             """
-        exception "errCode = 2, detailMessage = column: `k3` cannot both in select list and aggregate functions"
+        exception "errCode = 2, detailMessage = column: k3 cannot both in select list and aggregate functions"
     }
+    sql """set enable_nereids_planner=false;"""
+    sql """set enable_fallback_to_original_planner=true;"""
 
     qt_select7 """ select k1,k2,sum(k3) from test_query_db.test where 1 = 2 group by grouping sets((k1), (k1,k2)) """
 
@@ -164,9 +187,18 @@ suite("test_grouping_sets", "p0") {
     qt_select19 """SELECT k1 ,GROUPING(k1) FROM test_query_db.test GROUP BY ROLLUP (k1) ORDER BY k1"""
     qt_select20 """SELECT k1 ,GROUPING(k1) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"""
     test {
-        sql "SELECT k1 ,GROUPING(k2) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"
+        sql "SELECT /*+ SET_VAR(enable_nereids_planner=false) */ k1 ,GROUPING(k2) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"
         exception "Column `k2` in GROUP_ID() does not exist in GROUP BY clause"
     }
+    sql """set enable_nereids_planner=true;"""
+    sql """set enable_fallback_to_original_planner=false;"""
+    test {
+        sql "SELECT k1 ,GROUPING(k2) FROM test_query_db.test GROUP BY CUBE (k1) ORDER BY k1"
+        exception "Column in Grouping does not exist in GROUP BY clause"
+    }
+    sql """set enable_nereids_planner=false;"""
+    sql """set enable_fallback_to_original_planner=true;"""
+
     // test grouping sets id contain null data
     sql """drop table if exists test_query_db.test_grouping_sets_id_null"""
     sql """create table if not exists test_query_db.test_grouping_sets_id_null like test_query_db.test"""
@@ -192,8 +224,6 @@ suite("test_grouping_sets", "p0") {
         """
     sql """drop table if exists test_query_db.test_grouping_sets_id_null"""
     // test grouping sets shoot rollup
-    // because nereids cannot support rollup correctly forbid it temporary
-    sql """set enable_nereids_planner=false"""
     sql "drop table if exists test_query_db.test_grouping_sets_rollup"
     sql """
         create table if not exists test_query_db.test_grouping_sets_rollup(
@@ -232,8 +262,16 @@ suite("test_grouping_sets", "p0") {
     sql "drop table if exists test_query_db.test_grouping_sets_rollup"
     // test_grouping_select
     test {
-        sql "select k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))"
+        sql "select /*+ SET_VAR(enable_nereids_planner=false) */ k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))"
         exception "`k1` cannot both in select list and aggregate functions " +
+                "when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
+    }
+    sql """set enable_nereids_planner=true;"""
+    sql """set enable_fallback_to_original_planner=false;"""
+
+    test {
+        sql "select k1, if(grouping(k1)=1, count(k1), 0) from test_query_db.test group by grouping sets((k1))"
+        exception "k1 cannot both in select list and aggregate functions " +
                 "when using GROUPING SETS/CUBE/ROLLUP, please use union instead."
     }
 }

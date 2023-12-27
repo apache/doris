@@ -29,6 +29,7 @@ import org.apache.doris.load.DppConfig;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -72,13 +73,14 @@ public class UserPropertyMgr implements Writable {
         }
     }
 
-    public void updateUserProperty(String user, List<Pair<String, String>> properties) throws UserException {
+    public void updateUserProperty(String user, List<Pair<String, String>> properties, boolean isReplay)
+            throws UserException {
         UserProperty property = propertyMap.get(user);
         if (property == null) {
             throw new DdlException("Unknown user(" + user + ")");
         }
 
-        property.update(properties);
+        property.update(properties, isReplay);
     }
 
     public int getQueryTimeout(String qualifiedUser) {
@@ -117,13 +119,30 @@ public class UserPropertyMgr implements Writable {
         return existProperty.getMaxQueryInstances();
     }
 
+    public int getParallelFragmentExecInstanceNum(String qualifiedUser) {
+        UserProperty existProperty = propertyMap.get(qualifiedUser);
+        existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
+        if (existProperty == null) {
+            return -1;
+        }
+        return existProperty.getParallelFragmentExecInstanceNum();
+    }
+
     public Set<Tag> getResourceTags(String qualifiedUser) {
         UserProperty existProperty = propertyMap.get(qualifiedUser);
         existProperty = getLdapPropertyIfNull(qualifiedUser, existProperty);
         if (existProperty == null) {
             return UserProperty.INVALID_RESOURCE_TAGS;
         }
-        return existProperty.getCopiedResourceTags();
+        Set<Tag> tags = existProperty.getCopiedResourceTags();
+        // only root and admin can return empty tag.
+        // empty tag means user can access all backends.
+        // for normal user, if tag is empty, use default tag.
+        if (tags.isEmpty() && !(qualifiedUser.equalsIgnoreCase(Auth.ROOT_USER)
+                || qualifiedUser.equalsIgnoreCase(Auth.ADMIN_USER))) {
+            tags = Sets.newHashSet(Tag.DEFAULT_BACKEND_TAG);
+        }
+        return tags;
     }
 
     public Pair<String, DppConfig> getLoadClusterInfo(String qualifiedUser, String cluster) throws DdlException {

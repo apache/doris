@@ -36,7 +36,7 @@ suite("test_show_create_table_and_views", "show") {
         CREATE TABLE ${dbName}.${tableName} (
             `user_id` LARGEINT NOT NULL,
             `good_id` LARGEINT NOT NULL,
-            `cost` BIGINT SUM DEFAULT "0",
+            `cost` BIGINT SUM DEFAULT "0"
         )
         AGGREGATE KEY(`user_id`, `good_id`)
         PARTITION BY RANGE(`good_id`)

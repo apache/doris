@@ -183,7 +183,7 @@ message ColumnMetaPB {
     // required by array/struct/map reader to create child reader.
     optional uint64 num_rows = 11;
     repeated string children_column_names = 12;
-
+    
     // persist info for PathInData that represents path in document, e.g. JSON.
     optional ColumnPathInfo column_path_info = 13;
 

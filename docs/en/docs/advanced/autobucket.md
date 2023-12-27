@@ -32,7 +32,7 @@ DISTRIBUTED BY ... BUCKETS auto
 
 </version>
 
-Users often set inappropriate buckets, leading to various problems. For now, it only works for olap tables  
+Users often set inappropriate buckets, leading to various problems. For now, it only works for OLAP tables  
 
 Node: This feature will be disabled when synchronized by CCR. If this table is copied by CCR, that is, PROPERTIES contains `is_being_synced = true`, it will be displayed as enabled in show create table, but will not actually take effect. When `is_being_synced` is set to `false`, these features will resume working, but the `is_being_synced` property is for CCR peripheral modules only and should not be manually set during CCR synchronization.  
 
@@ -72,7 +72,7 @@ First, use the value of estimate_partition_size divided by 5 (calculated as a 5-
 3. Calculation logic to get the final number of buckets.
 First calculate an intermediate value x = min(M, N, 128).
 If x < N and x < the number of BE nodes, the final bucket is y, the number of BE nodes; otherwise, the final bucket is x.
-4. x = max(x, autobucket_min_buckets), 这里autobucket_min_buckets是在Config中配置的，默认是1
+4. x = max(x, autobucket_min_buckets), Here autobucket_min_buckets is configured in Config (where, default is 1)
 
 The pseudo-code representation of the above process is as follows
 

@@ -47,7 +47,7 @@ class RestoreAction implements SuiteAction {
     SuiteContext context
 
     RestoreAction(SuiteContext context) {
-        this.address = context.config.feHttpInetSocketAddress
+        this.address = context.getFeHttpAddress()
         this.user = context.config.feHttpUser
         this.password = context.config.feHttpPassword
         this.db = context.config.defaultDb

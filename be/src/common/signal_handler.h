@@ -64,7 +64,7 @@ namespace {
 // The list should be synced with the comment in signalhandler.h.
 const struct {
     int number;
-    const char* name;
+    const char* name = nullptr;
 } kFailureSignals[] = {
         {SIGSEGV, "SIGSEGV"}, {SIGILL, "SIGILL"}, {SIGFPE, "SIGFPE"},
         {SIGABRT, "SIGABRT"}, {SIGBUS, "SIGBUS"}, {SIGTERM, "SIGTERM"},
@@ -218,8 +218,8 @@ public:
     }
 
 private:
-    char* buffer_;
-    char* cursor_;
+    char* buffer_ = nullptr;
+    char* cursor_ = nullptr;
     const char* const end_;
 };
 

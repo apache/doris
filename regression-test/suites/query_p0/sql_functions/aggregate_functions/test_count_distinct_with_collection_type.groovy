@@ -24,7 +24,7 @@ suite("test_count_distinct_with_collection_type", "p0") {
       `id` int(11) NULL,
       `a` array<text> NULL,
       `m` map<text, int> NULL,
-      `s` STRUCT<f1:INT, f2:VARCHAR(30), f3: DECIMAL> NULL,
+      `s` STRUCT<f1:INT, f2:VARCHAR(30), f3: DECIMAL> NULL
     ) ENGINE=OLAP
     DUPLICATE KEY(`id`)
     COMMENT 'OLAP'

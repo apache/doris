@@ -83,10 +83,10 @@ private:
     int _fd = -1;
     std::filesystem::path _file;
     size_t elf_size;
-    char* mapped;
-    const ElfEhdr* header;
-    const ElfShdr* section_headers;
-    const ElfPhdr* program_headers;
+    char* mapped = nullptr;
+    const ElfEhdr* header = nullptr;
+    const ElfShdr* section_headers = nullptr;
+    const ElfPhdr* program_headers = nullptr;
     const char* section_names = nullptr;
 };
 

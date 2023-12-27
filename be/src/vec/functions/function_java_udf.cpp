@@ -83,6 +83,7 @@ Status JavaFunctionCall::open(FunctionContext* context, FunctionContext::Functio
         }
         RETURN_ERROR_IF_EXC(env);
         RETURN_IF_ERROR(JniUtil::LocalToGlobalRef(env, jni_ctx->executor, &jni_ctx->executor));
+        jni_ctx->open_successes = true;
     }
     return Status::OK();
 }

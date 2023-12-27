@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.DropMTMVInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -29,7 +29,7 @@ import java.util.Objects;
 /**
  * refresh mtmv
  */
-public class DropMTMVCommand extends Command implements ForwardWithSync {
+public class DropMTMVCommand extends Command implements ForwardWithSync, NotAllowFallback {
     private final DropMTMVInfo dropMTMVInfo;
 
     public DropMTMVCommand(DropMTMVInfo dropMTMVInfo) {
@@ -40,7 +40,7 @@ public class DropMTMVCommand extends Command implements ForwardWithSync {
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
         dropMTMVInfo.analyze(ctx);
-        throw new AnalysisException("current not support.");
+        Env.getCurrentEnv().dropTable(dropMTMVInfo.translateToLegacyStmt());
     }
 
     @Override

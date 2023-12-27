@@ -94,9 +94,11 @@ public:
     bool is_default_at(size_t n) const override;
     [[noreturn]] StringRef get_data_at(size_t n) const override {
         LOG(FATAL) << "Method get_data_at is not supported for " + get_name();
+        __builtin_unreachable();
     }
     [[noreturn]] void insert_data(const char* pos, size_t length) override {
         LOG(FATAL) << "Method insert_data is not supported for " + get_name();
+        __builtin_unreachable();
     }
     void insert(const Field& x) override;
     void insert_from(const IColumn& src_, size_t n) override;
@@ -121,8 +123,8 @@ public:
                                 uint32_t offset = 0,
                                 const uint8_t* __restrict null_data = nullptr) const override;
 
-    void insert_indices_from(const IColumn& src, const int* indices_begin,
-                             const int* indices_end) override;
+    void insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                             const uint32_t* indices_end) override;
 
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          Permutation& res) const override {
@@ -159,6 +161,7 @@ public:
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
+        __builtin_unreachable();
     }
 
     MutableColumnPtr get_shrinked_column() override;

@@ -54,7 +54,7 @@ struct LastElementCache<Data, false> {
 
 template <typename Mapped>
 class FindResultImpl {
-    Mapped* value;
+    Mapped* value = nullptr;
     bool found;
 
 public:

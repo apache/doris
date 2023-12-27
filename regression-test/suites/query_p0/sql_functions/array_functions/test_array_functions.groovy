@@ -314,7 +314,7 @@ suite("test_array_functions") {
                 `kdcmlv3s1` decimalv3(9, 3) null,
                 `kdcmlv3s2` decimalv3(15, 5) null,
                 `kdcmlv3s3` decimalv3(27, 9) null,
-                `kadcml` array<decimal(27, 9)> null,
+                `kadcml` array<decimal(27, 9)> null
             ) engine=olap
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             properties("replication_num" = "1")

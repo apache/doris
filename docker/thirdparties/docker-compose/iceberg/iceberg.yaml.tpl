@@ -93,3 +93,7 @@ services:
       "
 networks:
   doris--iceberg:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.38.0.0/24

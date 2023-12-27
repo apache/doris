@@ -38,20 +38,6 @@ suite ("test_agg_mv_useless") {
     sql "insert into ${testTable} select 2,2,2;"
     sql "insert into ${testTable} select 3,3,3;"
 
-    test {
-        sql "create materialized view k1 as select k1 from ${testTable};"
-        exception "errCode = 2,"
-    }
-
-    test {
-        sql "create materialized view k1_k2 as select k1,k2 from ${testTable};"
-        exception "errCode = 2,"
-    }
-    test {
-        sql "create materialized view k1_k2_sumk3 as select k1,k2,sum(k3) from${testTable} group by k1,k2;"
-        exception "errCode = 2,"
-    }
-
     createMV("create materialized view k1_u1 as select k1 from ${testTable} group by k1;")
     createMV("create materialized view k1_k2_u21 as select k2,k1 from ${testTable} group by k2,k1 order by k2,k1;")
     createMV("create materialized view k1_sumk3 as select k1,sum(k3) from ${testTable} group by k1;")

@@ -29,7 +29,6 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.system.SystemInfoService;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -72,13 +71,9 @@ public class ShowDataStmtTest {
 
         new Expectations() {
             {
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = SystemInfoService.DEFAULT_CLUSTER;
-
                 analyzer.getDefaultDb();
                 minTimes = 0;
-                result = "testCluster:testDb";
+                result = "testDb";
 
                 Env.getCurrentEnv();
                 minTimes = 0;
@@ -146,7 +141,7 @@ public class ShowDataStmtTest {
     public void testNormal() throws AnalysisException, UserException {
         ShowDataStmt stmt = new ShowDataStmt(null, null);
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW DATA FROM `testCluster:testDb`", stmt.toString());
+        Assert.assertEquals("SHOW DATA FROM `testDb`", stmt.toString());
         Assert.assertEquals(4, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(false, stmt.hasTable());
 
@@ -159,14 +154,14 @@ public class ShowDataStmtTest {
                 Arrays.asList(orderByElementOne, orderByElementTwo));
         stmt.analyze(analyzer);
         Assert.assertEquals(
-                "SHOW DATA FROM `default_cluster:testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC",
+                "SHOW DATA FROM `testDb`.`test_tbl` ORDER BY `ReplicaCount` DESC, `Size` DESC",
                 stmt.toString());
         Assert.assertEquals(6, stmt.getMetaData().getColumnCount());
         Assert.assertEquals(true, stmt.hasTable());
 
         stmt = new ShowDataStmt(null, Arrays.asList(orderByElementOne, orderByElementTwo));
         stmt.analyze(analyzer);
-        Assert.assertEquals("SHOW DATA FROM `testCluster:testDb` ORDER BY `ReplicaCount` DESC, `Size` DESC",
+        Assert.assertEquals("SHOW DATA FROM `testDb` ORDER BY `ReplicaCount` DESC, `Size` DESC",
                 stmt.toString());
     }
 }

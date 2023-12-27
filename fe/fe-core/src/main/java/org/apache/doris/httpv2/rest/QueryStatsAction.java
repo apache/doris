@@ -18,7 +18,6 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -86,11 +85,9 @@ public class QueryStatsAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), database, PrivPredicate.SHOW);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
-        String clasterName = catalog;
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
-        database = ClusterNamespace.getFullName(clasterName, database);
         try {
             Map<String, Map> result = Env.getCurrentEnv().getQueryStats().getStats(catalog, database, summary);
             if (pretty) {
@@ -115,11 +112,9 @@ public class QueryStatsAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), database, table, PrivPredicate.SHOW);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
-        String clasterName = catalog;
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
-        database = ClusterNamespace.getFullName(clasterName, database);
         try {
             Map<String, Map> result = Env.getCurrentEnv().getQueryStats().getStats(catalog, database, table, summary);
             if (pretty) {
@@ -145,11 +140,9 @@ public class QueryStatsAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), database, table, PrivPredicate.SHOW);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
-        String clasterName = catalog;
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
-        database = ClusterNamespace.getFullName(clasterName, database);
         try {
             Map<String, Map> result = Env.getCurrentEnv().getQueryStats()
                     .getStats(catalog, database, table, index, summary);
@@ -169,11 +162,9 @@ public class QueryStatsAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
-        String clasterName = catalog;
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
-        database = ClusterNamespace.getFullName(clasterName, database);
         Env.getCurrentEnv().getQueryStats().clear(catalog, database);
         return ResponseEntityBuilder.ok();
     }
@@ -185,11 +176,9 @@ public class QueryStatsAction extends RestBaseController {
         executeCheckPassword(request, response);
         checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
-        String clasterName = catalog;
         if (catalog.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             catalog = InternalCatalog.INTERNAL_CATALOG_NAME;
         }
-        database = ClusterNamespace.getFullName(clasterName, database);
         Env.getCurrentEnv().getQueryStats().clear(catalog, database, table);
         return ResponseEntityBuilder.ok();
     }

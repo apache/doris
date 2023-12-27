@@ -83,17 +83,17 @@ struct ProcessRuntimeFilterBuild {
         parent->_runtime_filter_slots = std::make_shared<VRuntimeFilterSlots>(
                 parent->_build_expr_ctxs, parent->runtime_filter_descs());
 
-        RETURN_IF_ERROR(parent->_runtime_filter_slots->init(
-                state, hash_table_ctx.hash_table->size(), parent->_build_rf_cardinality));
+        RETURN_IF_ERROR(
+                parent->_runtime_filter_slots->init(state, hash_table_ctx.hash_table->size()));
 
-        if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_rows.empty()) {
+        if (!parent->_runtime_filter_slots->empty() && !parent->_inserted_blocks.empty()) {
             {
-                SCOPED_TIMER(parent->_push_compute_timer);
-                parent->_runtime_filter_slots->insert(parent->_inserted_rows);
+                SCOPED_TIMER(parent->_runtime_filter_compute_timer);
+                parent->_runtime_filter_slots->insert(parent->_inserted_blocks);
             }
         }
         {
-            SCOPED_TIMER(parent->_push_down_timer);
+            SCOPED_TIMER(parent->_publish_runtime_filter_timer);
             RETURN_IF_ERROR(parent->_runtime_filter_slots->publish());
         }
 
@@ -106,143 +106,56 @@ using ProfileCounter = RuntimeProfile::Counter;
 template <class HashTableContext, typename Parent>
 struct ProcessHashTableBuild {
     ProcessHashTableBuild(int rows, Block& acquired_block, ColumnRawPtrs& build_raw_ptrs,
-                          Parent* parent, int batch_size, uint8_t offset, RuntimeState* state)
+                          Parent* parent, int batch_size, RuntimeState* state)
             : _rows(rows),
-              _skip_rows(0),
               _acquired_block(acquired_block),
               _build_raw_ptrs(build_raw_ptrs),
               _parent(parent),
               _batch_size(batch_size),
-              _offset(offset),
-              _state(state),
-              _build_side_compute_hash_timer(parent->_build_side_compute_hash_timer) {}
+              _state(state) {}
 
-    template <bool ignore_null, bool short_circuit_for_null>
+    template <int JoinOpType, bool ignore_null, bool short_circuit_for_null>
     Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
-        using KeyGetter = typename HashTableContext::State;
-        using Mapped = typename HashTableContext::Mapped;
-
-        Defer defer {[&]() {
-            int64_t bucket_size = hash_table_ctx.hash_table->get_buffer_size_in_cells();
-            int64_t filled_bucket_size = hash_table_ctx.hash_table->size();
-            int64_t bucket_bytes = hash_table_ctx.hash_table->get_buffer_size_in_bytes();
-            COUNTER_SET(_parent->_hash_table_memory_usage, bucket_bytes);
-            COUNTER_SET(_parent->_build_buckets_counter, bucket_size);
-            COUNTER_SET(_parent->_build_collisions_counter,
-                        hash_table_ctx.hash_table->get_collisions());
-            COUNTER_SET(_parent->_build_buckets_fill_counter, filled_bucket_size);
-
-            auto hash_table_buckets = hash_table_ctx.hash_table->get_buffer_sizes_in_cells();
-            std::string hash_table_buckets_info;
-            for (auto bucket_count : hash_table_buckets) {
-                hash_table_buckets_info += std::to_string(bucket_count) + ", ";
+        if (short_circuit_for_null || ignore_null) {
+            // first row is mocked and is null
+            for (uint32_t i = 1; i < _rows; i++) {
+                if ((*null_map)[i]) {
+                    *has_null_key = true;
+                }
             }
-            _parent->add_hash_buckets_info(hash_table_buckets_info);
-
-            auto hash_table_sizes = hash_table_ctx.hash_table->sizes();
-            hash_table_buckets_info.clear();
-            for (auto table_size : hash_table_sizes) {
-                hash_table_buckets_info += std::to_string(table_size) + ", ";
+            if (short_circuit_for_null && *has_null_key) {
+                return Status::OK();
             }
-            _parent->add_hash_buckets_filled_info(hash_table_buckets_info);
-        }};
+        }
 
-        KeyGetter key_getter(_build_raw_ptrs);
+        if (!_parent->runtime_filter_descs().empty()) {
+            _parent->_inserted_blocks.insert(&_acquired_block);
+        }
 
         SCOPED_TIMER(_parent->_build_table_insert_timer);
-        hash_table_ctx.hash_table->reset_resize_timer();
-
-        // only not build_unique, we need expanse hash table before insert data
-        // 1. There are fewer duplicate keys, reducing the number of resize hash tables
-        // can improve performance to a certain extent, about 2%-5%
-        // 2. There are many duplicate keys, and the hash table filled bucket is far less than
-        // the hash table build bucket, which may waste a lot of memory.
-        // TODO, use the NDV expansion of the key column in the optimizer statistics
-        if (!_parent->build_unique()) {
-            RETURN_IF_CATCH_EXCEPTION(hash_table_ctx.hash_table->expanse_for_add_elem(
-                    std::min<int>(_rows, config::hash_table_pre_expanse_max_rows)));
-        }
-
-        vector<int>& inserted_rows = _parent->_inserted_rows[&_acquired_block];
-        bool has_runtime_filter = !_parent->runtime_filter_descs().empty();
-        if (has_runtime_filter) {
-            inserted_rows.reserve(_batch_size);
-        }
+        hash_table_ctx.hash_table->template prepare_build<JoinOpType>(_rows, _batch_size,
+                                                                      *has_null_key);
 
         hash_table_ctx.init_serialized_keys(_build_raw_ptrs, _rows,
-                                            null_map ? null_map->data() : nullptr);
+                                            null_map ? null_map->data() : nullptr, true, true,
+                                            hash_table_ctx.hash_table->get_bucket_size());
+        hash_table_ctx.hash_table->build(hash_table_ctx.keys, hash_table_ctx.bucket_nums.data(),
+                                         _rows);
+        hash_table_ctx.bucket_nums.resize(_batch_size);
+        hash_table_ctx.bucket_nums.shrink_to_fit();
 
-        auto& arena = *_parent->arena();
-        auto old_build_arena_memory = arena.size();
-
-        size_t k = 0;
-        bool inserted = false;
-        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-            HashTableContext::try_presis_key(key, origin, arena);
-            inserted = true;
-            ctor(key, Mapped {k, _offset});
-        };
-
-        bool build_unique = _parent->build_unique();
-#define EMPLACE_IMPL(stmt)                                                    \
-    for (; k < _rows; ++k) {                                                  \
-        if (k % CHECK_FRECUENCY == 0) {                                       \
-            RETURN_IF_CANCELLED(_state);                                      \
-        }                                                                     \
-        if constexpr (short_circuit_for_null) {                               \
-            if ((*null_map)[k]) {                                             \
-                *has_null_key = true;                                         \
-                return Status::OK();                                          \
-            }                                                                 \
-        } else if constexpr (ignore_null) {                                   \
-            if ((*null_map)[k]) {                                             \
-                *has_null_key = true;                                         \
-                continue;                                                     \
-            }                                                                 \
-        }                                                                     \
-        inserted = false;                                                     \
-        [[maybe_unused]] auto& mapped =                                       \
-                hash_table_ctx.lazy_emplace(key_getter, k, creator, nullptr); \
-        stmt;                                                                 \
-    }
-
-        if (has_runtime_filter && build_unique) {
-            EMPLACE_IMPL(
-                    if (inserted) { inserted_rows.push_back(k); } else { _skip_rows++; });
-        } else if (has_runtime_filter && !build_unique) {
-            EMPLACE_IMPL(
-                    if (inserted) { inserted_rows.push_back(k); } else {
-                        mapped.insert({k, _offset}, *_parent->arena());
-                        inserted_rows.push_back(k);
-                    });
-        } else if (!has_runtime_filter && build_unique) {
-            EMPLACE_IMPL(if (!inserted) { _skip_rows++; });
-        } else {
-            EMPLACE_IMPL(if (!inserted) { mapped.insert({k, _offset}, *_parent->arena()); });
-        }
-        _parent->_build_rf_cardinality += inserted_rows.size();
-
-        _parent->_build_arena_memory_usage->add(arena.size() - old_build_arena_memory);
-
-        COUNTER_UPDATE(_parent->_build_table_expanse_timer,
-                       hash_table_ctx.hash_table->get_resize_timer_value());
-        COUNTER_UPDATE(_parent->_build_table_convert_timer,
-                       hash_table_ctx.hash_table->get_convert_timer_value());
-
+        COUNTER_UPDATE(_parent->_hash_table_memory_usage,
+                       hash_table_ctx.hash_table->get_byte_size());
         return Status::OK();
     }
 
 private:
-    const int _rows;
-    int _skip_rows;
+    const uint32_t _rows;
     Block& _acquired_block;
     ColumnRawPtrs& _build_raw_ptrs;
-    Parent* _parent;
+    Parent* _parent = nullptr;
     int _batch_size;
-    uint8_t _offset;
-    RuntimeState* _state;
-
-    ProfileCounter* _build_side_compute_hash_timer;
+    RuntimeState* _state = nullptr;
 };
 
 template <typename RowRefListType>
@@ -325,8 +238,6 @@ using HashTableIteratorVariants =
         std::variant<std::monostate, ForwardIterator<RowRefList>,
                      ForwardIterator<RowRefListWithFlag>, ForwardIterator<RowRefListWithFlags>>;
 
-static constexpr auto HASH_JOIN_MAX_BUILD_BLOCK_COUNT = 128;
-
 class HashJoinNode final : public VJoinNodeBase {
 public:
     HashJoinNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
@@ -369,7 +280,7 @@ public:
     bool have_other_join_conjunct() const { return _have_other_join_conjunct; }
     bool is_right_semi_anti() const { return _is_right_semi_anti; }
     bool is_outer_join() const { return _is_outer_join; }
-    std::shared_ptr<std::vector<Block>> build_blocks() const { return _build_blocks; }
+    const std::shared_ptr<vectorized::Block>& build_block() const { return _build_block; }
     std::vector<bool>* left_output_slot_flags() { return &_left_output_slot_flags; }
     std::vector<bool>* right_output_slot_flags() { return &_right_output_slot_flags; }
     bool* has_null_in_build_side() { return &_has_null_in_build_side; }
@@ -387,19 +298,20 @@ private:
     friend struct ProcessHashTableProbe;
 
     void _init_short_circuit_for_probe() {
+        bool empty_block = !_build_block;
         _short_circuit_for_probe =
                 (_has_null_in_build_side && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN &&
                  !_is_mark_join) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
-                (_build_blocks->empty() && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
+                (empty_block && _join_op == TJoinOp::INNER_JOIN && !_is_mark_join) ||
+                (empty_block && _join_op == TJoinOp::LEFT_SEMI_JOIN && !_is_mark_join) ||
+                (empty_block && _join_op == TJoinOp::RIGHT_OUTER_JOIN) ||
+                (empty_block && _join_op == TJoinOp::RIGHT_SEMI_JOIN) ||
+                (empty_block && _join_op == TJoinOp::RIGHT_ANTI_JOIN);
 
         //when build table rows is 0 and not have other_join_conjunct and not _is_mark_join and join type is one of LEFT_OUTER_JOIN/FULL_OUTER_JOIN/LEFT_ANTI_JOIN
         //we could get the result is probe table + null-column(if need output)
         _empty_right_table_need_probe_dispose =
-                (_build_blocks->empty() && !_have_other_join_conjunct && !_is_mark_join) &&
+                (empty_block && !_have_other_join_conjunct && !_is_mark_join) &&
                 (_join_op == TJoinOp::LEFT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN ||
                  _join_op == TJoinOp::LEFT_ANTI_JOIN);
     }
@@ -420,6 +332,10 @@ private:
     // mark the build hash table whether it needs to store null value
     std::vector<bool> _store_null_in_hash_table;
 
+    // In right anti join, if the probe side is not nullable and the build side is nullable,
+    // we need to convert the probe column to nullable.
+    std::vector<ColumnPtr> _temp_probe_nullable_columns;
+
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
 
@@ -427,34 +343,27 @@ private:
     DataTypes _left_table_data_types;
     std::vector<std::string> _right_table_column_names;
 
-    RuntimeProfile::Counter* _build_table_timer;
-    RuntimeProfile::Counter* _build_expr_call_timer;
-    RuntimeProfile::Counter* _build_table_insert_timer;
-    RuntimeProfile::Counter* _build_table_expanse_timer;
-    RuntimeProfile::Counter* _build_table_convert_timer;
-    RuntimeProfile::Counter* _probe_expr_call_timer;
-    RuntimeProfile::Counter* _probe_next_timer;
-    RuntimeProfile::Counter* _build_buckets_counter;
-    RuntimeProfile::Counter* _build_buckets_fill_counter;
-    RuntimeProfile::Counter* _search_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_output_timer;
-    RuntimeProfile::Counter* _probe_side_output_timer;
-    RuntimeProfile::Counter* _probe_process_hashtable_timer;
-    RuntimeProfile::Counter* _build_side_compute_hash_timer;
-    RuntimeProfile::Counter* _build_side_merge_block_timer;
-    RuntimeProfile::Counter* _build_runtime_filter_timer;
+    RuntimeProfile::Counter* _build_table_timer = nullptr;
+    RuntimeProfile::Counter* _build_expr_call_timer = nullptr;
+    RuntimeProfile::Counter* _build_table_insert_timer = nullptr;
+    RuntimeProfile::Counter* _probe_expr_call_timer = nullptr;
+    RuntimeProfile::Counter* _probe_next_timer = nullptr;
+    RuntimeProfile::Counter* _search_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _probe_side_output_timer = nullptr;
+    RuntimeProfile::Counter* _probe_process_hashtable_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_compute_hash_timer = nullptr;
+    RuntimeProfile::Counter* _build_side_merge_block_timer = nullptr;
 
-    RuntimeProfile::Counter* _build_collisions_counter;
+    RuntimeProfile::Counter* _open_timer = nullptr;
+    RuntimeProfile::Counter* _allocate_resource_timer = nullptr;
+    RuntimeProfile::Counter* _process_other_join_conjunct_timer = nullptr;
 
-    RuntimeProfile::Counter* _open_timer;
-    RuntimeProfile::Counter* _allocate_resource_timer;
-    RuntimeProfile::Counter* _process_other_join_conjunct_timer;
-
-    RuntimeProfile::Counter* _memory_usage_counter;
-    RuntimeProfile::Counter* _build_blocks_memory_usage;
-    RuntimeProfile::Counter* _hash_table_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage;
-    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage;
+    RuntimeProfile::Counter* _memory_usage_counter = nullptr;
+    RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
+    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _build_arena_memory_usage = nullptr;
+    RuntimeProfile::HighWaterMarkCounter* _probe_arena_memory_usage = nullptr;
 
     std::shared_ptr<Arena> _arena;
 
@@ -467,7 +376,7 @@ private:
     HashTableIteratorVariants _outer_join_pull_visited_iter;
     HashTableIteratorVariants _probe_row_match_iter;
 
-    std::shared_ptr<std::vector<Block>> _build_blocks;
+    std::shared_ptr<Block> _build_block;
     Block _probe_block;
     ColumnRawPtrs _probe_columns;
     ColumnUInt8::MutablePtr _null_map_column;
@@ -476,23 +385,22 @@ private:
     bool _has_set_need_null_map_for_build = false;
     bool _probe_ignore_null = false;
     int _probe_index = -1;
+    uint32_t _build_index = 0;
     bool _ready_probe = false;
     bool _probe_eos = false;
+    int _last_probe_match;
 
     bool _build_side_ignore_null = false;
 
     bool _is_broadcast_join = false;
     bool _should_build_hash_table = true;
-    std::shared_ptr<SharedHashTableController> _shared_hashtable_controller = nullptr;
-    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots = nullptr;
+    std::shared_ptr<SharedHashTableController> _shared_hashtable_controller;
+    std::shared_ptr<VRuntimeFilterSlots> _runtime_filter_slots;
 
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
 
-    // for cases when a probe row matches more than batch size build rows.
-    bool _is_any_probe_match_row_output = false;
-    uint8_t _build_block_idx = 0;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;
     MutableBlock _build_side_mutable_block;
@@ -501,7 +409,7 @@ private:
 
     Status _materialize_build_side(RuntimeState* state) override;
 
-    Status _process_build_block(RuntimeState* state, Block& block, uint8_t offset);
+    Status _process_build_block(RuntimeState* state, Block& block);
 
     Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer, std::vector<int>& res_col_ids);
@@ -539,11 +447,11 @@ private:
     friend struct ProcessRuntimeFilterBuild;
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
-    std::unordered_map<const Block*, std::vector<int>> _inserted_rows;
+    std::unordered_set<const Block*> _inserted_blocks;
 
     std::vector<IRuntimeFilter*> _runtime_filters;
-    size_t _build_rf_cardinality = 0;
     std::atomic_bool _probe_open_finish = false;
+    std::vector<int> _build_col_ids;
 };
 } // namespace vectorized
 } // namespace doris

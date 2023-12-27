@@ -6,7 +6,7 @@
         "enable_nereids_timeout": false,
         "enable_minidump": true
     },
-    "DbName": "default_cluster:db",
+    "DbName": "db",
     "Tables": [
         {
             "TableType": "OLAP",

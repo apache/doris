@@ -64,9 +64,6 @@ public:
         desc.add_sub_type(nested->get_type_as_type_descriptor());
         return desc;
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::ARRAY;
-    }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_ARRAY;
@@ -82,6 +79,7 @@ public:
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for array";
+        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;

@@ -21,6 +21,7 @@
 
 namespace doris::pipeline {
 
+class MultiCastSourceDependency;
 struct MultiCastBlock {
     MultiCastBlock(vectorized::Block* block, int used_count, size_t mem_size);
 
@@ -33,11 +34,16 @@ struct MultiCastBlock {
 // code
 class MultiCastDataStreamer {
 public:
-    MultiCastDataStreamer(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count)
+    MultiCastDataStreamer(const RowDescriptor& row_desc, ObjectPool* pool, int cast_sender_count,
+                          bool with_dependencies = false)
             : _row_desc(row_desc),
               _profile(pool->add(new RuntimeProfile("MultiCastDataStreamSink"))),
               _cast_sender_count(cast_sender_count) {
         _sender_pos_to_read.resize(cast_sender_count, _multi_cast_blocks.end());
+        if (with_dependencies) {
+            _dependencies.resize(cast_sender_count, nullptr);
+        }
+
         _peak_mem_usage = ADD_COUNTER(profile(), "PeakMemUsage", TUnit::BYTES);
         _process_rows = ADD_COUNTER(profile(), "ProcessRows", TUnit::UNIT);
     };
@@ -65,11 +71,21 @@ public:
     void set_eos() {
         std::lock_guard l(_mutex);
         _eos = true;
+        _set_ready_for_read();
+    }
+
+    void set_dep_by_sender_idx(int sender_idx, MultiCastSourceDependency* dep) {
+        _dependencies[sender_idx] = dep;
+        _block_reading(sender_idx);
     }
 
 private:
+    void _set_ready_for_read(int sender_idx);
+    void _set_ready_for_read();
+    void _block_reading(int sender_idx);
+
     const RowDescriptor& _row_desc;
-    RuntimeProfile* _profile;
+    RuntimeProfile* _profile = nullptr;
     std::list<MultiCastBlock> _multi_cast_blocks;
     std::vector<std::list<MultiCastBlock>::iterator> _sender_pos_to_read;
     std::mutex _mutex;
@@ -78,7 +94,9 @@ private:
     int _closed_sender_count = 0;
     int64_t _cumulative_mem_size = 0;
 
-    RuntimeProfile::Counter* _process_rows;
-    RuntimeProfile::Counter* _peak_mem_usage;
+    RuntimeProfile::Counter* _process_rows = nullptr;
+    RuntimeProfile::Counter* _peak_mem_usage = nullptr;
+
+    std::vector<MultiCastSourceDependency*> _dependencies;
 };
 } // namespace doris::pipeline

@@ -275,6 +275,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         checkRuntimeFilterExprs(filters, ImmutableList.of(
                 Pair.of("s_suppkey", "lo_partkey"),
                 Pair.of("p_partkey", "lo_partkey")));
+        connectContext.getSessionVariable().enableRuntimeFilterPrune = false;
         connectContext.getSessionVariable().expandRuntimeFilterByInnerJoin = true;
         filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(2, filters.size());

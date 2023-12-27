@@ -21,6 +21,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset_writer.h"
+#include "util/uid_util.h"
 #include "vec/sink/load_stream_stub.h"
 
 namespace doris {
@@ -43,28 +44,27 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
     for (int i = 0; i < data_cnt; i++) {
         bytes_req += data[i].get_size();
     }
-    _bytes_appended += bytes_req;
 
-    VLOG_DEBUG << "writer appendv, load_id: " << UniqueId(_load_id).to_string()
-               << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
-               << ", segment_id: " << _segment_id << ", data_length: " << bytes_req;
+    VLOG_DEBUG << "writer appendv, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
+               << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id
+               << ", data_length: " << bytes_req;
 
     std::span<const Slice> slices {data, data_cnt};
     for (auto& stream : _streams) {
-        RETURN_IF_ERROR(
-                stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id, slices));
+        RETURN_IF_ERROR(stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
+                                            _bytes_appended, slices));
     }
+    _bytes_appended += bytes_req;
     return Status::OK();
 }
 
 Status StreamSinkFileWriter::finalize() {
-    VLOG_DEBUG << "writer finalize, load_id: " << UniqueId(_load_id).to_string()
-               << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
-               << ", segment_id: " << _segment_id;
+    VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
+               << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
     for (auto& stream : _streams) {
-        RETURN_IF_ERROR(
-                stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id, {}, true));
+        RETURN_IF_ERROR(stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
+                                            _bytes_appended, {}, true));
     }
     return Status::OK();
 }

@@ -71,18 +71,18 @@ private:
     template <typename ChannelPtrType>
     void _handle_eof_channel(RuntimeState* state, ChannelPtrType channel, Status st);
 
-    std::unique_ptr<vectorized::Block> _output_block = nullptr;
+    std::unique_ptr<vectorized::Block> _output_block;
     std::shared_ptr<BufferControlBlock> _sender;
 
     std::vector<vectorized::Channel<ResultFileSinkLocalState>*> _channels;
     bool _only_local_exchange = false;
     vectorized::BlockSerializer<ResultFileSinkLocalState> _serializer;
-    std::unique_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
-    RuntimeProfile::Counter* _brpc_wait_timer;
-    RuntimeProfile::Counter* _local_send_timer;
-    RuntimeProfile::Counter* _brpc_send_timer;
-    RuntimeProfile::Counter* _merge_block_timer;
-    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer;
+    std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
+    RuntimeProfile::Counter* _brpc_wait_timer = nullptr;
+    RuntimeProfile::Counter* _local_send_timer = nullptr;
+    RuntimeProfile::Counter* _brpc_send_timer = nullptr;
+    RuntimeProfile::Counter* _merge_block_timer = nullptr;
+    RuntimeProfile::Counter* _split_block_distribute_by_channel_timer = nullptr;
 
     int _sender_id;
 };

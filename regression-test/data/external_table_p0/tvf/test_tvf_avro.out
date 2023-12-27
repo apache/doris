@@ -49,6 +49,18 @@ B
 [{"Key11":1}, {"Key22":0}]
 [{"arrayMapKey1":0}, {"arrayMapKey2":1}]
 
+-- !10 --
+[{"Key11":1}, {"Key22":0}]	false	{"k1":1, "k2":2}	9999	\N
+[{"arrayMapKey1":0}, {"arrayMapKey2":1}]	true	{"key1":1, "key2":2}	3400	\N
+
+-- !11 --
+a test string	9.81	A
+string test	9.1102	B
+
+-- !12 --
+{"a": 5, "b": 3.14159265358979, "c": "Simple Record String Field"}	{"k1":1, "k2":2}	2.11
+{"a": 5, "b": 3.14159265358979, "c": "Simple Record String Field"}	{"key1":1, "key2":2}	3.14
+
 -- !3 --
 aBoolean	BOOLEAN	Yes	false	\N	NONE
 aInt	INT	Yes	false	\N	NONE
@@ -70,4 +82,16 @@ true	42	3400	3.14	9.81	a test string	[1, 2, 3, 4]	{"key1":1, "key2":2}	A	{"a": 5
 
 -- !4 --
 2
+
+-- !13 --
+[{"Key11":1}, {"Key22":0}]	false	{"k1":1, "k2":2}	9999	\N
+[{"arrayMapKey1":0}, {"arrayMapKey2":1}]	true	{"key1":1, "key2":2}	3400	\N
+
+-- !14 --
+a test string	9.81	A
+string test	9.1102	B
+
+-- !15 --
+{"a": 5, "b": 3.14159265358979, "c": "Simple Record String Field"}	{"k1":1, "k2":2}	2.11
+{"a": 5, "b": 3.14159265358979, "c": "Simple Record String Field"}	{"key1":1, "key2":2}	3.14
 

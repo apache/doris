@@ -24,22 +24,23 @@ import org.apache.doris.datasource.property.constants.MCProperties;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
-import com.aliyun.odps.PartitionSpec;
+import com.aliyun.odps.Partition;
 import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.tunnel.TableTunnel;
-import com.aliyun.odps.tunnel.TunnelException;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class MaxComputeExternalCatalog extends ExternalCatalog {
     private Odps odps;
+    private TableTunnel tunnel;
     @SerializedName(value = "region")
     private String region;
     @SerializedName(value = "accessKey")
@@ -93,23 +94,17 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         }
         odps.setEndpoint(odpsUrl);
         odps.setDefaultProject(defaultProject);
-    }
-
-    public long getTotalRows(String project, String table, Optional<String> partitionSpec) throws TunnelException {
-        makeSureInitialized();
-        TableTunnel tunnel = new TableTunnel(odps);
+        tunnel = new TableTunnel(odps);
         String tunnelUrl = tunnelUrlTemplate.replace("{}", region);
         if (enablePublicAccess) {
             tunnelUrl = tunnelUrl.replace("-inc", "");
         }
-        TableTunnel.DownloadSession downloadSession;
         tunnel.setEndpoint(tunnelUrl);
-        if (!partitionSpec.isPresent()) {
-            downloadSession = tunnel.getDownloadSession(project, table, null);
-        } else {
-            downloadSession = tunnel.getDownloadSession(project, table, new PartitionSpec(partitionSpec.get()), null);
-        }
-        return downloadSession.getRecordCount();
+    }
+
+    public TableTunnel getTableTunnel() {
+        makeSureInitialized();
+        return tunnel;
     }
 
     public Odps getClient() {
@@ -134,6 +129,42 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         try {
             return odps.tables().exists(tblName);
+        } catch (OdpsException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public List<String> listPartitionNames(String dbName, String tbl) {
+        return listPartitionNames(dbName, tbl, 0, -1);
+    }
+
+    public List<String> listPartitionNames(String dbName, String tbl, long skip, long limit) {
+        try {
+            if (getClient().projects().exists(dbName)) {
+                List<Partition> parts;
+                if (limit < 0) {
+                    parts = getClient().tables().get(tbl).getPartitions();
+                } else {
+                    skip = skip < 0 ? 0 : skip;
+                    parts = new ArrayList<>();
+                    Iterator<Partition> it = getClient().tables().get(tbl).getPartitionIterator();
+                    int count = 0;
+                    while (it.hasNext()) {
+                        if (count < skip) {
+                            count++;
+                            it.next();
+                        } else if (parts.size() >= limit) {
+                            break;
+                        } else {
+                            parts.add(it.next());
+                        }
+                    }
+                }
+                return parts.stream().map(p -> p.getPartitionSpec().toString(false, true))
+                        .collect(Collectors.toList());
+            } else {
+                throw new OdpsException("Max compute project: " + dbName + " not exists.");
+            }
         } catch (OdpsException e) {
             throw new RuntimeException(e);
         }

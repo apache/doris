@@ -69,9 +69,10 @@ public:
     ~TabletPublishTxnTask() = default;
 
     void handle();
+    Status result() { return _result; }
 
 private:
-    EnginePublishVersionTask* _engine_publish_version_task;
+    EnginePublishVersionTask* _engine_publish_version_task = nullptr;
 
     TabletSharedPtr _tablet;
     RowsetSharedPtr _rowset;
@@ -80,6 +81,7 @@ private:
     Version _version;
     TabletInfo _tablet_info;
     TabletPublishStatistics _stats;
+    Status _result;
 };
 
 class EnginePublishVersionTask : public EngineTask {
@@ -91,11 +93,9 @@ public:
             std::map<TTableId, int64_t>* table_id_to_num_delta_rows);
     ~EnginePublishVersionTask() override = default;
 
-    Status finish() override;
+    Status execute() override;
 
     void add_error_tablet_id(int64_t tablet_id);
-
-    int64_t finish_task();
 
 private:
     void _calculate_tbl_num_delta_rows(
@@ -103,17 +103,17 @@ private:
 
     const TPublishVersionRequest& _publish_version_req;
     std::mutex _tablet_ids_mutex;
-    std::set<TTabletId>* _error_tablet_ids;
+    std::set<TTabletId>* _error_tablet_ids = nullptr;
     std::map<TTabletId, TVersion>* _succ_tablets;
-    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets;
-    std::map<TTableId, int64_t>* _table_id_to_num_delta_rows;
+    std::vector<std::tuple<int64_t, int64_t, int64_t>>* _discontinuous_version_tablets = nullptr;
+    std::map<TTableId, int64_t>* _table_id_to_num_delta_rows = nullptr;
 };
 
 class AsyncTabletPublishTask {
 public:
     AsyncTabletPublishTask(TabletSharedPtr tablet, int64_t partition_id, int64_t transaction_id,
                            int64_t version)
-            : _tablet(tablet),
+            : _tablet(std::move(tablet)),
               _partition_id(partition_id),
               _transaction_id(transaction_id),
               _version(version) {

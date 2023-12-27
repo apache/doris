@@ -50,8 +50,8 @@ public class CreateDbStmtTest {
     public void testAnalyzeNormal() throws UserException {
         CreateDbStmt dbStmt = new CreateDbStmt(false, "test", null);
         dbStmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:test", dbStmt.getFullDbName());
-        Assert.assertEquals("CREATE DATABASE `testCluster:test`", dbStmt.toString());
+        Assert.assertEquals("test", dbStmt.getFullDbName());
+        Assert.assertEquals("CREATE DATABASE `test`", dbStmt.toString());
     }
 
     @Test(expected = AnalysisException.class)
@@ -68,8 +68,8 @@ public class CreateDbStmtTest {
         properties.put("iceberg.hive.metastore.uris", "thrift://127.0.0.1:9087");
         CreateDbStmt stmt = new CreateDbStmt(false, "test", properties);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:test", stmt.getFullDbName());
-        Assert.assertEquals("CREATE DATABASE `testCluster:test`\n"
+        Assert.assertEquals("test", stmt.getFullDbName());
+        Assert.assertEquals("CREATE DATABASE `test`\n"
                 + "PROPERTIES (\n"
                 + "\"iceberg.database\" = \"doris\",\n"
                 + "\"iceberg.hive.metastore.uris\" = \"thrift://127.0.0.1:9087\"\n"

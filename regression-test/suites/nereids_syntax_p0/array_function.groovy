@@ -25,8 +25,9 @@ suite("array_function") {
     qt_4 "SELECT ARRAY_MAP(x->x+1, ARRAY(-82.31, -72.18, 35.59, -67.13))"
     qt_5 "SELECT ARRAY_MAP((x,y)->x+y, ARRAY(-37.03, 81.89, 56.38, -36.76), ARRAY(1.56, -14.58, 42.22, -56.13))"    
      test {
+         // array nested null show lower
          sql "select array(), array(null), array(1), array('abc'), array(null, 1), array(1, null)"
-         result([["[]", "[NULL]", "[1]", "[\"abc\"]", "[NULL, 1]", "[1, NULL]"]])
+         result([["[]", "[null]", "[1]", "[\"abc\"]", "[null, 1]", "[1, null]"]])
      }
 
      test {

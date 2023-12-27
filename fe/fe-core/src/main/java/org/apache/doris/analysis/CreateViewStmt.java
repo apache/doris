@@ -75,6 +75,7 @@ public class CreateViewStmt extends BaseViewStmt {
         try {
             if (cols != null) {
                 cloneStmt = viewDefStmt.clone();
+                cloneStmt.forbiddenMVRewrite();
             }
 
             // Analyze view define statement

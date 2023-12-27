@@ -76,7 +76,7 @@ suite("test_backup_restore_db", "backup_restore") {
         PROPERTIES
         (
             "backup_timestamp" = "${snapshot}",
-            "replication_num" = "1"
+            "reserve_replica" = "true"
         )
     """
 

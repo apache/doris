@@ -37,11 +37,19 @@ public class LessThanEqual extends ComparisonPredicate implements PropagateNulla
      * @param right right child of Less Than And Equal
      */
     public LessThanEqual(Expression left, Expression right) {
-        super(ImmutableList.of(left, right), "<=");
+        this(left, right, false);
+    }
+
+    public LessThanEqual(Expression left, Expression right, boolean inferred) {
+        super(ImmutableList.of(left, right), "<=", inferred);
     }
 
     private LessThanEqual(List<Expression> children) {
-        super(children, "<=");
+        this(children, false);
+    }
+
+    private LessThanEqual(List<Expression> children, boolean inferred) {
+        super(children, "<=", inferred);
     }
 
     @Override
@@ -57,7 +65,12 @@ public class LessThanEqual extends ComparisonPredicate implements PropagateNulla
     @Override
     public LessThanEqual withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new LessThanEqual(children);
+        return new LessThanEqual(children, this.isInferred());
+    }
+
+    @Override
+    public Expression withInferred(boolean inferred) {
+        return new LessThanEqual(this.children, inferred);
     }
 
     @Override

@@ -1259,10 +1259,9 @@ public:
     }
 
     static std::string empty_bitmap() {
-        static BitmapValue bitmap;
-        std::string buf;
-        buf.resize(bitmap.getSizeInBytes());
-        bitmap.write_to(buf.data());
+        std::string buf(sizeof(BitmapValue), 0);
+        BitmapValue* bitmap_value = reinterpret_cast<BitmapValue*>(buf.data());
+        bitmap_value->_type = EMPTY;
         return buf;
     }
 
@@ -2168,7 +2167,7 @@ public:
 
     // Return how many bytes are required to serialize this bitmap.
     // See BitmapTypeCode for the serialized format.
-    size_t getSizeInBytes() const {
+    size_t getSizeInBytes() {
         size_t res = 0;
         switch (_type) {
         case EMPTY:
@@ -2182,6 +2181,7 @@ public:
             }
             break;
         case BITMAP:
+            _prepare_bitmap_for_write();
             _bitmap->runOptimize();
             _bitmap->shrinkToFit();
             res = _bitmap->getSizeInBytes(config::bitmap_serialize_version);

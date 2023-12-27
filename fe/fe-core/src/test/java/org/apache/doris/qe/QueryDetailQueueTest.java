@@ -29,7 +29,7 @@ public class QueryDetailQueueTest {
         long eventTime = 1592208814796L;
         QueryDetail queryDetail = new QueryDetail(eventTime, "219a2d5443c542d4-8fc938db37c892e3",
                                                   eventTime, -1, -1, QueryDetail.QueryMemState.RUNNING,
-                                                  "default_cluster:testDb", "select * from table1 limit 1");
+                                                  "testDb", "select * from table1 limit 1");
         QueryDetailQueue.addOrUpdateQueryDetail(queryDetail);
 
         List<QueryDetail> queryDetails = QueryDetailQueue.getQueryDetails(eventTime);

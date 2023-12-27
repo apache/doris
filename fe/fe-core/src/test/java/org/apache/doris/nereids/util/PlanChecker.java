@@ -50,12 +50,10 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.analysis.BindRelation.CustomTableResolver;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
@@ -167,7 +165,7 @@ public class PlanChecker {
 
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
-                ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
+                        ImmutableList.of(new RootPlanTreeRewriteJob(rule, PlanTreeRewriteTopDownJob::new, true)))
                 .execute();
         cascadesContext.toMemo();
         MemoValidator.validate(cascadesContext.getMemo());
@@ -429,27 +427,6 @@ public class PlanChecker {
         return this;
     }
 
-    public PlanChecker orderJoin() {
-        Group root = cascadesContext.getMemo().getRoot();
-        boolean changeRoot = false;
-        if (root.isValidJoinGroup()) {
-            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            // FIXME: can't match type, convert List<Slot> to List<NamedExpression>
-            GroupExpression newExpr = new GroupExpression(
-                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
-                    Lists.newArrayList(root));
-            // FIXME: use wrong constructor.
-            root = new Group(null, newExpr, null);
-            changeRoot = true;
-        }
-        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (changeRoot) {
-            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
-        }
-        return this;
-    }
-
     public PlanChecker matchesFromRoot(PatternDescriptor<? extends Plan> patternDesc) {
         Memo memo = cascadesContext.getMemo();
         assertMatches(memo, () -> new GroupExpressionMatching(patternDesc.pattern,
@@ -585,6 +562,10 @@ public class PlanChecker {
 
     public Plan getPlan() {
         return cascadesContext.getMemo().copyOut();
+    }
+
+    public List<Plan> getAllPlan() {
+        return cascadesContext.getMemo().copyOutAll();
     }
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties) {

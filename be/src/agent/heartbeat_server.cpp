@@ -105,8 +105,11 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
                   << ". frontend_infos: " << PrintFrontendInfos(master_info.frontend_infos);
     } else {
         if (_master_info->cluster_id != master_info.cluster_id) {
-            return Status::InternalError("invalid cluster id. ignore. cluster_id={}",
-                                         master_info.cluster_id);
+            return Status::InternalError(
+                    "invalid cluster id. ignore. Record cluster id ={}, record frontend info {}. "
+                    "Invalid cluster_id={}, invalid frontend info {}",
+                    _master_info->cluster_id, PrintFrontendInfos(_master_info->frontend_infos),
+                    master_info.cluster_id, PrintFrontendInfos(master_info.frontend_infos));
         }
     }
 
@@ -217,6 +220,11 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
 
     if (master_info.__isset.frontend_infos) {
         ExecEnv::GetInstance()->update_frontends(master_info.frontend_infos);
+    } else {
+        LOG_EVERY_N(WARNING, 2) << fmt::format(
+                "Heartbeat from {}:{} does not have frontend_infos, this may because we are "
+                "upgrading cluster",
+                master_info.network_address.hostname, master_info.network_address.port);
     }
 
     if (need_report) {

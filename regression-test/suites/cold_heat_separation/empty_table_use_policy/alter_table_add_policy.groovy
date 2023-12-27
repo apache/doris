@@ -26,9 +26,11 @@ suite("add_table_policy_by_alter_table") {
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH (k1) BUCKETS 3
         PROPERTIES(
-            "replication_num" = "1"
+            "replication_num" = "1",
+            "enable_unique_key_merge_on_write" = "false"
         );
     """
+    // storage policy is disabled on mow table
     assertEquals(create_table_not_have_policy_result.size(), 1);
 
     def alter_table_use_not_exist_policy_result = try_sql """

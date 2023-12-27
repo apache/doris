@@ -35,8 +35,11 @@
 #include "common/status.h"
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/common/string_utils/string_utils.h"
 #include "vec/json/path_in_data.h"
 
 namespace doris {
@@ -79,6 +82,7 @@ public:
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
     bool is_array_type() const { return _type == FieldType::OLAP_FIELD_TYPE_ARRAY; }
+    bool is_jsonb_type() const { return _type == FieldType::OLAP_FIELD_TYPE_JSONB; }
     bool is_length_variable_type() const {
         return _type == FieldType::OLAP_FIELD_TYPE_CHAR ||
                _type == FieldType::OLAP_FIELD_TYPE_VARCHAR ||
@@ -88,6 +92,11 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
+    // Such columns are not exist in frontend schema info, so we need to
+    // add them into tablet_schema for later column indexing.
+    static TabletColumn create_materialized_variant_column(const std::string& root,
+                                                           const std::vector<std::string>& paths,
+                                                           int32_t parent_unique_id);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     size_t length() const { return _length; }
@@ -127,6 +136,7 @@ public:
     static std::string get_string_by_field_type(FieldType type);
     static std::string get_string_by_aggregation_type(FieldAggregationMethod aggregation_type);
     static FieldType get_field_type_by_string(const std::string& str);
+    static FieldType get_field_type_by_type(PrimitiveType type);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
     bool is_row_store_column() const;
@@ -207,16 +217,15 @@ public:
 
         return 0;
     }
-    TabletIndex(const TabletIndex& other) {
-        _index_id = other._index_id;
-        _index_name = other._index_name;
-        _index_type = other._index_type;
-        _col_unique_ids = other._col_unique_ids;
-        _properties = other._properties;
-    }
+
+    const std::string& get_index_suffix() const { return _escaped_index_suffix_path; }
+
+    void set_escaped_escaped_index_suffix_path(const std::string& name);
 
 private:
     int64_t _index_id;
+    // Identify the different index with the same _index_id
+    std::string _escaped_index_suffix_path;
     std::string _index_name;
     IndexType _index_type;
     std::vector<int32_t> _col_unique_ids;
@@ -230,15 +239,20 @@ public:
     // manually init members incorrectly, and define a new function like
     // void create_from_pb(const TabletSchemaPB& schema, TabletSchema* tablet_schema).
     TabletSchema() = default;
-    void init_from_pb(const TabletSchemaPB& schema);
+    void init_from_pb(const TabletSchemaPB& schema, bool ignore_extracted_columns = false);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex index);
+    void update_index(const TabletColumn& column, TabletIndex index);
     void remove_index(int64_t index_id);
+    void clear_index();
     // Must make sure the row column is always the last column
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
+    // Don't use.
+    // TODO: memory size of TabletSchema cannot be accurately tracked.
+    // In some places, temporarily use num_columns() as TabletSchema size.
     int64_t mem_size() const { return _mem_size; }
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
@@ -252,6 +266,7 @@ public:
     std::vector<TabletColumn>& mutable_columns();
     size_t num_columns() const { return _num_columns; }
     size_t num_key_columns() const { return _num_key_columns; }
+    std::vector<uint32_t> cluster_key_idxes() const { return _cluster_key_idxes; }
     size_t num_null_columns() const { return _num_null_columns; }
     size_t num_short_key_columns() const { return _num_short_key_columns; }
     size_t num_rows_per_row_block() const { return _num_rows_per_row_block; }
@@ -286,10 +301,12 @@ public:
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
-    std::vector<const TabletIndex*> get_indexes_for_column(int32_t col_unique_id) const;
-    bool has_inverted_index(int32_t col_unique_id) const;
-    bool has_inverted_index_with_index_id(int32_t index_id) const;
-    const TabletIndex* get_inverted_index(int32_t col_unique_id) const;
+    std::vector<const TabletIndex*> get_indexes_for_column(const TabletColumn& col) const;
+    bool has_inverted_index(const TabletColumn& col) const;
+    bool has_inverted_index_with_index_id(int32_t index_id, const std::string& suffix_path) const;
+    const TabletIndex* get_inverted_index(const TabletColumn& col) const;
+    const TabletIndex* get_inverted_index(int32_t col_unique_id,
+                                          const std::string& suffix_path) const;
     bool has_ngram_bf_index(int32_t col_unique_id) const;
     const TabletIndex* get_ngram_bf_index(int32_t col_unique_id) const;
     void update_indexes_from_thrift(const std::vector<doris::TOlapTableIndex>& indexes);
@@ -322,6 +339,12 @@ public:
     void merge_dropped_columns(const TabletSchema& src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
+
+    // copy extracted columns from src_schema
+    void copy_extracted_columns(const TabletSchema& src_schema);
+
+    // only reserve extracted columns
+    void reserve_extracted_columns();
 
     string get_all_field_names() const {
         string str = "[";
@@ -357,6 +380,8 @@ public:
 
     vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids);
 
+    std::shared_ptr<TabletSchema> copy_without_extracted_columns();
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
@@ -373,6 +398,7 @@ private:
     size_t _num_columns = 0;
     size_t _num_variant_columns = 0;
     size_t _num_key_columns = 0;
+    std::vector<uint32_t> _cluster_key_idxes;
     size_t _num_null_columns = 0;
     size_t _num_short_key_columns = 0;
     size_t _num_rows_per_row_block = 0;

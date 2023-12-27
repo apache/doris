@@ -28,7 +28,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
-import org.apache.doris.system.SystemInfoService;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -104,7 +103,6 @@ public class MemoTestUtils {
     public static ConnectContext createCtx(UserIdentity user, String host) {
         try {
             ConnectContext ctx = new ConnectContext();
-            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
             ctx.setCurrentUserIdentity(user);
             ctx.setQualifiedUser(user.getQualifiedUser());
             ctx.setRemoteIP(host);

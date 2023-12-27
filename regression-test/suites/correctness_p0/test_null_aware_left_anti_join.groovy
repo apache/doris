@@ -60,11 +60,21 @@ suite("test_null_aware_left_anti_join") {
     sql """ set parallel_pipeline_task_num=2; """
     qt_select """ select ${tableName2}.k1 from ${tableName2} where k1 not in (select ${tableName1}.k1 from ${tableName1}) order by ${tableName2}.k1; """
 
-    sql """
-        drop table if exists ${tableName2};
+    // In left anti join, if right side is empty, all rows(null included) of left should be output.
+    qt_anti_emtpy_right """
+        select
+            *
+        from ${tableName1} t1 where k1 not in (
+            select k1 from ${tableName2} t2 where t2.k1 > 2
+        ) order by 1;
     """
 
-    sql """
-        drop table if exists ${tableName1};
+    // In left semi join, if right side is empty, no row should be output.
+    qt_semi_emtpy_right """
+        select
+            *
+        from ${tableName1} t1 where k1 in (
+            select k1 from ${tableName2} t2 where t2.k1 > 2
+        ) order by 1;
     """
 }

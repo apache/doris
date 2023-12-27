@@ -31,7 +31,7 @@ suite ("test_alter_colocate_group") {
               SET ( "replication_num" = "1" );
         """
 
-        exception "Not found colocate group `default_cluster:regression_test_alter_p2`.`bad_group_2`"
+        exception "Not found colocate group `regression_test_alter_p2`.`bad_group_2`"
     }
     test {
         sql """

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.qe.VariableVarConverters;
 import org.apache.doris.thrift.TBoolLiteral;
@@ -77,7 +78,7 @@ public class VariableExpr extends Expr {
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         if (setType == SetType.USER) {
-            VariableMgr.fillValueForUserDefinedVar(this);
+            ConnectContext.get().fillValueForUserDefinedVar(this);
         } else {
             VariableMgr.fillValue(analyzer.getContext().getSessionVariable(), this);
             if (!Strings.isNullOrEmpty(name) && VariableVarConverters.hasConverter(name)) {

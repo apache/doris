@@ -61,9 +61,6 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(TYPE_OBJECT);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::OBJECT;
-    }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_OBJECT;
@@ -109,6 +106,7 @@ public:
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for BitMap";
+        __builtin_unreachable();
     }
 
     static void serialize_as_stream(const BitmapValue& value, BufferWritable& buf);

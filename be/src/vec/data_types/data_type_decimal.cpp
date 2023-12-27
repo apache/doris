@@ -51,7 +51,7 @@ std::string DataTypeDecimal<T>::do_get_name() const {
 template <typename T>
 bool DataTypeDecimal<T>::equals(const IDataType& rhs) const {
     if (auto* ptype = typeid_cast<const DataTypeDecimal<T>*>(&rhs)) {
-        return scale == ptype->get_scale();
+        return precision == ptype->get_precision() && scale == ptype->get_scale();
     }
     return false;
 }
@@ -217,6 +217,27 @@ Decimal128I DataTypeDecimal<Decimal128I>::get_scale_multiplier(UInt32 scale) {
 template <>
 Decimal256 DataTypeDecimal<Decimal256>::get_scale_multiplier(UInt32 scale) {
     return Decimal256(common::exp10_i256(scale));
+}
+
+template <>
+Decimal32 DataTypeDecimal<Decimal32>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i32(digit_count);
+}
+template <>
+Decimal64 DataTypeDecimal<Decimal64>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i64(digit_count);
+}
+template <>
+Decimal128 DataTypeDecimal<Decimal128>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i128(digit_count);
+}
+template <>
+Decimal128I DataTypeDecimal<Decimal128I>::get_max_digits_number(UInt32 digit_count) {
+    return common::max_i128(digit_count);
+}
+template <>
+Decimal256 DataTypeDecimal<Decimal256>::get_max_digits_number(UInt32 digit_count) {
+    return Decimal256(common::max_i256(digit_count));
 }
 
 /// Explicit template instantiations.

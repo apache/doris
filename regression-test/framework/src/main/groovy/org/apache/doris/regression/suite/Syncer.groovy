@@ -547,8 +547,8 @@ class Syncer {
         if (context.sourceDbId == -1) {
             sqlInfo = suite.sql(baseSQL + "'")
             for (List<Object> row : sqlInfo) {
-                String[] dbName = (row[1] as String).split(":")
-                if (dbName[1] == context.db) {
+                String dbName = (row[1] as String)
+                if (dbName == context.db) {
                     context.sourceDbId = row[0] as Long
                     break
                 }
@@ -569,8 +569,8 @@ class Syncer {
         if (context.targetDbId == -1) {
             sqlInfo = suite.target_sql(baseSQL + "'")
             for (List<Object> row : sqlInfo) {
-                String[] dbName = (row[1] as String).split(":")
-                if (dbName[1] == "TEST_" + context.db) {
+                String dbName = (row[1] as String)
+                if (dbName == "TEST_" + context.db) {
                     context.targetDbId = row[0] as Long
                     break
                 }

@@ -71,7 +71,7 @@ private:
     int32_t _num_workers;
     std::unique_ptr<ThreadPool> _download_workers;
 
-    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group {nullptr};
+    std::shared_ptr<bufferevent_rate_limit_group> _rate_limit_group;
 }; // end class DownloadAction
 
 } // end namespace doris

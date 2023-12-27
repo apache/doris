@@ -48,7 +48,7 @@ public:
 protected:
     TupleId _tuple_id;
     // Descriptor of tuples generated
-    const TupleDescriptor* _tuple_desc;
+    const TupleDescriptor* _tuple_desc = nullptr;
 };
 
 } // namespace vectorized

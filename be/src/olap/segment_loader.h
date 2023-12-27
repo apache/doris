@@ -118,7 +118,7 @@ public:
 
 private:
     SegmentLoader();
-    std::unique_ptr<SegmentCache> _segment_cache = nullptr;
+    std::unique_ptr<SegmentCache> _segment_cache;
 };
 
 // A handle for a single rowset from segment lru cache.

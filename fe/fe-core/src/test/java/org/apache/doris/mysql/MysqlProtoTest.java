@@ -86,7 +86,7 @@ public class MysqlProtoTest {
                 result = new Delegate() {
                     void fakeCheckPassword(String remoteUser, String remoteHost, byte[] remotePasswd,
                             byte[] randomString, List<UserIdentity> currentUser) {
-                        UserIdentity userIdentity = new UserIdentity("default_cluster:user", "192.168.1.1");
+                        UserIdentity userIdentity = new UserIdentity("user", "192.168.1.1");
                         currentUser.add(userIdentity);
                     }
                 };

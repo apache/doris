@@ -39,5 +39,5 @@ struct ToBinaryContext {
 
     unsigned char buf[8];
 
-    std::ostream* outStream;
+    std::ostream* outStream = nullptr;
 };

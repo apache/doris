@@ -78,6 +78,7 @@ public:
     // "safe" means the path will be concat with the path prefix config::user_files_secure_path,
     // so that it can not list any files outside the config::user_files_secure_path
     Status safe_glob(const std::string& path, std::vector<FileInfo>* res);
+    Status directory_size(const Path& dir_path, size_t* dir_size);
 
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer,

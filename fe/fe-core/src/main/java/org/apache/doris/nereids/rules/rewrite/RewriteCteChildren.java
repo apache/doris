@@ -78,7 +78,7 @@ public class RewriteCteChildren extends DefaultPlanRewriter<CascadesContext> imp
             CascadesContext cascadesContext) {
         LogicalPlan outer;
         if (cascadesContext.getStatementContext().getRewrittenCteConsumer().containsKey(cteAnchor.getCteId())) {
-            outer = cascadesContext.getStatementContext().getRewrittenCteProducer().get(cteAnchor.getCteId());
+            outer = cascadesContext.getStatementContext().getRewrittenCteConsumer().get(cteAnchor.getCteId());
         } else {
             CascadesContext outerCascadesCtx = CascadesContext.newSubtreeContext(
                     Optional.empty(), cascadesContext, cteAnchor.child(1),

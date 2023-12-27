@@ -148,11 +148,13 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
             if (!new_top.is_null() && (old_top.is_null() || new_top != old_top)) {
                 auto& sort_description = _sorter->get_sort_description();
                 auto col = input_block->get_by_position(sort_description[0].column_number);
-                bool is_reverse = sort_description[0].direction < 0;
-                auto query_ctx = state->get_query_ctx();
-                RETURN_IF_ERROR(
-                        query_ctx->get_runtime_predicate().update(new_top, col.name, is_reverse));
-                old_top = std::move(new_top);
+                if (!col.name.empty()) {
+                    bool is_reverse = sort_description[0].direction < 0;
+                    auto* query_ctx = state->get_query_ctx();
+                    RETURN_IF_ERROR(query_ctx->get_runtime_predicate().update(new_top, col.name,
+                                                                              is_reverse));
+                    old_top = std::move(new_top);
+                }
             }
         }
         if (!_reuse_mem) {

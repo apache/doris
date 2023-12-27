@@ -25,4 +25,44 @@ suite("test_pushdown_explain") {
         contains "PREDICATES:"
     }
     qt_select "select k1 from baseall where k1 = 1"
+
+    sql "DROP TABLE IF EXISTS test_lineorder"
+    sql """ CREATE TABLE `test_lineorder` (
+        `lo_orderkey` INT NOT NULL COMMENT '\"\"',
+        `lo_linenumber` INT NOT NULL COMMENT '\"\"',
+        `lo_shipmode` VARCHAR(11) NOT NULL COMMENT '\"\"'
+    ) ENGINE=OLAP
+    DUPLICATE KEY(`lo_orderkey`)
+    DISTRIBUTED BY HASH(`lo_orderkey`) BUCKETS 48
+    PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "min_load_replica_num" = "-1",
+        "is_being_synced" = "false",
+        "colocate_with" = "groupa1",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false",
+        "enable_single_replica_compaction" = "false"
+    ); """
+    sql """ insert into test_lineorder values(1,2,"asd"); """
+    explain {
+        sql("select count(1) from test_lineorder;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select count(*) from test_lineorder;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select count(1) - count(lo_shipmode) from test_lineorder;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select count(lo_orderkey) from test_lineorder;")
+        contains "pushAggOp=COUNT"
+    }
+    explain {
+        sql("select count(cast(lo_orderkey as bigint)) from test_lineorder;")
+        contains "pushAggOp=COUNT"
+    }
 }

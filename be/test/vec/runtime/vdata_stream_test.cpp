@@ -84,6 +84,10 @@ public:
                          << ", fragment_instance_id=" << print_id(request->finst_id())
                          << ", node=" << request->node_id();
         }
+        if (done != nullptr) {
+            st.to_protobuf(response->mutable_status());
+            done->Run();
+        }
     }
 
 private:

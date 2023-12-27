@@ -453,24 +453,30 @@ void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::strin
 
     bool is_escaped = false;
     for (size_t i = 0; i < pattern.size(); ++i) {
-        if (!is_escaped && pattern[i] == '%') {
-            re_pattern->append(".*");
-        } else if (!is_escaped && pattern[i] == '_') {
-            re_pattern->append(".");
-            // check for escape char before checking for regex special chars, they might overlap
-        } else if (!is_escaped && pattern[i] == state->escape_char) {
-            is_escaped = true;
-        } else if (pattern[i] == '.' || pattern[i] == '[' || pattern[i] == ']' ||
-                   pattern[i] == '{' || pattern[i] == '}' || pattern[i] == '(' ||
-                   pattern[i] == ')' || pattern[i] == '\\' || pattern[i] == '*' ||
-                   pattern[i] == '+' || pattern[i] == '?' || pattern[i] == '|' ||
-                   pattern[i] == '^' || pattern[i] == '$') {
-            // escape all regex special characters; see list at
-            re_pattern->append("\\");
-            re_pattern->append(1, pattern[i]);
-            is_escaped = false;
+        if (!is_escaped) {
+            switch (pattern[i]) {
+            case '%':
+                re_pattern->append(".*");
+                break;
+            case '_':
+                re_pattern->append(".");
+                break;
+            default:
+                is_escaped = pattern[i] == state->escape_char;
+                if (!is_escaped) {
+                    re_pattern->append(1, pattern[i]);
+                }
+                break;
+            }
         } else {
-            // regular character or escaped special character
+            if (pattern[i] == '.' || pattern[i] == '[' || pattern[i] == ']' || pattern[i] == '{' ||
+                pattern[i] == '}' || pattern[i] == '(' || pattern[i] == ')' || pattern[i] == '\\' ||
+                pattern[i] == '*' || pattern[i] == '+' || pattern[i] == '?' || pattern[i] == '|' ||
+                pattern[i] == '^' || pattern[i] == '$') {
+                re_pattern->append("\\");
+            } else if (pattern[i] != '%' && pattern[i] != '_') {
+                re_pattern->append("\\\\");
+            }
             re_pattern->append(1, pattern[i]);
             is_escaped = false;
         }
@@ -634,7 +640,8 @@ Status FunctionLike::open(FunctionContext* context, FunctionContext::FunctionSta
                 opts.set_dot_nl(true);
                 state->search_state.regex = std::make_unique<RE2>(re_pattern, opts);
                 if (!state->search_state.regex->ok()) {
-                    return Status::InternalError("Invalid regex expression: {}", pattern_str);
+                    return Status::InternalError("Invalid regex expression: {}(origin: {})",
+                                                 re_pattern, pattern_str);
                 }
             }
 

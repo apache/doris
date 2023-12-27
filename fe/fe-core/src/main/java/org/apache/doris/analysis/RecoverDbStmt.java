@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -61,11 +60,6 @@ public class RecoverDbStmt extends DdlStmt {
         super.analyze(analyzer);
         if (Strings.isNullOrEmpty(dbName)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_DB_NAME, dbName);
-        }
-        dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
-
-        if (!Strings.isNullOrEmpty(newDbName)) {
-            newDbName = ClusterNamespace.getFullName(getClusterName(), newDbName);
         }
 
         if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,

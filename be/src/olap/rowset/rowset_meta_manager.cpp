@@ -88,6 +88,12 @@ Status RowsetMetaManager::get_json_rowset_meta(OlapMeta* meta, TabletUid tablet_
 }
 Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id,
                                const RowsetMetaPB& rowset_meta_pb, bool enable_binlog) {
+    if (rowset_meta_pb.partition_id() <= 0) {
+        LOG(WARNING) << "invalid partition id " << rowset_meta_pb.partition_id() << " tablet "
+                     << rowset_meta_pb.tablet_id();
+        return Status::InternalError("invalid partition id {}, tablet {}",
+                                     rowset_meta_pb.partition_id(), rowset_meta_pb.tablet_id());
+    }
     if (enable_binlog) {
         return _save_with_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb);
     } else {
@@ -444,7 +450,7 @@ Status RowsetMetaManager::traverse_rowset_metas(
                                              const std::string& value) -> bool {
         std::vector<std::string> parts;
         // key format: rst_uuid_rowset_id
-        static_cast<void>(split_string<char>(key, '_', &parts));
+        RETURN_IF_ERROR(split_string<char>(key, '_', &parts));
         if (parts.size() != 3) {
             LOG(WARNING) << "invalid rowset key:" << key << ", splitted size:" << parts.size();
             return true;
@@ -452,7 +458,7 @@ Status RowsetMetaManager::traverse_rowset_metas(
         RowsetId rowset_id;
         rowset_id.init(parts[2]);
         std::vector<std::string> uid_parts;
-        static_cast<void>(split_string<char>(parts[1], '-', &uid_parts));
+        RETURN_IF_ERROR(split_string<char>(parts[1], '-', &uid_parts));
         TabletUid tablet_uid(uid_parts[0], uid_parts[1]);
         return func(tablet_uid, rowset_id, value);
     };

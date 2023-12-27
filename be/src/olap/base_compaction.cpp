@@ -98,7 +98,7 @@ Status BaseCompaction::execute_compact_impl() {
 
 void BaseCompaction::_filter_input_rowset() {
     // if dup_key and no delete predicate
-    // we skip big files too save resources
+    // we skip big files to save resources
     if (_tablet->keys_type() != KeysType::DUP_KEYS) {
         return;
     }

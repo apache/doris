@@ -55,9 +55,6 @@ public:
     TypeDescriptor get_type_as_type_descriptor() const override {
         return TypeDescriptor(INVALID_TYPE);
     }
-    TPrimitiveType::type get_type_as_tprimitive_type() const override {
-        return TPrimitiveType::INVALID_TYPE;
-    }
 
     doris::FieldType get_storage_field_type() const override {
         return doris::FieldType::OLAP_FIELD_TYPE_NONE;
@@ -81,10 +78,12 @@ public:
 
     [[noreturn]] Field get_default() const override {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
+        __builtin_unreachable();
     }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for Nothing";
+        __builtin_unreachable();
     }
 
     void insert_default_into(IColumn&) const override {

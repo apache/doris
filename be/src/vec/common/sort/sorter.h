@@ -126,10 +126,10 @@ private:
     Block merge_sorted_block_;
     std::unique_ptr<VSortedRunMerger> merger_;
 
-    RuntimeProfile* profile_;
-    RuntimeProfile* block_spill_profile_;
-    RuntimeProfile::Counter* spilled_block_count_;
-    RuntimeProfile::Counter* spilled_original_block_size_;
+    RuntimeProfile* profile_ = nullptr;
+    RuntimeProfile* block_spill_profile_ = nullptr;
+    RuntimeProfile::Counter* spilled_block_count_ = nullptr;
+    RuntimeProfile::Counter* spilled_original_block_size_ = nullptr;
 };
 
 class Sorter {
@@ -172,7 +172,7 @@ protected:
     VSortExecExprs& _vsort_exec_exprs;
     int _limit;
     int64_t _offset;
-    ObjectPool* _pool;
+    ObjectPool* _pool = nullptr;
     std::vector<bool>& _is_asc_order;
     std::vector<bool>& _nulls_first;
 

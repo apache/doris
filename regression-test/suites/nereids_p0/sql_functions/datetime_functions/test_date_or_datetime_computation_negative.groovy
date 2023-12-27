@@ -23,7 +23,7 @@ suite("test_date_or_datetime_computation_negative") {
                 `dateV2` DATEV2 NOT NULL,
                 `dateV2_null` DATEV2 NULL,
                 `datetime` DATETIME NOT NULL,
-                `datetime_null` DATETIME NULL, )
+                `datetime_null` DATETIME NULL )
             DUPLICATE KEY(`row_id`)
             DISTRIBUTED BY HASH(`row_id`) BUCKETS 1
             PROPERTIES (

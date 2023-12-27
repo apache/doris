@@ -22,7 +22,6 @@
 
 #include "util/blocking_priority_queue.hpp"
 #include "util/blocking_queue.hpp"
-#include "util/lock.h"
 #include "util/thread.h"
 #include "util/thread_group.h"
 
@@ -142,10 +141,10 @@ protected:
     ThreadGroup _threads;
 
     // Guards _empty_cv
-    doris::Mutex _lock;
+    std::mutex _lock;
 
     // Signalled when the queue becomes empty
-    doris::ConditionVariable _empty_cv;
+    std::condition_variable _empty_cv;
 
 private:
     // Driver method for each thread in the pool. Continues to read work from the queue

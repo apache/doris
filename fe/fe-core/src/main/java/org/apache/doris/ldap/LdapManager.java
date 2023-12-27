@@ -131,7 +131,7 @@ public class LdapManager {
 
     public Set<Role> getUserRoles(String fullName) {
         LdapUserInfo info = getUserInfo(fullName);
-        return info == null ? Collections.emptySet() : info.getPaloRoles();
+        return info == null ? Collections.emptySet() : info.getRoles();
     }
 
     private boolean checkParam(String fullName) {
@@ -140,7 +140,6 @@ public class LdapManager {
     }
 
     private LdapUserInfo getUserInfoAndUpdateCache(String fulName) throws DdlException {
-        String cluster = ClusterNamespace.getClusterNameFromFullName(fulName);
         String userName = ClusterNamespace.getNameFromFullName(fulName);
         if (Strings.isNullOrEmpty(userName)) {
             return null;
@@ -149,7 +148,7 @@ public class LdapManager {
         }
         checkTimeoutCleanCache();
 
-        LdapUserInfo ldapUserInfo = new LdapUserInfo(fulName, false, "", getLdapGroupsRoles(userName, cluster));
+        LdapUserInfo ldapUserInfo = new LdapUserInfo(fulName, false, "", getLdapGroupsRoles(userName));
         writeLock();
         try {
             ldapUserInfoCache.put(ldapUserInfo.getUserName(), ldapUserInfo);
@@ -207,12 +206,12 @@ public class LdapManager {
      * Step2: get roles by ldap groups;
      * Step3: generate default role;
      */
-    private Set<Role> getLdapGroupsRoles(String userName, String clusterName) throws DdlException {
+    private Set<Role> getLdapGroupsRoles(String userName) throws DdlException {
         //get user ldap group. the ldap group name should be the same as the doris role name
         List<String> ldapGroups = ldapClient.getGroups(userName);
         Set<Role> roles = Sets.newHashSet();
         for (String group : ldapGroups) {
-            String qualifiedRole = ClusterNamespace.getFullName(clusterName, group);
+            String qualifiedRole = group;
             if (Env.getCurrentEnv().getAuth().doesRoleExist(qualifiedRole)) {
                 roles.add(Env.getCurrentEnv().getAuth().getRoleByName(qualifiedRole));
             }
@@ -220,7 +219,7 @@ public class LdapManager {
         LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, roles);
 
         Role ldapGroupsPrivs = new Role(LDAP_DEFAULT_ROLE);
-        grantDefaultPrivToTempUser(ldapGroupsPrivs, clusterName);
+        grantDefaultPrivToTempUser(ldapGroupsPrivs);
         roles.add(ldapGroupsPrivs);
         return roles;
     }
@@ -242,10 +241,10 @@ public class LdapManager {
     }
 
     // Temporary user has information_schema 'Select_priv' priv by default.
-    public static void grantDefaultPrivToTempUser(Role role, String clusterName) throws DdlException {
+    private static void grantDefaultPrivToTempUser(Role role) throws DdlException {
         TablePattern tblPattern = new TablePattern(InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            tblPattern.analyze(clusterName);
+            tblPattern.analyze();
         } catch (AnalysisException e) {
             LOG.warn("should not happen.", e);
         }

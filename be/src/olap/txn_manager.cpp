@@ -116,8 +116,8 @@ TxnManager::TxnManager(int32_t txn_map_shard_size, int32_t txn_shard_size)
     _txn_tablet_delta_writer_map = new txn_tablet_delta_writer_map_t[_txn_map_shard_size];
     _txn_tablet_delta_writer_map_locks = new std::shared_mutex[_txn_map_shard_size];
     // For debugging
-    _tablet_version_cache =
-            new ShardedLRUCache("TabletVersionCache", 100000, LRUCacheType::NUMBER, 32);
+    _tablet_version_cache = std::unique_ptr<Cache>(
+            new ShardedLRUCache("TabletVersionCache", 100000, LRUCacheType::NUMBER, 32));
 }
 
 // prepare txn should always be allowed because ingest task will be retried
@@ -138,6 +138,19 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     TabletInfo tablet_info(tablet_id, tablet_uid);
     std::lock_guard<std::shared_mutex> txn_wrlock(_get_txn_map_lock(transaction_id));
     txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
+
+    DBUG_EXECUTE_IF("TxnManager.prepare_txn.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.prepare_txn.random_failed random failed");
+            return Status::InternalError("debug prepare txn random failed");
+        }
+    });
+    DBUG_EXECUTE_IF("TxnManager.prepare_txn.wait", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("TxnManager.prepare_txn.wait").tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
 
     /// Step 1: check if the transaction is already exist
     do {
@@ -282,9 +295,10 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                               const RowsetSharedPtr& rowset_ptr, PendingRowsetGuard guard,
                               bool is_recovery) {
     if (partition_id < 1 || transaction_id < 1 || tablet_id < 1) {
-        LOG(FATAL) << "invalid commit req "
-                   << " partition_id=" << partition_id << " transaction_id=" << transaction_id
-                   << " tablet_id=" << tablet_id;
+        LOG(WARNING) << "invalid commit req "
+                     << " partition_id=" << partition_id << " transaction_id=" << transaction_id
+                     << " tablet_id=" << tablet_id;
+        return Status::InternalError("invalid partition id");
     }
 
     pair<int64_t, int64_t> key(partition_id, transaction_id);
@@ -296,11 +310,18 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
                 key.first, key.second, tablet_info.to_string());
     }
 
-    DBUG_EXECUTE_IF(
-            "TxnManager.commit_txn_random_failed",
-            if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
-                return Status::InternalError("debug commit txn random failed");
-            });
+    DBUG_EXECUTE_IF("TxnManager.commit_txn.random_failed", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.commit_txn.random_failed");
+            return Status::InternalError("debug commit txn random failed");
+        }
+    });
+    DBUG_EXECUTE_IF("TxnManager.commit_txn.wait", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("TxnManager.commit_txn.wait").tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
 
     std::lock_guard<std::shared_mutex> txn_lock(_get_txn_lock(transaction_id));
     // this while loop just run only once, just for if break
@@ -356,11 +377,15 @@ Status TxnManager::commit_txn(OlapMeta* meta, TPartitionId partition_id,
     if (!is_recovery) {
         Status save_status = RowsetMetaManager::save(meta, tablet_uid, rowset_ptr->rowset_id(),
                                                      rowset_ptr->rowset_meta()->get_rowset_pb());
+        DBUG_EXECUTE_IF("TxnManager.RowsetMetaManager.save_wait", {
+            if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+                LOG_WARNING("TxnManager.RowsetMetaManager.save_wait").tag("wait ms", wait);
+                std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+            }
+        });
         if (!save_status.ok()) {
-            return Status::Error<ROWSET_SAVE_FAILED>(
-                    "save committed rowset failed. when commit txn rowset_id: {}, tablet id: {}, "
-                    "txn id: {}",
-                    rowset_ptr->rowset_id().to_string(), tablet_id, transaction_id);
+            save_status.append(fmt::format(", txn id: {}", transaction_id));
+            return save_status;
         }
     }
 
@@ -430,6 +455,18 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                 "tablet={}",
                 partition_id, transaction_id, tablet_info.to_string());
     }
+    DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_before_save_rs_meta", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.publish_txn.random_failed_before_save_rs_meta");
+            return Status::InternalError("debug publish txn before save rs meta random failed");
+        }
+    });
+    DBUG_EXECUTE_IF("TxnManager.publish_txn.wait_before_save_rs_meta", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("TxnManager.publish_txn.wait_before_save_rs_meta").tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
 
     /// Step 2: make rowset visible
     // save meta need access disk, it maybe very slow, so that it is not in global txn lock
@@ -437,6 +474,19 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // TODO(ygl): rowset is already set version here, memory is changed, if save failed
     // it maybe a fatal error
     rowset->make_visible(version);
+
+    DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_after_save_rs_meta", {
+        if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
+            LOG_WARNING("TxnManager.publish_txn.random_failed_after_save_rs_meta");
+            return Status::InternalError("debug publish txn after save rs meta random failed");
+        }
+    });
+    DBUG_EXECUTE_IF("TxnManager.publish_txn.wait_after_save_rs_meta", {
+        if (auto wait = dp->param<int>("duration", 0); wait > 0) {
+            LOG_WARNING("TxnManager.publish_txn.wait_after_save_rs_meta").tag("wait ms", wait);
+            std::this_thread::sleep_for(std::chrono::milliseconds(wait));
+        }
+    });
     // update delete_bitmap
     if (tablet_txn_info->unique_key_merge_on_write) {
         std::unique_ptr<RowsetWriter> rowset_writer;
@@ -486,10 +536,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                           rowset->rowset_meta()->get_rowset_pb(), enable_binlog);
     stats->save_meta_time_us += MonotonicMicros() - t5;
     if (!status.ok()) {
-        return Status::Error<ROWSET_SAVE_FAILED>(
-                "save committed rowset failed. when publish txn rowset_id: {}, tablet id: {}, txn "
-                "id: {}",
-                rowset->rowset_id().to_string(), tablet_id, transaction_id);
+        status.append(fmt::format(", txn id: {}", transaction_id));
+        return status;
     }
 
     // TODO(Drogon): remove these test codes
@@ -601,8 +649,8 @@ Status TxnManager::delete_txn(OlapMeta* meta, TPartitionId partition_id,
                             << (rowset != nullptr ? rowset->rowset_id().to_string() : "0");
             }
         }
+        it->second.erase(load_itr);
     }
-    it->second.erase(load_itr);
     if (it->second.empty()) {
         txn_tablet_map.erase(it);
         _clear_txn_partition_map_unlocked(transaction_id, partition_id);
@@ -863,8 +911,8 @@ void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, i
         delete cache_value;
     };
 
-    auto handle = _tablet_version_cache->insert(cache_key, value, sizeof(txn_id), deleter,
-                                                CachePriority::NORMAL, sizeof(txn_id));
+    auto handle = _tablet_version_cache->insert(cache_key, value, 1, deleter, CachePriority::NORMAL,
+                                                sizeof(txn_id));
     _tablet_version_cache->release(handle);
 }
 

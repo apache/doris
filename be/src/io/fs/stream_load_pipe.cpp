@@ -43,7 +43,6 @@ StreamLoadPipe::StreamLoadPipe(size_t max_buffered_bytes, size_t min_chunk_size,
           _use_proto(use_proto) {}
 
 StreamLoadPipe::~StreamLoadPipe() {
-    SCOPED_TRACK_MEMORY_TO_UNKNOWN();
     while (!_buf_queue.empty()) {
         _buf_queue.pop_front();
     }

@@ -29,7 +29,7 @@
 
 namespace doris {
 
-#define FIXED_CONTAINER_MAX_SIZE 8
+constexpr int FIXED_CONTAINER_MAX_SIZE = 8;
 
 /**
  * Fix Container can use simd to improve performance. 1 <= N <= 8 can be improved performance by test. FIXED_CONTAINER_MAX_SIZE = 8.
@@ -44,7 +44,7 @@ public:
 
     class Iterator;
 
-    FixedContainer() : _size(0) { static_assert(N >= 0 && N <= FIXED_CONTAINER_MAX_SIZE); }
+    FixedContainer() { static_assert(N >= 0 && N <= FIXED_CONTAINER_MAX_SIZE); }
 
     ~FixedContainer() = default;
 
@@ -141,7 +141,7 @@ public:
 
 private:
     std::array<T, N> _data;
-    size_t _size;
+    size_t _size {};
 };
 
 /**
@@ -183,7 +183,7 @@ public:
     // use in vectorize execute engine
     virtual void insert(void* data, size_t) = 0;
 
-    virtual void insert_fixed_len(const char* data, const int* offsets, int number) = 0;
+    virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
 
     virtual void insert(HybridSetBase* set) {
         HybridSetBase::IteratorBase* iter = set->begin();
@@ -198,11 +198,6 @@ public:
     virtual bool find(const void* data) const = 0;
     // use in vectorize execute engine
     virtual bool find(const void* data, size_t) const = 0;
-
-    virtual void find_fixed_len(const char* __restrict data, const uint8* __restrict null_map,
-                                int number, uint8* __restrict results) {
-        LOG(FATAL) << "HybridSetBase not support find_fixed_len";
-    }
 
     virtual void find_batch(const doris::vectorized::IColumn& column, size_t rows,
                             doris::vectorized::ColumnUInt8::Container& results) {
@@ -275,21 +270,29 @@ public:
         if (data == nullptr) {
             return;
         }
-
-        if constexpr (sizeof(ElementType) >= 16) {
-            // for large int, it will core dump with no memcpy
-            ElementType value;
-            memcpy(&value, data, sizeof(ElementType));
-            _set.insert(value);
-        } else {
-            _set.insert(*reinterpret_cast<const ElementType*>(data));
-        }
+        _set.insert(*reinterpret_cast<const ElementType*>(data));
     }
-    void insert(void* data, size_t) override { insert(data); }
+    void insert(void* data, size_t /*unused*/) override { insert(data); }
 
-    void insert_fixed_len(const char* data, const int* offsets, int number) override {
-        for (int i = 0; i < number; i++) {
-            insert((void*)((ElementType*)data + offsets[i]));
+    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto& col = nullable->get_nested_column();
+            const auto& nullmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
+                            .get_data();
+
+            const ElementType* data = (ElementType*)col.get_raw_data().data;
+            for (size_t i = start; i < column->size(); i++) {
+                if (!nullmap[i]) {
+                    _set.insert(*(data + i));
+                }
+            }
+        } else {
+            const ElementType* data = (ElementType*)column->get_raw_data().data;
+            for (size_t i = start; i < column->size(); i++) {
+                _set.insert(*(data + i));
+            }
         }
     }
 
@@ -303,21 +306,7 @@ public:
         return _set.find(*reinterpret_cast<const ElementType*>(data));
     }
 
-    bool find(const void* data, size_t) const override { return find(data); }
-
-    void find_fixed_len(const char* __restrict data, const uint8* __restrict null_map, int number,
-                        uint8* __restrict results) override {
-        ElementType* value = (ElementType*)data;
-        if (null_map == nullptr) {
-            for (int i = 0; i < number; i++) {
-                results[i] = _set.find(value[i]);
-            }
-        } else {
-            for (int i = 0; i < number; i++) {
-                results[i] = _set.find(value[i]) & !null_map[i];
-            }
-        }
-    }
+    bool find(const void* data, size_t /*unused*/) const override { return find(data); }
 
     void find_batch(const doris::vectorized::IColumn& column, size_t rows,
                     doris::vectorized::ColumnUInt8::Container& results) override {
@@ -414,8 +403,26 @@ public:
         _set.insert(str_value);
     }
 
-    void insert_fixed_len(const char* data, const int* offsets, int number) override {
-        LOG(FATAL) << "string set not support insert_fixed_len";
+    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto& col =
+                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
+            const auto& nullmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
+                            .get_data();
+
+            for (size_t i = start; i < column->size(); i++) {
+                if (!nullmap[i]) {
+                    _set.insert(col.get_data_at(i).to_string());
+                }
+            }
+        } else {
+            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
+            for (size_t i = start; i < column->size(); i++) {
+                _set.insert(col->get_data_at(i).to_string());
+            }
+        }
     }
 
     int size() override { return _set.size(); }
@@ -425,7 +432,7 @@ public:
             return false;
         }
 
-        auto* value = reinterpret_cast<const StringRef*>(data);
+        const auto* value = reinterpret_cast<const StringRef*>(data);
         std::string str_value(const_cast<const char*>(value->data), value->size);
         return _set.find(str_value);
     }
@@ -461,7 +468,7 @@ public:
     void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
                      const doris::vectorized::NullMap* null_map,
                      doris::vectorized::ColumnUInt8::Container& results) {
-        auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+        const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
@@ -538,8 +545,26 @@ public:
         _set.insert(sv);
     }
 
-    void insert_fixed_len(const char* data, const int* offsets, int number) override {
-        LOG(FATAL) << "string set not support insert_fixed_len";
+    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+        if (column->is_nullable()) {
+            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto& col =
+                    assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column());
+            const auto& nullmap =
+                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
+                            .get_data();
+
+            for (size_t i = start; i < column->size(); i++) {
+                if (!nullmap[i]) {
+                    _set.insert(col.get_data_at(i));
+                }
+            }
+        } else {
+            const auto& col = assert_cast<const vectorized::ColumnString*>(column.get());
+            for (size_t i = start; i < column->size(); i++) {
+                _set.insert(col->get_data_at(i));
+            }
+        }
     }
 
     int size() override { return _set.size(); }
@@ -549,7 +574,7 @@ public:
             return false;
         }
 
-        auto* value = reinterpret_cast<const StringRef*>(data);
+        const auto* value = reinterpret_cast<const StringRef*>(data);
         return _set.find(*value);
     }
 
@@ -588,10 +613,10 @@ public:
     void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
                      const doris::vectorized::NullMap* null_map,
                      doris::vectorized::ColumnUInt8::Container& results) {
-        auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+        const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
         const uint32_t* __restrict offset = col.get_offsets().data();
         const uint8_t* __restrict data = col.get_chars().data();
-        uint8_t* __restrict cursor = const_cast<uint8_t*>(data);
+        auto* __restrict cursor = const_cast<uint8_t*>(data);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();

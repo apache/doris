@@ -29,10 +29,13 @@ import org.apache.doris.nereids.util.DateTimeFormatterUtils;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.nereids.util.StandardDateFormat;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.time.LocalDateTime;
 import java.time.Year;
 import java.time.temporal.ChronoField;
 import java.time.temporal.TemporalAccessor;
+import java.util.Set;
 
 /**
  * Date literal in Nereids.
@@ -46,6 +49,10 @@ public class DateLiteral extends Literal {
     private static final DateLiteral MIN_DATE = new DateLiteral(0, 1, 1);
     private static final DateLiteral MAX_DATE = new DateLiteral(9999, 12, 31);
     private static final int[] DAYS_IN_MONTH = new int[] {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+    private static final Set<Character> punctuations = ImmutableSet.of('!', '@', '#', '$', '%', '^', '&', '*', '(', ')',
+            '-', '+', '=', '_', '{', '}', '[', ']', '|', '\\', ':', ';', '"', '\'', '<', '>', ',', '.', '?', '/', '~',
+            '`');
 
     protected long year;
     protected long month;
@@ -133,16 +140,34 @@ public class DateLiteral extends Literal {
         return s;
     }
 
+    private static boolean isPunctuation(char c) {
+        return punctuations.contains(c);
+    }
+
+    private static void replacePunctuation(String s, StringBuilder sb, char c, int idx) {
+        if (idx >= sb.length()) {
+            return;
+        }
+        if (isPunctuation(sb.charAt(idx))) {
+            sb.setCharAt(idx, c);
+        } else {
+            throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
+        }
+    }
+
     static String normalize(String s) {
+        // merge consecutive space
+        s = s.replaceAll(" +", " ");
+
         StringBuilder sb = new StringBuilder();
 
         int i = 0;
 
         // handle two digit year
-        if (s.charAt(2) != '-' && s.charAt(4) != '-') {
+        if (!isPunctuation(s.charAt(2)) && !isPunctuation(s.charAt(4))) {
             throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
         }
-        if (s.charAt(2) == '-') {
+        if (isPunctuation(s.charAt(2))) {
             String yy = s.substring(0, 2);
             int year = Integer.parseInt(yy);
             if (year >= 0 && year <= 69) {
@@ -154,21 +179,12 @@ public class DateLiteral extends Literal {
             i = 2;
         }
 
-        // normalized leading 0
+        // normalize leading 0 for date and time
+        // date and time contains 6 number part at most, so we just need normal 6 number part
+        int partNumber = 0;
         while (i < s.length()) {
             char c = s.charAt(i);
-
-            if (c == '.') {
-                // skip .microsecond, such as .0001 .000001
-                sb.append(c);  // Append the dot itself
-                i += 1;  // Skip the dot
-
-                // skip the microsecond part
-                while (i < s.length() && Character.isDigit(s.charAt(i))) {
-                    sb.append(s.charAt(i));
-                    i += 1;
-                }
-            } else if (Character.isDigit(c)) {
+            if (Character.isDigit(c) && partNumber < 6) {
                 // find consecutive digit
                 int j = i + 1;
                 while (j < s.length() && Character.isDigit(s.charAt(j))) {
@@ -180,39 +196,66 @@ public class DateLiteral extends Literal {
                         sb.append(s.charAt(k));
                     }
                 } else if (len == 1) {
-                    sb.append('0');
-                    sb.append(c);
+                    sb.append('0').append(c);
                 } else {
                     throw new AnalysisException("date/datetime literal [" + s + "] is invalid");
                 }
                 i = j;
-            } else {
+                partNumber += 1;
+            } else if (isPunctuation(c) || c == ' ' || c == 'T') {
                 sb.append(c);
+                i += 1;
+            } else {
+                break;
+            }
+        }
+
+        // replace punctuation with '-'
+        replacePunctuation(s, sb, '-', 4);
+        replacePunctuation(s, sb, '-', 7);
+        // Replace punctuation with ' '
+        if (sb.length() > 10 && sb.charAt(10) != ' ') {
+            if (sb.charAt(10) == 'T') {
+                sb.setCharAt(10, ' ');
+            } else {
+                replacePunctuation(s, sb, ' ', 10);
+            }
+        }
+        // replace punctuation with ':'
+        replacePunctuation(s, sb, ':', 13);
+        replacePunctuation(s, sb, ':', 16);
+
+        // add missing Minute Second in Time part
+        if (sb.length() == 13) {
+            sb.append(":00:00");
+        } else if (sb.length() == 16) {
+            sb.append(":00");
+        }
+
+        // parse MicroSecond
+        if (partNumber == 6 && i < s.length() && s.charAt(i) == '.') {
+            sb.append(s.charAt(i));
+            i += 1;
+            while (i < s.length() && Character.isDigit(s.charAt(i))) {
+                sb.append(s.charAt(i));
                 i += 1;
             }
         }
 
-        int len = sb.length();
-        // Replace delimiter 'T' with ' '
-        if (len > 10 && sb.charAt(10) == 'T') {
-            sb.setCharAt(10, ' ');
-        }
+        sb.append(s.substring(i));
 
-        // add missing Minute Second in Time part
-        if (len > 10 && sb.charAt(10) == ' ') {
-            if (len == 13 || len > 13 && sb.charAt(13) != ':') {
-                sb.insert(13, ":00:00");
-            } else if (len == 16 || (len > 16 && sb.charAt(16) != ':')) {
-                sb.insert(16, ":00");
-            }
-        }
+        // Zone Part
+        // while(i < s.length()) {
+        //
+        // }
 
-        len = sb.length();
-        int signIdx = sb.indexOf("+", 10); // from index:10, skip date part (it contains '-')
-        signIdx = signIdx == -1 ? sb.indexOf("-", 10) : signIdx;
-        if (signIdx != -1 && len - signIdx == 3) {
-            sb.append(":00");
-        }
+        // add missing :00 in Zone part
+        // int len = sb.length();
+        // int signIdx = sb.indexOf("+", 10); // from index:10, skip date part (it contains '-')
+        // signIdx = signIdx == -1 ? sb.indexOf("-", 10) : signIdx;
+        // if (signIdx != -1 && len - signIdx == 3) {
+        //     sb.append(":00");
+        // }
 
         return sb.toString();
     }
@@ -223,7 +266,14 @@ public class DateLiteral extends Literal {
             TemporalAccessor dateTime;
 
             // parse condition without '-' and ':'
-            if (!s.contains("-") && !s.contains(":")) {
+            boolean containsPunctuation = false;
+            for (int i = 0; i < s.length(); i++) {
+                if (isPunctuation(s.charAt(i))) {
+                    containsPunctuation = true;
+                    break;
+                }
+            }
+            if (!containsPunctuation) {
                 s = normalizeBasic(s);
                 // mysql reject "20200219 010101" "200219 010101", can't use ' ' spilt basic date time.
                 if (!s.contains("T")) {
@@ -391,5 +441,37 @@ public class DateLiteral extends Literal {
         return isDateOutOfRange(dateTime)
                 ? new NullLiteral(DateType.INSTANCE)
                 : new DateLiteral(dateTime.getYear(), dateTime.getMonthValue(), dateTime.getDayOfMonth());
+    }
+
+    /**
+     * 2020-01-01
+     *
+     * @return 2020-01-01 00:00:00
+     */
+    public DateTimeLiteral toBeginOfTheDay() {
+        return new DateTimeLiteral(year, month, day, 0, 0, 0);
+    }
+
+    /**
+     * 2020-01-01
+     *
+     * @return 2020-01-01 24:00:00
+     */
+    public DateTimeLiteral toEndOfTheDay() {
+        return new DateTimeLiteral(year, month, day, 24, 0, 0);
+    }
+
+    /**
+     * 2020-01-01
+     *
+     * @return 2020-01-02 0:0:0
+     */
+    public DateTimeLiteral toBeginOfTomorrow() {
+        Expression tomorrow = plusDays(1);
+        if (tomorrow instanceof DateLiteral) {
+            return ((DateLiteral) tomorrow).toBeginOfTheDay();
+        } else {
+            return toEndOfTheDay();
+        }
     }
 }

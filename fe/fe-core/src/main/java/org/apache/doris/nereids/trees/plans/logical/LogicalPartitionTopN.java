@@ -28,6 +28,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
 import org.apache.doris.nereids.trees.plans.algebra.PartitionTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -43,7 +44,8 @@ import java.util.Optional;
 /**
  * Logical partition-top-N plan.
  */
-public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements PartitionTopN {
+public class LogicalPartitionTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+        implements PartitionTopN, PropagateFuncDeps {
     private final WindowFuncType function;
     private final List<Expression> partitionKeys;
     private final List<OrderExpression> orderKeys;

@@ -31,6 +31,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Joiner;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -287,18 +288,10 @@ public class Tablet extends MetaObject implements Writable {
         StringBuilder sb = new StringBuilder("Visible Replicas:");
         sb.append("Visible version: ").append(visibleVersion);
         sb.append(", Replicas: ");
-        for (Replica replica : replicas) {
-            sb.append(replica.toString());
-        }
-        sb.append(", Backends: ");
-        for (Replica replica : replicas) {
-            Backend be = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
-            if (be == null) {
-                sb.append("Backend [id=" + id + ", not exists]");
-            } else {
-                sb.append(be.getHealthyStatus());
-            }
-        }
+        sb.append(Joiner.on(", ").join(replicas.stream().map(replica -> replica.toStringSimple(true))
+                .collect(Collectors.toList())));
+        sb.append(".");
+
         return sb.toString();
     }
 

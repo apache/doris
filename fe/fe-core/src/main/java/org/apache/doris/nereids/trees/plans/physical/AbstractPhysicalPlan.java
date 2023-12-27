@@ -40,7 +40,9 @@ import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import javax.annotation.Nullable;
@@ -49,8 +51,8 @@ import javax.annotation.Nullable;
  * Abstract class for all concrete physical plan.
  */
 public abstract class AbstractPhysicalPlan extends AbstractPlan implements PhysicalPlan, Explainable {
-
     protected final PhysicalProperties physicalProperties;
+    private final List<RuntimeFilter> appliedRuntimeFilters = Lists.newArrayList();
 
     public AbstractPhysicalPlan(PlanType type, LogicalProperties logicalProperties, Plan... children) {
         this(type, Optional.empty(), logicalProperties, children);
@@ -120,14 +122,19 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
         Preconditions.checkState(scanSlot != null, "scan slot is null");
         if (filter != null) {
+            this.addAppliedRuntimeFilter(filter);
             filter.addTargetSlot(scanSlot);
-            filter.addTargetExpressoin(scanSlot);
+            filter.addTargetExpression(scanSlot);
+            ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
+            ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first, scanSlot);
         } else {
             filter = new RuntimeFilter(generator.getNextId(),
                     src, ImmutableList.of(scanSlot), type, exprOrder, builderNode, buildSideNdv);
+            this.addAppliedRuntimeFilter(filter);
             ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
             ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
-            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first.getRelationId(), scanSlot);
+            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first, scanSlot);
             ctx.setRuntimeFilterIdentityToFilter(src, type, builderNode, filter);
         }
         return true;
@@ -143,5 +150,17 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 from.getPhysicalProperties(), from.getStats());
         newPlan.setMutableState(MutableState.KEY_GROUP, from.getGroupIdAsString());
         return newPlan;
+    }
+
+    public List<RuntimeFilter> getAppliedRuntimeFilters() {
+        return appliedRuntimeFilters;
+    }
+
+    public void addAppliedRuntimeFilter(RuntimeFilter filter) {
+        appliedRuntimeFilters.add(filter);
+    }
+
+    public void removeAppliedRuntimeFilter(RuntimeFilter filter) {
+        appliedRuntimeFilters.remove(filter);
     }
 }

@@ -151,4 +151,20 @@ void shutdown_logging() {
     google::ShutdownGoogleLogging();
 }
 
+void update_logging(const std::string& name, const std::string& value) {
+    if ("sys_log_level" == name) {
+        if (iequals(value, "INFO")) {
+            FLAGS_minloglevel = 0;
+        } else if (iequals(value, "WARNING")) {
+            FLAGS_minloglevel = 1;
+        } else if (iequals(value, "ERROR")) {
+            FLAGS_minloglevel = 2;
+        } else if (iequals(value, "FATAL")) {
+            FLAGS_minloglevel = 3;
+        } else {
+            LOG(WARNING) << "update sys_log_level failed, need to be INFO, WARNING, ERROR, FATAL";
+        }
+    }
+}
+
 } // namespace doris

@@ -22,6 +22,7 @@
 
 #include <assert.h>
 #include <fmt/format.h>
+#include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
@@ -51,7 +52,6 @@
 #include "vec/common/field_visitors.h"
 #include "vec/common/schema_util.h"
 #include "vec/common/string_buffer.hpp"
-#include "vec/common/typeid_cast.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/field.h"
 #include "vec/core/types.h"
@@ -64,6 +64,12 @@
 #include "vec/data_types/data_type_nothing.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/get_least_supertype.h"
+
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
 
 namespace doris::vectorized {
 namespace {
@@ -436,8 +442,7 @@ ColumnPtr ColumnObject::index(const IColumn& indexes, size_t limit) const {
 }
 
 bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
-    constexpr static size_t s_threshold_rows_estimate_sparse_column = 1000;
-    if (num_rows < s_threshold_rows_estimate_sparse_column) {
+    if (num_rows < config::variant_threshold_rows_to_estimate_sparse_column) {
         return false;
     }
     std::vector<double> defaults_ratio;
@@ -446,7 +451,7 @@ bool ColumnObject::Subcolumn::check_if_sparse_column(size_t num_rows) {
     }
     double default_ratio = std::accumulate(defaults_ratio.begin(), defaults_ratio.end(), 0.0) /
                            defaults_ratio.size();
-    return default_ratio >= config::ratio_of_defaults_as_sparse_column;
+    return default_ratio >= config::variant_ratio_of_defaults_as_sparse_column;
 }
 
 void ColumnObject::Subcolumn::finalize() {
@@ -640,11 +645,12 @@ void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
 }
 
 void ColumnObject::insert_from(const IColumn& src, size_t n) {
-    const auto& src_v = assert_cast<const ColumnObject&>(src);
+    const auto* src_v = check_and_get_column<ColumnObject>(src);
     // optimize when src and this column are scalar variant, since try_insert is inefficiency
-    if (src_v.is_scalar_variant() && is_scalar_variant() &&
-        src_v.get_root_type()->equals(*get_root_type()) && src_v.is_finalized() && is_finalized()) {
-        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v.get_root(), n);
+    if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
+        src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
+        is_finalized()) {
+        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v->get_root(), n);
         ++num_rows;
         return;
     }
@@ -756,6 +762,9 @@ FieldInfo ColumnObject::Subcolumn::get_subcolumn_field_info() const {
 }
 
 void ColumnObject::insert_range_from(const IColumn& src, size_t start, size_t length) {
+#ifndef NDEBUG
+    check_consistency();
+#endif
     const auto& src_object = assert_cast<const ColumnObject&>(src);
     for (const auto& entry : src_object.subcolumns) {
         if (!has_subcolumn(entry->path)) {
@@ -827,9 +836,13 @@ bool ColumnObject::add_sub_column(const PathInData& key, MutableColumnPtr&& subc
     }
     if (key.empty() && ((!subcolumns.get_root()->is_scalar()) ||
                         is_nothing(subcolumns.get_root()->data.get_least_common_type()))) {
-        // update root
+        bool root_it_scalar = subcolumns.get_root()->is_scalar();
+        // update root to scalar
         subcolumns.get_mutable_root()->modify_to_scalar(
                 Subcolumn(std::move(subcolumn), type, is_nullable, true));
+        if (!root_it_scalar) {
+            subcolumns.add_leaf(subcolumns.get_root_ptr());
+        }
         if (num_rows == 0) {
             num_rows = new_size;
         }
@@ -859,6 +872,7 @@ bool ColumnObject::add_sub_column(const PathInData& key, size_t new_size) {
     if (key.empty() && (!subcolumns.get_root()->is_scalar())) {
         // update none scalar root column to scalar node
         subcolumns.get_mutable_root()->modify_to_scalar(Subcolumn(new_size, is_nullable, true));
+        subcolumns.add_leaf(subcolumns.get_root_ptr());
         if (num_rows == 0) {
             num_rows = new_size;
         }
@@ -901,11 +915,6 @@ void ColumnObject::remove_subcolumns(const std::unordered_set<std::string>& keys
 bool ColumnObject::is_finalized() const {
     return std::all_of(subcolumns.begin(), subcolumns.end(),
                        [](const auto& entry) { return entry->data.is_finalized(); });
-}
-
-static bool check_if_valid_column_name(const PathInData& path) {
-    static const std::regex COLUMN_NAME_REGEX("^[_a-zA-Z@0-9][.a-zA-Z0-9_+-/><?@#$%^&*]{0,255}$");
-    return std::regex_match(path.get_path(), COLUMN_NAME_REGEX);
 }
 
 void ColumnObject::Subcolumn::wrapp_array_nullable() {
@@ -1153,8 +1162,14 @@ void ColumnObject::merge_sparse_to_root_column() {
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         root.Accept(writer);
         bool res = parser.parse(buffer.GetString(), buffer.GetSize());
-        CHECK(res) << "buffer:" << std::string(buffer.GetString(), buffer.GetSize())
-                   << ", row_num:" << i;
+        if (!res) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "parse json failed, doc: {}"
+                            ", row_num:{}"
+                            ", error:{}",
+                            std::string(buffer.GetString(), buffer.GetSize()), i,
+                            JsonbErrMsg::getErrMsg(parser.getErrorCode()));
+        }
         result_column_ptr->insert_data(parser.getWriter().getOutput()->getBuffer(),
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);
@@ -1162,6 +1177,12 @@ void ColumnObject::merge_sparse_to_root_column() {
 
     // assign merged column
     subcolumns.get_mutable_root()->data.get_finalized_column_ptr() = mresult->get_ptr();
+}
+
+void ColumnObject::finalize_if_not() {
+    if (!is_finalized()) {
+        finalize();
+    }
 }
 
 void ColumnObject::finalize(bool ignore_sparse) {
@@ -1185,8 +1206,7 @@ void ColumnObject::finalize(bool ignore_sparse) {
         }
 
         // Check and spilit sparse subcolumns
-        if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows) ||
-                               !check_if_valid_column_name(entry->path))) {
+        if (!ignore_sparse && (entry->data.check_if_sparse_column(num_rows))) {
             // TODO seperate ambiguous path
             sparse_columns.add(entry->path, entry->data);
             continue;
@@ -1237,6 +1257,18 @@ void ColumnObject::strip_outer_array() {
         num_rows = base_column->size();
     }
     std::swap(subcolumns, new_subcolumns);
+}
+
+void ColumnObject::replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const {
+    if (!is_finalized()) {
+        const_cast<ColumnObject*>(this)->finalize();
+    }
+    auto& var = assert_cast<ColumnObject&>(column);
+    for (auto& entry : subcolumns) {
+        auto replica = entry->data.get_finalized_column().clone_empty();
+        entry->data.get_finalized_column().replicate(indexs, target_size, *replica);
+        var.add_sub_column(entry->path, std::move(replica), entry->data.get_least_common_type());
+    }
 }
 
 ColumnPtr ColumnObject::filter(const Filter& filter, ssize_t count) const {
@@ -1299,13 +1331,20 @@ size_t ColumnObject::filter(const Filter& filter) {
     return count;
 }
 
-void ColumnObject::clear() {
+void ColumnObject::clear_subcolumns_data() {
     for (auto& entry : subcolumns) {
         for (auto& part : entry->data.data) {
-            part->clear();
+            DCHECK_EQ(part->use_count(), 1);
+            (*std::move(part)).clear();
         }
         entry->data.num_of_defaults_in_prefix = 0;
     }
+    num_rows = 0;
+}
+
+void ColumnObject::clear() {
+    Subcolumns empty;
+    std::swap(empty, subcolumns);
     num_rows = 0;
 }
 
@@ -1345,7 +1384,8 @@ bool ColumnObject::is_null_root() const {
 
 bool ColumnObject::is_scalar_variant() const {
     // Only root itself
-    return !is_null_root() && subcolumns.get_leaves().size() == 1;
+    return !is_null_root() && subcolumns.get_leaves().size() == 1 &&
+           subcolumns.get_root()->is_scalar();
 }
 
 DataTypePtr ColumnObject::get_root_type() const {
@@ -1390,78 +1430,39 @@ Status ColumnObject::extract_root(const PathInData& path, MutableColumnPtr& dst)
     return Status::OK();
 }
 
-template <typename ColumnInserterFn>
-void align_variant_by_name_and_type(ColumnObject& dst, const ColumnObject& src, size_t row_cnt,
-                                    ColumnInserterFn inserter) {
-    CHECK(dst.is_finalized());
-    if (!src.is_finalized()) {
-        const_cast<ColumnObject&>(src).finalize();
-    }
-    // Use rows() here instead of size(), since size() will check_consistency
-    // but we could not check_consistency since num_rows will be upgraded even
-    // if src and dst is empty, we just increase the num_rows of dst and fill
-    // num_rows of default values when meet new data
-    size_t num_rows = dst.rows();
-    for (auto& entry : dst.get_subcolumns()) {
-        const auto* src_subcol = src.get_subcolumn(entry->path);
-        if (src_subcol == nullptr) {
-            entry->data.get_finalized_column().insert_many_defaults(row_cnt);
-        } else {
-            // It's the first time alignment, so that we should build it
-            if (entry->data.get_least_common_type()->get_type_id() == TypeIndex::Nothing) {
-                entry->data.add_new_column_part(src_subcol->get_least_common_type());
-            }
-            // TODO handle type confict here， like ColumnObject before
-            CHECK(entry->data.get_least_common_type()->equals(
-                    *src_subcol->get_least_common_type()));
-            const auto& src_column = src_subcol->get_finalized_column();
-            inserter(src_column, &entry->data.get_finalized_column());
-        }
-        dst.set_num_rows(entry->data.get_finalized_column().size());
-    }
-    for (const auto& entry : src.get_subcolumns()) {
-        // encounter a new column
-        const auto* dst_subcol = dst.get_subcolumn(entry->path);
-        if (dst_subcol == nullptr) {
-            auto type = entry->data.get_least_common_type();
-            auto new_column = type->create_column();
-            new_column->insert_many_defaults(num_rows);
-            inserter(entry->data.get_finalized_column(), new_column.get());
-            dst.set_num_rows(new_column->size());
-            dst.add_sub_column(entry->path, std::move(new_column));
-        }
-    }
-    num_rows += row_cnt;
-    if (dst.empty()) {
-        dst.incr_num_rows(row_cnt);
-    }
-#ifndef NDEBUG
-    // Check all columns rows matched
-    for (const auto& entry : dst.get_subcolumns()) {
-        DCHECK_EQ(entry->data.get_finalized_column().size(), num_rows);
-    }
-#endif
-}
-
 void ColumnObject::append_data_by_selector(MutableColumnPtr& res,
                                            const IColumn::Selector& selector) const {
-    // append by selector with alignment
-    ColumnObject& dst_column = *assert_cast<ColumnObject*>(res.get());
-    align_variant_by_name_and_type(dst_column, *this, selector.size(),
-                                   [&selector](const IColumn& src, IColumn* dst) {
-                                       auto mutable_dst = dst->assume_mutable();
-                                       src.append_data_by_selector(mutable_dst, selector);
-                                   });
+    return append_data_by_selector_impl<ColumnObject>(res, selector);
 }
 
-void ColumnObject::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                       const int* indices_end) {
-    // insert_indices_from with alignment
-    const ColumnObject& src_column = *check_and_get_column<ColumnObject>(src);
-    align_variant_by_name_and_type(*this, src_column, indices_end - indices_begin,
-                                   [indices_begin, indices_end](const IColumn& src, IColumn* dst) {
-                                       dst->insert_indices_from(src, indices_begin, indices_end);
-                                   });
+void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
+                                       const uint32_t* indices_end) {
+    for (const auto* x = indices_begin; x != indices_end; ++x) {
+        ColumnObject::insert_from(src, *x);
+    }
+}
+
+void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
+    if (!is_finalized()) {
+        // finalize has no side effect and can be safely used in const functions
+        const_cast<ColumnObject*>(this)->finalize();
+    }
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        if (n >= subcolumn.size()) {
+            LOG(FATAL) << n << " greater than column size " << subcolumn.size()
+                       << " sub_column_info:" << subcolumn.dump_structure()
+                       << " total lines of this column " << num_rows;
+        }
+        return subcolumn.update_hash_with_value(n, hash);
+    });
+}
+
+void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {
+    for (const auto& entry : subcolumns) {
+        for (auto& part : entry->data.data) {
+            callback(*part);
+        }
+    }
 }
 
 } // namespace doris::vectorized

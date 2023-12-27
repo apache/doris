@@ -126,6 +126,15 @@ public class ConnectScheduler {
         return connectionMap.get(connectionId);
     }
 
+    public ConnectContext getContextWithQueryId(String queryId) {
+        for (ConnectContext context : connectionMap.values()) {
+            if (queryId.equals(DebugUtil.printId(context.queryId))) {
+                return context;
+            }
+        }
+        return null;
+    }
+
     public ConnectContext getContext(String flightToken) {
         if (flightToken2ConnectionId.containsKey(flightToken)) {
             int connectionId = flightToken2ConnectionId.get(flightToken);
@@ -169,5 +178,9 @@ public class ConnectScheduler {
     public String getQueryIdByTraceId(String traceId) {
         TUniqueId queryId = traceId2QueryId.get(traceId);
         return queryId == null ? "" : DebugUtil.printId(queryId);
+    }
+
+    public Map<Integer, ConnectContext> getConnectionMap() {
+        return connectionMap;
     }
 }

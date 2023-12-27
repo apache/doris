@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -47,6 +48,17 @@ class TransposeSemiJoinAggTest implements MemoPatternMatchSupported {
                                 leftSemiLogicalJoin()
                         )
                 );
+    }
+
+    @Test
+    void rejectScalarAgg() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .agg(ImmutableList.of(), ImmutableList.of((new Sum(scan1.getOutput().get(0))).alias("sum")))
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .build();
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new TransposeSemiJoinAgg())
+                .matchesFromRoot(leftSemiLogicalJoin(logicalAggregate(), logicalOlapScan()));
     }
 
 }

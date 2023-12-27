@@ -42,30 +42,36 @@ public:
 
     void register_writer(std::weak_ptr<MemTableWriter> writer);
 
-    void refresh_mem_tracker() {
-        std::lock_guard<std::mutex> l(_lock);
-        _refresh_mem_tracker_without_lock();
-    }
+    void refresh_mem_tracker();
 
     MemTrackerLimiter* mem_tracker() { return _mem_tracker.get(); }
 
     int64_t mem_usage() const { return _mem_usage; }
 
 private:
-    void _refresh_mem_tracker_without_lock();
+    static int64_t _avail_mem_lack();
+    static int64_t _proc_mem_extra();
+
+    bool _soft_limit_reached();
+    bool _hard_limit_reached();
+    bool _load_usage_low();
+    void _flush_active_memtables(int64_t need_flush);
+    int64_t _flush_memtable(std::weak_ptr<MemTableWriter> writer_to_flush, int64_t threshold);
+    void _refresh_mem_tracker();
 
     std::mutex _lock;
-    // If hard limit reached, one thread will trigger load channel flush,
-    // other threads should wait on the condition variable.
-    bool _should_wait_flush = false;
-    std::condition_variable _wait_flush_cond;
+    std::condition_variable _hard_limit_end_cond;
     int64_t _mem_usage = 0;
+    int64_t _flush_mem_usage = 0;
+    int64_t _write_mem_usage = 0;
+    int64_t _active_mem_usage = 0;
 
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     int64_t _load_hard_mem_limit = -1;
     int64_t _load_soft_mem_limit = -1;
-    bool _soft_reduce_mem_in_progress = false;
+    int64_t _load_safe_mem_permit = -1;
 
     std::vector<std::weak_ptr<MemTableWriter>> _writers;
+    std::vector<std::weak_ptr<MemTableWriter>> _active_writers;
 };
 } // namespace doris

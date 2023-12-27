@@ -35,10 +35,17 @@ services:
       - ./init:/docker-entrypoint-initdb.d
     networks:
       - doris--postgres
-  doris--hello-world:
+  doris--postgres--hello-world:
     image: hello-world
     depends_on:
       doris--postgres:
-        condition: service_healthy 
+        condition: service_healthy
+    networks:
+      - doris--postgres
+
 networks:
   doris--postgres:
+    ipam:
+      driver: default
+      config:
+        - subnet: 168.41.0.0/24

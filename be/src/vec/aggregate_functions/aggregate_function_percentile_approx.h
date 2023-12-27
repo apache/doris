@@ -142,7 +142,7 @@ struct PercentileApproxState {
     }
 
     bool init_flag = false;
-    std::unique_ptr<TDigest> digest = nullptr;
+    std::unique_ptr<TDigest> digest;
     double target_quantile = INIT_QUANTILE;
     double compressions = 10000;
 };

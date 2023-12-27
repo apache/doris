@@ -40,6 +40,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
@@ -47,6 +48,7 @@ import org.apache.doris.common.SchemaVersionAndHash;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.load.GroupCommitManager.SchemaChangeStatus;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTask;
@@ -74,7 +76,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -126,9 +127,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
     @SerializedName(value = "indexes")
     private List<Index> indexes = null;
 
-    // The schema change job will wait all transactions before this txn id finished, then send the schema change tasks.
-    @SerializedName(value = "watershedTxnId")
-    protected long watershedTxnId = -1;
     @SerializedName(value = "storageFormat")
     private TStorageFormat storageFormat = TStorageFormat.DEFAULT;
 
@@ -325,7 +323,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                 } else {
                     // only show at most 3 results
                     List<String> subList = countDownLatch.getLeftMarks().stream().limit(3)
-                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = "  + item.getValue() + ")")
+                            .map(item -> "(backendId = " + item.getKey() + ", tabletId = " + item.getValue() + ")")
                             .collect(Collectors.toList());
                     errMsg = "Error replicas:" + Joiner.on(", ").join(subList);
                 }
@@ -532,12 +530,15 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     int failedTaskCount = failedAgentTasks.get(task.getTabletId()).size();
                     if (expectSucceedTaskNum - failedTaskCount < expectSucceedTaskNum / 2 + 1) {
                         throw new AlterCancelException("schema change tasks failed on same tablet reach threshold "
-                                    + failedAgentTasks.get(task.getTabletId()));
+                                + failedAgentTasks.get(task.getTabletId()));
                     }
                 }
             }
             return;
         }
+        long maxWalId = Env.getCurrentGlobalTransactionMgr()
+                .getTransactionIDGenerator().getNextTransactionId();
+        waitWalFinished(maxWalId);
         /*
          * all tasks are finished. check the integrity.
          * we just check whether all new replicas are healthy.
@@ -583,7 +584,6 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     } // end for tablets
                 }
             } // end for partitions
-
             // all partitions are good
             onFinished(tbl);
         } finally {
@@ -599,6 +599,35 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
         changeTableState(dbId, tableId, OlapTableState.NORMAL);
         LOG.info("set table's state to NORMAL, table id: {}, job id: {}", tableId, jobId);
+    }
+
+    private void waitWalFinished(long maxWalId) {
+        // wait wal done here
+        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.BLOCK);
+        LOG.info("block table {}", tableId);
+        List<Long> aliveBeIds = Env.getCurrentSystemInfo().getAllBackendIds(true);
+        long expireTime = System.currentTimeMillis() + Config.check_wal_queue_timeout_threshold;
+        boolean walFinished = false;
+        while (System.currentTimeMillis() < expireTime) {
+            LOG.info("wai for wal queue size to be empty");
+            walFinished = Env.getCurrentEnv().getGroupCommitManager()
+                    .isPreviousWalFinished(tableId, maxWalId, aliveBeIds);
+            if (walFinished) {
+                LOG.info("all wal is finished");
+                break;
+            } else {
+                try {
+                    Thread.sleep(100);
+                } catch (InterruptedException ie) {
+                    LOG.info("schema change job sleep wait for wal InterruptedException: ", ie);
+                }
+            }
+        }
+        if (!walFinished) {
+            LOG.warn("waitWalFinished time out");
+        }
+        Env.getCurrentEnv().getGroupCommitManager().setStatus(tableId, SchemaChangeStatus.NORMAL);
+        LOG.info("release table {}", tableId);
     }
 
     private void onFinished(OlapTable tbl) {
@@ -784,7 +813,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
 
         this.watershedTxnId = replayedJob.watershedTxnId;
-        jobState = JobState.WAITING_TXN;
+        jobState = JobState.PENDING;
         LOG.info("replay pending schema change job: {}, table id: {}", jobId, tableId);
     }
 

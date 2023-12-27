@@ -1005,7 +1005,7 @@ size_t LRUFileCache::get_file_segments_num_unlocked(CacheType cache_type,
 }
 
 void LRUFileCache::change_cache_type(const IFileCache::Key& key, size_t offset, CacheType new_type,
-                                     std::lock_guard<doris::Mutex>& cache_lock) {
+                                     std::lock_guard<std::mutex>& cache_lock) {
     if (auto iter = _files.find(key); iter != _files.end()) {
         auto& file_blocks = iter->second;
         if (auto cell_it = file_blocks.find(offset); cell_it != file_blocks.end()) {

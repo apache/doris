@@ -33,6 +33,7 @@ import java.util.Map;
  */
 public class SummaryProfile {
     // Summary
+    public static final String SUMMARY_PROFILE_NAME = "Summary";
     public static final String PROFILE_ID = "Profile ID";
     public static final String DORIS_VERSION = "Doris Version";
     public static final String TASK_TYPE = "Task Type";
@@ -53,6 +54,7 @@ public class SummaryProfile {
     public static final String WORKLOAD_GROUP = "Workload Group";
 
     // Execution Summary
+    public static final String EXECUTION_SUMMARY_PROFILE_NAME = "Execution Summary";
     public static final String ANALYSIS_TIME = "Analysis Time";
     public static final String JOIN_REORDER_TIME = "JoinReorder Time";
     public static final String CREATE_SINGLE_NODE_TIME = "CreateSingleNode Time";
@@ -69,13 +71,20 @@ public class SummaryProfile {
     public static final String WRITE_RESULT_TIME = "Write Result Time";
     public static final String WAIT_FETCH_RESULT_TIME = "Wait and Fetch Result Time";
 
+    public static final String NEREIDS_ANALYSIS_TIME = "Nereids Analysis Time";
+    public static final String NEREIDS_REWRITE_TIME = "Nereids Rewrite Time";
+    public static final String NEREIDS_OPTIMIZE_TIME = "Nereids Optimize Time";
+    public static final String NEREIDS_TRANSLATE_TIME = "Nereids Translate Time";
+
     // These info will display on FE's web ui table, every one will be displayed as
     // a column, so that should not
     // add many columns here. Add to ExcecutionSummary list.
     public static final ImmutableList<String> SUMMARY_KEYS = ImmutableList.of(PROFILE_ID, TASK_TYPE,
             START_TIME, END_TIME, TOTAL_TIME, TASK_STATE, USER, DEFAULT_DB, SQL_STATEMENT);
 
-    public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(WORKLOAD_GROUP, ANALYSIS_TIME,
+    public static final ImmutableList<String> EXECUTION_SUMMARY_KEYS = ImmutableList.of(
+            NEREIDS_ANALYSIS_TIME, NEREIDS_REWRITE_TIME, NEREIDS_OPTIMIZE_TIME, NEREIDS_TRANSLATE_TIME,
+            WORKLOAD_GROUP, ANALYSIS_TIME,
             PLAN_TIME, JOIN_REORDER_TIME, CREATE_SINGLE_NODE_TIME, QUERY_DISTRIBUTED_TIME,
             INIT_SCAN_NODE_TIME, FINALIZE_SCAN_NODE_TIME, GET_SPLITS_TIME, GET_PARTITIONS_TIME,
             GET_PARTITION_FILES_TIME, CREATE_SCAN_RANGE_TIME, SCHEDULE_TIME, FETCH_RESULT_TIME,
@@ -84,25 +93,25 @@ public class SummaryProfile {
 
     // Ident of each item. Default is 0, which doesn't need to present in this Map.
     // Please set this map for new profile items if they need ident.
-    public static ImmutableMap<String, Integer> EXECUTION_SUMMARY_KEYS_IDENTATION = ImmutableMap.of();
-
-    {
-        ImmutableMap.Builder builder = new ImmutableMap.Builder();
-        builder.put(JOIN_REORDER_TIME, 1);
-        builder.put(CREATE_SINGLE_NODE_TIME, 1);
-        builder.put(QUERY_DISTRIBUTED_TIME, 1);
-        builder.put(INIT_SCAN_NODE_TIME, 1);
-        builder.put(FINALIZE_SCAN_NODE_TIME, 1);
-        builder.put(GET_SPLITS_TIME, 2);
-        builder.put(GET_PARTITIONS_TIME, 3);
-        builder.put(GET_PARTITION_FILES_TIME, 3);
-        builder.put(CREATE_SCAN_RANGE_TIME, 2);
-        EXECUTION_SUMMARY_KEYS_IDENTATION = builder.build();
-    }
+    public static ImmutableMap<String, Integer> EXECUTION_SUMMARY_KEYS_IDENTATION = ImmutableMap.of(
+            JOIN_REORDER_TIME, 1,
+            CREATE_SINGLE_NODE_TIME, 1,
+            QUERY_DISTRIBUTED_TIME, 1,
+            INIT_SCAN_NODE_TIME, 1,
+            FINALIZE_SCAN_NODE_TIME, 1,
+            GET_SPLITS_TIME, 2,
+            GET_PARTITIONS_TIME, 3,
+            GET_PARTITION_FILES_TIME, 3,
+            CREATE_SCAN_RANGE_TIME, 2
+    );
 
     private RuntimeProfile summaryProfile;
     private RuntimeProfile executionSummaryProfile;
 
+    private long nereidsAnalysisFinishTime = -1;
+    private long nereidsRewriteFinishTime = -1;
+    private long nereidsOptimizeFinishTime = -1;
+    private long nereidsTranslateFinishTime = -1;
     // timestamp of query begin
     private long queryBeginTime = -1;
     // Analysis end time
@@ -133,8 +142,8 @@ public class SummaryProfile {
     private long queryWriteResultConsumeTime = 0;
 
     public SummaryProfile(RuntimeProfile rootProfile) {
-        summaryProfile = new RuntimeProfile("Summary");
-        executionSummaryProfile = new RuntimeProfile("Execution Summary");
+        summaryProfile = new RuntimeProfile(SUMMARY_PROFILE_NAME);
+        executionSummaryProfile = new RuntimeProfile(EXECUTION_SUMMARY_PROFILE_NAME);
         init();
         rootProfile.addChild(summaryProfile);
         rootProfile.addChild(executionSummaryProfile);
@@ -147,6 +156,19 @@ public class SummaryProfile {
         for (String key : EXECUTION_SUMMARY_KEYS) {
             executionSummaryProfile.addInfoString(key, "N/A");
         }
+    }
+
+    public void prettyPrint(StringBuilder builder) {
+        summaryProfile.prettyPrint(builder, "");
+        executionSummaryProfile.prettyPrint(builder, "");
+    }
+
+    public Map<String, String> getAsInfoStings() {
+        Map<String, String> infoStrings = Maps.newHashMap();
+        for (String header : SummaryProfile.SUMMARY_KEYS) {
+            infoStrings.put(header, summaryProfile.getInfoString(header));
+        }
+        return infoStrings;
     }
 
     public void update(Map<String, String> summaryInfo) {
@@ -167,6 +189,10 @@ public class SummaryProfile {
     }
 
     private void updateExecutionSummaryProfile() {
+        executionSummaryProfile.addInfoString(NEREIDS_ANALYSIS_TIME, getPrettyNereidsAnalysisTime());
+        executionSummaryProfile.addInfoString(NEREIDS_REWRITE_TIME, getPrettyNereidsRewriteTime());
+        executionSummaryProfile.addInfoString(NEREIDS_OPTIMIZE_TIME, getPrettyNereidsOptimizeTime());
+        executionSummaryProfile.addInfoString(NEREIDS_TRANSLATE_TIME, getPrettyNereidsTranslateTime());
         executionSummaryProfile.addInfoString(ANALYSIS_TIME, getPrettyQueryAnalysisFinishTime());
         executionSummaryProfile.addInfoString(PLAN_TIME, getPrettyQueryPlanFinishTime());
         executionSummaryProfile.addInfoString(JOIN_REORDER_TIME, getPrettyQueryJoinReorderFinishTime());
@@ -184,6 +210,22 @@ public class SummaryProfile {
         executionSummaryProfile.addInfoString(WRITE_RESULT_TIME,
                 RuntimeProfile.printCounter(queryWriteResultConsumeTime, TUnit.TIME_MS));
         executionSummaryProfile.addInfoString(WAIT_FETCH_RESULT_TIME, getPrettyQueryFetchResultFinishTime());
+    }
+
+    public void setNereidsAnalysisTime() {
+        this.nereidsAnalysisFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsRewriteTime() {
+        this.nereidsRewriteFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsOptimizeTime() {
+        this.nereidsOptimizeFinishTime = TimeUtils.getStartTimeMs();
+    }
+
+    public void setNereidsTranslateTime() {
+        this.nereidsTranslateFinishTime = TimeUtils.getStartTimeMs();
     }
 
     public void setQueryBeginTime() {
@@ -366,6 +408,34 @@ public class SummaryProfile {
         public Map<String, String> build() {
             return map;
         }
+    }
+
+    private String getPrettyNereidsAnalysisTime() {
+        if (nereidsAnalysisFinishTime == -1 || queryAnalysisFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(nereidsAnalysisFinishTime - queryBeginTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyNereidsRewriteTime() {
+        if (nereidsRewriteFinishTime == -1 || nereidsAnalysisFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(nereidsRewriteFinishTime - nereidsAnalysisFinishTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyNereidsOptimizeTime() {
+        if (nereidsOptimizeFinishTime == -1 || nereidsRewriteFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(nereidsOptimizeFinishTime - nereidsRewriteFinishTime, TUnit.TIME_MS);
+    }
+
+    private String getPrettyNereidsTranslateTime() {
+        if (nereidsTranslateFinishTime == -1 || nereidsOptimizeFinishTime == -1) {
+            return "N/A";
+        }
+        return RuntimeProfile.printCounter(nereidsTranslateFinishTime - nereidsOptimizeFinishTime, TUnit.TIME_MS);
     }
 
     private String getPrettyQueryAnalysisFinishTime() {

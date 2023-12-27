@@ -30,7 +30,7 @@ suite("test_create_table_like") {
             `timestamp1` decimal(10, 0) null comment "c1",
             `timestamp2` decimal(10, 1) null comment "c2",
             `timestamp3` decimalv3(10, 0) null comment "c3",
-            `timestamp4` decimalv3(10, 1) null comment "c4",
+            `timestamp4` decimalv3(10, 1) null comment "c4"
         )
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         PROPERTIES ('replication_num' = '1')"""

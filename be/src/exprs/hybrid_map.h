@@ -33,7 +33,7 @@ public:
     virtual ~HybridMap() {}
 
     virtual HybridSetBase* find_or_insert_set(uint64_t dst, bool* is_add_buckets) {
-        HybridSetBase* _set_ptr;
+        HybridSetBase* _set_ptr = nullptr;
         typename std::unordered_map<uint64_t, HybridSetBase*>::const_iterator it = _map.find(dst);
 
         if (it == _map.end()) {

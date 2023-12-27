@@ -37,7 +37,6 @@ import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.scheduler.exception.JobException;
 import org.apache.doris.scheduler.executor.TransientTaskExecutor;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Lists;
@@ -67,10 +66,16 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
     private AtomicBoolean isFinished;
 
     ExportTaskExecutor(List<StatementBase> selectStmtLists, ExportJob exportJob) {
+        this.taskId = UUID.randomUUID().getMostSignificantBits();
         this.selectStmtLists = selectStmtLists;
         this.exportJob = exportJob;
         this.isCanceled = new AtomicBoolean(false);
         this.isFinished = new AtomicBoolean(false);
+    }
+
+    @Override
+    public Long getId() {
+        return taskId;
     }
 
     @Override
@@ -176,7 +181,6 @@ public class ExportTaskExecutor implements TransientTaskExecutor {
         TUniqueId queryId = new TUniqueId(uuid.getMostSignificantBits(), uuid.getLeastSignificantBits());
         connectContext.setQueryId(queryId);
         connectContext.setStartTime();
-        connectContext.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         return new AutoCloseConnectContext(connectContext);
     }
 

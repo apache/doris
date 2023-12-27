@@ -27,15 +27,15 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
 import org.apache.doris.nereids.types.DateV2Type;
 
-import java.time.DateTimeException;
 import java.time.LocalDate;
-import java.time.temporal.ChronoUnit;
+import java.time.LocalDateTime;
 
 /**
  * date like type.
  */
 public abstract class DateLikeType extends PrimitiveType {
-    private LocalDate toLocalDate(double d) {
+
+    protected LocalDate toLocalDate(double d) {
         // d = (year * 10000 + month * 100 + day) * 1000000L;
         int date = (int) (d / 1000000);
         int day = date % 100;
@@ -44,21 +44,18 @@ public abstract class DateLikeType extends PrimitiveType {
         return LocalDate.of(year, month, day);
     }
 
-    @Override
-    public double rangeLength(double high, double low) {
-        if (high == low) {
-            return 0;
-        }
-        if (Double.isInfinite(high) || Double.isInfinite(low)) {
-            return Double.POSITIVE_INFINITY;
-        }
-        try {
-            LocalDate to = toLocalDate(high);
-            LocalDate from = toLocalDate(low);
-            return ChronoUnit.DAYS.between(from, to);
-        } catch (DateTimeException e) {
-            return Double.POSITIVE_INFINITY;
-        }
+    protected LocalDateTime toLocalDateTime(double d) {
+        // d = (year * 10000 + month * 100 + day) * 1000000L + time
+        // time = (hour * 10000 + minute * 100 + second);
+        int date = (int) (d / 1000000);
+        int day = date % 100;
+        int month = (date / 100) % 100;
+        int year = date / 10000;
+        int time = (int) (d % 1000000);
+        int second = time % 100;
+        int minute = (time / 100) % 100;
+        int hour = time / 10000;
+        return LocalDateTime.of(year, month, day, hour, minute, second);
     }
 
     /**

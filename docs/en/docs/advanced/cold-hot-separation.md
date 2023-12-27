@@ -46,7 +46,7 @@ The cold and hot separation supports all doris functions, but only places some d
 - Remote object space recycling recycler. If the table and partition are deleted, or the space is wasted due to abnormal conditions in the cold and hot separation process, the recycler thread will periodically recycle, saving storage resources
 - Cache optimization, which caches the accessed cold data to be local, achieving the query performance of non cold and hot separation
 - Be thread pool optimization, distinguish whether the data source is local or object storage, and prevent the delay of reading objects from affecting query performance
-- newly created materialized view would inherit storage policy from it's base table's correspoding partition
+- newly created materialized view would inherit storage policy from it's base table's corresponding partition
 
 ## Storage policy
 

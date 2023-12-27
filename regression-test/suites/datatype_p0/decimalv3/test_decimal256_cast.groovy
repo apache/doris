@@ -37,4 +37,8 @@ suite("test_decimal256_cast") {
     qt_decimal256_cast7 """SELECT /*+ SET_VAR(enable_fold_constant_by_be = true) */
         cast("-999999999999999999999999999999999999999999999999999999999999999999.9999999999" as decimalv3(76,10));"""
 
+    qt_decimal256_cast8 """
+        select cast('0.000000000000000000000000000000000000000000000000000000000000000000000012345678901' as decimalv3(76,0));
+    """
+
 }

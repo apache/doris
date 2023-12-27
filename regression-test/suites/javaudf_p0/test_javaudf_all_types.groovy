@@ -51,11 +51,11 @@ suite("test_javaudf_all_types") {
         int i = 1
         for (; i < 10; i++) {
             sb.append("""
-                (${i},${i%2},${i},${i}*2,${i}*3,${i}*4,${3.33/i},${7.77/i},${3.1415/i},"2023-10-${i+17}","2023-10-${i+10} 10:1${i}:11.234","row${i}",array(null, "nested${i}"),{"k${i}":null,"k${i+1}":${i}}),
+                (${i},${i%2},${i},${i}*2,${i}*3,${i}*4,${3.33/i},${(7.77/i).round(3)},${(3.1415/i).round(5)},"2023-10-${i+17}","2023-10-${i+10} 10:1${i}:11.234","row${i}",array(null, "nested${i}"),{"k${i}":null,"k${i+1}":${i}}),
             """)
         }
         sb.append("""
-                (${i},${i%2},null,${i}*2,${i}*3,${i}*4,null,${7.77/i},${3.1415/i},null,"2023-10-${i+10} 10:${i}:11.234",null,array(null, "nested${i}"),{"k${i}":null,"k${i+1}":${i}})
+                (${i},${i%2},null,${i}*2,${i}*3,${i}*4,null,${(7.77/i).round(3)},${(3.1415/i).round(5)},null,"2023-10-${i+10} 10:${i}:11.234",null,array(null, "nested${i}"),{"k${i}":null,"k${i+1}":${i}})
             """)
         sql """ INSERT INTO ${tableName} VALUES
              ${sb.toString()}

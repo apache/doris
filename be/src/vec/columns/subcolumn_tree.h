@@ -116,6 +116,8 @@ public:
         leaves.push_back(root);
     }
 
+    void add_leaf(const NodePtr& node) { leaves.push_back(node); }
+
     bool add(const PathInData& path, const NodeCreator& node_creator) {
         const auto& parts = path.get_parts();
 
@@ -218,6 +220,7 @@ public:
 
     const Nodes& get_leaves() const { return leaves; }
     const Node* get_root() const { return root.get(); }
+    const NodePtr& get_root_ptr() const { return root; }
     Node* get_mutable_root() { return root.get(); }
 
     static void get_leaves_of_node(const Node* node, std::vector<const Node*>& nodes,

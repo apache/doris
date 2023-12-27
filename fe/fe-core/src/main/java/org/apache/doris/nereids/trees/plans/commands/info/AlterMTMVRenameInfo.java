@@ -17,6 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.commands.info;
 
+import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -40,6 +43,7 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
 
     /**
      * analyze
+     *
      * @param ctx ctx
      * @throws AnalysisException AnalysisException
      */
@@ -54,6 +58,8 @@ public class AlterMTMVRenameInfo extends AlterMTMVInfo {
 
     @Override
     public void run() throws DdlException {
-        throw new AnalysisException("current not support.");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
+        Table table = db.getTableOrDdlException(mvName.getTbl());
+        Env.getCurrentEnv().renameTable(db, table, newName);
     }
 }

@@ -61,7 +61,7 @@ None
 			"BuildInfo": "cmy@192.168.1",
 			"BuildTime": "Tuesday, 05 September 2019 11:07:42 CST"
 		},
-		"HarewareInfo": {
+		"HardwareInfo": {
 			"NetworkParameter": "...",
 			"Processor": "...",
 			"OS": "...",
@@ -76,4 +76,4 @@ None
 }
 ```
 
-* The contents of each value in the `HarewareInfo` field are all hardware information text displayed in html format.
+* The contents of each value in the `HardwareInfo` field are all hardware information text displayed in html format.

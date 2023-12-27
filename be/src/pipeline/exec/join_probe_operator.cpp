@@ -134,9 +134,8 @@ Status JoinProbeLocalState<DependencyType, Derived>::_build_output_block(
             }
         }
 
-        if (!is_mem_reuse || !keep_origin) {
-            output_block->swap(mutable_block.to_block());
-        }
+        output_block->swap(mutable_block.to_block());
+
         DCHECK(output_block->rows() == rows);
     }
 
@@ -225,10 +224,10 @@ Status JoinProbeOperatorX<LocalStateType>::open(doris::RuntimeState* state) {
     return vectorized::VExpr::open(_output_expr_ctxs, state);
 }
 
-template class JoinProbeLocalState<HashJoinDependency, HashJoinProbeLocalState>;
+template class JoinProbeLocalState<HashJoinProbeDependency, HashJoinProbeLocalState>;
 template class JoinProbeOperatorX<HashJoinProbeLocalState>;
 
-template class JoinProbeLocalState<NestedLoopJoinDependency, NestedLoopJoinProbeLocalState>;
+template class JoinProbeLocalState<NestedLoopJoinProbeDependency, NestedLoopJoinProbeLocalState>;
 template class JoinProbeOperatorX<NestedLoopJoinProbeLocalState>;
 
 } // namespace doris::pipeline

@@ -45,9 +45,7 @@ public class MasterCatalogExecutor {
     }
 
     public void forward(long catalogId, long dbId) throws Exception {
-        if (!Env.getCurrentEnv().isReady()) {
-            throw new Exception("Current catalog is not ready, please wait for a while.");
-        }
+        Env.getCurrentEnv().checkReadyOrThrow();
         String masterHost = Env.getCurrentEnv().getMasterHost();
         int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
         TNetworkAddress thriftAddress = new TNetworkAddress(masterHost, masterRpcPort);
@@ -66,7 +64,7 @@ public class MasterCatalogExecutor {
         boolean isReturnToPool = false;
         try {
             TInitExternalCtlMetaResult result = client.initExternalCtlMeta(request);
-            ConnectContext.get().getEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
+            Env.getCurrentEnv().getJournalObservable().waitOn(result.maxJournalId, waitTimeoutMs);
             if (!result.getStatus().equalsIgnoreCase(STATUS_OK)) {
                 throw new UserException(result.getStatus());
             }

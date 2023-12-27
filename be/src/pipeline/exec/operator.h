@@ -142,7 +142,7 @@ public:
     NodeType* exec_node() const { return _node; }
 
 protected:
-    NodeType* _node;
+    NodeType* _node = nullptr;
 };
 
 template <typename SinkType>
@@ -160,7 +160,7 @@ public:
     SinkType* exec_node() const { return _sink; }
 
 protected:
-    SinkType* _sink;
+    SinkType* _sink = nullptr;
 };
 
 class OperatorBase {
@@ -241,12 +241,6 @@ public:
     virtual Status sink(RuntimeState* state, vectorized::Block* block,
                         SourceState source_state) = 0;
 
-    virtual Status finalize(RuntimeState* state) {
-        std::stringstream error_msg;
-        error_msg << " not a sink, can not finalize";
-        return Status::NotSupported(error_msg.str());
-    }
-
     /**
      * pending_finish means we have called `close` and there are still some work to do before finishing.
      * Now it is a pull-based pipeline and operators pull data from its child by this method.
@@ -271,11 +265,11 @@ public:
     [[nodiscard]] virtual RuntimeProfile* get_runtime_profile() const = 0;
 
 protected:
-    OperatorBuilderBase* _operator_builder;
+    OperatorBuilderBase* _operator_builder = nullptr;
     OperatorPtr _child;
 
     // Used on pipeline X
-    OperatorXPtr _child_x;
+    OperatorXPtr _child_x = nullptr;
 
     bool _is_closed;
 };
@@ -323,15 +317,13 @@ public:
         return Status::OK();
     }
 
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
-
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override { return _sink->profile(); }
     void set_query_statistics(std::shared_ptr<QueryStatistics> statistics) override {
         _sink->set_query_statistics(statistics);
     }
 
 protected:
-    NodeType* _sink;
+    NodeType* _sink = nullptr;
 };
 
 /**
@@ -391,8 +383,6 @@ public:
         return Status::OK();
     }
 
-    Status finalize(RuntimeState* state) override { return Status::OK(); }
-
     bool can_read() override { return _node->can_read(); }
 
     [[nodiscard]] RuntimeProfile* get_runtime_profile() const override {
@@ -410,7 +400,7 @@ public:
     }
 
 protected:
-    NodeType* _node;
+    NodeType* _node = nullptr;
     bool _use_projection;
 };
 
@@ -454,7 +444,7 @@ public:
 
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<OperatorBuilderType>(builder, node),
-              _child_block(vectorized::Block::create_unique()),
+              _child_block(vectorized::Block::create_shared()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;
@@ -494,7 +484,7 @@ public:
     }
 
 protected:
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::shared_ptr<vectorized::Block> _child_block;
     SourceState _child_source_state;
 };
 

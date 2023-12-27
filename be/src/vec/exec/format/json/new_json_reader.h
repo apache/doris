@@ -141,16 +141,30 @@ private:
 
     // simdjson, replace none simdjson function if it is ready
     Status _simdjson_init_reader();
-    Status _simdjson_parse_json(bool* is_empty_row, bool* eof);
-    Status _simdjson_parse_json_doc(size_t* size, bool* eof);
+    Status _simdjson_parse_json(size_t* size, bool* is_empty_row, bool* eof,
+                                simdjson::error_code* error);
+    Status _get_json_value(size_t* size, bool* eof, simdjson::error_code* error,
+                           bool* is_empty_row);
+    Status _judge_empty_row(size_t size, bool eof, bool* is_empty_row);
+
+    Status _handle_simdjson_error(simdjson::simdjson_error& error, Block& block, size_t num_rows,
+                                  bool* eof);
 
     Status _simdjson_handle_simple_json(RuntimeState* state, Block& block,
                                         const std::vector<SlotDescriptor*>& slot_descs,
                                         bool* is_empty_row, bool* eof);
 
+    Status _simdjson_handle_simple_json_write_columns(
+            Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+            bool* eof);
+
     Status _simdjson_handle_flat_array_complex_json(RuntimeState* state, Block& block,
                                                     const std::vector<SlotDescriptor*>& slot_descs,
                                                     bool* is_empty_row, bool* eof);
+
+    Status _simdjson_handle_flat_array_complex_json_write_columns(
+            Block& block, const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
+            bool* eof);
 
     Status _simdjson_handle_nested_complex_json(RuntimeState* state, Block& block,
                                                 const std::vector<SlotDescriptor*>& slot_descs,
@@ -182,9 +196,9 @@ private:
     Status _fill_missing_column(SlotDescriptor* slot_desc, vectorized::IColumn* column_ptr,
                                 bool* valid);
 
-    RuntimeState* _state;
-    RuntimeProfile* _profile;
-    ScannerCounter* _counter;
+    RuntimeState* _state = nullptr;
+    RuntimeProfile* _profile = nullptr;
+    ScannerCounter* _counter = nullptr;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
     io::FileSystemProperties _system_properties;
@@ -226,15 +240,15 @@ private:
     rapidjson::Value* _json_doc; // _json_doc equals _final_json_doc iff not set `json_root`
     std::unordered_map<std::string, int> _name_map;
 
-    bool* _scanner_eof;
+    bool* _scanner_eof = nullptr;
 
     size_t _current_offset;
 
-    io::IOContext* _io_ctx;
+    io::IOContext* _io_ctx = nullptr;
 
-    RuntimeProfile::Counter* _bytes_read_counter;
-    RuntimeProfile::Counter* _read_timer;
-    RuntimeProfile::Counter* _file_read_timer;
+    RuntimeProfile::Counter* _bytes_read_counter = nullptr;
+    RuntimeProfile::Counter* _read_timer = nullptr;
+    RuntimeProfile::Counter* _file_read_timer = nullptr;
 
     // ======SIMD JSON======
     // name mapping
@@ -246,6 +260,8 @@ private:
     /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
     std::vector<UInt8> _seen_columns;
     // simdjson
+    std::unique_ptr<uint8_t[]> _json_str_ptr;
+    const uint8_t* _json_str = nullptr;
     static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
     size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
     size_t _original_doc_size = 0;
@@ -258,7 +274,7 @@ private:
     // array_iter pointed to _array
     simdjson::ondemand::array_iterator _array_iter;
     simdjson::ondemand::array _array;
-    std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
+    std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser;
     // column to default value string map
     std::unordered_map<std::string, std::string> _col_default_value_map;
 };

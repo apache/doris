@@ -37,6 +37,7 @@
 #include <filesystem>
 #include <iterator>
 #include <list>
+#include <mutex>
 #include <new>
 #include <ostream>
 #include <random>
@@ -45,6 +46,7 @@
 #include <unordered_set>
 #include <utility>
 
+#include "agent/task_worker_pool.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -57,6 +59,7 @@
 #include "olap/data_dir.h"
 #include "olap/full_compaction.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/olap_common.h"
 #include "olap/olap_define.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset_meta.h"
@@ -117,7 +120,8 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _is_all_cluster_id_exist(true),
           _stopped(false),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
-          _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
+          _segment_meta_mem_tracker(std::make_shared<MemTracker>(
+                  "SegmentMeta", ExecEnv::GetInstance()->experimental_mem_tracker())),
           _stop_background_threads_latch(1),
           _tablet_manager(new TabletManager(config::tablet_map_shard_size)),
           _txn_manager(new TxnManager(config::txn_map_shard_size, config::txn_shard_size)),
@@ -330,7 +334,7 @@ Status StorageEngine::get_all_data_dir_info(std::vector<DataDirInfo>* data_dir_i
         std::lock_guard<std::mutex> l(_store_lock);
         for (auto& it : _store_map) {
             if (need_update) {
-                static_cast<void>(it.second->update_capacity());
+                RETURN_IF_ERROR(it.second->update_capacity());
             }
             path_map.emplace(it.first, it.second->get_dir_info());
         }
@@ -398,7 +402,9 @@ Status StorageEngine::_check_file_descriptor_number() {
         LOG(ERROR) << "File descriptor number is less than " << config::min_file_descriptor_number
                    << ". Please use (ulimit -n) to set a value equal or greater than "
                    << config::min_file_descriptor_number;
-        return Status::InternalError("file descriptors limit is too small");
+        return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
+                "file descriptors limit {} is small than {}", l.rlim_cur,
+                config::min_file_descriptor_number);
     }
     return Status::OK();
 }
@@ -426,7 +432,7 @@ Status StorageEngine::_check_all_root_path_cluster_id() {
 
     // write cluster id into cluster_id_path if get effective cluster id success
     if (_effective_cluster_id != -1 && !_is_all_cluster_id_exist) {
-        static_cast<void>(set_cluster_id(_effective_cluster_id));
+        RETURN_IF_ERROR(set_cluster_id(_effective_cluster_id));
     }
 
     return Status::OK();
@@ -768,7 +774,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
     }
 
     // clear expire incremental rowset, move deleted tablet to trash
-    static_cast<void>(_tablet_manager->start_trash_sweep());
+    RETURN_IF_ERROR(_tablet_manager->start_trash_sweep());
 
     // clean rubbish transactions
     _clean_unused_txns();
@@ -1152,20 +1158,14 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
         *store = stores[0];
     }
 
-    Status res = Status::OK();
-    uint64_t shard = 0;
-    res = (*store)->get_shard(&shard);
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to get root path shard. res=" << res;
-        return res;
-    }
+    uint64_t shard = (*store)->get_shard();
 
     std::stringstream root_path_stream;
     root_path_stream << (*store)->path() << "/" << DATA_PREFIX << "/" << shard;
     *shard_path = root_path_stream.str();
 
     LOG(INFO) << "success to process obtain root path. path=" << shard_path;
-    return res;
+    return Status::OK();
 }
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
@@ -1207,36 +1207,40 @@ Status StorageEngine::load_header(const string& shard_path, const TCloneReq& req
     return res;
 }
 
-void StorageEngine::register_report_listener(TaskWorkerPool* listener) {
+void StorageEngine::register_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    CHECK(_report_listeners.find(listener) == _report_listeners.end());
-    _report_listeners.insert(listener);
+    if (std::find(_report_listeners.begin(), _report_listeners.end(), listener) !=
+        _report_listeners.end()) [[unlikely]] {
+        return;
+    }
+    _report_listeners.push_back(listener);
 }
 
-void StorageEngine::deregister_report_listener(TaskWorkerPool* listener) {
+void StorageEngine::deregister_report_listener(ReportWorker* listener) {
     std::lock_guard<std::mutex> l(_report_mtx);
-    _report_listeners.erase(listener);
+    if (auto it = std::find(_report_listeners.begin(), _report_listeners.end(), listener);
+        it != _report_listeners.end()) {
+        _report_listeners.erase(it);
+    }
 }
 
 void StorageEngine::notify_listeners() {
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        listener->notify_thread();
+        listener->notify();
     }
 }
 
-void StorageEngine::notify_listener(TaskWorkerPool::TaskWorkerType task_worker_type) {
+bool StorageEngine::notify_listener(std::string_view name) {
+    bool found = false;
     std::lock_guard<std::mutex> l(_report_mtx);
     for (auto& listener : _report_listeners) {
-        if (listener->task_worker_type() == task_worker_type) {
-            listener->notify_thread();
+        if (listener->name() == name) {
+            listener->notify();
+            found = true;
         }
     }
-}
-
-Status StorageEngine::execute_task(EngineTask* task) {
-    RETURN_IF_ERROR(task->execute());
-    return task->finish();
+    return found;
 }
 
 // check whether any unused rowsets's id equal to rowset_id
@@ -1426,6 +1430,26 @@ Status StorageEngine::_persist_broken_paths() {
     }
 
     return Status::OK();
+}
+
+bool StorageEngine::_increase_low_priority_task_nums(DataDir* dir) {
+    if (!config::enable_compaction_priority_scheduling) {
+        return true;
+    }
+    std::lock_guard l(_low_priority_task_nums_mutex);
+    if (_low_priority_task_nums[dir] < config::low_priority_compaction_task_num_per_disk) {
+        _low_priority_task_nums[dir]++;
+        return true;
+    }
+    return false;
+}
+
+void StorageEngine::_decrease_low_priority_task_nums(DataDir* dir) {
+    if (config::enable_compaction_priority_scheduling) {
+        std::lock_guard l(_low_priority_task_nums_mutex);
+        _low_priority_task_nums[dir]--;
+        DCHECK(_low_priority_task_nums[dir] >= 0);
+    }
 }
 
 } // namespace doris
