@@ -47,7 +47,6 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/pod_array.h"
-#include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
@@ -82,6 +81,7 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
                                const int32_t row_group_id, const tparquet::RowGroup& row_group,
                                cctz::time_zone* ctz, io::IOContext* io_ctx,
                                const PositionDeleteContext& position_delete_ctx,
+                               const Block& equality_delete_ids,
                                const LazyReadContext& lazy_read_ctx, RuntimeState* state)
         : _file_reader(file_reader),
           _read_columns(read_columns),
@@ -91,6 +91,7 @@ RowGroupReader::RowGroupReader(io::FileReaderSPtr file_reader,
           _ctz(ctz),
           _io_ctx(io_ctx),
           _position_delete_ctx(position_delete_ctx),
+          _equality_delete_block(equality_delete_ids),
           _lazy_read_ctx(lazy_read_ctx),
           _state(state),
           _obj_pool(new ObjectPool()) {}
@@ -324,6 +325,8 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
         }
 
         RETURN_IF_ERROR(_build_pos_delete_filter(*read_rows));
+        // do equality detete filter
+        RETURN_IF_ERROR(_build_equality_delete_filter(block, *read_rows));
 
         std::vector<uint32_t> columns_to_filter;
         int column_to_keep = block->columns();
@@ -335,6 +338,9 @@ Status RowGroupReader::next_batch(Block* block, size_t batch_size, size_t* read_
             std::vector<IColumn::Filter*> filters;
             if (_position_delete_ctx.has_filter) {
                 filters.push_back(_pos_delete_filter_ptr.get());
+            }
+            if (nullptr != _equ_delete_filter_ptr) {
+                filters.push_back(_equ_delete_filter_ptr.get());
             }
             IColumn::Filter result_filter(block->rows(), 1);
             bool can_filter_all = false;
@@ -461,6 +467,9 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
 
         RETURN_IF_ERROR(_build_pos_delete_filter(pre_read_rows));
 
+        // do equality detete filter
+        RETURN_IF_ERROR(_build_equality_delete_filter(block, pre_read_rows));
+
         // generate filter vector
         if (_lazy_read_ctx.resize_first_column) {
             // VExprContext.execute has an optimization, the filtering is executed when block->rows() > 0
@@ -472,6 +481,9 @@ Status RowGroupReader::_do_lazy_read(Block* block, size_t batch_size, size_t* re
         std::vector<IColumn::Filter*> filters;
         if (_position_delete_ctx.has_filter) {
             filters.push_back(_pos_delete_filter_ptr.get());
+        }
+        if (nullptr != _equ_delete_filter_ptr) {
+            filters.push_back(_equ_delete_filter_ptr.get());
         }
 
         VExprContextSPtrs filter_contexts;
@@ -763,12 +775,86 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
     return Status::OK();
 }
 
+Status RowGroupReader::_build_equality_delete_filter(Block* block, const size_t read_rows) {
+    if (_equality_delete_block.rows() == 0) {
+        _equ_delete_filter_ptr.reset(nullptr);
+        return Status::OK();
+    }
+
+    _equ_delete_filter_ptr.reset(new IColumn::Filter(read_rows, 1));
+    auto* __restrict _equ_delete_filter_data = _equ_delete_filter_ptr->data();
+    // data block pos list
+    std::list<EqualityDeleteNode> data_pos_list;
+    for (int i = 0; i < read_rows; ++i) {
+        if (_equ_delete_filter_data[i]) data_pos_list.push_back(EqualityDeleteNode(i));
+    }
+    // equality block pos list
+    std::list<std::pair<size_t, int>> del_pos_list;
+    for (int i = 0; i < _equality_delete_block.rows(); ++i) {
+        del_pos_list.push_back(std::make_pair(i, 0));
+    }
+
+    int need_hit(0);
+    auto it_block = _equality_delete_block.begin();
+    for (; it_block != _equality_delete_block.end(); ++it_block) {
+        std::string col_name = it_block->name;
+        if (_lazy_read_ctx.partition_columns.find(col_name) !=
+            _lazy_read_ctx.partition_columns.end()) {
+            continue;
+        }
+        auto equality_col = it_block->column;
+        auto data_col = block->get_by_name(col_name).column;
+        need_hit += 1;
+
+        auto it_data_pos = data_pos_list.begin();
+        for (; it_data_pos != data_pos_list.end();) {
+            bool hit(false);
+            for (auto it_del_pos = del_pos_list.begin(); it_del_pos != del_pos_list.end();
+                 ++it_del_pos) {
+                if (data_col->compare_at(it_data_pos->_row_pos, it_del_pos->first, *equality_col,
+                                         -1) == 0) {
+                    int hit_num = it_data_pos->add(it_del_pos->first);
+                    if (hit_num == need_hit) {
+                        it_del_pos->second = hit_num;
+                        hit = true;
+                    }
+                }
+            }
+            if (hit)
+                ++it_data_pos;
+            else
+                data_pos_list.erase(it_data_pos++);
+        }
+
+        auto it_del_pos = del_pos_list.begin();
+        for (; it_del_pos != del_pos_list.end();) {
+            if (it_del_pos->second == need_hit)
+                ++it_del_pos;
+            else {
+                del_pos_list.erase(it_del_pos++);
+            }
+        }
+    }
+
+    for (auto data_pos_pos = data_pos_list.begin(); data_pos_pos != data_pos_list.end();
+         ++data_pos_pos) {
+        _equ_delete_filter_data[data_pos_pos->_row_pos] = 0;
+    }
+    VLOG_NOTICE << "RowGroupReader::_build_equality_delete_filter finish. equality_filter: "
+                << data_pos_list.size();
+    return Status::OK();
+}
+
 // need exception safety
 Status RowGroupReader::_filter_block(Block* block, int column_to_keep,
                                      const std::vector<uint32_t>& columns_to_filter) {
     if (_pos_delete_filter_ptr) {
         RETURN_IF_CATCH_EXCEPTION(
                 Block::filter_block_internal(block, columns_to_filter, (*_pos_delete_filter_ptr)));
+    }
+    if (_equ_delete_filter_ptr) {
+        RETURN_IF_CATCH_EXCEPTION(
+                Block::filter_block_internal(block, columns_to_filter, (*_equ_delete_filter_ptr)));
     }
     Block::erase_useless_column(block, column_to_keep);
 

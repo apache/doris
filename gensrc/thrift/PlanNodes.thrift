@@ -287,7 +287,8 @@ struct TIcebergDeleteFileDesc {
     1: optional string path;
     2: optional i64 position_lower_bound;
     3: optional i64 position_upper_bound;
-    4: optional list<i32> field_ids;
+    4: optional i32 content;
+    5: optional list<i32> field_ids;
 }
 
 struct TIcebergFileDesc {

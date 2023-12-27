@@ -126,6 +126,10 @@ public:
     // set the delete rows in current parquet file
     void set_delete_rows(const std::vector<int64_t>* delete_rows) { _delete_rows = delete_rows; }
 
+    void set_equality_delete_ids(const Block& equality_delete_ids) {
+        _equality_delete_ids = equality_delete_ids;
+    }
+
     int64_t size() const { return _file_reader->size(); }
 
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
@@ -149,6 +153,12 @@ public:
     std::vector<tparquet::KeyValue> get_metadata_key_values();
     void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
         _table_col_to_file_col = map;
+    }
+    void set_file_col_to_col_id_map(std::unordered_map<std::string, uint32_t>& map) {
+        _file_col_to_col_id = map;
+    }
+    void set_file_col_to_slot_id_map(std::unordered_map<std::string, int>& map) {
+        _file_col_to_slot_id = map;
     }
 
 private:
@@ -237,11 +247,16 @@ private:
     int32_t _total_groups; // num of groups(stripes) of a parquet(orc) file
     // table column name to file column name map. For iceberg schema evolution.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
+    // file column name to col_id and slot_id
+    std::unordered_map<std::string, uint32_t> _file_col_to_col_id;
+    std::unordered_map<std::string, int> _file_col_to_slot_id;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range = nullptr;
     std::vector<std::string> _read_columns;
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
+    // block save for equality delete info
+    Block _equality_delete_ids;
 
     // Used for column lazy read.
     RowGroupReader::LazyReadContext _lazy_read_ctx;

@@ -141,6 +141,9 @@ public class Column implements Writable, GsonPostProcessable {
 
     private boolean isCompoundKey = false;
 
+    @SerializedName(value = "isIdentifierKey")
+    private boolean isIdentifierKey = false;
+
     @SerializedName(value = "hasOnUpdateDefaultValue")
     private boolean hasOnUpdateDefaultValue = false;
 
@@ -295,6 +298,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.hasOnUpdateDefaultValue = column.hasOnUpdateDefaultValue;
         this.onUpdateDefaultValueExprDef = column.onUpdateDefaultValueExprDef;
         this.clusterKeyId = column.getClusterKeyId();
+        this.isIdentifierKey = column.isIdentifierKey();
     }
 
     public void createChildrenColumn(Type type, Column column) {
@@ -1155,6 +1159,14 @@ public class Column implements Writable, GsonPostProcessable {
 
     public void setCompoundKey(boolean compoundKey) {
         isCompoundKey = compoundKey;
+    }
+
+    public boolean isIdentifierKey() {
+        return isIdentifierKey;
+    }
+
+    public void setIdentifierKey(boolean identifierKey) {
+        isIdentifierKey = identifierKey;
     }
 
     public boolean hasDefaultValue() {

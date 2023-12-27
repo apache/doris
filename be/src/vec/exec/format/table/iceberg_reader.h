@@ -105,9 +105,12 @@ private:
         RuntimeProfile::Counter* num_delete_rows;
         RuntimeProfile::Counter* delete_files_read_time;
         RuntimeProfile::Counter* delete_rows_sort_time;
+        RuntimeProfile::Counter* delete_equality_files_read_time;
     };
 
     Status _position_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files);
+
+    Status _equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files);
 
     /**
      * https://iceberg.apache.org/spec/#position-delete-files
@@ -141,6 +144,9 @@ private:
     std::unordered_map<std::string, std::string> _file_col_to_table_col;
     // table column name to file column name map. For iceberg schema evolution.
     std::unordered_map<std::string, std::string> _table_col_to_file_col;
+    // file column name to col_id and slot_id
+    std::unordered_map<std::string, uint32_t> _file_col_to_col_id;
+    std::unordered_map<std::string, int> _file_col_to_slot_id;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     // copy from _colname_to_value_range with new column name that is in parquet file, to support schema evolution.
     std::unordered_map<std::string, ColumnValueRangeType> _new_colname_to_value_range;
@@ -150,6 +156,13 @@ private:
     std::vector<std::string> _all_required_col_names;
     // col names in table but not in parquet file
     std::vector<std::string> _not_in_file_col_names;
+
+    // expr conjunct context used from request
+    VExprContextSPtrs _vconjunct_ctx;
+    // expr conjunct context used for equality delete read
+    VExprContextSPtrs _equality_vconjunct_ctx;
+    // block saved for equality delete data
+    Block _equality_delete_block;
 
     io::IOContext* _io_ctx;
     bool _has_schema_change = false;

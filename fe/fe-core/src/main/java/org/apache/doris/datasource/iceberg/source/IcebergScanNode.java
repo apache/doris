@@ -151,6 +151,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                 deleteFileDesc.setPath(splitDeletePath.toString());
                 if (filter instanceof IcebergDeleteFileFilter.PositionDelete) {
                     fileDesc.setContent(FileContent.POSITION_DELETES.id());
+                    deleteFileDesc.setContent(FileContent.POSITION_DELETES.id());
                     IcebergDeleteFileFilter.PositionDelete positionDelete =
                             (IcebergDeleteFileFilter.PositionDelete) filter;
                     OptionalLong lowerBound = positionDelete.getPositionLowerBound();
@@ -163,6 +164,7 @@ public class IcebergScanNode extends FileQueryScanNode {
                     }
                 } else {
                     fileDesc.setContent(FileContent.EQUALITY_DELETES.id());
+                    deleteFileDesc.setContent(FileContent.EQUALITY_DELETES.id());
                     IcebergDeleteFileFilter.EqualityDelete equalityDelete =
                             (IcebergDeleteFileFilter.EqualityDelete) filter;
                     deleteFileDesc.setFieldIds(equalityDelete.getFieldIds());
@@ -325,7 +327,9 @@ public class IcebergScanNode extends FileQueryScanNode {
                         positionLowerBound.orElse(-1L), positionUpperBound.orElse(-1L)));
             } else if (delete.content() == FileContent.EQUALITY_DELETES) {
                 // todo: filters.add(IcebergDeleteFileFilter.createEqualityDelete(delete.path().toString(),
-                throw new IllegalStateException("Don't support equality delete file");
+                // throw new IllegalStateException("Don't support equality delete file");
+                filters.add(IcebergDeleteFileFilter.createEqualityDelete(delete.path().toString(),
+                        delete.equalityFieldIds()));
             } else {
                 throw new IllegalStateException("Unknown delete content: " + delete.content());
             }
