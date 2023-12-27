@@ -163,8 +163,10 @@ public class Utils {
             List<Expression> correlatedSlots) {
         List<Expression> slots = new ArrayList<>();
         correlatedPredicates.forEach(predicate -> {
-            if (!(predicate instanceof BinaryExpression) && !(predicate instanceof Not)) {
-                throw new AnalysisException("UnSupported expr type: " + correlatedPredicates);
+            if (!(predicate instanceof BinaryExpression)
+                    && (!(predicate instanceof Not) || !(predicate.child(0) instanceof BinaryExpression))) {
+                throw new AnalysisException("Unsupported correlated subquery with"
+                        + " non-equals correlated predicate " + predicate.toSql());
             }
 
             BinaryExpression binaryExpression;
