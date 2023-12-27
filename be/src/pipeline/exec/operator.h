@@ -275,18 +275,17 @@ protected:
 };
 
 /**
- * All operators inherited from DataSinkOperator will hold a SinkNode inside. Namely, it is a one-to-one relation between DataSinkOperator and DataSink.
+ * All operators inherited from DataSinkOperator will hold a SinkNode inside.
+ * Namely, it is a one-to-one relation between DataSinkOperator and DataSink.
  *
- * It should be mentioned that, not all SinkOperators are inherited from this (e.g. SortSinkOperator which holds a sort node inside instead of a DataSink).
+ * It should be mentioned that, not all SinkOperators are inherited from this
+ * (e.g. SortSinkOperator which holds a sort node inside instead of a DataSink).
  */
-template <typename OperatorBuilderType>
+template <typename DataSinkType>
 class DataSinkOperator : public OperatorBase {
 public:
-    using NodeType =
-            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
-
     DataSinkOperator(OperatorBuilderBase* builder, DataSink* sink)
-            : OperatorBase(builder), _sink(reinterpret_cast<NodeType*>(sink)) {}
+            : OperatorBase(builder), _sink(reinterpret_cast<DataSinkType*>(sink)) {}
 
     ~DataSinkOperator() override = default;
 
@@ -323,7 +322,7 @@ public:
     }
 
 protected:
-    NodeType* _sink = nullptr;
+    DataSinkType* _sink = nullptr;
 };
 
 /**
