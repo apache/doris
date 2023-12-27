@@ -367,10 +367,9 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
     ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
-    if (http_req->header(HTTP_GROUP_COMMIT) == "async mode") {
+    if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
         if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
-            size_t content_length = 0;
-            content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
             if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
                 ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
                 ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||

@@ -98,8 +98,7 @@ suite("insert_group_commit_into") {
             )
             DISTRIBUTED BY HASH(`id`) BUCKETS 1
             PROPERTIES (
-                "replication_num" = "1",
-                "group_commit_interval_ms" = "200"
+                "replication_num" = "1"
             );
             """
 
