@@ -46,6 +46,11 @@ JdbcConnectorParam VJdbcTableWriter::create_connect_param(const doris::TDataSink
     jdbc_param.query_string = t_jdbc_sink.insert_sql;
     jdbc_param.table_name = t_jdbc_sink.jdbc_table.jdbc_table_name;
     jdbc_param.use_transaction = t_jdbc_sink.use_transaction;
+    jdbc_param.min_pool_size = t_jdbc_sink.jdbc_table.jdbc_min_pool_size;
+    jdbc_param.max_pool_size = t_jdbc_sink.jdbc_table.jdbc_max_pool_size;
+    jdbc_param.max_idle_time = t_jdbc_sink.jdbc_table.jdbc_max_idle_time;
+    jdbc_param.max_wait_time = t_jdbc_sink.jdbc_table.jdbc_max_wait_time;
+    jdbc_param.keep_alive = t_jdbc_sink.jdbc_table.jdbc_keep_alive;
 
     return jdbc_param;
 }
