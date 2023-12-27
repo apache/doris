@@ -156,7 +156,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
-            if (!_column_readers.at(uid)->match_condition(&and_predicate)) {
+            if (_column_readers.count(uid) >= 1 &&
+                !_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
                 iter->reset(new EmptySegmentIterator(*schema));
                 read_options.stats->filtered_segment_number++;
