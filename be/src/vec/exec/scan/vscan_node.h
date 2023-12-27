@@ -177,6 +177,20 @@ public:
 
     RuntimeProfile* scanner_profile() { return _scanner_profile.get(); }
 
+    Status get_next_after_projects(
+            RuntimeState* state, vectorized::Block* block, bool* eos,
+            const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
+            bool clear_data = true) override {
+        Defer defer([block, this]() {
+            if (block && !block->empty()) {
+                COUNTER_UPDATE(_output_bytes_counter, block->allocated_bytes());
+                COUNTER_UPDATE(_block_count_counter, 1);
+            }
+        });
+        _peak_memory_usage_counter->set(_mem_tracker->peak_consumption());
+        return get_next(state, block, eos);
+    }
+
 protected:
     // Different data sources register different profiles by implementing this method
     virtual Status _init_profile();
