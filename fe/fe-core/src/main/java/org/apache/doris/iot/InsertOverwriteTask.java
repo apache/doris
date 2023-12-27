@@ -17,35 +17,36 @@
 
 package org.apache.doris.iot;
 
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.common.DdlException;
 
 import java.util.List;
 
-public class InsertOverwriteTableTask {
-    private static final Logger LOG = LogManager.getLogger(InsertOverwriteTableTask.class);
+public class InsertOverwriteTask {
 
-    private boolean normal;
+    private boolean cancel;
     private long dbId;
     private long tableId;
     private List<String> tempPartitionNames;
 
-    public InsertOverwriteTableTask() {
+    public InsertOverwriteTask() {
     }
 
-    public InsertOverwriteTableTask(long dbId, long tableId, List<String> tempPartitionNames) {
+    public InsertOverwriteTask(long dbId, long tableId, List<String> tempPartitionNames) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.tempPartitionNames = tempPartitionNames;
-        this.normal = true;
+        this.cancel = false;
     }
 
-    public boolean isNormal() {
-        return normal;
+    public boolean isCancel() {
+        return cancel;
     }
 
-    public void setNormal(boolean normal) {
-        this.normal = normal;
+    public void setCancel(boolean cancel) {
+        this.cancel = cancel;
     }
 
     public long getDbId() {
@@ -70,5 +71,21 @@ public class InsertOverwriteTableTask {
 
     public void setTempPartitionNames(List<String> tempPartitionNames) {
         this.tempPartitionNames = tempPartitionNames;
+    }
+
+    public OlapTable getTable() throws DdlException {
+        return (OlapTable) Env.getCurrentEnv().getInternalCatalog().getDbOrDdlException(dbId)
+                .getTableOrDdlException(tableId,
+                        TableType.OLAP);
+    }
+
+    @Override
+    public String toString() {
+        return "InsertOverwriteTask{"
+                + "cancel=" + cancel
+                + ", dbId=" + dbId
+                + ", tableId=" + tableId
+                + ", tempPartitionNames=" + tempPartitionNames
+                + '}';
     }
 }

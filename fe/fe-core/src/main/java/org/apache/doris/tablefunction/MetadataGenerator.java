@@ -31,6 +31,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.extensions.mtmv.MTMVTask;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -615,6 +616,11 @@ public class MetadataGenerator {
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
             List<AbstractTask> tasks = job.queryAllTasks();
             for (AbstractTask task : tasks) {
+                if (task instanceof MTMVTask) {
+                    // mtmv  逻辑
+                } else {
+                    // innser 逻辑
+                }
                 TRow tvfInfo = task.getTvfInfo();
                 if (tvfInfo != null) {
                     dataBatch.add(tvfInfo);
