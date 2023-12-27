@@ -21,14 +21,22 @@
 #include <glog/logging.h>
 
 #include <atomic>
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <vector>
 
 #include "client_cache.h"
 #include "common/config.h"
+#include "common/status.h"
 #include "olap/wal_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/thrift_rpc_helper.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
@@ -46,7 +54,6 @@ Status LoadBlockQueue::add_block(std::shared_ptr<vectorized::Block> block, bool 
             RETURN_IF_ERROR(_v_wal_writer->write_wal(block.get()));
         }
         _all_block_queues_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
-        _single_block_queue_bytes->fetch_add(block->bytes(), std::memory_order_relaxed);
     }
     _get_cond.notify_all();
     return Status::OK();
@@ -68,7 +75,6 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
     }
     while (!runtime_state->is_cancelled() && status.ok() && _block_queue.empty() &&
            (!need_commit || (need_commit && !_load_ids.empty()))) {
-        CHECK_EQ(_single_block_queue_bytes->load(), 0);
         auto left_milliseconds = _group_commit_interval_ms;
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
                                 std::chrono::steady_clock::now() - _start_time)
@@ -106,10 +112,8 @@ Status LoadBlockQueue::get_block(RuntimeState* runtime_state, vectorized::Block*
         *find_block = true;
         _block_queue.pop_front();
         _all_block_queues_bytes->fetch_sub(block->bytes(), std::memory_order_relaxed);
-        _single_block_queue_bytes->fetch_sub(block->bytes(), std::memory_order_relaxed);
     }
     if (_block_queue.empty() && need_commit && _load_ids.empty()) {
-        CHECK_EQ(_single_block_queue_bytes->load(), 0);
         *eos = true;
     } else {
         *eos = false;
@@ -150,7 +154,6 @@ void LoadBlockQueue::_cancel_without_lock(const Status& st) {
         {
             auto& future_block = _block_queue.front();
             _all_block_queues_bytes->fetch_sub(future_block->bytes(), std::memory_order_relaxed);
-            _single_block_queue_bytes->fetch_sub(future_block->bytes(), std::memory_order_relaxed);
         }
         _block_queue.pop_front();
     }
@@ -333,11 +336,12 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
                 10000L);
         result_status = Status::create(result.status);
     }
+    std::shared_ptr<LoadBlockQueue> load_block_queue;
     {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _load_block_queues.find(instance_id);
         if (it != _load_block_queues.end()) {
-            auto& load_block_queue = it->second;
+            load_block_queue = it->second;
             if (!status.ok()) {
                 load_block_queue->cancel(status);
             }
@@ -357,7 +361,8 @@ Status GroupCommitTable::_finish_group_commit_load(int64_t db_id, int64_t table_
     // result_status: commit txn result
     if (status.ok() && st.ok() &&
         (result_status.ok() || result_status.is<ErrorCode::PUBLISH_TIMEOUT>())) {
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(txn_id));
+        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(
+                txn_id, load_block_queue->block_queue_pre_allocated.load()));
         RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(table_id, txn_id));
     } else {
         std::string wal_path;
@@ -443,8 +448,9 @@ Status GroupCommitMgr::get_first_block_load_queue(int64_t db_id, int64_t table_i
         }
         group_commit_table = _table_map[table_id];
     }
-    return group_commit_table->get_first_block_load_queue(table_id, base_schema_version, load_id,
-                                                          load_block_queue, be_exe_version);
+    RETURN_IF_ERROR(group_commit_table->get_first_block_load_queue(
+            table_id, base_schema_version, load_id, load_block_queue, be_exe_version));
+    return Status::OK();
 }
 
 Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& instance_id,
@@ -461,11 +467,14 @@ Status GroupCommitMgr::get_load_block_queue(int64_t table_id, const TUniqueId& i
     }
     return group_commit_table->get_load_block_queue(instance_id, load_block_queue);
 }
+
 Status LoadBlockQueue::create_wal(int64_t db_id, int64_t tb_id, int64_t wal_id,
                                   const std::string& import_label, WalManager* wal_manager,
                                   std::vector<TSlotDescriptor>& slot_desc, int be_exe_version) {
+    RETURN_IF_ERROR(ExecEnv::GetInstance()->wal_mgr()->add_wal_path(db_id, tb_id, wal_id,
+                                                                    import_label, wal_base_path));
     _v_wal_writer = std::make_shared<vectorized::VWalWriter>(
-            db_id, tb_id, wal_id, import_label, wal_manager, slot_desc, be_exe_version);
+            tb_id, wal_id, import_label, wal_manager, slot_desc, be_exe_version);
     return _v_wal_writer->init();
 }
 
@@ -473,6 +482,69 @@ Status LoadBlockQueue::close_wal() {
     if (_v_wal_writer != nullptr) {
         RETURN_IF_ERROR(_v_wal_writer->close());
     }
+    return Status::OK();
+}
+
+bool LoadBlockQueue::has_enough_wal_disk_space(
+        const std::vector<std::shared_ptr<vectorized::Block>>& blocks, const TUniqueId& load_id,
+        bool is_blocks_contain_all_load_data) {
+    size_t blocks_size = 0;
+    for (auto block : blocks) {
+        blocks_size += block->bytes();
+    }
+    size_t content_length = 0;
+    Status st = ExecEnv::GetInstance()->group_commit_mgr()->get_load_info(load_id, &content_length);
+    if (st.ok()) {
+        RETURN_IF_ERROR(ExecEnv::GetInstance()->group_commit_mgr()->remove_load_info(load_id));
+    } else {
+        return Status::InternalError("can not find load id.");
+    }
+    size_t pre_allocated = is_blocks_contain_all_load_data
+                                   ? blocks_size
+                                   : (blocks_size > content_length ? blocks_size : content_length);
+    auto* wal_mgr = ExecEnv::GetInstance()->wal_mgr();
+    size_t available_bytes = 0;
+    {
+        st = wal_mgr->get_wal_dir_available_size(wal_base_path, &available_bytes);
+        if (!st.ok()) {
+            LOG(WARNING) << "get wal disk available size filed!";
+        }
+    }
+    if (pre_allocated < available_bytes) {
+        st = wal_mgr->update_wal_dir_pre_allocated(wal_base_path, pre_allocated, true);
+        if (!st.ok()) {
+            LOG(WARNING) << "update wal dir pre_allocated failed, reason: " << st.to_string();
+        }
+        block_queue_pre_allocated.fetch_add(pre_allocated);
+        return true;
+    } else {
+        return false;
+    }
+}
+
+Status GroupCommitMgr::update_load_info(TUniqueId load_id, size_t content_length) {
+    std::unique_lock l(_load_info_lock);
+    if (_load_id_to_content_length_map.find(load_id) == _load_id_to_content_length_map.end()) {
+        _load_id_to_content_length_map.insert(std::make_pair(load_id, content_length));
+    }
+    return Status::OK();
+}
+
+Status GroupCommitMgr::get_load_info(TUniqueId load_id, size_t* content_length) {
+    std::shared_lock l(_load_info_lock);
+    if (_load_id_to_content_length_map.find(load_id) != _load_id_to_content_length_map.end()) {
+        *content_length = _load_id_to_content_length_map[load_id];
+        return Status::OK();
+    }
+    return Status::InternalError("can not find load id!");
+}
+
+Status GroupCommitMgr::remove_load_info(TUniqueId load_id) {
+    std::unique_lock l(_load_info_lock);
+    if (_load_id_to_content_length_map.find(load_id) == _load_id_to_content_length_map.end()) {
+        return Status::InternalError("can not remove load id!");
+    }
+    _load_id_to_content_length_map.erase(load_id);
     return Status::OK();
 }
 } // namespace doris
