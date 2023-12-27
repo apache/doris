@@ -103,27 +103,32 @@ Status Channel::init(RuntimeState* state) {
     return Status::OK();
 }
 
-Status Channel::send_current_block(bool eos) {
+Status Channel::send_current_block(bool eos, const Status& exec_status) {
     // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
     // so this feature is turned off here by default. We need to re-examine this logic
     if (is_local()) {
-        return send_local_block(eos);
+        return send_local_block(eos, exec_status);
     }
     SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
     auto block = _mutable_block->to_block();
     RETURN_IF_ERROR(_parent->serialize_block(&block, _ch_cur_pb_block));
     block.clear_column_data();
     _mutable_block->set_muatable_columns(block.mutate_columns());
-    RETURN_IF_ERROR(send_block(_ch_cur_pb_block, eos));
+    RETURN_IF_ERROR(send_remote_block(_ch_cur_pb_block, eos, exec_status));
     ch_roll_pb_block();
     return Status::OK();
 }
 
-Status Channel::send_local_block(bool eos) {
+Status Channel::send_local_block(bool eos, const Status& exec_status) {
     SCOPED_TIMER(_parent->_local_send_timer);
     Block block = _mutable_block->to_block();
     _mutable_block->set_muatable_columns(block.clone_empty_columns());
     if (_recvr_is_valid()) {
+        if (!exec_status.ok()) {
+            _local_recvr->cancel_stream(exec_status.msg());
+            return Status::OK();
+        }
+
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block.bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block.rows());
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
@@ -139,9 +144,14 @@ Status Channel::send_local_block(bool eos) {
     }
 }
 
-Status Channel::send_local_block(Block* block) {
+Status Channel::send_local_block(Block* block, const Status& exec_status) {
     SCOPED_TIMER(_parent->_local_send_timer);
     if (_recvr_is_valid()) {
+        if (!exec_status.ok()) {
+            _local_recvr->cancel_stream(exec_status.msg());
+            return Status::OK();
+        }
+
         COUNTER_UPDATE(_parent->_local_bytes_send_counter, block->bytes());
         COUNTER_UPDATE(_parent->_local_sent_rows, block->rows());
         COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
@@ -152,7 +162,7 @@ Status Channel::send_local_block(Block* block) {
     }
 }
 
-Status Channel::send_block(PBlock* block, bool eos) {
+Status Channel::send_remote_block(PBlock* block, bool eos, const Status& exec_status) {
     SCOPED_TIMER(_parent->_brpc_send_timer);
     COUNTER_UPDATE(_parent->_blocks_sent_counter, 1);
     if (_closure == nullptr) {
@@ -172,6 +182,11 @@ Status Channel::send_block(PBlock* block, bool eos) {
     }
 
     _brpc_request.set_eos(eos);
+
+    if (!exec_status.ok()) {
+        exec_status.to_protobuf(_brpc_request.mutable_exec_status());
+    }
+
     if (block != nullptr) {
         _brpc_request.set_allocated_block(block);
     }
@@ -253,30 +268,35 @@ Status Channel::close_wait(RuntimeState* state) {
     return Status::OK();
 }
 
-Status Channel::close_internal() {
+Status Channel::close_internal(const Status& exec_status) {
     if (!_need_close) {
         return Status::OK();
     }
-    VLOG_RPC << "Channel::close() instance_id=" << _fragment_instance_id
+
+    VLOG_RPC << "Channel::close() instance_id=" << print_id(_fragment_instance_id)
              << " dest_node=" << _dest_node_id
              << " #rows= " << ((_mutable_block == nullptr) ? 0 : _mutable_block->rows())
-             << " receiver status: " << _receiver_status;
+             << " receiver status: " << _receiver_status << " close status: " << exec_status.msg();
+
     if (is_receiver_eof()) {
         _mutable_block.reset();
         return Status::OK();
     }
     Status status;
     if (_mutable_block != nullptr && _mutable_block->rows() > 0) {
-        status = send_current_block(true);
+        status = send_current_block(true, exec_status);
     } else {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
         if (is_local()) {
             if (_recvr_is_valid()) {
+                if (!exec_status.ok()) {
+                    _local_recvr->cancel_stream(exec_status.msg());
+                }
                 _local_recvr->remove_sender(_parent->_sender_id, _be_number,
                                             _parent->query_statisticsPtr());
             }
         } else {
-            status = send_block((PBlock*)nullptr, true);
+            status = send_remote_block((PBlock*)nullptr, true, exec_status);
         }
     }
     // Don't wait for the last packet to finish, left it to close_wait.
@@ -287,13 +307,13 @@ Status Channel::close_internal() {
     }
 }
 
-Status Channel::close(RuntimeState* state) {
+Status Channel::close(RuntimeState* state, const Status& exec_status) {
     if (_closed) {
         return Status::OK();
     }
     _closed = true;
 
-    Status st = close_internal();
+    Status st = close_internal(exec_status);
     if (!st.ok()) {
         state->log_error(st.to_string());
     }
@@ -555,7 +575,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         status = channel->send_local_block(block);
                     } else {
                         SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                        status = channel->send_block(block_holder, eos);
+                        status = channel->send_broadcast_block(block_holder, eos);
                     }
                     HANDLE_CHANNEL_STATUS(state, channel, status);
                 }
@@ -573,7 +593,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         status = channel->send_local_block(block);
                     } else {
                         SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-                        status = channel->send_block(_cur_pb_block, eos);
+                        status = channel->send_remote_block(_cur_pb_block, eos);
                     }
                     HANDLE_CHANNEL_STATUS(state, channel, status);
                 }
@@ -592,7 +612,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
             } else {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(serialize_block(block, current_channel->ch_cur_pb_block()));
-                auto status = current_channel->send_block(current_channel->ch_cur_pb_block(), eos);
+                auto status =
+                        current_channel->send_remote_block(current_channel->ch_cur_pb_block(), eos);
                 HANDLE_CHANNEL_STATUS(state, current_channel, status);
                 current_channel->ch_roll_pb_block();
             }
@@ -682,7 +703,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
 Status VDataStreamSender::try_close(RuntimeState* state, Status exec_status) {
     Status final_st = Status::OK();
     for (int i = 0; i < _channels.size(); ++i) {
-        Status st = _channels[i]->close(state);
+        Status st = _channels[i]->close(state, exec_status);
         if (!st.ok() && final_st.ok()) {
             final_st = st;
         }
@@ -698,7 +719,7 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
     Status final_st = Status::OK();
     if (!state->enable_pipeline_exec()) {
         for (int i = 0; i < _channels.size(); ++i) {
-            Status st = _channels[i]->close(state);
+            Status st = _channels[i]->close(state, exec_status);
             if (!st.ok() && final_st.ok()) {
                 final_st = st;
             }

@@ -78,6 +78,8 @@ suite("test_index_match_regexp", "p0"){
     try {
         load_httplogs_data.call(indexTbName1, 'test_index_match_regexp', 'true', 'json', 'documents-1000.json')
 
+        sql 'sync'
+
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^h'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp '^team'; """
         qt_sql """ select count() from test_index_match_regexp where request match_regexp 's\$'; """
