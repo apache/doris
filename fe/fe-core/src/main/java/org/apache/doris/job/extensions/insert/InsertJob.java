@@ -197,13 +197,13 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
     }
 
     public InsertJob(ConnectContext ctx,
-                      StmtExecutor executor,
-                      String labelName,
-                      List<InsertIntoTableCommand> plans,
-                      Set<String> sinkTableNames,
-                      Map<String, String> properties,
-                      String comment,
-                      JobExecutionConfiguration jobConfig) {
+                     StmtExecutor executor,
+                     String labelName,
+                     List<InsertIntoTableCommand> plans,
+                     Set<String> sinkTableNames,
+                     Map<String, String> properties,
+                     String comment,
+                     JobExecutionConfiguration jobConfig) {
         super(getNextJobId(), labelName, JobStatus.RUNNING, null,
                 comment, ctx.getCurrentUserIdentity(), jobConfig);
         this.ctx = ctx;
@@ -219,6 +219,12 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
     @Override
     public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
+        if (null == plans) {
+            plans = new ArrayList<>();
+        }
+        if (null == idToTasks) {
+            idToTasks = new ConcurrentHashMap<>();
+        }
         if (plans.isEmpty()) {
             InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
             idToTasks.put(task.getTaskId(), task);
@@ -462,9 +468,16 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> {
 
 
     public static InsertJob readFields(DataInput in) throws IOException {
+        //fix me : some field is not set and this method is not used
         String jsonJob = Text.readString(in);
         InsertJob job = GsonUtils.GSON.fromJson(jsonJob, InsertJob.class);
         job.setRunningTasks(new ArrayList<>());
+        if (null == job.plans) {
+            job.plans = new ArrayList<>();
+        }
+        if (null == job.idToTasks) {
+            job.idToTasks = new ConcurrentHashMap<>();
+        }
         return job;
     }
 

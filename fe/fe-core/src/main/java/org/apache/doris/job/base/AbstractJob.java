@@ -89,7 +89,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @SerializedName(value = "sql")
     String executeSql;
 
-    public AbstractJob() {}
+    public AbstractJob() {
+    }
 
     public AbstractJob(Long id) {
         jobId = id;
@@ -99,10 +100,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
      * executeSql and runningTasks is not required for load.
      */
     public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
-                            String currentDbName,
-                            String comment,
-                            UserIdentity createUser,
-                            JobExecutionConfiguration jobConfig) {
+                       String currentDbName,
+                       String comment,
+                       UserIdentity createUser,
+                       JobExecutionConfiguration jobConfig) {
         this(jobId, jobName, jobStatus, currentDbName, comment,
                 createUser, jobConfig, System.currentTimeMillis(), null, null);
     }
@@ -137,6 +138,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         for (T task : runningTasks) {
             task.cancel();
         }
+        runningTasks = new ArrayList<>();
     }
 
     private static final ImmutableList<String> TITLE_NAMES =
@@ -163,6 +165,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
                 .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
+        runningTasks.removeIf(task -> task.getTaskId().equals(taskId));
         if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
             updateJobStatus(JobStatus.FINISHED);
         }
@@ -364,10 +367,12 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     }
 
     @Override
-    public void onRegister() throws JobException {}
+    public void onRegister() throws JobException {
+    }
 
     @Override
-    public void onUnRegister() throws JobException {}
+    public void onUnRegister() throws JobException {
+    }
 
     @Override
     public void onReplayCreate() throws JobException {
