@@ -1310,6 +1310,7 @@ bool PipelineXFragmentContext::_has_inverted_index_or_partial_update(TOlapTableS
 
 std::string PipelineXFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "PipelineXFragmentContext Info:\n");
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
