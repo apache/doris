@@ -295,8 +295,8 @@ mysql> KILL ANALYZE 52357;
 |auto_analyze_end_time|End time for automatic statistics collection|23:59:59|
 |enable_auto_analyze|Enable automatic collection functionality|true|
 |huge_table_default_sample_rows|Sampling rows for large tables|4194304|
-|huge_table_lower_bound_size_in_bytes|Tables with size greater than this value will be automatically sampled during collection of statistics|5368709120|
-|huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Tables with sizes greater than `huge_table_lower_bound_size_in_bytes * 5` will be ANALYZEed only once within this time interval.|43200000|
+|huge_table_lower_bound_size_in_bytes|Tables with size greater than this value will be automatically sampled during collection of statistics|0|
+|huge_table_auto_analyze_interval_in_millis|Controls the minimum time interval for automatic ANALYZE on large tables. Tables with sizes greater than `huge_table_lower_bound_size_in_bytes * 5` will be ANALYZEed only once within this time interval.|0|
 |table_stats_health_threshold|Ranges from 0 to 100. If data updates since the last statistics collection exceed `(100 - table_stats_health_threshold)%`, the table's statistics are considered outdated.|60|
 |analyze_timeout|Controls the timeout for synchronous ANALYZE in seconds|43200|
 |auto_analyze_table_width_threshold|Controls the maximum width of table that will be auto analyzed. Table with more columns than this value will not be auto analyzed.|70|
