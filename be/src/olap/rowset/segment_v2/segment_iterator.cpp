@@ -1601,8 +1601,15 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema->column_ids()) {
-                // pred column also needs to be filtered by expr, exclude additional deleted column,
-                // not required by query engine.
+                // pred column also needs to be filtered by expr, exclude delete condition column,
+                // Delete condition column not need to be filtered, query engine does not need it,
+                // after _output_column_by_sel_idx, delete condition materialize column will be erase
+                // at the end of the block.
+                // Eg:
+                //      `delete from table where a = 10;`
+                //      `select b from table;`
+                // a column only effective in segment iterator, the block from query engine only contain the b column,
+                // so no need to filter a column by expr.
                 if (_is_common_expr_column[cid] || is_pred_column_no_del_condition[cid]) {
                     auto loc = _schema_block_id_map[cid];
                     _columns_to_filter.push_back(loc);
