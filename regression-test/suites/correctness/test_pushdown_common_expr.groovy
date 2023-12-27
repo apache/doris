@@ -167,7 +167,7 @@ suite("test_pushdown_common_expr") {
     DISTRIBUTED BY HASH(`c1`) BUCKETS 1
     PROPERTIES (
         "replication_allocation" = "tag.location.default: 1",
-        "disable_auto_compaction" = "false"
+        "disable_auto_compaction" = "true"
     );
     """
 
