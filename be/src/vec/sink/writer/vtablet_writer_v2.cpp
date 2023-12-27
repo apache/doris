@@ -502,6 +502,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             for (const auto& [_, streams] : _streams_for_node) {
                 streams->release();
             }
+            _streams_for_node.clear();
         });
 
         {
@@ -541,7 +542,6 @@ Status VTabletWriterV2::close(Status exec_status) {
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
                                              std::make_move_iterator(tablet_commit_infos.end()));
-        _streams_for_node.clear();
 
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
