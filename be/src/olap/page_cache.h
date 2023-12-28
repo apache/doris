@@ -177,20 +177,20 @@ private:
     Cache* _get_page_cache(segment_v2::PageTypePB page_type) {
         switch (page_type) {
         case segment_v2::DATA_PAGE: {
-            if (_data_page_cache) {
-                return _data_page_cache->get();
+            if (_data_page_cache->is_init()) {
+                return _data_page_cache->cache();
             }
             return nullptr;
         }
         case segment_v2::INDEX_PAGE: {
-            if (_index_page_cache) {
-                return _index_page_cache->get();
+            if (_index_page_cache->is_init()) {
+                return _index_page_cache->cache();
             }
             return nullptr;
         }
         case segment_v2::PRIMARY_KEY_INDEX_PAGE: {
-            if (_pk_index_page_cache) {
-                return _pk_index_page_cache->get();
+            if (_pk_index_page_cache->is_init()) {
+                return _pk_index_page_cache->cache();
             }
             return nullptr;
         }

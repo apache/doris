@@ -222,20 +222,20 @@ private:
             delete cache_value;
         };
         LOG(INFO) << "Add item mem size " << item->mem_size()
-                  << ", cache_capacity: " << _cache->get_total_capacity()
-                  << ", cache_usage: " << _cache->get_usage()
-                  << ", mem_consum: " << _cache->mem_consumption();
+                  << ", cache_capacity: " << cache()->get_total_capacity()
+                  << ", cache_usage: " << cache()->get_usage()
+                  << ", mem_consum: " << cache()->mem_consumption();
         auto lru_handle =
-                _cache->insert(key, value, item->mem_size(), deleter, CachePriority::NORMAL);
-        _cache->release(lru_handle);
+                cache()->insert(key, value, item->mem_size(), deleter, CachePriority::NORMAL);
+        cache()->release(lru_handle);
     }
 
     std::shared_ptr<Reusable> get(__int128_t cache_id) {
         std::string key = encode_key(cache_id);
-        auto lru_handle = _cache->lookup(key);
+        auto lru_handle = cache()->lookup(key);
         if (lru_handle) {
-            Defer release([cache = _cache.get(), lru_handle] { cache->release(lru_handle); });
-            auto value = (CacheValue*)_cache->value(lru_handle);
+            Defer release([cache = cache(), lru_handle] { cache->release(lru_handle); });
+            auto value = (CacheValue*)cache()->value(lru_handle);
             value->last_visit_time = UnixMillis();
             return value->item;
         }

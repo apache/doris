@@ -113,12 +113,6 @@ public:
     static InvertedIndexSearcherCache* create_global_instance(size_t capacity,
                                                               uint32_t num_shards = 16);
 
-    void reset() {
-        _cache.reset();
-        _mem_tracker.reset();
-        // Reset or clear the state of the object.
-    }
-
     // Return global instance.
     // Client should call create_global_cache before.
     static InvertedIndexSearcherCache* instance() {
@@ -153,9 +147,6 @@ private:
     // And the cache entry will be returned in handle.
     // This function is thread-safe.
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
-
-private:
-    std::unique_ptr<MemTracker> _mem_tracker;
 };
 
 using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;

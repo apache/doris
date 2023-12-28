@@ -32,18 +32,18 @@ bool ObjLRUCache::lookup(const ObjKey& key, CacheHandle* handle) {
     if (!_enabled) {
         return false;
     }
-    auto lru_handle = _cache->lookup(key.key);
+    auto lru_handle = cache()->lookup(key.key);
     if (!lru_handle) {
         // cache miss
         return false;
     }
-    *handle = CacheHandle(_cache.get(), lru_handle);
+    *handle = CacheHandle(cache(), lru_handle);
     return true;
 }
 
 void ObjLRUCache::erase(const ObjKey& key) {
     if (_enabled) {
-        _cache->erase(key.key);
+        cache()->erase(key.key);
     }
 }
 

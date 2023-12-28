@@ -888,12 +888,12 @@ int64_t TxnManager::get_txn_by_tablet_version(int64_t tablet_id, int64_t version
     memcpy(key + sizeof(int64_t), &version, sizeof(int64_t));
     CacheKey cache_key((const char*)&key, sizeof(key));
 
-    auto handle = _tablet_version_cache->get()->lookup(cache_key);
+    auto* handle = _tablet_version_cache->cache()->lookup(cache_key);
     if (handle == nullptr) {
         return -1;
     }
-    int64_t res = *(int64_t*)_tablet_version_cache->get()->value(handle);
-    _tablet_version_cache->get()->release(handle);
+    int64_t res = *(int64_t*)_tablet_version_cache->cache()->value(handle);
+    _tablet_version_cache->cache()->release(handle);
     return res;
 }
 
@@ -910,9 +910,9 @@ void TxnManager::update_tablet_version_txn(int64_t tablet_id, int64_t version, i
         delete cache_value;
     };
 
-    auto handle = _tablet_version_cache->get()->insert(cache_key, value, 1, deleter,
-                                                       CachePriority::NORMAL, sizeof(txn_id));
-    _tablet_version_cache->get()->release(handle);
+    auto* handle = _tablet_version_cache->cache()->insert(cache_key, value, 1, deleter,
+                                                          CachePriority::NORMAL, sizeof(txn_id));
+    _tablet_version_cache->cache()->release(handle);
 }
 
 TxnState TxnManager::get_txn_state(TPartitionId partition_id, TTransactionId transaction_id,

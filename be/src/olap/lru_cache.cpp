@@ -27,6 +27,8 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_lookup_count, MetricUnit::OPERATIONS)
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_hit_count, MetricUnit::OPERATIONS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_hit_ratio, MetricUnit::NOUNIT);
 
+bvar::Adder<int64_t> g_doris_cache_dummy_usage_num("doris_cache_dummy_usage_num");
+
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     // Similar to murmur hash
     const uint32_t m = 0xc6a4a793;
@@ -670,6 +672,45 @@ void ShardedLRUCache::update_cache_metrics() const {
     cache_usage_ratio->set_value(total_capacity == 0 ? 0 : ((double)total_usage / total_capacity));
     cache_hit_ratio->set_value(
             total_lookup_count == 0 ? 0 : ((double)total_hit_count / total_lookup_count));
+}
+
+Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t charge,
+                                     void (*deleter)(const CacheKey& key, void* value),
+                                     CachePriority priority, size_t bytes) {
+    size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
+    auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
+    g_doris_cache_dummy_usage_num << 1;
+    e->value = value;
+    e->deleter = deleter;
+    e->charge = charge;
+    e->key_length = key.size();
+    e->total_size = 0;
+    e->bytes = 0;
+    e->hash = 0;
+    e->refs = 1; // only one for the returned handle
+    e->next = e->prev = nullptr;
+    e->in_cache = false;
+    e->priority = priority;
+    memcpy(e->key_data, key.data(), key.size());
+    return reinterpret_cast<Cache::Handle*>(e);
+}
+
+void DummyLRUCache::release(Cache::Handle* handle) {
+    if (handle == nullptr) {
+        return;
+    }
+    auto* e = reinterpret_cast<LRUHandle*>(handle);
+    e->free();
+    g_doris_cache_dummy_usage_num << -1;
+}
+
+void* DummyLRUCache::value(Handle* handle) {
+    return reinterpret_cast<LRUHandle*>(handle)->value;
+}
+
+Slice DummyLRUCache::value_slice(Handle* handle) {
+    auto* lru_handle = reinterpret_cast<LRUHandle*>(handle);
+    return Slice((char*)lru_handle->value, lru_handle->charge);
 }
 
 } // namespace doris

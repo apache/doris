@@ -495,7 +495,7 @@ public:
             }
         }
 
-        static Cache* repr() { return s_repr.load(std::memory_order_acquire)->get(); }
+        static Cache* repr() { return s_repr.load(std::memory_order_acquire)->cache(); }
         static std::atomic<AggCachePolicy*> s_repr;
     };
 

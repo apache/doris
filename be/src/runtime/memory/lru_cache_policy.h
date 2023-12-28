@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <fmt/format.h>
+
 #include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
 #include "util/time.h"
@@ -43,35 +45,51 @@ public:
         init(capacity, lru_cache_type, num_shards);
     }
 
-    void init(size_t capacity, LRUCacheType lru_cache_type, uint32_t num_shards) {
+    bool prepare(size_t capacity, uint32_t num_shards) {
         CHECK(!_is_init);
-        _cache = std::unique_ptr<ShardedLRUCache>(
-                new ShardedLRUCache(type_string(type()), capacity, lru_cache_type, num_shards,
-                                    DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY));
+        if (capacity < num_shards) {
+            LOG(INFO) << fmt::format(
+                    "{} lru cache capacity({} B) less than num_shards({}), init failed, will be "
+                    "disabled.",
+                    type_string(type()), capacity, num_shards);
+            _enable_prune = false;
+            return false;
+        }
         _is_init = true;
+        return true;
+    }
+
+    void init(size_t capacity, LRUCacheType lru_cache_type, uint32_t num_shards) {
+        if (prepare(capacity, num_shards)) {
+            _cache = std::unique_ptr<ShardedLRUCache>(
+                    new ShardedLRUCache(type_string(type()), capacity, lru_cache_type, num_shards,
+                                        DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY));
+        }
     }
     void init(size_t capacity, LRUCacheType lru_cache_type, uint32_t num_shards,
               uint32_t element_count_capacity) {
-        CHECK(!_is_init);
-        _cache = std::unique_ptr<ShardedLRUCache>(new ShardedLRUCache(
-                type_string(type()), capacity, lru_cache_type, num_shards, element_count_capacity));
-        _is_init = true;
+        if (prepare(capacity, num_shards)) {
+            _cache = std::unique_ptr<ShardedLRUCache>(
+                    new ShardedLRUCache(type_string(type()), capacity, lru_cache_type, num_shards,
+                                        element_count_capacity));
+        }
     }
     void init(size_t capacity, LRUCacheType lru_cache_type, uint32_t num_shards,
               CacheValueTimeExtractor cache_value_time_extractor, bool cache_value_check_timestamp,
               uint32_t element_count_capacity) {
-        CHECK(!_is_init);
-        _cache = std::unique_ptr<ShardedLRUCache>(new ShardedLRUCache(
-                type_string(type()), capacity, lru_cache_type, num_shards,
-                cache_value_time_extractor, cache_value_check_timestamp, element_count_capacity));
-        _is_init = true;
+        if (prepare(capacity, num_shards)) {
+            _cache = std::unique_ptr<ShardedLRUCache>(
+                    new ShardedLRUCache(type_string(type()), capacity, lru_cache_type, num_shards,
+                                        cache_value_time_extractor, cache_value_check_timestamp,
+                                        element_count_capacity));
+        }
     }
 
     ~LRUCachePolicy() override = default;
 
     // Try to prune the cache if expired.
     void prune_stale() override {
-        if (_stale_sweep_time_s <= 0) {
+        if (_stale_sweep_time_s <= 0 && !_is_init) {
             return;
         }
         if (_cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
@@ -100,6 +118,9 @@ public:
     }
 
     void prune_all(bool clear) override {
+        if (!_is_init) {
+            return;
+        }
         if ((clear && _cache->mem_consumption() != 0) ||
             _cache->mem_consumption() > CACHE_MIN_FREE_SIZE) {
             COUNTER_SET(_cost_timer, (int64_t)0);
@@ -115,9 +136,20 @@ public:
         }
     }
 
-    Cache* get() { return _cache.get(); }
+    // if init failed, not expect to using Cache, if forced to use, cache() will return dummy lru cache,
+    // compatible with ShardedLRUCache usage, but will not actually cache.
+    bool is_init() const { return _is_init; }
 
-protected:
+    Cache* cache() const {
+        if (!_is_init) {
+            return ExecEnv::GetInstance()->get_dummy_lru_cache();
+        }
+        return _cache.get();
+    }
+
+    void reset() { _cache.reset(); }
+
+private:
     std::unique_ptr<Cache> _cache;
     bool _is_init = false;
 };
