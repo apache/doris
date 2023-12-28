@@ -1225,6 +1225,8 @@ DECLARE_mInt64(local_exchange_buffer_mem_limit);
 // whether the entire dict pags fall back to plain page when the dict page size overflows
 DECLARE_Bool(enable_dict_page_automatically_fall_back);
 
+DECLARE_Int32(dict_page_size_limit);
+
 #ifdef BE_TEST
 // test s3
 DECLARE_String(test_s3_resource);

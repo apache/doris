@@ -496,6 +496,8 @@ Status ScalarColumnWriter::init() {
     _opts.meta->set_encoding(_encoding_info->encoding());
     // create page builder
     PageBuilderOptions opts;
+    opts.dict_page_size =
+            (config::dict_page_size_limit > 0 ? config::dict_page_size_limit : DEFAULT_PAGE_SIZE);
     opts.data_page_size = _opts.data_page_size;
     RETURN_IF_ERROR(_encoding_info->create_page_builder(opts, &page_builder));
     if (page_builder == nullptr) {
@@ -755,6 +757,7 @@ Status ScalarColumnWriter::finish_current_page() {
 }
 
 Status ScalarColumnWriter::_rewrite_previous_data(const Slice* data, size_t num_rows) {
+    LOG_INFO("[ScalarColumnWriter::_rewrite_previous_data] num_rows: {}", num_rows);
     const auto* ptr = reinterpret_cast<const uint8_t*>(data);
 
     RETURN_IF_ERROR(_init_index_builder());
@@ -782,6 +785,7 @@ Status ScalarColumnWriter::_rewrite_previous_data(const Slice* data, size_t num_
     } else {
         RETURN_IF_ERROR(append_data(&ptr, num_rows));
     }
+    LOG_INFO("[ScalarColumnWriter::_rewrite_previous_data] _next_rowid: {}", _next_rowid);
     return Status::OK();
 }
 

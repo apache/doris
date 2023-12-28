@@ -24,6 +24,7 @@
 #include <unordered_map>
 #include <utility>
 
+#include "common/config.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/binary_dict_page.h"
 #include "olap/rowset/segment_v2/binary_plain_page.h"

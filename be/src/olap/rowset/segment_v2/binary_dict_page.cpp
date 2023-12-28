@@ -71,10 +71,13 @@ bool BinaryDictPageBuilder::is_page_full() {
         return true;
     }
     if (_encoding_type == DICT_ENCODING && _dict_builder->is_page_full()) {
+        LOG_INFO("[BinaryDictPageBuilder::is_page_full] _has_first_page_been_written: {}",
+                 _has_first_page_been_written);
         if (config::enable_dict_page_automatically_fall_back && !_has_first_page_been_written) {
             _should_convert_previous_data = true;
             _encoding_type = PLAIN_ENCODING;
-            _dict_builder.reset();
+            _dict_builder->reset();
+            LOG_INFO("[BinaryDictPageBuilder::is_page_full] _should_convert_previous_data = true");
         }
         return true;
     }
@@ -271,6 +274,7 @@ Status BinaryDictPageDecoder::init() {
     _encoding_type = static_cast<EncodingTypePB>(type);
     _data.remove_prefix(BINARY_DICT_PAGE_HEADER_SIZE);
     if (_encoding_type == DICT_ENCODING) {
+        LOG(INFO) << fmt::format("[BinaryDictPageDecoder::init] _encoding_type == DICT_ENCODING");
         _data_page_decoder.reset(
                 _bit_shuffle_ptr =
                         new BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>(_data, _options));

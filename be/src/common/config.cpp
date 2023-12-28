@@ -1148,6 +1148,8 @@ DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
 DEFINE_Bool(enable_dict_page_automatically_fall_back, "false");
 
+DEFINE_Int32(dict_page_size_limit, "1048576");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
