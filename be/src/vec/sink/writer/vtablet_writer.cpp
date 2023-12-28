@@ -478,7 +478,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     // But there is still some unfinished things, we do mem limit here temporarily.
     // _cancelled may be set by rpc callback, and it's possible that _cancelled might be set in any of the steps below.
     // It's fine to do a fake add_block() and return OK, because we will check _cancelled in next add_block() or mark_close().
-    while (!_cancelled && _pending_batches_num > 0 &&
+    while (!_cancelled && !_state->is_cancelled() && _pending_batches_num > 0 &&
            _pending_batches_bytes > _max_pending_batches_bytes) {
         SCOPED_RAW_TIMER(&_stat.mem_exceeded_block_ns);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
