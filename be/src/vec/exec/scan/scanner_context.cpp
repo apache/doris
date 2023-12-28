@@ -185,8 +185,9 @@ Status ScannerContext::init() {
     // 3. get thread token
     if (_state->get_query_ctx()) {
         thread_token = _state->get_query_ctx()->get_token();
-        _simple_scan_scheduler = _state->get_query_ctx()->get_scan_scheduler();
-        if (_simple_scan_scheduler) {
+
+        // when exec use workload group, we should use threadpool's name
+        if (_state->get_query_ctx()->get_task_group()) {
             _should_reset_thread_name = false;
         }
     }

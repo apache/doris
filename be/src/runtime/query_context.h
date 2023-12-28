@@ -43,6 +43,7 @@ namespace doris {
 
 namespace pipeline {
 class PipelineFragmentContext;
+class TaskQueue;
 } // namespace pipeline
 
 struct ReportStatusRequest {
@@ -92,8 +93,6 @@ public:
         }
         return false;
     }
-
-    int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
 
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
@@ -151,9 +150,20 @@ public:
 
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
-    void set_task_group(taskgroup::TaskGroupPtr& tg) { _task_group = tg; }
+    void set_task_group(taskgroup::TaskGroupPtr& tg) {
+        std::lock_guard<std::shared_mutex> write_lock(_task_group_lock);
+        _task_group = tg;
+    }
 
-    taskgroup::TaskGroup* get_task_group() const { return _task_group.get(); }
+    taskgroup::TaskGroup* get_task_group() {
+        std::shared_lock<std::shared_mutex> read_lock(_task_group_lock);
+        return _task_group.get();
+    }
+
+    taskgroup::TaskGroupPtr get_task_group_shared_ptr() {
+        std::shared_lock<std::shared_mutex> read_lock(_task_group_lock);
+        return _task_group;
+    }
 
     int execution_timeout() const {
         return _query_options.__isset.execution_timeout ? _query_options.execution_timeout
@@ -194,17 +204,28 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
-    void set_task_scheduler(pipeline::TaskScheduler* task_scheduler) {
-        _task_scheduler = task_scheduler;
+    void set_task_scheduler(std::shared_ptr<pipeline::TaskScheduler>* task_scheduler) {
+        std::lock_guard<std::shared_mutex> write_lock(_exec_task_sched_mutex);
+        _task_scheduler = *task_scheduler;
     }
 
-    pipeline::TaskScheduler* get_task_scheduler() { return _task_scheduler; }
-
-    void set_scan_task_scheduler(vectorized::SimplifiedScanScheduler* scan_task_scheduler) {
-        _scan_task_scheduler = scan_task_scheduler;
+    pipeline::TaskScheduler* get_task_scheduler() {
+        std::shared_lock<std::shared_mutex> read_lock(_exec_task_sched_mutex);
+        return _task_scheduler.get();
     }
 
-    vectorized::SimplifiedScanScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
+    pipeline::TaskQueue* get_exec_task_queue();
+
+    void set_scan_task_scheduler(
+            std::shared_ptr<vectorized::SimplifiedScanScheduler>* scan_task_scheduler) {
+        std::lock_guard<std::shared_mutex> write_lock(_scan_task_sched_mutex);
+        _scan_task_scheduler = *scan_task_scheduler;
+    }
+
+    vectorized::SimplifiedScanScheduler* get_scan_scheduler() {
+        std::shared_lock<std::shared_mutex> read_lock(_scan_task_sched_mutex);
+        return _scan_task_scheduler.get();
+    }
 
     pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
 
@@ -217,6 +238,8 @@ public:
     void register_cpu_statistics();
 
     std::shared_ptr<QueryStatistics> get_cpu_statistics() { return _cpu_statistics; }
+
+    int64_t query_time() { return MonotonicMillis() - _monotonic_start_time_ms; }
 
 public:
     DescriptorTbl* desc_tbl = nullptr;
@@ -253,6 +276,7 @@ private:
     TUniqueId _query_id;
     ExecEnv* _exec_env = nullptr;
     VecDateTimeValue _start_time;
+    int64_t _monotonic_start_time_ms;
 
     // A token used to submit olap scanner to the "_limited_scan_thread_pool",
     // This thread pool token is created from "_limited_scan_thread_pool" from exec env.
@@ -272,7 +296,8 @@ private:
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
 
-    taskgroup::TaskGroupPtr _task_group;
+    std::shared_mutex _task_group_lock;
+    taskgroup::TaskGroupPtr _task_group = nullptr;
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
 
@@ -281,8 +306,11 @@ private:
     // to report the real message if failed.
     Status _exec_status = Status::OK();
 
-    pipeline::TaskScheduler* _task_scheduler = nullptr;
-    vectorized::SimplifiedScanScheduler* _scan_task_scheduler = nullptr;
+    std::shared_mutex _exec_task_sched_mutex;
+    std::shared_ptr<pipeline::TaskScheduler> _task_scheduler = nullptr;
+    std::shared_mutex _scan_task_sched_mutex;
+    std::shared_ptr<vectorized::SimplifiedScanScheduler> _scan_task_scheduler = nullptr;
+
     std::unique_ptr<pipeline::Dependency> _execution_dependency;
 
     std::shared_ptr<QueryStatistics> _cpu_statistics = nullptr;

@@ -154,8 +154,6 @@ public:
         return blocks_num;
     }
 
-    SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
-
     virtual void reschedule_scanner_ctx();
     void stop_scanners(RuntimeState* state);
 
@@ -253,7 +251,6 @@ protected:
     const int64_t _max_bytes_in_queue;
 
     doris::vectorized::ScannerScheduler* _scanner_scheduler;
-    SimplifiedScanScheduler* _simple_scan_scheduler = nullptr; // used for cpu hard limit
     // List "scanners" saves all "unfinished" scanners.
     // The scanner scheduler will pop scanners from this list, run scanner,
     // and then if the scanner is not finished, will be pushed back to this list.

@@ -71,6 +71,10 @@ public:
     // doris task group only support cpu soft limit
     bool enable_cgroup() { return enable_cpu_hard_limit() || config::enable_cgroup_cpu_soft_limit; }
 
+    bool migrate_memory_tracker_to_group(std::shared_ptr<MemTrackerLimiter> mem_tracker,
+                                         uint64_t src_group_id, uint64_t dst_group_id,
+                                         std::shared_ptr<taskgroup::TaskGroup>* dst_group_ptr);
+
 private:
     std::shared_mutex _group_mutex;
     std::unordered_map<uint64_t, TaskGroupPtr> _task_groups;
@@ -78,8 +82,8 @@ private:
     // map for workload group id and task scheduler pool
     // used for cpu hard limit
     std::shared_mutex _task_scheduler_lock;
-    std::map<uint64_t, std::unique_ptr<doris::pipeline::TaskScheduler>> _tg_sche_map;
-    std::map<uint64_t, std::unique_ptr<vectorized::SimplifiedScanScheduler>> _tg_scan_sche_map;
+    std::map<uint64_t, std::shared_ptr<doris::pipeline::TaskScheduler>> _tg_sche_map;
+    std::map<uint64_t, std::shared_ptr<vectorized::SimplifiedScanScheduler>> _tg_scan_sche_map;
     std::map<uint64_t, std::unique_ptr<CgroupCpuCtl>> _cgroup_ctl_map;
 
     std::shared_mutex _init_cg_ctl_lock;

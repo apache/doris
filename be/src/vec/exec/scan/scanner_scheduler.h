@@ -137,8 +137,10 @@ public:
     }
 
     ~SimplifiedScanScheduler() {
-        stop();
-        LOG(INFO) << "Scanner sche " << _wg_name << " shutdown";
+        if (!_is_stop.load()) {
+            stop();
+            LOG(INFO) << "Scanner sche " << _wg_name << " shutdown";
+        }
     }
 
     void stop() {
@@ -159,6 +161,13 @@ public:
             RETURN_IF_ERROR(_scan_thread_pool->submit_func([this] { this->_work(); }));
         }
         return Status::OK();
+    }
+
+    bool try_put_task(SimplifiedScanTask simple_task) {
+        if (!_is_stop.load()) {
+            return _scan_task_queue->try_put(simple_task);
+        }
+        return false;
     }
 
     BlockingQueue<SimplifiedScanTask>* get_scan_queue() { return _scan_task_queue.get(); }

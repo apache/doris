@@ -19,6 +19,7 @@
 
 #include <map>
 
+#include "runtime/query_context.h"
 #include "runtime/workload_management/workload_condition.h"
 
 namespace doris {
@@ -28,6 +29,7 @@ public:
     std::map<WorkloadMetricType, std::string> metric_map;
     TUniqueId tquery_id;
     std::string query_id;
+    std::shared_ptr<QueryContext> _query_ctx_share_ptr = nullptr;
 };
 
 } // namespace doris

@@ -52,7 +52,9 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     // used for convert fe type to thrift type
     private static ImmutableMap<WorkloadMetricType, TWorkloadMetricType> METRIC_MAP
             = new ImmutableMap.Builder<WorkloadMetricType, TWorkloadMetricType>()
-            .put(WorkloadMetricType.QUERY_TIME, TWorkloadMetricType.QUERY_TIME).build();
+            .put(WorkloadMetricType.QUERY_TIME, TWorkloadMetricType.QUERY_TIME)
+            .put(WorkloadMetricType.SCAN_BYTES, TWorkloadMetricType.SCAN_BYTES)
+            .put(WorkloadMetricType.SCAN_ROWS, TWorkloadMetricType.SCAN_ROWS).build();
     private static ImmutableMap<WorkloadActionType, TWorkloadActionType> ACTION_MAP
             = new ImmutableMap.Builder<WorkloadActionType, TWorkloadActionType>()
             .put(WorkloadActionType.MOVE_QUERY_TO_GROUP, TWorkloadActionType.MOVE_QUERY_TO_GROUP)
