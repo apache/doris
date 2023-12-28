@@ -33,6 +33,7 @@ import org.apache.doris.nereids.parser.ParseDialect.Dialect;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.qe.VariableMgr.VarAttr;
+import org.apache.doris.thrift.TGroupCommitMode;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -3176,7 +3177,9 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableInsertGroupCommit() {
-        return Config.wait_internal_group_commit_finish || GroupCommitBlockSink.parseGroupCommit(groupCommit) != null;
+        return Config.wait_internal_group_commit_finish
+                || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.ASYNC_MODE
+                || GroupCommitBlockSink.parseGroupCommit(groupCommit) == TGroupCommitMode.SYNC_MODE;
     }
 
     public String getGroupCommit() {

@@ -156,7 +156,6 @@ public:
     Status update_load_info(TUniqueId load_id, size_t content_length);
     Status get_load_info(TUniqueId load_id, size_t* content_length);
     Status remove_load_info(TUniqueId load_id);
-    std::condition_variable cv;
 
 private:
     ExecEnv* _exec_env = nullptr;

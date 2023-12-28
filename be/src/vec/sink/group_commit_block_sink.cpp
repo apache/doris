@@ -19,8 +19,6 @@
 
 #include <gen_cpp/DataSinks_types.h>
 
-#include <chrono>
-#include <mutex>
 #include <shared_mutex>
 
 #include "common/exception.h"
@@ -29,7 +27,6 @@
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
-#include "vec/sink/volap_table_sink.h"
 #include "vec/sink/vtablet_finder.h"
 
 namespace doris {
@@ -74,10 +71,10 @@ Status GroupCommitBlockSink::prepare(RuntimeState* state) {
     _state = state;
 
     // profile must add to state's object pool
-    _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));
+    _profile = state->obj_pool()->add(new RuntimeProfile("GroupCommitBlockSink"));
     init_sink_common_profile();
-    _mem_tracker =
-            std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));
+    _mem_tracker = std::make_shared<MemTracker>("GroupCommitBlockSink:" +
+                                                std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
@@ -117,7 +114,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
             (double)state->num_rows_load_filtered() / num_selected_rows > _max_filter_ratio) {
             return Status::DataQualityError("too many filtered rows");
         }
-        RETURN_IF_ERROR(_add_blocks(_group_commit_mode != TGroupCommitMode::SYNC_MODE, true));
+        RETURN_IF_ERROR(_add_blocks(true));
     }
     if (_load_block_queue) {
         _load_block_queue->remove_load_id(_load_id);
@@ -223,15 +220,15 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         _blocks.emplace_back(output_block);
     } else {
         if (!_is_block_appended) {
-            RETURN_IF_ERROR(_add_blocks(_group_commit_mode != TGroupCommitMode::SYNC_MODE, false));
+            RETURN_IF_ERROR(_add_blocks(false));
         }
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                output_block, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
+                output_block, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
     }
     return Status::OK();
 }
 
-Status GroupCommitBlockSink::_add_blocks(bool write_wal, bool is_blocks_contain_all_load_data) {
+Status GroupCommitBlockSink::_add_blocks(bool is_blocks_contain_all_load_data) {
     DCHECK(_is_block_appended == false);
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
@@ -241,18 +238,15 @@ Status GroupCommitBlockSink::_add_blocks(bool write_wal, bool is_blocks_contain_
             RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
-            if (write_wal) {
+            if (_group_commit_mode == TGroupCommitMode::ASYNC_MODE) {
                 _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(
                                              _blocks, load_id, is_blocks_contain_all_load_data)
                                              ? TGroupCommitMode::ASYNC_MODE
                                              : TGroupCommitMode::SYNC_MODE;
                 if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
-                    LOG(INFO)
-                            << "Load label " << _load_block_queue->label
-                            << " will not write wal because wal disk space usage reachs max limit.";
-                } else {
-                    LOG(INFO) << "Load label " << _load_block_queue->label << " will write wal to "
-                              << _load_block_queue->wal_base_path << ".";
+                    LOG(INFO) << "Load id=" << print_id(_state->query_id())
+                              << ", use group commit label=" << _load_block_queue->label
+                              << " will not write wal because wal disk space usage reach max limit";
                 }
             }
             _state->set_import_label(_load_block_queue->label);
@@ -263,7 +257,7 @@ Status GroupCommitBlockSink::_add_blocks(bool write_wal, bool is_blocks_contain_
     }
     for (auto it = _blocks.begin(); it != _blocks.end(); ++it) {
         RETURN_IF_ERROR(_load_block_queue->add_block(
-                *it, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
+                *it, _group_commit_mode == TGroupCommitMode::ASYNC_MODE));
     }
     _is_block_appended = true;
     _blocks.clear();
