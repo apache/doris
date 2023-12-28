@@ -78,7 +78,7 @@ For the memory statistics results of historical queries, you can view the `peakM
 - SegmentCache: Used to cache opened Segments, such as index information.
 - DiskIO: Used to cache Disk IO data, only used in non-vectorization.
 - ChunkAllocator: Used to cache power-of-2 memory blocks, and reuse memory at the application layer.
-- LastestSuccessChannelCache: Used to cache the LoadChannel of the import receiver.
+- LastSuccessChannelCache: Used to cache the LoadChannel of the import receiver.
 - DeleteBitmap AggCache: Gets aggregated delete_bitmap on rowset_id and version.
 
 ### Query Type `/mem_tracker?type=query`
