@@ -65,4 +65,54 @@ suite("test_pushdown_explain") {
         sql("select count(cast(lo_orderkey as bigint)) from test_lineorder;")
         contains "pushAggOp=COUNT"
     }
+
+    sql "DROP TABLE IF EXISTS table_unique"
+    sql """ 
+        CREATE TABLE `table_unique` (
+            `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+            `username` VARCHAR(50) NOT NULL COMMENT '\"用户昵称\"'
+        ) ENGINE=OLAP
+        UNIQUE KEY(`user_id`, `username`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql "set enable_pushdown_minmax_on_unique = true;"
+    explain {
+        sql("select min(user_id) from table_unique;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select max(user_id) from table_unique;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select min(username) from table_unique;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select max(username) from table_unique;")
+        contains "pushAggOp=MINMAX"
+    }
+
+    sql "set enable_pushdown_minmax_on_unique = false;"
+    explain {
+        sql("select min(user_id) from table_unique;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select max(user_id) from table_unique;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select min(username) from table_unique;")
+        contains "pushAggOp=NONE"
+    }
+    explain {
+        sql("select max(username) from table_unique;")
+        contains "pushAggOp=NONE"
+    }
 }
