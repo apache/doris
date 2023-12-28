@@ -64,7 +64,7 @@ For detailed instructions, please refer to [Compile with ldb-toolchain](./compil
 Note that you need to download the corresponding aarch64 versions of jdk and nodejs:
 
 1. [Java8-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz)
-2. [Node v12.13.0-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz)
+2. [Node v16.3.0-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz)
 
 ## CentOS & Ubuntu
 
@@ -497,7 +497,7 @@ USE_AVX2=OFF sh build.sh
 
    - Problem Description
 
-     - A "file not found" error occurrs during compilation:
+     - A "file not found" error occurs during compilation:
 
        > Couldn't find pkg.m4 from pkg-config. Install the appropriate package for your distribution or set ACLOCAL_PATH to the directory containing pkg.m4.
 
@@ -581,11 +581,11 @@ USE_AVX2=OFF sh build.sh
   
    - Cause
   
-     Not compiled with ldb-toolschain
+     Not compiled with ldb-toolchain
   
    - Solution
   
-     - Check if the ldb-toolschain environment variable is configured
+     - Check if the ldb-toolchain environment variable is configured
      - Check if gcc version is `gcc-11`
-     - Delete the ldb directory after the `ldb-toolschain.sh` script is executed, re-execute and configure the environment variables, and verify the gcc version
+     - Delete the ldb directory after the `ldb_toolchain_gen.aarch64.sh` script is executed, re-execute and configure the environment variables, and verify the gcc version
 
