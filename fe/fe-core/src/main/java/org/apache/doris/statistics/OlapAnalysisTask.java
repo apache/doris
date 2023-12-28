@@ -61,7 +61,12 @@ public class OlapAnalysisTask extends BaseAnalysisTask {
 
     public void doExecute() throws Exception {
         Set<String> partitionNames = info.colToPartitions.get(info.colName);
-        if (partitionNames.isEmpty()) {
+        if ((info.emptyJob && info.analysisMethod.equals(AnalysisInfo.AnalysisMethod.SAMPLE))
+                || partitionNames == null || partitionNames.isEmpty()) {
+            if (partitionNames == null) {
+                LOG.warn("Table {}.{}.{}, partitionNames for column {} is null. ColToPartitions:[{}]",
+                        info.catalogId, info.dbId, info.tblId, info.colName, info.colToPartitions);
+            }
             StatsId statsId = new StatsId(concatColumnStatsId(), info.catalogId, info.dbId,
                     info.tblId, info.indexId, info.colName, null);
             job.appendBuf(this, Arrays.asList(new ColStatsData(statsId)));
