@@ -167,7 +167,7 @@ private:
     Status _read_empty_batch(size_t batch_size, size_t* read_rows, bool* batch_eof);
     Status _read_column_data(Block* block, const std::vector<std::string>& columns,
                              size_t batch_size, size_t* read_rows, bool* batch_eof,
-                             ColumnSelectVector& select_vector);
+                             ColumnSelectVector& select_vector, size_t skip_nums);
     Status _do_lazy_read(Block* block, size_t batch_size, size_t* read_rows, bool* batch_eof);
     void _rebuild_select_vector(ColumnSelectVector& select_vector,
                                 std::unique_ptr<uint8_t[]>& filter_map, size_t pre_read_rows) const;
