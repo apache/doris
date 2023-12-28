@@ -35,6 +35,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.thrift.TUserIdentity;
+import org.apache.doris.thrift.TopicInfo;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -410,6 +411,22 @@ public class WorkloadSchedPolicyMgr implements Writable, GsonPostProcessable {
 
     private void writeUnlock() {
         lock.writeLock().unlock();
+    }
+
+    public List<TopicInfo> getPublishTopicInfoList() {
+        List<TopicInfo> topicInfoList = new ArrayList();
+        readLock();
+        try {
+            for (Map.Entry<Long, WorkloadSchedPolicy> entry : idToPolicy.entrySet()) {
+                TopicInfo tInfo = entry.getValue().toTopicInfo();
+                if (tInfo != null) {
+                    topicInfoList.add(tInfo);
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return topicInfoList;
     }
 
     public void replayCreateWorkloadSchedPolicy(WorkloadSchedPolicy policy) {

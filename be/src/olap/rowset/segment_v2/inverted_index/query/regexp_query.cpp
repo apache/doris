@@ -70,10 +70,12 @@ void RegexpQuery::add(const std::wstring& field_name, const std::string& pattern
             }
 
             if (is_match) {
-                terms.emplace_back(std::move(input));
-                if (++count >= _max_expansions) {
+                if (_max_expansions > 0 && count >= _max_expansions) {
                     break;
                 }
+
+                terms.emplace_back(std::move(input));
+                count++;
             }
 
             _CLDECDELETE(term);
@@ -87,6 +89,10 @@ void RegexpQuery::add(const std::wstring& field_name, const std::string& pattern
         hs_free_scratch(scratch);
         hs_free_database(database);
     })
+
+    if (terms.empty()) {
+        return;
+    }
 
     query.add(field_name, terms);
 }
