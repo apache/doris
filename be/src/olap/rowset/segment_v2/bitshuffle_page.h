@@ -238,6 +238,8 @@ private:
     faststring _buffer;
     CppType _first_value;
     CppType _last_value;
+
+    friend class BinaryDictPageBuilder;
 };
 
 inline Status parse_bit_shuffle_header(const Slice& data, size_t& num_elements,

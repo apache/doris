@@ -79,6 +79,14 @@ public:
 
     Status get_last_value(void* value) const override;
 
+    bool should_convert_previous_data() const;
+
+    bool is_dict_encoding() const;
+
+    std::vector<Slice> get_previous_data();
+
+    void fallback_data_page_builder();
+
 private:
     PageBuilderOptions _options;
     bool _finished;
@@ -96,8 +104,6 @@ private:
     };
     // query for dict item -> dict id
     phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;
-    // used to remember the insertion order of dict keys
-    std::vector<Slice> _dict_items;
     // TODO(zc): rethink about this arena
     vectorized::Arena _arena;
     faststring _buffer;
@@ -105,6 +111,9 @@ private:
 
     bool _has_empty = false;
     uint32_t _empty_code = 0;
+
+    bool _has_first_page_been_written = false;
+    bool _should_convert_previous_data = false;
 };
 
 class BinaryDictPageDecoder : public PageDecoder {
@@ -134,12 +143,12 @@ private:
     Slice _data;
     PageDecoderOptions _options;
     std::unique_ptr<PageDecoder> _data_page_decoder;
-    BinaryPlainPageDecoder<FieldType::OLAP_FIELD_TYPE_VARCHAR>* _dict_decoder = nullptr;
     BitShufflePageDecoder<FieldType::OLAP_FIELD_TYPE_INT>* _bit_shuffle_ptr = nullptr;
     bool _parsed;
     EncodingTypePB _encoding_type;
 
     StringRef* _dict_word_info = nullptr;
+    uint32_t _dict_num = 0;
 };
 
 } // namespace segment_v2
