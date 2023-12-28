@@ -247,31 +247,35 @@ suite("aggregate_with_roll_up") {
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv13_0"""
 
 
-    def mv13_1 = "select l_shipdate, o_orderdate, l_partkey, l_suppkey, " +
-            "sum(o_totalprice) as sum_total, " +
-            "max(o_totalprice) as max_total, " +
-            "min(o_totalprice) as min_total, " +
-            "count(*) as count_all, " +
-            "bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as bitmap_union_basic " +
-            "from lineitem " +
-            "left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate " +
-            "group by " +
-            "l_shipdate, " +
-            "o_orderdate, " +
-            "l_partkey, " +
-            "l_suppkey"
-    def query13_1 = "select t1.l_partkey, t1.l_suppkey, o_orderdate, " +
-            "sum(o_totalprice), " +
-            "max(o_totalprice), " +
-            "min(o_totalprice), " +
-            "count(*), " +
-            "count(distinct case when o_shippriority > 10 and o_orderkey IN (1, 3) then o_custkey else null end) " +
-            "from (select * from lineitem where l_shipdate = '2023-12-11') t1 " +
-            "left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate " +
-            "group by " +
-            "o_orderdate, " +
-            "l_partkey, " +
-            "l_suppkey"
+    def mv13_1 = """
+            select l_shipdate, o_orderdate, l_partkey, l_suppkey, 
+            sum(o_totalprice) as sum_total, 
+            max(o_totalprice) as max_total, 
+            min(o_totalprice) as min_total, 
+            count(*) as count_all, 
+            bitmap_union(to_bitmap(case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end)) as bitmap_union_basic 
+            from lineitem 
+            left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate 
+            group by 
+            l_shipdate, 
+            o_orderdate, 
+            l_partkey, 
+            l_suppkey;
+    """
+    def query13_1 = """
+            select t1.l_partkey, t1.l_suppkey, o_orderdate,
+            sum(o_totalprice),
+            max(o_totalprice),
+            min(o_totalprice),
+            count(*),
+            count(distinct case when o_shippriority > 10 and o_orderkey IN (1, 3) then o_custkey else null end)
+            from (select * from lineitem where l_shipdate = '2023-12-11') t1
+            left join orders on t1.l_orderkey = orders.o_orderkey and t1.l_shipdate = o_orderdate
+            group by
+            o_orderdate, 
+            l_partkey,
+            l_suppkey;
+    """
     order_qt_query13_1_before "${query13_1}"
     check_not_match(mv13_1, query13_1, "mv13_1")
     order_qt_query13_1_after "${query13_1}"
