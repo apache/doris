@@ -343,7 +343,6 @@ public class MappingTest extends TestWithFeService {
         assertRelationMapping(generateRelationMapping.get(0), expectedRelationMapping, expectedSlotMapping);
     }
 
-
     private void assertRelationMapping(RelationMapping relationMapping,
             BiMap<RelationId, RelationId> expectRelationMapping,
             BiMap<ExprId, ExprId> expectSlotMapping) {
