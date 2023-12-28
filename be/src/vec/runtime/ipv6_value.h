@@ -65,6 +65,11 @@ public:
         return {buf, len};
     }
 
+    static bool is_valid_string(const std::string& ipv6_str) {
+        vectorized::IPv6 value;
+        return from_string(value, ipv6_str);
+    }
+
 private:
     vectorized::IPv6 _value;
 };

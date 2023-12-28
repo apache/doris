@@ -70,6 +70,11 @@ public:
         return {buf, len};
     }
 
+    static bool is_valid_string(const std::string& ipv4_str) {
+        vectorized::IPv4 value;
+        return from_string(value, ipv4_str);
+    }
+
 private:
     vectorized::IPv4 _value;
 };
