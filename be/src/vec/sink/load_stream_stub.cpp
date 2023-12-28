@@ -21,6 +21,7 @@
 
 #include "olap/rowset/rowset_writer.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/network_util.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
@@ -336,6 +337,8 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             ret = brpc::StreamWrite(_stream_id, buf);
         }
+        DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.EAGAIN", { ret = EAGAIN; });
+        DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.stream_write_failed", { ret = EPIPE; });
         switch (ret) {
         case 0:
             return Status::OK();
