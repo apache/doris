@@ -86,9 +86,7 @@ InvertedIndexSearcherCache* InvertedIndexSearcherCache::create_global_instance(
     return new InvertedIndexSearcherCache(capacity, num_shards);
 }
 
-InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards)
-        : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE,
-                         config::inverted_index_cache_stale_sweep_time_sec) {
+InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards) {
     uint64_t fd_number = config::min_file_descriptor_number;
     struct rlimit l;
     int ret = getrlimit(RLIMIT_NOFILE, &l);
@@ -111,10 +109,11 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
             auto* cache_value = (InvertedIndexSearcherCache::CacheValue*)value;
             return cache_value->last_visit_time;
         };
-        init(capacity, LRUCacheType::SIZE, num_shards, get_last_visit_time, true,
-             open_searcher_limit);
+        _policy = std::make_unique<InvertedIndexSearcherCachePolicy>(
+                capacity, num_shards, open_searcher_limit, get_last_visit_time, true);
     } else {
-        init(capacity, LRUCacheType::SIZE, num_shards, open_searcher_limit);
+        _policy = std::make_unique<InvertedIndexSearcherCachePolicy>(capacity, num_shards,
+                                                                     open_searcher_limit);
     }
 }
 
@@ -203,8 +202,8 @@ Status InvertedIndexSearcherCache::get_index_searcher(
         IndexCacheValuePtr cache_value = std::make_unique<InvertedIndexSearcherCache::CacheValue>();
         cache_value->index_searcher = std::move(index_searcher);
         cache_value->size = mem_tracker->consumption();
-        *cache_handle =
-                InvertedIndexCacheHandle(cache(), _insert(cache_key, cache_value.release()));
+        *cache_handle = InvertedIndexCacheHandle(_policy->cache(),
+                                                 _insert(cache_key, cache_value.release()));
     } else {
         cache_handle->index_searcher = std::move(index_searcher);
     }
@@ -275,27 +274,27 @@ Status InvertedIndexSearcherCache::insert(const io::FileSystemSPtr& fs,
     cache_value->size = mem_tracker->consumption();
     cache_value->last_visit_time = UnixMillis();
     auto* lru_handle = _insert(cache_key, cache_value.release());
-    cache()->release(lru_handle);
+    _policy->cache()->release(lru_handle);
     return Status::OK();
 }
 
 Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
     InvertedIndexSearcherCache::CacheKey cache_key(index_file_path);
-    cache()->erase(cache_key.index_file_path);
+    _policy->cache()->erase(cache_key.index_file_path);
     return Status::OK();
 }
 
 int64_t InvertedIndexSearcherCache::mem_consumption() {
-    return cache()->mem_consumption();
+    return _policy->cache()->mem_consumption();
 }
 
 bool InvertedIndexSearcherCache::_lookup(const InvertedIndexSearcherCache::CacheKey& key,
                                          InvertedIndexCacheHandle* handle) {
-    auto* lru_handle = cache()->lookup(key.index_file_path);
+    auto* lru_handle = _policy->cache()->lookup(key.index_file_path);
     if (lru_handle == nullptr) {
         return false;
     }
-    *handle = InvertedIndexCacheHandle(cache(), lru_handle);
+    *handle = InvertedIndexCacheHandle(_policy->cache(), lru_handle);
     return true;
 }
 
@@ -306,8 +305,8 @@ Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCa
         delete cache_value;
     };
 
-    Cache::Handle* lru_handle = cache()->insert(key.index_file_path, value, value->size, deleter,
-                                                CachePriority::NORMAL);
+    Cache::Handle* lru_handle = _policy->cache()->insert(key.index_file_path, value, value->size,
+                                                         deleter, CachePriority::NORMAL);
     return lru_handle;
 }
 

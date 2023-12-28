@@ -94,7 +94,7 @@ public:
                  OptionalIndexSearcherPtr& output_searcher) override;
 };
 
-class InvertedIndexSearcherCache : public LRUCachePolicy {
+class InvertedIndexSearcherCache {
 public:
     // The cache key of index_searcher lru cache
     struct CacheKey {
@@ -138,6 +138,25 @@ public:
 private:
     InvertedIndexSearcherCache();
 
+    class InvertedIndexSearcherCachePolicy : public LRUCachePolicy {
+    public:
+        InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
+                                         uint32_t element_count_capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, true) {}
+        InvertedIndexSearcherCachePolicy(size_t capacity, uint32_t num_shards,
+                                         uint32_t element_count_capacity,
+                                         CacheValueTimeExtractor cache_value_time_extractor,
+                                         bool cache_value_check_timestamp)
+                : LRUCachePolicy(CachePolicy::CacheType::INVERTEDINDEX_SEARCHER_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::inverted_index_cache_stale_sweep_time_sec, num_shards,
+                                 element_count_capacity, cache_value_time_extractor,
+                                 cache_value_check_timestamp, true) {}
+    };
+
     // Lookup the given index_searcher in the cache.
     // If the index_searcher is found, the cache entry will be written into handle.
     // Return true if entry is found, otherwise return false.
@@ -147,6 +166,8 @@ private:
     // And the cache entry will be returned in handle.
     // This function is thread-safe.
     Cache::Handle* _insert(const InvertedIndexSearcherCache::CacheKey& key, CacheValue* value);
+
+    std::unique_ptr<InvertedIndexSearcherCachePolicy> _policy;
 };
 
 using IndexCacheValuePtr = std::unique_ptr<InvertedIndexSearcherCache::CacheValue>;

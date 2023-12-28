@@ -225,7 +225,8 @@ private:
     public:
         TabletVersionCache(size_t capacity)
                 : LRUCachePolicy(CachePolicy::CacheType::TABLET_VERSION_CACHE, capacity,
-                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS, false) {}
+                                 LRUCacheType::NUMBER, -1, DEFAULT_LRU_CACHE_NUM_SHARDS,
+                                 DEFAULT_LRU_CACHE_ELEMENT_COUNT_CAPACITY, false) {}
     };
 
 private:

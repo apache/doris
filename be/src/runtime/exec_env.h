@@ -262,7 +262,7 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
-    DummyLRUCache* get_dummy_lru_cache() { return _dummy_lru_cache; }
+    std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
         return _global_block_scheduler;
@@ -373,7 +373,7 @@ private:
     CacheManager* _cache_manager = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
-    DummyLRUCache* _dummy_lru_cache = nullptr;
+    std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
 
     // used for query with group cpu hard limit
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;

@@ -375,7 +375,7 @@ Status ExecEnv::_init_mem_env() {
         return Status::InternalError(ss.str());
     }
 
-    _dummy_lru_cache = new DummyLRUCache();
+    _dummy_lru_cache = std::make_shared<DummyLRUCache>();
 
     _cache_manager = CacheManager::create_global_instance();
 
