@@ -26,6 +26,7 @@
 #include "http/http_headers.h"
 #include "http/utils.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/stream_load_pipe.h"
 #include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/fragment_mgr.h"
@@ -37,20 +38,16 @@
 namespace doris {
 
 WalTable::WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id)
-        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {}
+        : _exec_env(exec_env), _db_id(db_id), _table_id(table_id), _stop(false) {
+    _http_stream_action = std::make_shared<HttpStreamAction>(exec_env);
+}
 WalTable::~WalTable() {}
 
-#ifdef BE_TEST
-std::string k_request_line;
-#endif
-
-void WalTable::add_wals(std::vector<std::string> wals) {
+void WalTable::add_wal(int64_t wal_id, std::string wal) {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
-    for (const auto& wal : wals) {
-        LOG(INFO) << "add replay wal " << wal;
-        auto wal_info = std::make_shared<WalInfo>(wal, 0, UnixMillis(), false);
-        _replay_wal_map.emplace(wal, wal_info);
-    }
+    LOG(INFO) << "add replay wal " << wal;
+    auto wal_info = std::make_shared<WalInfo>(wal_id, wal, 0, UnixMillis());
+    _replay_wal_map.emplace(wal, wal_info);
 }
 void WalTable::pick_relay_wals() {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
@@ -61,8 +58,10 @@ void WalTable::pick_relay_wals() {
         if (wal_info->get_retry_num() >= config::group_commit_replay_wal_retry_num) {
             LOG(WARNING) << "All replay wal failed, db=" << _db_id << ", table=" << _table_id
                          << ", wal=" << it->first << ", retry_num=" << wal_info->get_retry_num();
-            if (!_rename_to_tmp_path(it->first)) {
-                LOG(WARNING) << "rename " << it->first << " fail";
+            auto st = _rename_to_tmp_path(it->first);
+            if (!st.ok()) {
+                LOG(WARNING) << "rename " << it->first << " fail"
+                             << ",st:" << st.to_string();
             }
             need_erase_wals.push_back(it->first);
             continue;
@@ -80,6 +79,47 @@ void WalTable::pick_relay_wals() {
         _replay_wal_map.erase(wal);
     }
 }
+
+Status WalTable::relay_wal_one_by_one() {
+    std::vector<std::shared_ptr<WalInfo>> need_retry_wals;
+    std::vector<std::shared_ptr<WalInfo>> need_delete_wals;
+    while (!_replaying_queue.empty()) {
+        std::shared_ptr<WalInfo> wal_info = nullptr;
+        {
+            std::lock_guard<std::mutex> lock(_replay_wal_lock);
+            wal_info = _replaying_queue.front();
+            _replaying_queue.pop_front();
+        }
+        wal_info->add_retry_num();
+        auto st = _replay_wal_internal(wal_info->get_wal_path());
+        if (!st.ok()) {
+            LOG(WARNING) << "failed replay wal, db=" << _db_id << ", table=" << _table_id
+                         << ", wal=" << wal_info->get_wal_path() << ", st=" << st.to_string();
+            if (!st.is<ErrorCode::NOT_FOUND>()) {
+                need_retry_wals.push_back(wal_info);
+            } else {
+                need_delete_wals.push_back(wal_info);
+            }
+        } else {
+            need_delete_wals.push_back(wal_info);
+        }
+        VLOG_NOTICE << "replay wal, db=" << _db_id << ", table=" << _table_id
+                    << ", wal=" << wal_info->get_wal_path() << ", st=" << st.to_string();
+    }
+    {
+        std::lock_guard<std::mutex> lock(_replay_wal_lock);
+        for (auto retry_wal_info : need_retry_wals) {
+            _replay_wal_map.emplace(retry_wal_info->get_wal_path(), retry_wal_info);
+        }
+    }
+    for (auto delete_wal_info : need_delete_wals) {
+        auto st = _delete_wal(delete_wal_info->get_wal_id());
+        if (!st.ok()) {
+            LOG(WARNING) << "fail to delete wal " << delete_wal_info->get_wal_path();
+        }
+    }
+    return Status::OK();
+}
 Status WalTable::replay_wals() {
     {
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
@@ -95,48 +135,35 @@ Status WalTable::replay_wals() {
     VLOG_DEBUG << "Start replay wals for db=" << _db_id << ", table=" << _table_id
                << ", wal size=" << _replay_wal_map.size();
     pick_relay_wals();
-    while (!_replaying_queue.empty()) {
-        auto wal_info = _replaying_queue.front();
-        wal_info->add_retry_num();
-        auto st = _replay_wal_internal(wal_info->get_wal_path());
-        if (!st.ok()) {
-            LOG(WARNING) << "failed replay wal, db=" << _db_id << ", table=" << _table_id
-                         << ", wal=" << wal_info->get_wal_path() << ", st=" << st.to_string();
-            wal_info->add_retry_num();
-            if (!st.is<ErrorCode::NOT_FOUND>()) {
-                std::lock_guard<std::mutex> lock(_replay_wal_lock);
-                _replay_wal_map.emplace(wal_info->get_wal_path(), wal_info);
-            } else {
-                std::shared_ptr<std::pair<int64_t, std::string>> pair = nullptr;
-                RETURN_IF_ERROR(_parse_wal_path(wal_info->get_wal_path(), pair));
-                auto wal_id = pair->first;
-                RETURN_IF_ERROR(_delete_wal(wal_id));
-            }
-        }
-        {
-            std::lock_guard<std::mutex> lock(_replay_wal_lock);
-            _replaying_queue.pop_front();
-        }
-        VLOG_NOTICE << "replay wal, db=" << _db_id << ", table=" << _table_id
-                    << ", wal=" << wal_info->get_wal_path() << ", st=" << st.to_string();
-    }
+    RETURN_IF_ERROR(relay_wal_one_by_one());
     return Status::OK();
 }
 
-bool WalTable::_rename_to_tmp_path(const std::string wal) {
-    std::vector<std::string> path_element;
-    doris::vectorized::WalReader::string_split(wal, "/", path_element);
-    std::stringstream ss;
-    int index = 0;
-    while (index < path_element.size()) {
-        ss << path_element[index] << "/";
-        if (index == path_element.size() - 4) {
-            ss << "tmp/";
+Status WalTable::_rename_to_tmp_path(const std::string wal) {
+    io::Path wal_path = wal;
+    std::list<std::string> path_element;
+    for (int i = 0; i < 3; ++i) {
+        if (!wal_path.has_parent_path()) {
+            return Status::InternalError("parent path is not enough when rename " + wal);
         }
-        index++;
+        path_element.push_front(wal_path.filename().string());
+        wal_path = wal_path.parent_path();
     }
-    LOG(INFO) << "rename wal from " << wal << " to " << ss.str();
-    return std::rename(wal.c_str(), ss.str().c_str());
+    wal_path.append(_exec_env->wal_mgr()->tmp);
+    for (auto path : path_element) {
+        wal_path.append(path);
+    }
+    bool exists = false;
+    RETURN_IF_ERROR(io::global_local_filesystem()->exists(wal_path.parent_path(), &exists));
+    if (!exists) {
+        RETURN_IF_ERROR(io::global_local_filesystem()->create_directory(wal_path.parent_path()));
+    }
+    auto res = std::rename(wal.c_str(), wal_path.string().c_str());
+    if (res < 0) {
+        return Status::InternalError("rename fail on path " + wal);
+    }
+    LOG(INFO) << "rename wal from " << wal << " to " << wal_path.string();
+    return Status::OK();
 }
 
 bool WalTable::_need_replay(std::shared_ptr<WalInfo> wal_info) {
@@ -240,7 +267,25 @@ Status WalTable::_handle_stream_load(int64_t wal_id, const std::string& wal,
     std::vector<size_t> index_vector;
     RETURN_IF_ERROR(_construct_sql_str(wal, label, sql_str, index_vector));
     _exec_env->wal_mgr()->add_wal_column_index(wal_id, index_vector);
-    auto st = HttpStreamAction::process_wal_relay(_exec_env, wal_id, sql_str, label);
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    ctx->sql_str = sql_str;
+    ctx->wal_id = wal_id;
+    ctx->auth.auth_code = wal_id;
+    ctx->label = label;
+    auto st = _http_stream_action->process_put(nullptr, ctx);
+    if (st.ok()) {
+        // wait stream load finish
+        RETURN_IF_ERROR(ctx->future.get());
+        if (ctx->status.ok()) {
+            auto commit_st = _exec_env->stream_load_executor()->commit_txn(ctx.get());
+            st = commit_st;
+        } else if (!ctx->status.ok()) {
+            LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
+                         << ", errmsg=" << ctx->status;
+            _exec_env->stream_load_executor()->rollback_txn(ctx.get());
+            st = ctx->status;
+        }
+    }
     _exec_env->wal_mgr()->erase_wal_column_index(wal_id);
     LOG(INFO) << "relay wal id=" << wal_id << ",st=" << st.to_string();
     return st;
@@ -257,7 +302,6 @@ Status WalTable::_replay_one_txn_with_stremaload(int64_t wal_id, const std::stri
 #endif
     if (success) {
         LOG(INFO) << "success to replay wal =" << wal;
-        RETURN_IF_ERROR(_delete_wal(wal_id));
     } else {
         LOG(INFO) << "fail to replay wal =" << wal;
         return Status::InternalError("fail to replay wal =" + wal);
@@ -313,8 +357,8 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
         for (auto column : column_element) {
             auto column_name = column.column_name;
             auto column_id = column.column_id;
-            std::shared_ptr<column_info> column_pair =
-                    std::make_shared<column_info>(std::make_pair(column_name, column_index));
+            std::shared_ptr<ColumnInfo> column_pair =
+                    std::make_shared<ColumnInfo>(std::make_pair(column_name, column_index));
             _column_id_info_map.emplace(column_id, column_pair);
             column_index++;
         }

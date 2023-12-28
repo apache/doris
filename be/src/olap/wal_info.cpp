@@ -17,12 +17,15 @@
 
 #include "olap/wal_info.h"
 namespace doris {
-WalInfo::WalInfo(std::string wal_path, int64_t retry_num, int64_t start_time_ms, bool relaying)
-        : _wal_path(wal_path),
+WalInfo::WalInfo(int64_t wal_id, std::string wal_path, int64_t retry_num, int64_t start_time_ms)
+        : _wal_id(wal_id),
+          _wal_path(wal_path),
           _retry_num(retry_num),
-          _start_time_ms(start_time_ms),
-          _relaying(relaying) {}
+          _start_time_ms(start_time_ms) {}
 WalInfo::~WalInfo() {}
+int64_t WalInfo::get_wal_id() {
+    return _wal_id;
+}
 std::string WalInfo::get_wal_path() {
     return _wal_path;
 }
@@ -31,9 +34,6 @@ int64_t WalInfo::get_retry_num() {
 }
 int64_t WalInfo::get_start_time_ms() {
     return _start_time_ms;
-}
-bool WalInfo::get_relaying() {
-    return _relaying;
 }
 void WalInfo::add_retry_num() {
     _retry_num++;

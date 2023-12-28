@@ -20,19 +20,19 @@
 namespace doris {
 class WalInfo {
 public:
-    WalInfo(std::string wal_path, int64_t retry_num, int64_t start_time_ms, bool relaying);
+    WalInfo(int64_t wal_id, std::string wal_path, int64_t retry_num, int64_t start_time_ms);
     ~WalInfo();
+    int64_t get_wal_id();
     int64_t get_retry_num();
     int64_t get_start_time_ms();
     std::string get_wal_path();
-    bool get_relaying();
     void add_retry_num();
 
 private:
+    int64_t _wal_id;
     std::string _wal_path;
     int64_t _retry_num;
     int64_t _start_time_ms;
-    bool _relaying;
 };
 
 } // namespace doris
