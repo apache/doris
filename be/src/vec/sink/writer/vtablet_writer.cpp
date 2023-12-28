@@ -176,16 +176,16 @@ void IndexChannel::mark_as_failed(const VNodeChannel* node_channel, const std::s
                 _failed_channels_msgs.emplace(the_tablet_id,
                                               err + ", host: " + node_channel->host());
                 if (_failed_channels[the_tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                    _intolerable_failure_status =
-                            Status::InternalError(_failed_channels_msgs[the_tablet_id]);
+                    _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                            _failed_channels_msgs[the_tablet_id]);
                 }
             }
         } else {
             _failed_channels[tablet_id].insert(node_id);
             _failed_channels_msgs.emplace(tablet_id, err + ", host: " + node_channel->host());
             if (_failed_channels[tablet_id].size() >= ((_parent->_num_replicas + 1) / 2)) {
-                _intolerable_failure_status =
-                        Status::InternalError(_failed_channels_msgs[tablet_id]);
+                _intolerable_failure_status = Status::Error<ErrorCode::INTERNAL_ERROR, false>(
+                        _failed_channels_msgs[tablet_id]);
             }
         }
     }
@@ -432,7 +432,7 @@ Status VNodeChannel::open_wait() {
             _cancelled = true;
             auto error_code = open_callback->cntl_->ErrorCode();
             auto error_text = open_callback->cntl_->ErrorText();
-            return Status::InternalError(
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>(
                     "failed to open tablet writer, error={}, error_text={}, info={}",
                     berror(error_code), error_text, channel_info());
         }
@@ -466,7 +466,8 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload,
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("add row failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("add row failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(st.prepend("already stopped, can't add row. cancelled/eos: "));
         }
@@ -872,7 +873,8 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     if (!st.ok()) {
         if (_cancelled) {
             std::lock_guard<doris::SpinLock> l(_cancel_msg_lock);
-            return Status::InternalError("wait close failed. {}", _cancel_msg);
+            return Status::Error<ErrorCode::INTERNAL_ERROR, false>("wait close failed. {}",
+                                                                   _cancel_msg);
         } else {
             return std::move(
                     st.prepend("already stopped, skip waiting for close. cancelled/!eos: "));
@@ -902,7 +904,7 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
         return Status::OK();
     }
 
-    return Status::InternalError(get_cancel_msg());
+    return Status::Error<ErrorCode::INTERNAL_ERROR, false>(get_cancel_msg());
 }
 
 void VNodeChannel::_close_check() {
@@ -1049,7 +1051,7 @@ Status VTabletWriter::open(doris::RuntimeState* state, doris::RuntimeProfile* pr
 
     // start to send batch continually. this must be called after _init
     if (bthread_start_background(&_sender_thread, nullptr, periodic_send_batch, (void*)this) != 0) {
-        return Status::Error<INTERNAL_ERROR>("bthread_start_backgroud failed");
+        return Status::Error<ErrorCode::INTERNAL_ERROR>("bthread_start_backgroud failed");
     }
     return Status::OK();
 }
