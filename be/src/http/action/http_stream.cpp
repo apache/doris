@@ -380,10 +380,8 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
         // off_mode and empty
         ctx->group_commit = false;
         return Status::OK();
-    } else {
-        // sync_mode and async_mode
-        ctx->group_commit = true;
     }
+
     auto partial_columns = !req->header(HTTP_PARTIAL_COLUMNS).empty() &&
                            iequal(req->header(HTTP_PARTIAL_COLUMNS), "true");
     auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
@@ -392,6 +390,7 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
         if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
             return Status::InternalError("label and group_commit can't be set at the same time");
         }
+        ctx->group_commit = true;
         if (iequal(group_commit_mode, "async_mode")) {
             group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
             if (iequal(group_commit_mode, "sync_mode")) {
