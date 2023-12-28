@@ -112,8 +112,7 @@ function load() {
     for i in $(seq 0 9); do
         if [ ! -f "$DATA_DIR/hits_split${i}" ]; then
             echo "will download hits_split${i} to $DATA_DIR"
-            # wget --continue "https://doris-test-data.oss-cn-hongkong.aliyuncs.com/ClickBench/hits_split${i}" &
-            wget --continue "https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/clickbench/sample/hits_split${i}" &
+            wget --continue "https://doris-test-data.oss-cn-hongkong.aliyuncs.com/ClickBench/hits_split${i}" &
             # wget --continue "https://doris-test-data.oss-cn-hongkong-internal.aliyuncs.com/ClickBench/hits_split${i}" &
             PID=$!
             wget_pids[${#wget_pids[@]}]=$PID
