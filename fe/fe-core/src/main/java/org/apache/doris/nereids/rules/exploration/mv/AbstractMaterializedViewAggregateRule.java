@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.exploration.mv.StructInfo.PlanSplitContext
 import org.apache.doris.nereids.rules.exploration.mv.mapping.ExpressionMapping;
 import org.apache.doris.nereids.rules.exploration.mv.mapping.SlotMapping;
 import org.apache.doris.nereids.trees.expressions.Any;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -35,9 +36,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CouldRollUp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToBitmap;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.HashMultimap;
@@ -47,10 +50,10 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -60,15 +63,18 @@ import java.util.stream.Collectors;
  */
 public abstract class AbstractMaterializedViewAggregateRule extends AbstractMaterializedViewRule {
 
-    protected static final Map<Expression, Expression>
-            AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP = new HashMap<>();
+    // we only support roll up function which has only one argument currently
+    protected static final List<Pair<Expression, Expression>>
+            AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_LIST = new ArrayList<>();
     protected final String currentClassName = this.getClass().getSimpleName();
 
     private final Logger logger = LogManager.getLogger(this.getClass());
 
     static {
-        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.put(new Count(true, Any.INSTANCE),
-                new BitmapUnion(Any.INSTANCE));
+        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_LIST.add(Pair.of(new Count(true, Any.INSTANCE),
+                new BitmapUnion(new ToBitmap(new Cast(Any.INSTANCE, BigIntType.INSTANCE)))));
+        AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_LIST.add(Pair.of(new Count(true, Any.INSTANCE),
+                new BitmapUnion(new ToBitmap(Any.INSTANCE))));
     }
 
     @Override
@@ -267,7 +273,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                 if (!(mvExprShuttled instanceof Function)) {
                     continue;
                 }
-                if (isAggregateFunctionEquivalent(queryFunction, (Function) mvExprShuttled)) {
+                if (isAggregateFunctionEquivalent(queryFunction, queryFunctionShuttled, (Function) mvExprShuttled)) {
                     rollupParam = mvExprToMvScanExprQueryBased.get(mvExprShuttled);
                 }
             }
@@ -347,22 +353,36 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         return true;
     }
 
-    private boolean isAggregateFunctionEquivalent(Function queryFunction, Function viewFunction) {
+    private boolean isAggregateFunctionEquivalent(Function queryFunction, Expression queryFunctionShuttled,
+            Function viewFunction) {
         if (queryFunction.equals(viewFunction)) {
             return true;
         }
         // get query equivalent function
-        Expression equivalentFunction = null;
-        for (Map.Entry<Expression, Expression> entry : AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_MAP.entrySet()) {
-            if (entry.getKey().equals(queryFunction)) {
-                equivalentFunction = entry.getValue();
+        Expression equivalentFunction;
+        for (Pair<Expression, Expression> pair : AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_LIST) {
+            if (pair.key().equals(queryFunction)) {
+                equivalentFunction = pair.value();
+                // check is have equivalent function or not
+                if (equivalentFunction == null || !equivalentFunction.equals(viewFunction)) {
+                    continue;
+                }
+                // check param in query function is same as the view function
+                List<Expression> viewFunctionArguments = extractArguments(equivalentFunction, viewFunction);
+                if (queryFunctionShuttled.getArguments().size() != 1 || viewFunctionArguments.size() != 1) {
+                    continue;
+                }
+                if (Objects.equals(queryFunctionShuttled.getArguments().get(0), viewFunctionArguments.get(0))) {
+                    return true;
+                }
             }
         }
-        // check is have equivalent function or not
-        if (equivalentFunction == null) {
-            return false;
-        }
-        // current compare
-        return equivalentFunction.equals(viewFunction);
+        return false;
+    }
+
+    private List<Expression> extractArguments(Expression equivalentFunction, Function viewFunction) {
+        Set<Object> exprSetToRemove = equivalentFunction.collectToSet(expr -> !(expr instanceof Any));
+        return viewFunction.collectFirst(expr ->
+                exprSetToRemove.stream().noneMatch(exprToRemove -> exprToRemove.equals(expr)));
     }
 }
