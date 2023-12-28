@@ -15,28 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.publish;
+#pragma once
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.thrift.TPublishTopicRequest;
-import org.apache.doris.thrift.TTopicInfoType;
-import org.apache.doris.thrift.TopicInfo;
+#include <map>
 
-import java.util.List;
+#include "runtime/workload_management/workload_condition.h"
 
-public class WorkloadGroupPublisher implements TopicPublisher {
+namespace doris {
 
-    private Env env;
+class WorkloadQueryInfo {
+public:
+    std::map<WorkloadMetricType, std::string> metric_map;
+    TUniqueId tquery_id;
+    std::string query_id;
+};
 
-    public WorkloadGroupPublisher(Env env) {
-        this.env = env;
-    }
-
-    @Override
-    public void getTopicInfo(TPublishTopicRequest req) {
-        List<TopicInfo> list = env.getWorkloadGroupMgr().getPublishTopicInfo();
-        if (list.size() > 0) {
-            req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
-        }
-    }
-}
+} // namespace doris
