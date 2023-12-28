@@ -32,6 +32,7 @@
 #include <system_error>
 #include <utility>
 
+#include "common/exception.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -182,7 +183,11 @@ Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
     if (std::filesystem::exists(dir_path) && std::filesystem::is_directory(dir_path)) {
         for (const auto& entry : std::filesystem::recursive_directory_iterator(dir_path)) {
             if (std::filesystem::is_regular_file(entry)) {
-                *dir_size += std::filesystem::file_size(entry);
+                try {
+                    *dir_size += std::filesystem::file_size(entry);
+                } catch (const std::exception& e) {
+                    LOG(INFO) << "{}", e.what();
+                }
             }
         }
         return Status::OK();
