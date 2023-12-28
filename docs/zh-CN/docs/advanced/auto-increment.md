@@ -133,7 +133,7 @@ PROPERTIES (
 ```
 
 使用insert into语句导入并且不指定自增列`id`时，`id`列会被自动填充生成的值。
-```
+```sql
 mysql> insert into tbl(name, value) values("Bob", 10), ("Alice", 20), ("Jack", 30);
 Query OK, 3 rows affected (0.09 sec)
 {'label':'label_183babcb84ad4023_a2d6266ab73fb5aa', 'status':'VISIBLE', 'txnId':'7'}
@@ -161,7 +161,7 @@ John, 50
 curl --location-trusted -u user:passwd -H "columns:name,value" -H "column_separator:," -T ./test1.csv http://{host}:{port}/api/{db}/tbl/_stream_load
 ```
 
-```
+```sql
 mysql> select * from tbl order by id;
 +------+-------+-------+
 | id   | name  | value |
@@ -177,7 +177,7 @@ mysql> select * from tbl order by id;
 
 使用insert into导入时指定自增列`id`，则其中的null值会被生成的值替换。
 
-```
+```sql
 mysql> insert into tbl(id, name, value) values(null, "Doris", 60), (null, "Nereids", 70);
 Query OK, 2 rows affected (0.07 sec)
 {'label':'label_9cb0c01db1a0402c_a2b8b44c11ce4703', 'status':'VISIBLE', 'txnId':'10'}
@@ -200,7 +200,60 @@ mysql> select * from tbl order by id;
 
 ### 部分列更新
 
-在对一张包含自增列的表进行部分列更新时，如果用户没有指定自增列，则其值会从旧行中补齐。如果用户指定了自增列，则其中的null值会用生成的值替换。
+在对一张包含自增列的merge-on-write Unique表进行部分列更新时，如果自增列是key列，由于部分列更新时用户必须显示指定key列，即部分列更新的目标列必须包含自增列。此时的导入行为和普通的部分列更新相同。
+```sql
+mysql> CREATE TABLE `tbl2` (
+    ->     `id` BIGINT NOT NULL AUTO_INCREMENT,
+    ->     `name` varchar(65533) NOT NULL,
+    ->     `value` int(11) NOT NULL DEFAULT "0"
+    -> ) ENGINE=OLAP
+    -> UNIQUE KEY(`id`)
+    -> DISTRIBUTED BY HASH(`id`) BUCKETS 10
+    -> PROPERTIES (
+    -> "replication_allocation" = "tag.location.default: 1",
+    -> "enable_unique_key_merge_on_write" = "true"
+    -> );
+Query OK, 0 rows affected (0.03 sec)
+
+mysql> insert into tbl2(id, name, value) values(1, "Bob", 10), (2, "Alice", 20), (3, "Jack", 30);
+Query OK, 3 rows affected (0.14 sec)
+{'label':'label_5538549c866240b6_bce75ef323ac22a0', 'status':'VISIBLE', 'txnId':'1004'}
+
+mysql> select * from tbl2 order by id;
++------+-------+-------+
+| id   | name  | value |
++------+-------+-------+
+|    1 | Bob   |    10 |
+|    2 | Alice |    20 |
+|    3 | Jack  |    30 |
++------+-------+-------+
+3 rows in set (0.08 sec)
+
+mysql> set enable_unique_key_partial_update=true;
+Query OK, 0 rows affected (0.01 sec)
+
+mysql> set enable_insert_strict=false;
+Query OK, 0 rows affected (0.00 sec)
+
+mysql> insert into tbl2(id, name) values(1, "modified"), (4, "added");
+Query OK, 2 rows affected (0.06 sec)
+{'label':'label_3e68324cfd87457d_a6166cc0a878cfdc', 'status':'VISIBLE', 'txnId':'1005'}
+
+mysql> select * from tbl2 order by id;
++------+----------+-------+
+| id   | name     | value |
++------+----------+-------+
+|    1 | modified |    10 |
+|    2 | Alice    |    20 |
+|    3 | Jack     |    30 |
+|    4 | added    |     0 |
++------+----------+-------+
+4 rows in set (0.04 sec)
+```
+
+当自增列是非key列时，如果用户没有指定自增列的值，则其值会从表中原有的数据行中进行补齐。如果用户指定了自增列，则其中的null值会被替换为生成出的值，非null值则保持不表。
+
+
 
 
 ## 场景示例
