@@ -9,7 +9,7 @@ PhysicalResultSink
 ------------PhysicalProject
 --------------PhysicalOlapScan[customer]
 ------------PhysicalDistribute
---------------filter((dj.cnt >= 1)(dj.cnt <= 5))
+--------------filter((dj.cnt <= 5)(dj.cnt >= 1))
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
 --------------------hashAgg[LOCAL]
