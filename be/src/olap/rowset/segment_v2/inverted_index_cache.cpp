@@ -178,8 +178,8 @@ Status InvertedIndexSearcherCache::get_index_searcher(
         // During the process of opening the index, write the file information read to the idx file cache.
         bool open_idx_file_cache = true;
         auto* directory = new DorisCompoundReader(
-                DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), file_name.c_str(),
-                config::inverted_index_read_buffer_size, open_idx_file_cache);
+                DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
+                file_name.c_str(), config::inverted_index_read_buffer_size, open_idx_file_cache);
         auto null_bitmap_file_name = InvertedIndexDescriptor::get_temporary_null_bitmap_file_name();
         if (!directory->fileExists(null_bitmap_file_name.c_str())) {
             has_null = false;
@@ -261,9 +261,9 @@ Status InvertedIndexSearcherCache::insert(const io::FileSystemSPtr& fs,
             return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>(
                     "InvertedIndexSearcherCache do not support reader type.");
         }
-        auto* directory =
-                new DorisCompoundReader(DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()),
-                                        file_name.c_str(), config::inverted_index_read_buffer_size);
+        auto* directory = new DorisCompoundReader(
+                DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()),
+                file_name.c_str(), config::inverted_index_read_buffer_size);
         OptionalIndexSearcherPtr result;
         RETURN_IF_ERROR(builder->build(directory, result));
         if (!result.has_value()) {
