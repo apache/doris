@@ -153,6 +153,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     protected List<Expr> projectList;
 
+    protected int nereidsId;
+
     private List<List<Expr>> distributeExprLists = new ArrayList<>();
 
     protected PlanNode(PlanNodeId id, ArrayList<TupleId> tupleIds, String planNodeName,
@@ -518,7 +520,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         // Print the current node
         // The plan node header line will be prefixed by rootPrefix and the remaining details
         // will be prefixed by detailPrefix.
-        expBuilder.append(rootPrefix + id.asInt() + ":" + planNodeName + "\n");
+        expBuilder.append(rootPrefix + id.asInt() + ":" + planNodeName + "(" + nereidsId + ")\n");
         expBuilder.append(getNodeExplainString(detailPrefix, detailLevel));
         if (limit != -1) {
             expBuilder.append(detailPrefix + "limit: " + limit + "\n");
@@ -1204,5 +1206,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
 
     public boolean pushDownAggNoGroupingCheckCol(FunctionCallExpr aggExpr, Column col) {
         return false;
+    }
+
+    public void setNereidsId(int nereidsId) {
+        this.nereidsId = nereidsId;
     }
 }
