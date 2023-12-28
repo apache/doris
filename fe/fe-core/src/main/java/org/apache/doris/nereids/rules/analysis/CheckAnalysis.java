@@ -20,7 +20,10 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
@@ -47,6 +50,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Check analysis rule to check semantic correct after analysis by Nereids.
@@ -107,7 +111,25 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                     checkAggregate(agg);
                     return agg;
                 })
-            )
+            ),
+            RuleType.CHECK_AGGREGATE_ANALYSIS
+                .build(logicalProject(logicalAggregate()).thenApply(ctx -> {
+                    LogicalProject<LogicalAggregate<Plan>> project = ctx.root;
+                    Set<Slot> notFromChildren = project.getExpressions().stream()
+                            .flatMap(expr -> expr.getInputSlots().stream())
+                            .collect(Collectors.toSet());
+                    Set<ExprId> childrenOutput = project.child(0).getOutput().stream()
+                            .map(NamedExpression::getExprId).collect(Collectors.toSet());
+                    notFromChildren = notFromChildren.stream()
+                            .filter(s -> !childrenOutput.contains(s.getExprId()))
+                            .collect(Collectors.toSet());
+                    if (!notFromChildren.isEmpty()) {
+                        throw new AnalysisException(String.format("%s not in agg's output",
+                                notFromChildren.stream().map(slot -> slot.getName())
+                                        .collect(Collectors.joining())));
+                    }
+                    return null;
+                }))
         );
     }
 

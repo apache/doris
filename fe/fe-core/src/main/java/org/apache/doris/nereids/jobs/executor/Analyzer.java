@@ -158,9 +158,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
             // run CheckAnalysis before EliminateGroupByConstant in order to report error message correctly like bellow
             // select SUM(lo_tax) FROM lineorder group by 1;
             // errCode = 2, detailMessage = GROUP BY expression must not contain aggregate functions: sum(lo_tax)
-            bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
+            bottomUp(new CheckAnalysis()),
             bottomUp(new SemiJoinCommute()),
             bottomUp(
                     new CollectSubQueryAlias(),
