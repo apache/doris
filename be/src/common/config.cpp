@@ -1006,13 +1006,16 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
+// -1 indicates not working.
+// Normally we should not change this, it's useful for testing.
+DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_Bool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
 // index by RAM directory
 DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast

@@ -67,7 +67,6 @@
 
 namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
-const int32_t MAX_BUFFER_DOCS = 100000000;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
@@ -196,8 +195,8 @@ public:
         bool close_dir_on_shutdown = true;
         index_writer = std::make_unique<lucene::index::IndexWriter>(
                 _dir.get(), _analyzer.get(), create_index, close_dir_on_shutdown);
-        index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);
         index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
+        _index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
         index_writer->setMaxFieldLength(MAX_FIELD_LEN);
         index_writer->setMergeFactor(MERGE_FACTOR);
         index_writer->setUseCompoundFile(false);
