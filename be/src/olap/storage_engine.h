@@ -196,7 +196,7 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                   bool force);
-    Status submit_seg_compaction_task(SegcompactionWorker* worker,
+    Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
@@ -313,8 +313,9 @@ private:
     void _remove_unused_remote_files_callback();
     void _cold_data_compaction_producer_callback();
 
-    Status _handle_seg_compaction(SegcompactionWorker* worker,
-                                  SegCompactionCandidatesSharedPtr segments);
+    Status _handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
+                                  SegCompactionCandidatesSharedPtr segments,
+                                  uint64_t submission_time);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
 

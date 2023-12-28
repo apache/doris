@@ -996,17 +996,22 @@ Status StorageEngine::submit_compaction_task(TabletSharedPtr tablet, CompactionT
     return _submit_compaction_task(tablet, compaction_type, force);
 }
 
-Status StorageEngine::_handle_seg_compaction(SegcompactionWorker* worker,
-                                             SegCompactionCandidatesSharedPtr segments) {
+Status StorageEngine::_handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
+                                             SegCompactionCandidatesSharedPtr segments,
+                                             uint64_t submission_time) {
+    // note: be aware that worker->_writer maybe released when the task is cancelled
+    uint64_t exec_queue_time = GetCurrentTimeMicros() - submission_time;
+    LOG(INFO) << "segcompaction thread pool queue time(ms): " << exec_queue_time / 1000;
     worker->compact_segments(segments);
     // return OK here. error will be reported via BetaRowsetWriter::_segcompaction_status
     return Status::OK();
 }
 
-Status StorageEngine::submit_seg_compaction_task(SegcompactionWorker* worker,
+Status StorageEngine::submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                                  SegCompactionCandidatesSharedPtr segments) {
-    return _seg_compaction_thread_pool->submit_func(
-            std::bind<void>(&StorageEngine::_handle_seg_compaction, this, worker, segments));
+    uint64_t submission_time = GetCurrentTimeMicros();
+    return _seg_compaction_thread_pool->submit_func(std::bind<void>(
+            &StorageEngine::_handle_seg_compaction, this, worker, segments, submission_time));
 }
 
 Status StorageEngine::process_index_change_task(const TAlterInvertedIndexReq& request) {
