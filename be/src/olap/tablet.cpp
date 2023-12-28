@@ -2017,7 +2017,7 @@ Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetShare
             rowset);
 }
 
-Status Tablet::cooldown() {
+Status Tablet::cooldown(RowsetSharedPtr rowset) {
     std::unique_lock schema_change_lock(_schema_change_lock, std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED>("try schema_change_lock failed");
@@ -2038,7 +2038,7 @@ Status Tablet::cooldown() {
 
     if (_cooldown_replica_id == replica_id()) {
         // this replica is cooldown replica
-        RETURN_IF_ERROR(_cooldown_data());
+        RETURN_IF_ERROR(_cooldown_data(std::move(rowset)));
     } else {
         Status st = _follow_cooldowned_data();
         if (UNLIKELY(!st.ok())) {
@@ -2051,12 +2051,27 @@ Status Tablet::cooldown() {
 }
 
 // hold SHARED `cooldown_conf_lock`
-Status Tablet::_cooldown_data() {
+Status Tablet::_cooldown_data(RowsetSharedPtr rowset) {
     DCHECK(_cooldown_replica_id == replica_id());
 
     std::shared_ptr<io::RemoteFileSystem> dest_fs;
     RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &dest_fs));
-    auto old_rowset = pick_cooldown_rowset();
+    RowsetSharedPtr old_rowset = nullptr;
+
+    if (rowset) {
+        const auto& rowset_id = rowset->rowset_id();
+        const auto& rowset_version = rowset->version();
+        std::shared_lock meta_rlock(_meta_lock);
+        auto iter = _rs_version_map.find(rowset_version);
+        if (iter != _rs_version_map.end() && iter->second->rowset_id() == rowset_id) {
+            old_rowset = rowset;
+        }
+    }
+
+    if (!old_rowset) {
+        old_rowset = pick_cooldown_rowset();
+    }
+
     if (!old_rowset) {
         LOG(INFO) << "cannot pick cooldown rowset in tablet " << tablet_id();
         return Status::OK();
@@ -2353,23 +2368,23 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
     return rowset;
 }
 
-bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
+RowsetSharedPtr Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
     int64_t id = storage_policy_id();
     if (id <= 0) {
         VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id();
-        return false;
+        return nullptr;
     }
     auto storage_policy = get_storage_policy(id);
     if (!storage_policy) {
         LOG(WARNING) << "Cannot get storage policy: " << id;
-        return false;
+        return nullptr;
     }
     auto cooldown_ttl_sec = storage_policy->cooldown_ttl;
     auto cooldown_datetime = storage_policy->cooldown_datetime;
     RowsetSharedPtr rowset = pick_cooldown_rowset();
     if (!rowset) {
         VLOG_DEBUG << "pick cooldown rowset, get null, tablet id: " << tablet_id();
-        return false;
+        return nullptr;
     }
 
     int64_t newest_cooldown_time = std::numeric_limits<int64_t>::max();
@@ -2387,13 +2402,13 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         *file_size = rowset->data_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " file_size: " << *file_size;
-        return true;
+        return rowset;
     }
 
     VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id()
                << " ttl sec: " << cooldown_ttl_sec << " cooldown datetime: " << cooldown_datetime
                << " newest write time: " << rowset->newest_write_timestamp();
-    return false;
+    return nullptr;
 }
 
 void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,

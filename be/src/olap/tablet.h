@@ -355,11 +355,11 @@ public:
     int64_t last_failed_follow_cooldown_time() const { return _last_failed_follow_cooldown_time; }
 
     // Cooldown to remote fs.
-    Status cooldown();
+    Status cooldown(RowsetSharedPtr rowset = nullptr);
 
     RowsetSharedPtr pick_cooldown_rowset();
 
-    bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
+    RowsetSharedPtr need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
     std::pair<int64_t, int64_t> cooldown_conf() const {
         std::shared_lock rlock(_cooldown_conf_lock);
@@ -591,7 +591,7 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
-    Status _cooldown_data();
+    Status _cooldown_data(RowsetSharedPtr rowset);
     Status _follow_cooldowned_data();
     Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                TabletMetaPB* tablet_meta_pb);

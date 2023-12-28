@@ -1037,6 +1037,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
     do {
         // these tables are ordered by priority desc
         std::vector<TabletSharedPtr> tablets;
+        std::vector<RowsetSharedPtr> rowsets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
         auto cur_time = time(nullptr);
         // we should skip all the tablets which are not running and those pending to do cooldown
@@ -1053,17 +1054,19 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
             return _running_cooldown_tablets.find(tablet->tablet_id()) !=
                    _running_cooldown_tablets.end();
         };
-        _tablet_manager->get_cooldown_tablets(&tablets, std::move(skip_tablet));
+        _tablet_manager->get_cooldown_tablets(&tablets, &rowsets, std::move(skip_tablet));
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
         int max_priority = tablets.size();
+        int index = 0;
         for (const auto& tablet : tablets) {
             {
                 std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
                 _running_cooldown_tablets.insert(tablet->tablet_id());
             }
             PriorityThreadPool::Task task;
-            task.work_function = [tablet, task_size = tablets.size(), this]() {
-                Status st = tablet->cooldown();
+            RowsetSharedPtr rowset = std::move(rowsets[index++]);
+            task.work_function = [tablet, rowset, task_size = tablets.size(), this]() {
+                Status st = tablet->cooldown(rowset);
                 {
                     std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
                     _running_cooldown_tablets.erase(tablet->tablet_id());
