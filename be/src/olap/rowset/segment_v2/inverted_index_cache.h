@@ -133,6 +133,8 @@ public:
     // function `erase` called after compaction remove segment
     Status erase(const std::string& index_file_path);
 
+    void release(Cache::Handle* handle) { _policy->cache()->release(handle); }
+
     int64_t mem_consumption();
 
 private:
