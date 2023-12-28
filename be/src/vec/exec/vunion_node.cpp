@@ -171,9 +171,7 @@ Status VUnionNode::get_next_materialized(RuntimeState* state, Block* block) {
         }
     }
 
-
     block->swap(mblock.to_block());
-
 
     DCHECK_LE(_child_idx, _children.size());
     return Status::OK();
@@ -203,7 +201,6 @@ Status VUnionNode::get_next_const(RuntimeState* state, Block* block) {
             mblock.merge(tmp_block);
         }
     }
-
 
     block->swap(mblock.to_block());
 
