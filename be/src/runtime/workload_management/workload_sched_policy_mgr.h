@@ -15,28 +15,36 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.publish;
+#pragma once
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.thrift.TPublishTopicRequest;
-import org.apache.doris.thrift.TTopicInfoType;
-import org.apache.doris.thrift.TopicInfo;
+#include "runtime/exec_env.h"
+#include "runtime/workload_management/workload_sched_policy.h"
+#include "util/countdown_latch.h"
 
-import java.util.List;
+namespace doris {
 
-public class WorkloadGroupPublisher implements TopicPublisher {
+class WorkloadSchedPolicyMgr {
+public:
+    WorkloadSchedPolicyMgr() : _stop_latch(0) {}
+    ~WorkloadSchedPolicyMgr() = default;
 
-    private Env env;
+    void start(ExecEnv* exec_env);
 
-    public WorkloadGroupPublisher(Env env) {
-        this.env = env;
-    }
+    void stop();
 
-    @Override
-    public void getTopicInfo(TPublishTopicRequest req) {
-        List<TopicInfo> list = env.getWorkloadGroupMgr().getPublishTopicInfo();
-        if (list.size() > 0) {
-            req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
-        }
-    }
-}
+    void update_workload_sched_policy(
+            std::map<uint64_t, std::shared_ptr<WorkloadSchedPolicy>> policy_map);
+
+private:
+    void _schedule_workload();
+
+    std::shared_mutex _policy_lock;
+    std::map<uint64_t, std::shared_ptr<WorkloadSchedPolicy>> _id_policy_map;
+
+    std::shared_mutex _stop_lock;
+    CountDownLatch _stop_latch;
+    scoped_refptr<Thread> _thread;
+    ExecEnv* _exec_env;
+};
+
+}; // namespace doris

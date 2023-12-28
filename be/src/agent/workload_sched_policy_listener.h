@@ -15,28 +15,23 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.publish;
+#pragma once
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.thrift.TPublishTopicRequest;
-import org.apache.doris.thrift.TTopicInfoType;
-import org.apache.doris.thrift.TopicInfo;
+#include <glog/logging.h>
 
-import java.util.List;
+#include "agent/topic_listener.h"
+#include "runtime/exec_env.h"
 
-public class WorkloadGroupPublisher implements TopicPublisher {
+namespace doris {
 
-    private Env env;
+class WorkloadschedPolicyListener : public TopicListener {
+public:
+    WorkloadschedPolicyListener(ExecEnv* exec_env) : _exec_env(exec_env) {}
 
-    public WorkloadGroupPublisher(Env env) {
-        this.env = env;
-    }
+    void handle_topic_info(const std::vector<TopicInfo>& topic_info_list) override;
 
-    @Override
-    public void getTopicInfo(TPublishTopicRequest req) {
-        List<TopicInfo> list = env.getWorkloadGroupMgr().getPublishTopicInfo();
-        if (list.size() > 0) {
-            req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
-        }
-    }
-}
+private:
+    ExecEnv* _exec_env = nullptr;
+};
+
+} // namespace doris

@@ -15,28 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.publish;
+package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.thrift.TPublishTopicRequest;
 import org.apache.doris.thrift.TTopicInfoType;
 import org.apache.doris.thrift.TopicInfo;
 
 import java.util.List;
 
-public class WorkloadGroupPublisher implements TopicPublisher {
+public class WorkloadSchedPolicyPublisher implements TopicPublisher {
 
     private Env env;
 
-    public WorkloadGroupPublisher(Env env) {
+    public WorkloadSchedPolicyPublisher(Env env) {
         this.env = env;
     }
 
     @Override
     public void getTopicInfo(TPublishTopicRequest req) {
-        List<TopicInfo> list = env.getWorkloadGroupMgr().getPublishTopicInfo();
+        List<TopicInfo> list = env.getWorkloadSchedPolicyMgr().getPublishTopicInfoList();
         if (list.size() > 0) {
-            req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
+            req.putToTopicMap(TTopicInfoType.WORKLOAD_SCHED_POLICY, list);
         }
     }
+
 }

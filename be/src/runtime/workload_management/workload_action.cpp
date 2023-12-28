@@ -15,28 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.publish;
+#include "runtime/workload_management/workload_action.h"
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.thrift.TPublishTopicRequest;
-import org.apache.doris.thrift.TTopicInfoType;
-import org.apache.doris.thrift.TopicInfo;
+#include "runtime/fragment_mgr.h"
 
-import java.util.List;
+namespace doris {
 
-public class WorkloadGroupPublisher implements TopicPublisher {
-
-    private Env env;
-
-    public WorkloadGroupPublisher(Env env) {
-        this.env = env;
-    }
-
-    @Override
-    public void getTopicInfo(TPublishTopicRequest req) {
-        List<TopicInfo> list = env.getWorkloadGroupMgr().getPublishTopicInfo();
-        if (list.size() > 0) {
-            req.putToTopicMap(TTopicInfoType.WORKLOAD_GROUP, list);
-        }
-    }
+void WorkloadActionCancelQuery::exec(WorkloadQueryInfo* query_info) {
+    LOG(INFO) << "[workload_schedule]workload scheduler cancel query " << query_info->query_id;
+    ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
+            query_info->tquery_id, PPlanFragmentCancelReason::INTERNAL_ERROR,
+            std::string("query canceled by workload scheduler"));
 }
+
+void WorkloadActionMoveQuery::exec(WorkloadQueryInfo* query_info) {
+    LOG(INFO) << "[workload_schedule]move query action run group=" << _wg_name;
+};
+
+} // namespace doris
