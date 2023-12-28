@@ -39,7 +39,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.time.LocalTime;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,12 +70,12 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     @SuppressWarnings({"rawtypes", "unchecked"})
     private void analyzeAll() {
-        Set<CatalogIf> catalogs = Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog();
+        List<CatalogIf> catalogs = getCatalogsInOrder();
         for (CatalogIf ctl : catalogs) {
             if (!ctl.enableAutoAnalyze()) {
                 continue;
             }
-            Collection<DatabaseIf> dbs = ctl.getAllDbs();
+            List<DatabaseIf> dbs = getDatabasesInOrder(ctl);
             for (DatabaseIf<TableIf> databaseIf : dbs) {
                 if (StatisticConstants.SYSTEM_DBS.contains(databaseIf.getFullName())) {
                     continue;
@@ -89,6 +88,21 @@ public class StatisticsAutoCollector extends StatisticsCollector {
                 }
             }
         }
+    }
+
+    public List<CatalogIf> getCatalogsInOrder() {
+        return Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog().stream()
+            .sorted((c1, c2) -> (int) (c1.getId() - c2.getId())).collect(Collectors.toList());
+    }
+
+    public List<DatabaseIf> getDatabasesInOrder(CatalogIf<DatabaseIf> catalog) {
+        return catalog.getAllDbs().stream()
+            .sorted((d1, d2) -> (int) (d1.getId() - d2.getId())).collect(Collectors.toList());
+    }
+
+    public List<TableIf> getTablesInOrder(DatabaseIf<? extends TableIf> db) {
+        return db.getTables().stream()
+            .sorted((t1, t2) -> (int) (t1.getId() - t2.getId())).collect(Collectors.toList());
     }
 
     public void analyzeDb(DatabaseIf<TableIf> databaseIf) throws DdlException {
@@ -111,7 +125,7 @@ public class StatisticsAutoCollector extends StatisticsCollector {
 
     protected List<AnalysisInfo> constructAnalysisInfo(DatabaseIf<? extends TableIf> db) {
         List<AnalysisInfo> analysisInfos = new ArrayList<>();
-        for (TableIf table : db.getTables()) {
+        for (TableIf table : getTablesInOrder(db)) {
             try {
                 if (skip(table)) {
                     continue;
