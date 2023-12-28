@@ -23,6 +23,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.thrift.TUnit;
 
@@ -32,6 +33,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -71,39 +73,62 @@ public class ExecutionProfile {
     // fragmentId -> dummy value
     private MarkedCountDownLatch<Integer, Long> profileFragmentDoneSignal;
 
+    // use to merge profile from multi be
+    private List<Map<TNetworkAddress, List<RuntimeProfile>>> multiBeProfile = null;
+
     public ExecutionProfile(TUniqueId queryId, int fragmentNum) {
         executionProfile = new RuntimeProfile("Execution Profile " + DebugUtil.printId(queryId));
         RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
         executionProfile.addChild(fragmentsProfile);
         fragmentProfiles = Lists.newArrayList();
+        multiBeProfile = Lists.newArrayList();
         for (int i = 0; i < fragmentNum; i++) {
             fragmentProfiles.add(new RuntimeProfile("Fragment " + i));
             fragmentsProfile.addChild(fragmentProfiles.get(i));
+            multiBeProfile.add(new HashMap<TNetworkAddress, List<RuntimeProfile>>());
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
         executionProfile.addChild(loadChannelProfile);
     }
 
-    private RuntimeProfile getPipelineXAggregatedProfile(Map<Integer, String> planNodeMap) {
-        RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
-        for (int i = 0; i < fragmentProfiles.size(); ++i) {
-            RuntimeProfile oldFragmentProfile = fragmentProfiles.get(i);
-            RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
-            fragmentsProfile.addChild(newFragmentProfile);
-            List<RuntimeProfile> allPipelines = new ArrayList<RuntimeProfile>();
-            for (Pair<RuntimeProfile, Boolean> runtimeProfile : oldFragmentProfile.getChildList()) {
-                allPipelines.add(runtimeProfile.first);
-            }
-            int pipelineIdx = 0;
-            for (RuntimeProfile pipeline : allPipelines) {
-                List<RuntimeProfile> allPipelineTask = new ArrayList<RuntimeProfile>();
+    public void addMultiBeProfileByPipelineX(int profileFragmentId, TNetworkAddress address,
+            List<RuntimeProfile> taskProfile) {
+        multiBeProfile.get(profileFragmentId).put(address, taskProfile);
+    }
+
+    private List<List<RuntimeProfile>> getMultiBeProfile(int profileFragmentId) {
+        Map<TNetworkAddress, List<RuntimeProfile>> multiPipeline = multiBeProfile.get(profileFragmentId);
+        List<List<RuntimeProfile>> allPipelines = Lists.newArrayList();
+        int pipelineSize = 0;
+        for (List<RuntimeProfile> profiles : multiPipeline.values()) {
+            pipelineSize = profiles.size();
+            break;
+        }
+        for (int pipelineIdx = 0; pipelineIdx < pipelineSize; pipelineIdx++) {
+            List<RuntimeProfile> allPipelineTask = new ArrayList<RuntimeProfile>();
+            for (List<RuntimeProfile> pipelines : multiPipeline.values()) {
+                RuntimeProfile pipeline = pipelines.get(pipelineIdx);
                 for (Pair<RuntimeProfile, Boolean> runtimeProfile : pipeline.getChildList()) {
                     allPipelineTask.add(runtimeProfile.first);
                 }
+            }
+            allPipelines.add(allPipelineTask);
+        }
+        return allPipelines;
+    }
+
+    private RuntimeProfile getPipelineXAggregatedProfile(Map<Integer, String> planNodeMap) {
+        RuntimeProfile fragmentsProfile = new RuntimeProfile("Fragments");
+        for (int i = 0; i < fragmentProfiles.size(); ++i) {
+            RuntimeProfile newFragmentProfile = new RuntimeProfile("Fragment " + i);
+            fragmentsProfile.addChild(newFragmentProfile);
+            List<List<RuntimeProfile>> allPipelines = getMultiBeProfile(i);
+            int pipelineIdx = 0;
+            for (List<RuntimeProfile> allPipelineTask : allPipelines) {
                 RuntimeProfile mergedpipelineProfile = new RuntimeProfile(
                         "Pipeline : " + pipelineIdx + "(instance_num="
                                 + allPipelineTask.size() + ")",
-                        allPipelines.get(0).nodeId());
+                        allPipelineTask.get(0).nodeId());
                 RuntimeProfile.mergeProfiles(allPipelineTask, mergedpipelineProfile, planNodeMap);
                 newFragmentProfile.addChild(mergedpipelineProfile);
                 pipelineIdx++;
