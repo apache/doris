@@ -55,6 +55,7 @@ class Field;
 
 using DataTypePtr = std::shared_ptr<const IDataType>;
 using DataTypes = std::vector<DataTypePtr>;
+constexpr auto ENCODE_SIZE_LIMIT = 256;
 
 /** Properties of data type.
   * Contains methods for serialization/deserialization.

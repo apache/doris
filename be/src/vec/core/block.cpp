@@ -866,33 +866,34 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     *uncompressed_bytes = content_uncompressed_size;
 
     // compress
-    if (config::compress_rowbatches && content_uncompressed_size > 0) {
-        SCOPED_RAW_TIMER(&_compress_time_ns);
-        pblock->set_compression_type(compression_type);
-        pblock->set_uncompressed_size(content_uncompressed_size);
-
-        BlockCompressionCodec* codec;
-        RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
-
-        faststring buf_compressed;
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(
-                Slice(column_values.data(), content_uncompressed_size), &buf_compressed));
-        size_t compressed_size = buf_compressed.size();
-        if (LIKELY(compressed_size < content_uncompressed_size)) {
-            pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
-            pblock->set_compressed(true);
-            *compressed_bytes = compressed_size;
-        } else {
-            pblock->set_column_values(std::move(column_values));
-            *compressed_bytes = content_uncompressed_size;
-        }
-
-        VLOG_ROW << "uncompressed size: " << content_uncompressed_size
-                 << ", compressed size: " << compressed_size;
-    } else {
-        pblock->set_column_values(std::move(column_values));
-        *compressed_bytes = content_uncompressed_size;
-    }
+    //    if (compression_type != segment_v2::NO_COMPRESSION && content_uncompressed_size > 0) {
+    //        SCOPED_RAW_TIMER(&_compress_time_ns);
+    //        pblock->set_compression_type(compression_type);
+    //        pblock->set_uncompressed_size(content_uncompressed_size);
+    //
+    //        BlockCompressionCodec* codec;
+    //        RETURN_IF_ERROR(get_block_compression_codec(compression_type, &codec));
+    //
+    //        faststring buf_compressed;
+    //        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(codec->compress(
+    //                Slice(column_values.data(), content_uncompressed_size), &buf_compressed));
+    //        size_t compressed_size = buf_compressed.size();
+    //        if (LIKELY(compressed_size < content_uncompressed_size)) {
+    //            pblock->set_column_values(buf_compressed.data(), buf_compressed.size());
+    //            pblock->set_compressed(true);
+    //            *compressed_bytes = compressed_size;
+    //        } else {
+    //            pblock->set_column_values(std::move(column_values));
+    //            *compressed_bytes = content_uncompressed_size;
+    //        }
+    //
+    //        VLOG_ROW << "uncompressed size: " << content_uncompressed_size
+    //                 << ", compressed size: " << compressed_size;
+    //    } else {
+    *compressed_bytes = buf - column_values.data();
+    column_values.resize(*compressed_bytes);
+    pblock->set_column_values(std::move(column_values));
+    //    }
     if (!allow_transfer_large_data && *compressed_bytes >= std::numeric_limits<int32_t>::max()) {
         return Status::InternalError("The block is large than 2GB({}), can not send by Protobuf.",
                                      *compressed_bytes);
