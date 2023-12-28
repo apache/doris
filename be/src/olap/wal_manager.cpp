@@ -377,12 +377,10 @@ Status WalManager::replay() {
             std::lock_guard<std::shared_mutex> wrlock(_lock);
             auto it = _table_map.begin();
             while (it != _table_map.end()) {
-                if (it->second->size() == 0) {
-                    it = _table_map.erase(it);
-                } else {
+                if (it->second->size() > 0) {
                     replay_tables.push_back(it->first);
-                    it++;
                 }
+                it++;
             }
         }
         for (const auto& table_id : replay_tables) {
