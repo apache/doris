@@ -865,10 +865,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // Set colocate info in agg node. This is a hint for local shuffling to decide which type of
             // local exchanger will be used.
             aggregationNode.setColocate(true);
-
-            if (aggregate.getAggMode().isFinalPhase) {
-                inputPlanFragment.setHasColocateFinalizeAggNode(true);
-            }
         }
         setPlanRoot(inputPlanFragment, aggregationNode, aggregate);
         if (aggregate.getStats() != null) {
