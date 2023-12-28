@@ -25,7 +25,9 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
@@ -73,7 +75,9 @@ public class MTMVTask extends AbstractTask {
             new Column("JobId", ScalarType.createStringType()),
             new Column("JobName", ScalarType.createStringType()),
             new Column("MvId", ScalarType.createStringType()),
+            new Column("MvName", ScalarType.createStringType()),
             new Column("MvDatabaseId", ScalarType.createStringType()),
+            new Column("MvDatabaseName", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
             new Column("ErrorMsg", ScalarType.createStringType()),
             new Column("CreateTime", ScalarType.createStringType()),
@@ -213,8 +217,7 @@ public class MTMVTask extends AbstractTask {
         LOG.info("mtmv task before, taskId: {}", super.getTaskId());
         super.before();
         try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
-            mtmv = (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
+            mtmv = getMTMV();
             if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.FOLLOW_BASE_TABLE) {
                 OlapTable relatedTable = (OlapTable) MTMVUtil.getTable(mtmv.getMvPartitionInfo().getRelatedTable());
                 MTMVUtil.alignMvPartition(mtmv, relatedTable);
@@ -223,6 +226,11 @@ public class MTMVTask extends AbstractTask {
             LOG.warn("before task failed:", e);
             throw new JobException(e);
         }
+    }
+
+    private MTMV getMTMV() throws DdlException, MetaNotFoundException {
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbId);
+        return (MTMV) db.getTableOrMetaException(mtmvId, TableType.MATERIALIZED_VIEW);
     }
 
     @Override
@@ -247,7 +255,19 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(mtmvId)));
+        String dbName = "";
+        String mvName = "";
+        try {
+            MTMV mtmv = getMTMV();
+            dbName = mtmv.getQualifiedDbName();
+            mvName = mtmv.getName();
+        } catch (UserException e) {
+            LOG.warn("can not find mv", e);
+        }
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(mtmvId)));
+        trow.addToColumnValue(new TCell().setStringVal(mvName));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(dbId)));
+        trow.addToColumnValue(new TCell().setStringVal(dbName));
         trow.addToColumnValue(new TCell()
                 .setStringVal(super.getStatus() == null ? FeConstants.null_string : super.getStatus().toString()));
         trow.addToColumnValue(new TCell().setStringVal(super.getErrMsg()));

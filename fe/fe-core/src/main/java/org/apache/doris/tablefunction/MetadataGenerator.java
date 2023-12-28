@@ -31,6 +31,7 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.extensions.mtmv.MTMVJob;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -586,12 +587,20 @@ public class MetadataGenerator {
         TJobsMetadataParams jobsMetadataParams = params.getJobsMetadataParams();
         String type = jobsMetadataParams.getType();
         JobType jobType = JobType.valueOf(type);
+        TUserIdentity currentUserIdent = params.getCurrentUserIdent();
+        UserIdentity userIdentity = UserIdentity.fromThrift(currentUserIdent);
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
+            if (job instanceof MTMVJob) {
+                MTMVJob mtmvJob = (MTMVJob) job;
+                if (!mtmvJob.hasPriv(userIdentity, PrivPredicate.SHOW)) {
+                    continue;
+                }
+            }
             dataBatch.add(job.getTvfInfo());
         }
         result.setDataBatch(dataBatch);
@@ -607,12 +616,20 @@ public class MetadataGenerator {
         TTasksMetadataParams tasksMetadataParams = params.getTasksMetadataParams();
         String type = tasksMetadataParams.getType();
         JobType jobType = JobType.valueOf(type);
+        TUserIdentity currentUserIdent = params.getCurrentUserIdent();
+        UserIdentity userIdentity = UserIdentity.fromThrift(currentUserIdent);
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         List<org.apache.doris.job.base.AbstractJob> jobList = Env.getCurrentEnv().getJobManager().queryJobs(jobType);
 
         for (org.apache.doris.job.base.AbstractJob job : jobList) {
+            if (job instanceof MTMVJob) {
+                MTMVJob mtmvJob = (MTMVJob) job;
+                if (!mtmvJob.hasPriv(userIdentity, PrivPredicate.SHOW)) {
+                    continue;
+                }
+            }
             List<AbstractTask> tasks = job.queryAllTasks();
             for (AbstractTask task : tasks) {
                 TRow tvfInfo = task.getTvfInfo();

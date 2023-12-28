@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.extensions.mtmv;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -25,12 +26,15 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.extensions.mtmv.MTMVTask.MTMVTaskTriggerMode;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.thrift.TCell;
@@ -67,11 +71,14 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("Id", ScalarType.createStringType()),
             new Column("Name", ScalarType.createStringType()),
+            new Column("MvId", ScalarType.createStringType()),
+            new Column("MvName", ScalarType.createStringType()),
+            new Column("MvDatabaseId", ScalarType.createStringType()),
+            new Column("MvDatabaseName", ScalarType.createStringType()),
             new Column("ExecuteType", ScalarType.createStringType()),
             new Column("RecurringStrategy", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
-            new Column("CreateTime", ScalarType.createStringType()),
-            new Column("Comment", ScalarType.createStringType()));
+            new Column("CreateTime", ScalarType.createStringType()));
 
     public static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
 
@@ -195,12 +202,38 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
+        String dbName = "";
+        String mvName = "";
+        try {
+            MTMV mtmv = getMTMV();
+            dbName = mtmv.getQualifiedDbName();
+            mvName = mtmv.getName();
+        } catch (UserException e) {
+            LOG.warn("can not find mv", e);
+        }
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(mtmvId)));
+        trow.addToColumnValue(new TCell().setStringVal(mvName));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(dbId)));
+        trow.addToColumnValue(new TCell().setStringVal(dbName));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobConfig().getExecuteType().name()));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobConfig().convertRecurringStrategyToString()));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(super.getCreateTimeMs())));
-        trow.addToColumnValue(new TCell().setStringVal(super.getComment()));
         return trow;
+    }
+
+    public boolean hasPriv(UserIdentity userIdentity, PrivPredicate wanted) {
+        MTMV mtmv;
+        try {
+            mtmv = getMTMV();
+        } catch (UserException e) {
+            LOG.warn("can not find mv", e);
+            return false;
+        }
+        return Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME,
+                        mtmv.getQualifiedDbName(), mtmv.getName(),
+                        wanted);
     }
 
     private MTMV getMTMV() throws DdlException, MetaNotFoundException {
