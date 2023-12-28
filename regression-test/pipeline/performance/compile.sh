@@ -29,6 +29,9 @@ else
 fi
 EOF
 
+#####################################################################################
+## compile.sh content ##
+
 if ${DEBUG:-false}; then
     pull_request_num="28431"
     commit_id="b052225cd0a180b4576319b5bd6331218dd0d3fe"
@@ -37,6 +40,7 @@ fi
 if [[ -z "${teamcity_build_checkoutDir}" ]]; then echo "ERROR: env teamcity_build_checkoutDir not set" && exit 2; fi
 if [[ -z "${pull_request_num}" ]]; then echo "ERROR: env pull_request_num not set" && exit 2; fi
 if [[ -z "${commit_id}" ]]; then echo "ERROR: env commit_id not set" && exit 2; fi
+if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && exit 2; fi
 
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
@@ -102,6 +106,7 @@ fi
 mount_swapfile=""
 if [[ -f /root/swapfile ]]; then mount_swapfile="-v /root/swapfile:/swapfile --memory-swap -1"; fi
 git_storage_path=$(grep storage "${teamcity_build_checkoutDir}"/.git/config | rev | cut -d ' ' -f 1 | rev | awk -F '/lfs' '{print $1}')
+sudo docker container prune -f
 sudo docker image prune -f
 sudo docker pull "${docker_image}"
 docker_name=doris-compile-"${commit_id}"

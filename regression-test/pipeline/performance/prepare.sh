@@ -33,6 +33,7 @@ else
 fi
 EOF
 
+#####################################################################################
 ## run.sh content ##
 
 if ${DEBUG:-false}; then
@@ -64,16 +65,19 @@ if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     exit 1
 fi
 
-# echo "#### 2. check if tpch depending files exist"
-# if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/fe.conf &&
-#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/conf/be.conf &&
-#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/deploy.sh &&
-#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/tpch/tpch-sf100/run.sh &&
-#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh &&
-#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh &&
-#     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh &&
-#     -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh &&
-#     -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh &&
-#     -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh ]]; then
-#     echo "ERROR: depending files missing" && exit 1
-# fi
+echo "#### 2. check if tpch depending files exist"
+if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/prepare.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/compile.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/deploy.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/run-tpch.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/run-tpcds.sh &&
+    -f "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh &&
+    -f "${teamcity_build_checkoutDir}"/tools/tpcds-tools/bin/run-tpcds-queries.sh ]]; then
+    echo "ERROR: depending files missing" && exit 1
+fi

@@ -228,7 +228,7 @@ function check_tpch_result() {
     # 单位是毫秒
     cold_run_time_threshold=${cold_run_time_threshold:-50000}
     hot_run_time_threshold=${hot_run_time_threshold:-42000}
-    if [[ ${cold_run_time} -gt 50000 || ${hot_run_time} -gt 42000 ]]; then
+    if [[ ${cold_run_time} -gt ${cold_run_time_threshold} || ${hot_run_time} -gt ${hot_run_time_threshold} ]]; then
         echo "ERROR:
     cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
     or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"

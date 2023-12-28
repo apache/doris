@@ -77,6 +77,7 @@ exit_flag=0
         "${teamcity_build_checkoutDir}"/tools/tpch-tools/conf/doris-cluster.conf
     if ! check_tpch_table_rows "${db_name}" "${SF}"; then
         echo "INFO: need to load tpch-sf${SF} data"
+        if ${force_load_data:-false}; then echo "INFO: force_load_data is true"; else echo "ERROR: force_load_data is false" && exit 1; fi
         # prepare data
         mkdir -p "${TPCH_DATA_DIR}"
         (
