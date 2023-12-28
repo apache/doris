@@ -93,6 +93,10 @@ public:
 
     TaskQueue* task_queue() const { return _task_queue.get(); }
 
+    void set_wg_id(uint64_t wg_id) { this->_wg_id = wg_id; }
+
+    uint64_t get_wg_id() { return _wg_id; }
+
 private:
     std::unique_ptr<ThreadPool> _fix_thread_pool;
     std::shared_ptr<TaskQueue> _task_queue;
@@ -101,6 +105,7 @@ private:
     std::atomic<bool> _shutdown;
     std::string _name;
     CgroupCpuCtl* _cgroup_cpu_ctl = nullptr;
+    uint64_t _wg_id = -1;
 
     void _do_work(size_t index);
     // after _try_close_task, task maybe destructed.

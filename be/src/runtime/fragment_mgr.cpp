@@ -1571,17 +1571,24 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TPipelineFrag
 void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_info_list) {
     {
         std::lock_guard<std::mutex> lock(_lock);
-        // todo: use monotonic time
-        VecDateTimeValue now = VecDateTimeValue::local_time();
         for (const auto& q : _query_ctx_map) {
             WorkloadQueryInfo workload_query_info;
             workload_query_info.query_id = print_id(q.first);
             workload_query_info.tquery_id = q.first;
 
-            uint64_t query_time_millisecond = q.second->query_time(now) * 1000;
+            uint64_t query_time_millisecond = q.second->query_time();
             workload_query_info.metric_map.emplace(WorkloadMetricType::QUERY_TIME,
                                                    std::to_string(query_time_millisecond));
-            // todo, add scan rows, scan bytes
+
+            int64_t scan_rows = 0;
+            int64_t scan_bytes = 0;
+            workload_query_info.metric_map.emplace(WorkloadMetricType::SCAN_ROWS,
+                                                   std::to_string(scan_rows));
+            workload_query_info.metric_map.emplace(WorkloadMetricType::SCAN_BYTES,
+                                                   std::to_string(scan_bytes));
+
+            workload_query_info._query_ctx_share_ptr = q.second;
+
             query_info_list->push_back(workload_query_info);
         }
     }

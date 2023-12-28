@@ -397,7 +397,7 @@ std::string PipelineXTask::debug_string() {
 
 void PipelineXTask::wake_up() {
     // call by dependency
-    static_cast<void>(get_task_queue()->push_back(this));
+    static_cast<void>(query_context()->get_exec_task_queue()->push_back(this));
 }
 
 } // namespace doris::pipeline

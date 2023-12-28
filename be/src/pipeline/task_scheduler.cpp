@@ -194,7 +194,7 @@ void BlockedTaskScheduler::_make_task_run(std::list<PipelineTask*>& local_tasks,
     auto task = *task_itr;
     task->set_state(t_state);
     local_tasks.erase(task_itr++);
-    static_cast<void>(task->get_task_queue()->push_back(task));
+    static_cast<void>(task->query_context()->get_exec_task_queue()->push_back(task));
 }
 
 TaskScheduler::~TaskScheduler() {
@@ -232,6 +232,17 @@ void TaskScheduler::_do_work(size_t index) {
         if (!task) {
             continue;
         }
+
+        // query may be migrated between scheduler
+        if (auto* query_ctx_ptr = task->query_context()) {
+            if (auto* sched_ptr = query_ctx_ptr->get_task_scheduler()) {
+                if (sched_ptr->get_wg_id() != this->get_wg_id()) {
+                    static_cast<void>(query_ctx_ptr->get_exec_task_queue()->push_back(task, index));
+                    continue;
+                }
+            }
+        }
+
         if (task->is_pipelineX() && task->is_running()) {
             static_cast<void>(_task_queue->push_back(task, index));
             continue;
@@ -336,7 +347,7 @@ void TaskScheduler::_do_work(size_t index) {
             break;
         case PipelineTaskState::RUNNABLE:
             task->set_running(false);
-            static_cast<void>(_task_queue->push_back(task, index));
+            static_cast<void>(task->query_context()->get_exec_task_queue()->push_back(task, index));
             break;
         default:
             DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state)

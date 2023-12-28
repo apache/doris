@@ -18,6 +18,7 @@
 package org.apache.doris.resource.workloadschedpolicy;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.resource.WorkloadConditionScanBytes;
 
 
 public interface WorkloadCondition {
@@ -33,6 +34,10 @@ public interface WorkloadCondition {
             return WorkloadConditionUsername.createWorkloadCondition(cm.op, cm.value);
         } else if (WorkloadMetricType.QUERY_TIME.equals(cm.metricName)) {
             return WorkloadConditionQueryTime.createWorkloadCondition(cm.op, cm.value);
+        } else if (WorkloadMetricType.SCAN_ROWS.equals(cm.metricName)) {
+            return WorkloadConditionScanRows.createWorkloadCondition(cm.op, cm.value);
+        } else if (WorkloadMetricType.SCAN_BYTES.equals(cm.metricName)) {
+            return WorkloadConditionScanBytes.createWorkloadCondition(cm.op, cm.value);
         }
         throw new UserException("invalid metric name:" + cm.metricName);
     }

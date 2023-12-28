@@ -19,6 +19,7 @@
 
 #include "pipeline/pipeline_fragment_context.h"
 #include "pipeline/pipeline_x/dependency.h"
+#include "pipeline/task_scheduler.h"
 
 namespace doris {
 
@@ -38,6 +39,7 @@ QueryContext::QueryContext(TUniqueId query_id, int total_fragment_num, ExecEnv* 
           _exec_env(exec_env),
           _query_options(query_options) {
     _start_time = VecDateTimeValue::local_time();
+    _monotonic_start_time_ms = MonotonicMillis();
     _shared_hash_table_controller.reset(new vectorized::SharedHashTableController());
     _shared_scanner_controller.reset(new vectorized::SharedScannerController());
     _execution_dependency =
@@ -116,4 +118,17 @@ bool QueryContext::cancel(bool v, std::string msg, Status new_status, int fragme
     }
     return true;
 }
+
+pipeline::TaskQueue* QueryContext::get_exec_task_queue() {
+    std::shared_lock<std::shared_mutex> read_lock(_exec_task_sched_mutex);
+    if (_task_scheduler) {
+        return _task_scheduler->task_queue();
+    } else if (use_task_group_for_cpu_limit.load()) {
+        return _exec_env->pipeline_task_group_scheduler()->task_queue();
+    } else {
+        // no workload group's task queue found, then we rollback to a common scheduler
+        return _exec_env->pipeline_task_scheduler()->task_queue();
+    }
+}
+
 } // namespace doris

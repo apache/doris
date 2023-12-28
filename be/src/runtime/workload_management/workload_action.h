@@ -40,23 +40,23 @@ public:
     WorkloadActionType get_action_type() override { return CANCEL_QUERY; }
 };
 
-//todo(wb) implement it
 class WorkloadActionMoveQuery : public WorkloadAction {
 public:
-    WorkloadActionMoveQuery(std::string wg_name) : _wg_name(wg_name) {}
+    WorkloadActionMoveQuery(uint64_t wg_id) : _wg_id(wg_id) {}
     void exec(WorkloadQueryInfo* query_info) override;
 
     WorkloadActionType get_action_type() override { return MOVE_QUERY_TO_GROUP; }
 
 private:
-    std::string _wg_name;
+    uint64_t _wg_id;
 };
 
 class WorkloadActionFactory {
 public:
     static std::unique_ptr<WorkloadAction> create_workload_action(TWorkloadAction* action) {
         if (TWorkloadActionType::type::MOVE_QUERY_TO_GROUP == action->action) {
-            return std::make_unique<WorkloadActionMoveQuery>(action->action_args);
+            uint64_t wg_id = std::stol(action->action_args);
+            return std::make_unique<WorkloadActionMoveQuery>(wg_id);
         } else if (TWorkloadActionType::type::CANCEL_QUERY == action->action) {
             return std::make_unique<WorkloadActionCancelQuery>();
         }

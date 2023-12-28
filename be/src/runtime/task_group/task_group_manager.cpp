@@ -68,15 +68,15 @@ TaskGroupPtr TaskGroupManager::get_task_group_by_id(uint64_t tg_id) {
 }
 
 bool TaskGroupManager::set_cg_task_sche_for_query_ctx(uint64_t tg_id, QueryContext* query_ctx_ptr) {
-    std::lock_guard<std::shared_mutex> write_lock(_task_scheduler_lock);
+    std::shared_lock<std::shared_mutex> read_lock(_task_scheduler_lock);
     if (_tg_sche_map.find(tg_id) != _tg_sche_map.end()) {
-        query_ctx_ptr->set_task_scheduler(_tg_sche_map.at(tg_id).get());
+        query_ctx_ptr->set_task_scheduler(&(_tg_sche_map.at(tg_id)));
     } else {
         return false;
     }
 
     if (_tg_scan_sche_map.find(tg_id) != _tg_scan_sche_map.end()) {
-        query_ctx_ptr->set_scan_task_scheduler(_tg_scan_sche_map.at(tg_id).get());
+        query_ctx_ptr->set_scan_task_scheduler(&(_tg_scan_sche_map.at(tg_id)));
     } else {
         return false;
     }
@@ -114,10 +114,11 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
         }
         auto task_queue = std::make_shared<pipeline::MultiCoreTaskQueue>(executors_size);
 
-        auto pipeline_task_scheduler = std::make_unique<pipeline::TaskScheduler>(
+        auto pipeline_task_scheduler = std::make_shared<pipeline::TaskScheduler>(
                 exec_env, exec_env->get_global_block_scheduler(), std::move(task_queue),
                 "Exec_" + tg_name, cg_cu_ctl_ptr);
         Status ret = pipeline_task_scheduler->start();
+        pipeline_task_scheduler->set_wg_id(tg_id);
         if (ret.ok()) {
             _tg_sche_map.emplace(tg_id, std::move(pipeline_task_scheduler));
         } else {
@@ -128,7 +129,7 @@ Status TaskGroupManager::upsert_cg_task_scheduler(taskgroup::TaskGroupInfo* tg_i
     // step 3: init scan scheduler
     if (_tg_scan_sche_map.find(tg_id) == _tg_scan_sche_map.end()) {
         auto scan_scheduler =
-                std::make_unique<vectorized::SimplifiedScanScheduler>(tg_name, cg_cu_ctl_ptr);
+                std::make_shared<vectorized::SimplifiedScanScheduler>(tg_name, cg_cu_ctl_ptr);
         Status ret = scan_scheduler->start();
         if (ret.ok()) {
             _tg_scan_sche_map.emplace(tg_id, std::move(scan_scheduler));
@@ -235,6 +236,21 @@ void TaskGroupManager::delete_task_group_by_ids(std::set<uint64_t> used_wg_id) {
         }
     }
     LOG(INFO) << "finish clear unused cgroup path";
+}
+
+bool TaskGroupManager::migrate_memory_tracker_to_group(
+        std::shared_ptr<MemTrackerLimiter> mem_tracker, uint64_t src_group_id,
+        uint64_t dst_group_id, std::shared_ptr<taskgroup::TaskGroup>* dst_group_ptr) {
+    std::lock_guard<std::shared_mutex> write_lock(_group_mutex);
+    if (_task_groups.find(src_group_id) == _task_groups.end() ||
+        _task_groups.find(dst_group_id) == _task_groups.end()) {
+        return false;
+    }
+    _task_groups[src_group_id]->remove_mem_tracker_limiter(mem_tracker);
+    *dst_group_ptr = _task_groups[dst_group_id];
+    (*dst_group_ptr)->add_mem_tracker_limiter(mem_tracker);
+
+    return true;
 }
 
 void TaskGroupManager::stop() {
