@@ -114,7 +114,7 @@ S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
         }
     }
     _executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
-            id.c_str(), config::s3_transfer_executor_pool_size);
+            _id.c_str(), config::s3_transfer_executor_pool_size);
 }
 
 S3FileSystem::~S3FileSystem() = default;

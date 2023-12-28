@@ -590,7 +590,7 @@ ReportWorker::ReportWorker(std::string name, const TMasterInfo& master_info, int
     };
 
     auto st = Thread::create("ReportWorker", _name, report_loop, &_thread);
-    CHECK(st.ok()) << name << ": " << st;
+    CHECK(st.ok()) << _name << ": " << st;
 }
 
 ReportWorker::~ReportWorker() {
