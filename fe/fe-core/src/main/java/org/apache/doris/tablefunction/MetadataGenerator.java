@@ -32,6 +32,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.task.AbstractTask;
+import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.planner.external.iceberg.IcebergMetadataCache;
 import org.apache.doris.qe.ConnectContext;
@@ -114,6 +115,9 @@ public class MetadataGenerator {
                 break;
             case QUERIES:
                 result = queriesMetadataResult(params, request);
+                break;
+            case WORKLOAD_SCHED_POLICY:
+                result = workloadSchedPolicyMetadataResult(params);
                 break;
             default:
                 return errorResult("Metadata table params is not set.");
@@ -382,6 +386,33 @@ public class MetadataGenerator {
         return result;
     }
 
+    private static TFetchSchemaTableDataResult workloadSchedPolicyMetadataResult(TMetadataTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+
+        TUserIdentity tcurrentUserIdentity = params.getCurrentUserIdent();
+        List<List<String>> workloadPolicyList = Env.getCurrentEnv().getWorkloadSchedPolicyMgr()
+                .getWorkloadSchedPolicyTvfInfo(tcurrentUserIdentity);
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        for (List<String> policyRow : workloadPolicyList) {
+            TRow trow = new TRow();
+            trow.addToColumnValue(new TCell().setLongVal(Long.valueOf(policyRow.get(0))));    // id
+            trow.addToColumnValue(new TCell().setStringVal(policyRow.get(1)));                // name
+            trow.addToColumnValue(new TCell().setStringVal(policyRow.get(2)));                // condition
+            trow.addToColumnValue(new TCell().setStringVal(policyRow.get(3)));                // action
+            trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(policyRow.get(4))));  // priority
+            trow.addToColumnValue(new TCell().setBoolVal(Boolean.valueOf(policyRow.get(5)))); // enabled
+            trow.addToColumnValue(new TCell().setIntVal(Integer.valueOf(policyRow.get(6)))); // version
+            dataBatch.add(trow);
+        }
+
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
     private static TFetchSchemaTableDataResult queriesMetadataResult(TMetadataTableRequestParams params,
                                                                      TFetchSchemaTableDataRequest parentRequest) {
         if (!params.isSetQueriesMetadataParams()) {
@@ -537,6 +568,8 @@ public class MetadataGenerator {
                 trow.addToColumnValue(new TCell().setStringVal(mv.getQuerySql()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getEnvInfo().toString()));
                 trow.addToColumnValue(new TCell().setStringVal(mv.getMvProperties().toString()));
+                trow.addToColumnValue(new TCell().setStringVal(mv.getMvPartitionInfo().toNameString()));
+                trow.addToColumnValue(new TCell().setBoolVal(MTMVUtil.isMTMVSync(mv)));
                 dataBatch.add(trow);
             }
         }

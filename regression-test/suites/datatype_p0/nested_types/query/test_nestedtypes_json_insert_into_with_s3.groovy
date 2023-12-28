@@ -35,9 +35,9 @@ suite("test_nestedtypes_json_insert_into_with_s3", "p0") {
 
     def dataFilePath = "https://"+"${bucket}"+"."+"${s3_endpoint}"+"/regression/datalake"
 
-    ArrayList<String> json_files = ["${dataFilePath}/amory_array_scala.json", "${dataFilePath}/amory_arr_arr.json",
-                                           "${dataFilePath}/amory_map_scala_scala.json","${dataFilePath}/amory_arr_map.json",
-                                            "${dataFilePath}/amory_map_array.json"]
+    ArrayList<String> json_files = ["${dataFilePath}/as.json", "${dataFilePath}/aa.json",
+                                           "${dataFilePath}/ms.json","${dataFilePath}/am.json",
+                                            "${dataFilePath}/ma.json"]
 
     List<String> table_names = new ArrayList<>()
     def nested_table_dup = "tbl_json_array_nested_types_s3"

@@ -24,20 +24,13 @@ suite("query5") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    sql 'set enable_runtime_filter_prune=true'
 
-    qt_ds_shape_5 '''
-    explain shape plan
-
-
-
-
-with ssr as
+    def ds = """with ssr as
  (select s_store_id,
         sum(sales_price) as sales,
         sum(profit) as profit,
@@ -161,7 +154,9 @@ with ssr as
  group by rollup (channel, id)
  order by channel
          ,id
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_5 """
+    explain shape plan
+    ${ds}
+    """
 }

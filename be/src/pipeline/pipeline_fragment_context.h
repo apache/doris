@@ -36,6 +36,7 @@
 #include "pipeline/pipeline_task.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
+#include "runtime/task_execution_context.h"
 #include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 
@@ -50,7 +51,7 @@ class TPipelineFragmentParams;
 
 namespace pipeline {
 
-class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFragmentContext> {
+class PipelineFragmentContext : public TaskExecutionContext {
 public:
     // Callback to report execution status of plan fragment.
     // 'profile' is the cumulative profile, 'done' indicates whether the execution
@@ -147,7 +148,7 @@ public:
     }
     void refresh_next_report_time();
 
-    virtual std::string debug_string() { return ""; }
+    virtual std::string debug_string();
 
     uint64_t create_time() const { return _create_time; }
 

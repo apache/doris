@@ -129,7 +129,7 @@ public:
 
     RuntimeState* state() { return _state; }
 
-    void registe_channels(pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer);
+    void register_pipeline_channels(pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer);
 
     bool channel_all_can_write();
 
@@ -149,7 +149,7 @@ public:
     QueryStatisticsPtr query_statisticsPtr() { return _query_statistics; }
     bool transfer_large_data_by_brpc() { return _transfer_large_data_by_brpc; }
     RuntimeProfile::Counter* merge_block_timer() { return _merge_block_timer; }
-    segment_v2::CompressionTypePB& compression_type() { return _compression_type; }
+    segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
 protected:
     friend class BlockSerializer<VDataStreamSender>;
@@ -158,7 +158,7 @@ protected:
     friend class pipeline::ExchangeSinkBuffer<VDataStreamSender>;
 
     void _roll_pb_block();
-    Status _get_next_available_buffer(BroadcastPBlockHolder** holder);
+    Status _get_next_available_buffer(std::shared_ptr<BroadcastPBlockHolder>* holder);
 
     template <typename Channels, typename HashValueType>
     Status channel_add_rows(RuntimeState* state, Channels& channels, int num_channels,
@@ -185,8 +185,7 @@ protected:
     PBlock* _cur_pb_block = nullptr;
 
     // used by pipeline engine
-    std::vector<BroadcastPBlockHolder> _broadcast_pb_blocks;
-    int _broadcast_pb_block_idx;
+    std::shared_ptr<BroadcastPBlockHolderQueue> _broadcast_pb_blocks;
 
     std::unique_ptr<PartitionerBase> _partitioner;
     size_t _partition_count;
@@ -273,7 +272,8 @@ public:
     virtual Status send_remote_block(PBlock* block, bool eos = false,
                                      Status exec_status = Status::OK());
 
-    virtual Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) {
+    virtual Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
+                                        bool eos = false) {
         return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
     }
 
@@ -320,6 +320,11 @@ public:
     bool is_receiver_eof() const { return _receiver_status.is<ErrorCode::END_OF_FILE>(); }
 
     void set_receiver_eof(Status st) { _receiver_status = st; }
+
+    auto local_recvr() {
+        DCHECK(is_local());
+        return _local_recvr;
+    }
 
 protected:
     bool _recvr_is_valid() {
@@ -488,11 +493,11 @@ public:
         return Status::OK();
     }
 
-    Status send_broadcast_block(BroadcastPBlockHolder* block, bool eos = false) override {
+    Status send_broadcast_block(std::shared_ptr<BroadcastPBlockHolder>& block,
+                                bool eos = false) override {
         COUNTER_UPDATE(Channel<Parent>::_parent->blocks_sent_counter(), 1);
         if (eos) {
             if (_eos_send) {
-                block->unref();
                 return Status::OK();
             }
             _eos_send = true;
@@ -530,29 +535,23 @@ public:
         return Status::OK();
     }
 
-    void registe(pipeline::ExchangeSinkBuffer<Parent>* buffer) {
+    void register_exchange_buffer(pipeline::ExchangeSinkBuffer<Parent>* buffer) {
         _buffer = buffer;
         _buffer->register_sink(Channel<Parent>::_fragment_instance_id);
     }
 
     std::shared_ptr<pipeline::ExchangeSendCallback<PTransmitDataResult>> get_send_callback(
-            InstanceLoId id, bool eos, vectorized::BroadcastPBlockHolder* data) {
+            InstanceLoId id, bool eos) {
         if (!_send_callback) {
             _send_callback = pipeline::ExchangeSendCallback<PTransmitDataResult>::create_shared();
         } else {
             _send_callback->cntl_->Reset();
         }
-        _send_callback->init(id, eos, data);
+        _send_callback->init(id, eos);
         return _send_callback;
     }
 
-    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency() {
-        if (!Channel<Parent>::_local_recvr) {
-            throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
-        }
-        return Channel<Parent>::_local_recvr->get_local_channel_dependency(
-                Channel<Parent>::_parent->sender_id());
-    }
+    std::shared_ptr<pipeline::LocalExchangeChannelDependency> get_local_channel_dependency();
 
 private:
     friend class VDataStreamSender;

@@ -152,7 +152,8 @@ public class InsertExecutor {
     /**
      * finalize sink to complete enough info for sink execution
      */
-    public void finalizeSink(DataSink sink, boolean isPartialUpdate, boolean isFromInsert) {
+    public void finalizeSink(DataSink sink, boolean isPartialUpdate, boolean isFromInsert,
+            boolean allowAutoPartition) {
         if (!(sink instanceof OlapTableSink)) {
             return;
         }
@@ -170,6 +171,9 @@ public class InsertExecutor {
                     false,
                     isStrictMode);
             olapTableSink.complete(new Analyzer(Env.getCurrentEnv(), ctx));
+            if (!allowAutoPartition) {
+                olapTableSink.setAutoPartition(false);
+            }
         } catch (Exception e) {
             throw new AnalysisException(e.getMessage(), e);
         }
@@ -314,11 +318,14 @@ public class InsertExecutor {
             if (0 != jobId) {
                 etlJobType = EtlJobType.INSERT_JOB;
             }
-            ctx.getEnv().getLoadManager()
-                    .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
-                            table.getId(),
-                            etlJobType, createAt, throwable == null ? "" : throwable.getMessage(),
-                            coordinator.getTrackingUrl(), userIdentity, jobId);
+            if (!Config.enable_nereids_load) {
+                // just record for loadv2 here
+                ctx.getEnv().getLoadManager()
+                        .recordFinishedLoadJob(labelName, txnId, database.getFullName(),
+                                table.getId(),
+                                etlJobType, createAt, throwable == null ? "" : throwable.getMessage(),
+                                coordinator.getTrackingUrl(), userIdentity, jobId);
+            }
         } catch (MetaNotFoundException e) {
             LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
             errMsg = "Record info of insert load with error " + e.getMessage();

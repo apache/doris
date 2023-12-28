@@ -92,16 +92,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_bytes_total, MetricUnit::BY
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_bytes_total, MetricUnit::BYTES, "",
                                      compaction_bytes_total, Labels({{"type", "cumulative"}}));
 
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_write_request_total, MetricUnit::REQUESTS, "",
-                                     meta_request_total, Labels({{"type", "write"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_read_request_total, MetricUnit::REQUESTS, "",
-                                     meta_request_total, Labels({{"type", "read"}}));
-
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_write_request_duration_us, MetricUnit::MICROSECONDS, "",
-                                     meta_request_duration, Labels({{"type", "write"}}));
-DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(meta_read_request_duration_us, MetricUnit::MICROSECONDS, "",
-                                     meta_request_duration, Labels({{"type", "read"}}));
-
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
                                      Labels({{"type", "segment_read_total"}}));
@@ -236,11 +226,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, base_compaction_bytes_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_deltas_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cumulative_compaction_bytes_total);
-
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_write_request_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_write_request_duration_us);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_read_request_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, meta_read_request_duration_us);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_read_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, segment_row_total);

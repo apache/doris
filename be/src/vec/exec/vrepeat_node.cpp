@@ -167,7 +167,7 @@ Status VRepeatNode::get_repeated_block(Block* child_block, int repeat_id_idx, Bl
         }
         cur_col++;
     }
-
+    output_block->set_columns(std::move(columns));
     DCHECK_EQ(cur_col, column_size);
 
     return Status::OK();

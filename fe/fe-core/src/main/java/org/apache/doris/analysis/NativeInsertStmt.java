@@ -160,6 +160,7 @@ public class NativeInsertStmt extends InsertStmt {
     private InsertType insertType = InsertType.NATIVE_INSERT;
 
     boolean hasEmptyTargetColumns = false;
+    private boolean allowAutoPartition = true;
 
     enum InsertType {
         NATIVE_INSERT("insert_"),
@@ -193,13 +194,14 @@ public class NativeInsertStmt extends InsertStmt {
 
     // Ctor for CreateTableAsSelectStmt and InsertOverwriteTableStmt
     public NativeInsertStmt(TableName name, PartitionNames targetPartitionNames, LabelName label,
-            QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames) {
+            QueryStmt queryStmt, List<String> planHints, List<String> targetColumnNames, boolean allowAutoPartition) {
         super(label, null, null);
         this.tblName = name;
         this.targetPartitionNames = targetPartitionNames;
         this.queryStmt = queryStmt;
         this.planHints = planHints;
         this.targetColumnNames = targetColumnNames;
+        this.allowAutoPartition = allowAutoPartition;
         this.isValuesOrConstantSelect = (queryStmt instanceof SelectStmt
                 && ((SelectStmt) queryStmt).getTableRefs().isEmpty());
     }
@@ -1014,6 +1016,9 @@ public class NativeInsertStmt extends InsertStmt {
     public void complete() throws UserException {
         if (!isExplain() && targetTable instanceof OlapTable) {
             ((OlapTableSink) dataSink).complete(analyzer);
+            if (!allowAutoPartition) {
+                ((OlapTableSink) dataSink).setAutoPartition(false);
+            }
             // add table indexes to transaction state
             TransactionState txnState = Env.getCurrentGlobalTransactionMgr()
                     .getTransactionState(db.getId(), transactionId);
@@ -1062,6 +1067,13 @@ public class NativeInsertStmt extends InsertStmt {
         Preconditions.checkState(isAnalyzed());
         queryStmt.foldConstant(rewriter, tQueryOptions);
     }
+
+    @Override
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+        Preconditions.checkState(isAnalyzed());
+        queryStmt.rewriteElementAtToSlot(rewriter, tQueryOptions);
+    }
+
 
     @Override
     public List<Expr> getResultExprs() {
@@ -1152,7 +1164,8 @@ public class NativeInsertStmt extends InsertStmt {
 
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
-        if (execPlanFragmentParamsBytes != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+        if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
+            LOG.debug("reuse group commit plan, table={}", olapTable);
             return groupCommitPlanner;
         }
         if (!targetColumns.isEmpty()) {

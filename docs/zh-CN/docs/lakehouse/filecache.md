@@ -57,39 +57,40 @@ SET GLOBAL enable_file_cache = true;
 
 添加参数到 BE 节点的配置文件 conf/be.conf 中，并重启 BE 节点让配置生效。
 
-|  参数   | 说明  |
-|  ---  | ---  |
-| `enable_file_cache`  | 是否启用 File Cache，默认 false |
-| `file_cache_path` | 缓存目录的相关配置，json格式，例子: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": "10737418240"},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": "10737418240"},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": "10737418240"}]`。`path` 是缓存的保存路径，`total_size` 是缓存的大小上限，`query_limit` 是单个查询能够使用的最大缓存大小。 |
-| `file_cache_min_file_segment_size` | 单个 Block 的大小下限，默认 1MB，需要大于 4096 |
-| `file_cache_max_file_segment_size` | 单个 Block 的大小上限，默认 4MB，需要大于 4096 |
-| `enable_file_cache_query_limit` | 是否限制单个 query 使用的缓存大小，默认 false |
-| `clear_file_cache` | BE 重启时是否删除之前的缓存数据，默认 false |
+|  参数   | 必选项 | 说明  |
+|  ---  | ---  | --- |
+| `enable_file_cache`  | 是 | 是否启用 File Cache，默认 false |
+| `file_cache_path` | 是 | 缓存目录的相关配置，json格式，例子: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": 10737418240}]`。`path` 是缓存的保存路径，`total_size` 是缓存的大小上限，`query_limit` 是单个查询能够使用的最大缓存大小。 |
+| `file_cache_min_file_segment_size` | 否 | 单个 Block 的大小下限，默认 1MB，需要大于 4096 |
+| `file_cache_max_file_segment_size` | 否 | 单个 Block 的大小上限，默认 4MB，需要大于 4096 |
+| `enable_file_cache_query_limit` | 否 | 是否限制单个 query 使用的缓存大小，默认 false |
+| `clear_file_cache` | 否 | BE 重启时是否删除之前的缓存数据，默认 false |
 
 ### 查看 File Cache 命中情况
 
 执行 `set enable_profile=true` 打开会话变量，可以在 FE 的 web 页面的 Queris 标签中查看到作业的 Profile。File Cache 相关的指标如下:
 
 ```
--  FileCache:
-  -  IOHitCacheNum:  552
-  -  IOTotalNum:  835
-  -  ReadFromFileCacheBytes:  19.98  MB
-  -  ReadFromWriteCacheBytes:  0.00  
-  -  ReadTotalBytes:  29.52  MB
-  -  WriteInFileCacheBytes:  915.77  MB
-  -  WriteInFileCacheNum:  283 
+-  FileCache:  0ns
+    -  BytesScannedFromCache:  2.02  GB
+    -  BytesScannedFromRemote:  0.00  
+    -  BytesWriteIntoCache:  0.00  
+    -  LocalIOUseTimer:  2s723ms
+    -  NumLocalIOTotal:  444
+    -  NumRemoteIOTotal:  0
+    -  NumSkipCacheIOTotal:  0
+    -  RemoteIOUseTimer:  0ns
+    -  WriteCacheIOUseTimer:  0ns
 ```
 
-- `IOTotalNum`:  远程访问的次数
-- `IOHitCacheNum`: 命中缓存的次数
-- `ReadFromFileCacheBytes`: 从缓存文件中读取的数据量
-- `ReadTotalBytes`: 总共读取的数据量
-- `SkipCacheBytes`: 创建缓存文件失败，或者缓存文件被删，需要再次从远程读取的数据量
-- `WriteInFileCacheBytes`: 保存到缓存文件中的数据量
-- `WriteInFileCacheNum`: 保存的 Block 数量，所以 `WriteInFileCacheBytes`/`WriteInFileCacheBytes` 为 Block 的平均大小
+- `BytesScannedFromCache`：从本地缓存中读取的数据量。
+- `BytesScannedFromRemote`：从远端读取的数据量。
+- `BytesWriteIntoCache`：写入缓存的数据量。
+- `LocalIOUseTimer`：本地缓存的 IO 时间。
+- `RemoteIOUseTimer`：远端读取的 IO 时间。
+- `NumLocalIOTotal`：本地缓存的 IO 次数。
+- `NumRemoteIOTotal`：远端 IO 次数。
+- `WriteCacheIOUseTimer`：写入缓存的 IO 时间。
 
-`IOHitCacheNum` / `IOTotalNum` 等于1，表示缓存完全命中
-
-`ReadFromFileCacheBytes` / `ReadTotalBytes` 等于1，表示缓存完全命中
+如果 `BytesScannedFromRemote` 为 0，表示全部命中缓存。
 

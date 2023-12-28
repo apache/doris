@@ -255,11 +255,14 @@ Status VCollectIterator::_topn_next(Block* block) {
 
     auto clone_block = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
-    // clear TMPE columns to avoid column align problem in mutable_block.add_rows bellow
+    // clear TEMP columns to avoid column align problem in mutable_block.add_rows bellow
     auto all_column_names = mutable_block.get_names();
     for (auto& name : all_column_names) {
         if (name.rfind(BeConsts::BLOCK_TEMP_COLUMN_PREFIX, 0) == 0) {
             mutable_block.erase(name);
+            // clear TEMP columns from block to prevent from storage engine merge with this
+            // fake column
+            block->erase(name);
         }
     }
 
@@ -770,7 +773,7 @@ Status VCollectIterator::Level1Iterator::_normal_next(IteratorRowRef* ref) {
 Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     int target_block_row = 0;
     auto target_columns = block->mutate_columns();
-    size_t column_count = block->columns();
+    size_t column_count = target_columns.size();
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
 
@@ -809,6 +812,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             if (UNLIKELY(_reader->_reader_context.record_rowids)) {
                 _block_row_locations.resize(target_block_row);
             }
+            block->set_columns(std::move(target_columns));
             return res;
         }
 
@@ -825,6 +829,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          continuous_row_in_block);
                 }
             }
+            block->set_columns(std::move(target_columns));
             return Status::OK();
         }
         if (continuous_row_in_block == 0) {

@@ -45,6 +45,18 @@ public class JoinEdge extends Edge {
         this.join = join;
     }
 
+    /**
+     * swap the edge
+     */
+    public JoinEdge swap() {
+        JoinEdge swapEdge = new
+                JoinEdge(join.swap(), getIndex(), getRightChildEdges(),
+                getLeftChildEdges(), getSubTreeNodes(), getRightRequiredNodes(), getLeftRequiredNodes());
+        swapEdge.addLeftRejectEdges(getLeftRejectEdge());
+        swapEdge.addRightRejectEdges(getRightRejectEdge());
+        return swapEdge;
+    }
+
     public JoinType getJoinType() {
         return join.getJoinType();
     }

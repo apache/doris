@@ -45,27 +45,36 @@ namespace doris::vectorized {
 
 using namespace std::chrono_literals;
 
-ScannerContext::ScannerContext(RuntimeState* state_, const TupleDescriptor* output_tuple_desc,
-                               const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                               int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
+ScannerContext::ScannerContext(RuntimeState* state, const TupleDescriptor* output_tuple_desc,
+                               const RowDescriptor* output_row_descriptor,
+                               const std::list<VScannerSPtr>& scanners, int64_t limit_,
+                               int64_t max_bytes_in_blocks_queue, const int num_parallel_instances,
                                pipeline::ScanLocalStateBase* local_state,
                                std::shared_ptr<pipeline::ScanDependency> dependency,
                                std::shared_ptr<pipeline::Dependency> finish_dependency)
-        : _state(state_),
+        : _state(state),
           _parent(nullptr),
           _local_state(local_state),
-          _output_tuple_desc(output_tuple_desc),
+          _output_tuple_desc(output_row_descriptor
+                                     ? output_row_descriptor->tuple_descriptors().front()
+                                     : output_tuple_desc),
+          _output_row_descriptor(output_row_descriptor),
           _process_status(Status::OK()),
-          _batch_size(state_->batch_size()),
+          _batch_size(state->batch_size()),
           limit(limit_),
-          _max_bytes_in_queue(std::max(max_bytes_in_blocks_queue_, (int64_t)1024) *
+          _max_bytes_in_queue(std::max(max_bytes_in_blocks_queue, (int64_t)1024) *
                               num_parallel_instances),
-          _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
-          _scanners(scanners_),
-          _scanners_ref(scanners_.begin(), scanners_.end()),
+          _scanner_scheduler(state->exec_env()->scanner_scheduler()),
+          _scanners(scanners),
+          _scanners_ref(scanners.begin(), scanners.end()),
           _num_parallel_instances(num_parallel_instances),
           _dependency(dependency),
           _finish_dependency(finish_dependency) {
+    DCHECK(_output_row_descriptor == nullptr ||
+           _output_row_descriptor->tuple_descriptors().size() == 1);
+    // Use the task exec context as a lock between scanner threads and fragment exection threads
+    _task_exec_ctx = _state->get_task_execution_context();
+    _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
         _is_finished = true;
@@ -87,24 +96,33 @@ ScannerContext::ScannerContext(RuntimeState* state_, const TupleDescriptor* outp
     }
 }
 
-ScannerContext::ScannerContext(doris::RuntimeState* state_, doris::vectorized::VScanNode* parent,
+ScannerContext::ScannerContext(doris::RuntimeState* state, doris::vectorized::VScanNode* parent,
                                const doris::TupleDescriptor* output_tuple_desc,
-                               const std::list<VScannerSPtr>& scanners_, int64_t limit_,
-                               int64_t max_bytes_in_blocks_queue_, const int num_parallel_instances,
+                               const RowDescriptor* output_row_descriptor,
+                               const std::list<VScannerSPtr>& scanners, int64_t limit_,
+                               int64_t max_bytes_in_blocks_queue, const int num_parallel_instances,
                                pipeline::ScanLocalStateBase* local_state)
-        : _state(state_),
+        : _state(state),
           _parent(parent),
           _local_state(local_state),
-          _output_tuple_desc(output_tuple_desc),
+          _output_tuple_desc(output_row_descriptor
+                                     ? output_row_descriptor->tuple_descriptors().front()
+                                     : output_tuple_desc),
+          _output_row_descriptor(output_row_descriptor),
           _process_status(Status::OK()),
-          _batch_size(state_->batch_size()),
+          _batch_size(state->batch_size()),
           limit(limit_),
-          _max_bytes_in_queue(std::max(max_bytes_in_blocks_queue_, (int64_t)1024) *
+          _max_bytes_in_queue(std::max(max_bytes_in_blocks_queue, (int64_t)1024) *
                               num_parallel_instances),
-          _scanner_scheduler(state_->exec_env()->scanner_scheduler()),
-          _scanners(scanners_),
-          _scanners_ref(scanners_.begin(), scanners_.end()),
+          _scanner_scheduler(state->exec_env()->scanner_scheduler()),
+          _scanners(scanners),
+          _scanners_ref(scanners.begin(), scanners.end()),
           _num_parallel_instances(num_parallel_instances) {
+    DCHECK(_output_row_descriptor == nullptr ||
+           _output_row_descriptor->tuple_descriptors().size() == 1);
+    // Use the task exec context as a lock between scanner threads and fragment exection threads
+    _task_exec_ctx = _state->get_task_execution_context();
+    _query_id = _state->get_query_ctx()->query_id();
     ctx_id = UniqueId::gen_uid().to_string();
     if (_scanners.empty()) {
         _is_finished = true;
@@ -267,9 +285,9 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         int num_running_scanners = _num_running_scanners;
 
         bool is_scheduled = false;
-        if (to_be_schedule && _num_running_scanners == 0) {
+        if (!done() && to_be_schedule && _num_running_scanners == 0) {
             is_scheduled = true;
-            auto state = _scanner_scheduler->submit(this);
+            auto state = _scanner_scheduler->submit(shared_from_this());
             if (state.ok()) {
                 _num_scheduling_ctx++;
             } else {
@@ -281,8 +299,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
         if (wait) {
             // scanner batch wait time
             SCOPED_TIMER(_scanner_wait_batch_timer);
-            while (!(!_blocks_queue.empty() || _is_finished || !status().ok() ||
-                     state->is_cancelled())) {
+            while (!(!_blocks_queue.empty() || done() || !status().ok() || state->is_cancelled())) {
                 if (!is_scheduled && _num_running_scanners == 0 && should_be_scheduled()) {
                     LOG(INFO) << "fatal, cur_bytes_in_queue " << cur_bytes_in_queue
                               << ", serving_blocks_num " << serving_blocks_num
@@ -324,7 +341,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
                 }
             }
         } else {
-            *eos = _is_finished;
+            *eos = done();
         }
     }
 
@@ -334,6 +351,7 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Blo
             static_cast<void>(m.merge(*merge_block));
             return_free_block(std::move(merge_block));
         }
+        (*block)->set_columns(std::move(m.mutable_columns()));
     }
 
     return Status::OK();
@@ -394,8 +412,7 @@ void ScannerContext::dec_num_scheduling_ctx() {
 
 void ScannerContext::set_ready_to_finish() {
     // `_should_stop == true` means this task has already ended and wait for pending finish now.
-    if (_finish_dependency && _should_stop && _num_running_scanners == 0 &&
-        _num_scheduling_ctx == 0) {
+    if (_finish_dependency && done() && _num_running_scanners == 0 && _num_scheduling_ctx == 0) {
         _finish_dependency->set_ready();
     }
 }
@@ -486,10 +503,6 @@ void ScannerContext::clear_and_join(Parent* parent, RuntimeState* state) {
             break;
         }
     } while (false);
-
-    for (const auto& tid : _btids) {
-        bthread_join(tid, nullptr);
-    }
     // Must wait all running scanners stop running.
     // So that we can make sure to close all scanners.
     static_cast<void>(_close_and_clear_scanners(parent, state));
@@ -522,7 +535,10 @@ std::string ScannerContext::debug_string() {
 
 void ScannerContext::reschedule_scanner_ctx() {
     std::lock_guard l(_transfer_lock);
-    auto state = _scanner_scheduler->submit(this);
+    if (done()) {
+        return;
+    }
+    auto state = _scanner_scheduler->submit(shared_from_this());
     //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
     if (state.ok()) {
         _num_scheduling_ctx++;
@@ -544,8 +560,8 @@ void ScannerContext::push_back_scanner_and_reschedule(VScannerSPtr scanner) {
     _num_running_scanners--;
     set_ready_to_finish();
 
-    if (should_be_scheduled()) {
-        auto state = _scanner_scheduler->submit(this);
+    if (!done() && should_be_scheduled()) {
+        auto state = _scanner_scheduler->submit(shared_from_this());
         if (state.ok()) {
             _num_scheduling_ctx++;
         } else {
@@ -596,10 +612,6 @@ void ScannerContext::get_next_batch_of_scanners(std::list<VScannerSPtr>* current
             }
         }
     }
-}
-
-taskgroup::TaskGroup* ScannerContext::get_task_group() const {
-    return _state->get_query_ctx()->get_task_group();
 }
 
 template void ScannerContext::clear_and_join(pipeline::ScanLocalStateBase* parent,

@@ -182,9 +182,9 @@ VExpr::VExpr(const TExprNode& node)
 
 VExpr::VExpr(const VExpr& vexpr) = default;
 
-VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
+VExpr::VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable)
         : _opcode(TExprOpcode::INVALID_OPCODE),
-          _type(type),
+          _type(std::move(type)),
           _fn_context_index(-1),
           _prepared(false) {
     if (is_slotref) {
@@ -197,13 +197,13 @@ VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
     ++context->_depth_num;
     if (context->_depth_num > config::max_depth_of_expr_tree) {
-        return Status::InternalError(
+        return Status::Error<ErrorCode::EXCEEDED_LIMIT>(
                 "The depth of the expression tree is too big, make it less than {}",
                 config::max_depth_of_expr_tree);
     }
 
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->prepare(state, row_desc, context));
     }
     --context->_depth_num;
     return Status::OK();
@@ -211,8 +211,8 @@ Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprC
 
 Status VExpr::open(RuntimeState* state, VExprContext* context,
                    FunctionContext::FunctionStateScope scope) {
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->open(state, context, scope));
+    for (auto& i : _children) {
+        RETURN_IF_ERROR(i->open(state, context, scope));
     }
     if (scope == FunctionContext::FRAGMENT_LOCAL) {
         RETURN_IF_ERROR(VExpr::get_const_col(context, nullptr));
