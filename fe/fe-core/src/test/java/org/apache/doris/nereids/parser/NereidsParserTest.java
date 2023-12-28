@@ -444,9 +444,8 @@ public class NereidsParserTest extends ParserTestBase {
         nereidsParser.parseSingle(sql);
     }
 
-
     @Test
-    public void testParseBIANRYKeyword() {
+    public void testParseBinaryKeyword() {
         String sql = "SELECT BINARY 'abc' FROM t";
         NereidsParser nereidsParser = new NereidsParser();
         nereidsParser.parseSingle(sql);
