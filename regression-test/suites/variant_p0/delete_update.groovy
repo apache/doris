@@ -25,7 +25,7 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
             v variant
         )
         UNIQUE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 3
+        DISTRIBUTED BY HASH(k) BUCKETS 1 
         properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false");
     """
     // test mor table
@@ -50,9 +50,10 @@ suite("regression_test_variant_delete_and_update", "variant_type"){
             vs string 
         )
         UNIQUE KEY(`k`)
-        DISTRIBUTED BY HASH(k) BUCKETS 3
+        DISTRIBUTED BY HASH(k) BUCKETS 1 
         properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "true");
     """
+    sql "set enable_common_expr_pushdown = false"
     sql "insert into var_delete_update_mow select k, cast(v as string), cast(v as string) from var_delete_update"
     sql "delete from ${table_name} where k = 1"
     sql "delete from ${table_name} where k in (select k from var_delete_update_mow where k in (3, 4, 5))"
