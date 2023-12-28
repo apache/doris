@@ -362,64 +362,24 @@ public:
         }
         int64_t local_bytes = 0;
 
-        if (_need_colocate_distribute) {
-            std::vector<uint32_t> hash_vals;
-            for (const auto& block : blocks) {
-                auto st = validate_block_schema(block.get());
-                if (!st.ok()) {
-                    set_status_on_error(st, false);
-                }
-                // vectorized calculate hash
-                int rows = block->rows();
-                const auto element_size = _num_parallel_instances;
-                hash_vals.resize(rows);
-                std::fill(hash_vals.begin(), hash_vals.end(), 0);
-                auto* __restrict hashes = hash_vals.data();
-
-                for (int j = 0; j < _col_distribute_ids.size(); ++j) {
-                    block->get_by_position(_col_distribute_ids[j])
-                            .column->update_crcs_with_value(
-                                    hash_vals.data(),
-                                    _output_tuple_desc->slots()[_col_distribute_ids[j]]
-                                            ->type()
-                                            .type,
-                                    rows);
-                }
-                for (int i = 0; i < rows; i++) {
-                    hashes[i] = hashes[i] % element_size;
-                }
-
-                std::vector<uint32_t> channel2rows[element_size];
-                for (uint32_t i = 0; i < rows; i++) {
-                    channel2rows[hashes[i]].emplace_back(i);
-                }
-
-                for (int i = 0; i < element_size; ++i) {
-                    if (!channel2rows[i].empty()) {
-                        _add_rows_colocate_blocks(block.get(), i, channel2rows[i]);
-                    }
-                }
+        for (const auto& block : blocks) {
+            auto st = validate_block_schema(block.get());
+            if (!st.ok()) {
+                set_status_on_error(st, false);
             }
-        } else {
-            for (const auto& block : blocks) {
-                auto st = validate_block_schema(block.get());
-                if (!st.ok()) {
-                    set_status_on_error(st, false);
-                }
-                local_bytes += block->allocated_bytes();
-            }
+            local_bytes += block->allocated_bytes();
+        }
 
-            for (int i = 0; i < queue_size && i < block_size; ++i) {
-                int queue = _next_queue_to_feed;
-                {
-                    std::lock_guard<std::mutex> l(_transfer_lock);
-                    for (int j = i; j < block_size; j += queue_size) {
-                        _blocks_queues[queue].emplace_back(std::move(blocks[j]));
-                    }
-                    _dependency->set_ready();
+        for (int i = 0; i < queue_size && i < block_size; ++i) {
+            int queue = _next_queue_to_feed;
+            {
+                std::lock_guard<std::mutex> l(_transfer_lock);
+                for (int j = i; j < block_size; j += queue_size) {
+                    _blocks_queues[queue].emplace_back(std::move(blocks[j]));
                 }
-                _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
+                _dependency->set_ready();
             }
+            _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
         }
         _current_used_bytes += local_bytes;
     }
