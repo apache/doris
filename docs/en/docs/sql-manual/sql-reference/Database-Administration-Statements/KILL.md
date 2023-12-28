@@ -39,8 +39,17 @@ The thread process list identifier can be determined from the ID column of the I
 grammar:
 
 ```sql
-KILL [CONNECTION | QUERY] processlist_id
+KILL [CONNECTION] processlist_id
 ````
+
+In addition, you can also use processlist_id or query_id terminates the executing query command
+
+grammar:
+
+```sql
+KILL QUERY processlist_id | query_id
+````
+
 
 ### Example
 

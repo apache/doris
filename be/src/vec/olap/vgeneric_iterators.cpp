@@ -75,14 +75,15 @@ Status VStatisticsIterator::next_batch(Block* block) {
                               : std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
         if (_push_down_agg_type_opt == TPushAggOp::COUNT) {
             size = std::min(_target_rows - _output_rows, MAX_ROW_SIZE_IN_COUNT);
-            for (int i = 0; i < block->columns(); ++i) {
-                columns[i]->resize(size);
+            for (int i = 0; i < columns.size(); ++i) {
+                columns[i]->insert_many_defaults(size);
             }
         } else {
-            for (int i = 0; i < block->columns(); ++i) {
+            for (int i = 0; i < columns.size(); ++i) {
                 RETURN_IF_ERROR(_column_iterators[i]->next_batch_of_zone_map(&size, columns[i]));
             }
         }
+        block->set_columns(std::move(columns));
         _output_rows += size;
         return Status::OK();
     }

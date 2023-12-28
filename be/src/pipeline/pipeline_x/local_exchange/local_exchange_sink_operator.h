@@ -34,6 +34,7 @@ class Exchanger;
 class ShuffleExchanger;
 class PassthroughExchanger;
 class BroadcastExchanger;
+class PassToOneExchanger;
 class LocalExchangeSinkOperatorX;
 class LocalExchangeSinkLocalState final
         : public PipelineXSinkLocalState<LocalExchangeSinkDependency> {
@@ -46,8 +47,7 @@ public:
     ~LocalExchangeSinkLocalState() override = default;
 
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
-
-    int get_data_queue_idx() const;
+    std::string debug_string(int indentation_level) const override;
 
 private:
     friend class LocalExchangeSinkOperatorX;
@@ -55,6 +55,8 @@ private:
     friend class BucketShuffleExchanger;
     friend class PassthroughExchanger;
     friend class BroadcastExchanger;
+    friend class PassToOneExchanger;
+    friend class AdaptivePassthroughExchanger;
 
     Exchanger* _exchanger = nullptr;
 

@@ -293,7 +293,7 @@ file_changed_perf() {
             [[ "${af}" == 'tools/tpch-tools/bin/run-tpch-queries.sh' ]] ||
             [[ "${af}" == 'tools/tpcds-tools/bin/run-tpcds-queries.sh' ]] ||
             [[ "${af}" == 'regression-test/pipeline/tpch/tpch-sf100/'* ]]; then
-            echo "clickbench performance related file changed, return need" && return 0
+            echo "performance related file changed, return need" && return 0
         fi
     done
     echo "return no need" && return 1

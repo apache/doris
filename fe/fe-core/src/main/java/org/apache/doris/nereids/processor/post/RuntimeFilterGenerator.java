@@ -289,6 +289,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             return join;
         }
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
+        if (ctx.getSessionVariable().isIgnoreStorageDataDistribution()) {
+            // BITMAP filter is not supported to merge. So we disable this kind of runtime filter
+            // if IgnoreStorageDataDistribution is enabled.
+            return join;
+        }
 
         if ((ctx.getSessionVariable().getRuntimeFilterType() & TRuntimeFilterType.BITMAP.getValue()) != 0) {
             generateBitMapRuntimeFilterForNLJ(join, ctx);
@@ -363,6 +368,11 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                 .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                 .collect(Collectors.toList());
+        if (ctx.getSessionVariable().isIgnoreStorageDataDistribution()) {
+            // If storage data distribution is ignored, we use BLOOM filter.
+            legalTypes.clear();
+            legalTypes.add(TRuntimeFilterType.BLOOM);
+        }
         List<EqualTo> hashJoinConjuncts = join.getEqualToConjuncts();
         for (int i = 0; i < hashJoinConjuncts.size(); i++) {
             EqualTo equalTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(

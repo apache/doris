@@ -93,7 +93,6 @@ import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.clone.TabletSchedulerStat;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
@@ -112,6 +111,7 @@ import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.publish.TopicPublisher;
 import org.apache.doris.common.publish.TopicPublisherThread;
+import org.apache.doris.common.publish.WorkloadActionPublishThread;
 import org.apache.doris.common.publish.WorkloadGroupPublisher;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -182,6 +182,7 @@ import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.jobs.load.LabelProcessor;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.TableNameInfo;
@@ -228,6 +229,7 @@ import org.apache.doris.qe.QueryCancelWorker;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.resource.workloadschedpolicy.WorkloadSchedPolicyMgr;
 import org.apache.doris.scheduler.manager.TransientTaskManager;
 import org.apache.doris.scheduler.registry.ExportTaskRegister;
 import org.apache.doris.service.ExecuteEnv;
@@ -361,6 +363,7 @@ public class Env {
 
     private ExportTaskRegister exportTaskRegister;
     private JobManager<? extends AbstractJob<?, ?>, ?> jobManager;
+    private LabelProcessor labelProcessor;
     private TransientTaskManager transientTaskManager;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -485,6 +488,7 @@ public class Env {
 
     private WorkloadGroupMgr workloadGroupMgr;
 
+    private WorkloadSchedPolicyMgr workloadSchedPolicyMgr;
     private QueryStats queryStats;
 
     private StatisticsCleaner statisticsCleaner;
@@ -505,6 +509,8 @@ public class Env {
     private HiveTransactionMgr hiveTransactionMgr;
 
     private TopicPublisherThread topicPublisherThread;
+
+    private WorkloadActionPublishThread workloadActionPublisherThread;
 
     private MTMVService mtmvService;
 
@@ -637,8 +643,11 @@ public class Env {
         }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
         this.jobManager = new JobManager<>();
+        this.labelProcessor = new LabelProcessor();
         this.transientTaskManager = new TransientTaskManager();
         this.exportTaskRegister = new ExportTaskRegister(transientTaskManager);
+        this.transientTaskManager = new TransientTaskManager();
+
         this.replayedJournalId = new AtomicLong(0L);
         this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
@@ -725,6 +734,7 @@ public class Env {
         this.statisticsAutoCollector = new StatisticsAutoCollector();
         this.globalFunctionMgr = new GlobalFunctionMgr();
         this.workloadGroupMgr = new WorkloadGroupMgr();
+        this.workloadSchedPolicyMgr = new WorkloadSchedPolicyMgr();
         this.queryStats = new QueryStats();
         this.loadManagerAdapter = new LoadManagerAdapter();
         this.hiveTransactionMgr = new HiveTransactionMgr();
@@ -734,6 +744,8 @@ public class Env {
         this.queryCancelWorker = new QueryCancelWorker(systemInfo);
         this.topicPublisherThread = new TopicPublisherThread(
                 "TopicPublisher", Config.publish_topic_info_interval_ms, systemInfo);
+        this.workloadActionPublisherThread = new WorkloadActionPublishThread("WorkloadActionPublisher",
+                Config.workload_action_interval_ms, systemInfo);
         this.mtmvService = new MTMVService();
     }
 
@@ -808,6 +820,10 @@ public class Env {
 
     public WorkloadGroupMgr getWorkloadGroupMgr() {
         return workloadGroupMgr;
+    }
+
+    public WorkloadSchedPolicyMgr getWorkloadSchedPolicyMgr() {
+        return workloadSchedPolicyMgr;
     }
 
     // use this to get correct ClusterInfoService instance
@@ -985,6 +1001,8 @@ public class Env {
         topicPublisherThread.start();
 
         workloadGroupMgr.startUpdateThread();
+        workloadSchedPolicyMgr.start();
+        workloadActionPublisherThread.start();
     }
 
     // wait until FE is ready.
@@ -997,9 +1015,10 @@ public class Env {
             }
 
             Thread.sleep(100);
-            if (counter++ % 20 == 0) {
-                LOG.info("wait catalog to be ready. FE type: {}. is ready: {}, counter: {}", feType, isReady.get(),
-                        counter);
+            if (counter++ % 100 == 0) {
+                String reason = editLog == null ? "editlog is null" : editLog.getNotReadyReason();
+                LOG.info("wait catalog to be ready. feType:{} isReady:{}, counter:{} reason: {}",
+                        feType, isReady.get(), counter, reason);
             }
         }
     }
@@ -2066,6 +2085,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadWorkloadSchedPolicy(DataInputStream in, long checksum) throws IOException {
+        workloadSchedPolicyMgr = WorkloadSchedPolicyMgr.read(in);
+        LOG.info("finished replay workload sched policy from image");
+        return checksum;
+    }
+
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
         LOG.info("finished replay smallFiles from image");
@@ -2333,6 +2358,11 @@ public class Env {
         return checksum;
     }
 
+    public long saveWorkloadSchedPolicy(CountingDataOutputStream dos, long checksum) throws IOException {
+        Env.getCurrentEnv().getWorkloadSchedPolicyMgr().write(dos);
+        return checksum;
+    }
+
     public long saveSmallFiles(CountingDataOutputStream dos, long checksum) throws IOException {
         smallFileMgr.write(dos);
         return checksum;
@@ -2399,7 +2429,7 @@ public class Env {
     }
 
     public void createFeDiskUpdater() {
-        feDiskUpdater = new Daemon("feDiskUpdater", FeConstants.heartbeat_interval_second * 1000L) {
+        feDiskUpdater = new Daemon("feDiskUpdater", Config.heartbeat_interval_second * 1000L) {
             @Override
             protected void runOneCycle() {
                 ExecuteEnv.getInstance().refreshAndGetDiskInfo(true);
@@ -2460,8 +2490,8 @@ public class Env {
         if (currentTimeMs - synchronizedTimeMs > Config.meta_delay_toleration_second * 1000) {
             // we still need this log to observe this situation
             // but service may be continued when there is no log being replayed.
-            LOG.warn("meta out of date. current time: {}, synchronized time: {}, has log: {}, fe type: {}",
-                    currentTimeMs, synchronizedTimeMs, hasLog, feType);
+            LOG.warn("meta out of date. current time: {}, sync time: {}, delta: {} ms, hasLog: {}, feType: {}",
+                    currentTimeMs, synchronizedTimeMs, (currentTimeMs - synchronizedTimeMs), hasLog, feType);
             if (hasLog || feType == FrontendNodeType.UNKNOWN) {
                 // 1. if we read log from BDB, which means master is still alive.
                 // So we need to set meta out of date.
@@ -2471,6 +2501,13 @@ public class Env {
                 metaReplayState.setOutOfDate(currentTimeMs, synchronizedTimeMs);
                 canRead.set(false);
                 isReady.set(false);
+
+                if (editLog != null) {
+                    String reason = editLog.getNotReadyReason();
+                    if (!Strings.isNullOrEmpty(reason)) {
+                        LOG.warn("Not ready reason:{}", reason);
+                    }
+                }
             }
 
             // sleep 5s to avoid numerous 'meta out of date' log
@@ -3875,6 +3912,10 @@ public class Env {
         return jobManager;
     }
 
+    public LabelProcessor getLabelProcessor() {
+        return labelProcessor;
+    }
+
     public TransientTaskManager getTransientTaskManager() {
         return transientTaskManager;
     }
@@ -4894,8 +4935,7 @@ public class Env {
             ctx.setDatabase(lastDb);
         }
         if (catalogIf instanceof EsExternalCatalog) {
-            ctx.setDatabase(SystemInfoService.DEFAULT_CLUSTER + ClusterNamespace.CLUSTER_DELIMITER
-                    + EsExternalCatalog.DEFAULT_DB);
+            ctx.setDatabase(EsExternalCatalog.DEFAULT_DB);
         }
     }
 
@@ -5891,10 +5931,10 @@ public class Env {
             sb.append(frontend.toString()).append("\n");
         }
 
-        long diskUsagePercent = editLog.getEnvDiskUsagePercent();
-        sb.append("Disk usage: ")
-                .append(diskUsagePercent != -1 ? String.valueOf(diskUsagePercent) : "<unknown>")
-                .append("%\n");
+        String reason = editLog.getNotReadyReason();
+        if (!Strings.isNullOrEmpty(reason)) {
+            sb.append("Reason: ").append(reason).append("%\n");
+        }
 
         if (haProtocol instanceof BDBHA) {
             try {
@@ -5915,7 +5955,7 @@ public class Env {
                 }
 
             } catch (Exception e) {
-                // pass
+                LOG.warn("checkReadyOrThrow:", e);
             }
         }
 

@@ -51,8 +51,8 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[customer_address] apply RFs: RF5 RF6
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) >= (d_month_seq + 1))
---------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) <= (d_month_seq + 3))
+------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) <= (d_month_seq + 3))
+--------------------------------NestedLoopJoin[INNER_JOIN](cast(d_month_seq as BIGINT) >= (d_month_seq + 1))
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[date_dim]
 ----------------------------------PhysicalDistribute

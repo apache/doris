@@ -30,6 +30,7 @@ suite("test_unique_table_new_sequence") {
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(`k1`) BUCKETS 3
         PROPERTIES (
+        "enable_unique_key_merge_on_write" = "true",
         "function_column.sequence_col" = "v2",
         "replication_allocation" = "tag.location.default: 1",
         "light_schema_change" = "true"
@@ -145,6 +146,7 @@ suite("test_unique_table_new_sequence") {
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(`k1`) BUCKETS 3
         PROPERTIES (
+        "enable_unique_key_merge_on_write" = "false",
         "function_column.sequence_col" = "v4",
         "replication_allocation" = "tag.location.default: 1",
         "light_schema_change" = "true"
@@ -178,6 +180,8 @@ suite("test_unique_table_new_sequence") {
         sql "commit;"
 
         qt_3 "select * from ${tableName} order by k1"
+
+        qt_desc "desc ${tableName}"
 
         sql "SET show_hidden_columns=false"
 

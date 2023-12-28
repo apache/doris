@@ -172,6 +172,10 @@ public class OlapTableSink extends DataSink {
         tDataSink.getOlapTableSink().setLoadId(newLoadId);
     }
 
+    public void setAutoPartition(boolean var) {
+        tDataSink.getOlapTableSink().getPartition().setEnableAutomaticPartition(var);
+    }
+
     // must called after tupleDescriptor is computed
     public void complete(Analyzer analyzer) throws UserException {
         for (Long partitionId : partitionIds) {
@@ -350,8 +354,13 @@ public class OlapTableSink extends DataSink {
                     }
                     tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partitionId));
                     if (partition.getDistributionInfo().getType() == DistributionInfoType.RANDOM) {
-                        int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
-                                .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                        int tabletIndex;
+                        if (tDataSink != null && tDataSink.type == TDataSinkType.GROUP_COMMIT_BLOCK_SINK) {
+                            tabletIndex = 0;
+                        } else {
+                            tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                                    .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                        }
                         tPartition.setLoadTabletIdx(tabletIndex);
                     }
 
@@ -419,8 +428,13 @@ public class OlapTableSink extends DataSink {
                 }
 
                 if (partition.getDistributionInfo().getType() == DistributionInfoType.RANDOM) {
-                    int tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
-                            .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                    int tabletIndex;
+                    if (tDataSink != null && tDataSink.type == TDataSinkType.GROUP_COMMIT_BLOCK_SINK) {
+                        tabletIndex = 0;
+                    } else {
+                        tabletIndex = Env.getCurrentEnv().getTabletLoadIndexRecorderMgr()
+                                .getCurrentTabletLoadIndex(dbId, table.getId(), partition);
+                    }
                     tPartition.setLoadTabletIdx(tabletIndex);
                 }
                 partitionParam.addToPartitions(tPartition);

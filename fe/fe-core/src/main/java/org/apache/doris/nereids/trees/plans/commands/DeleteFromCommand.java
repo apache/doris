@@ -54,7 +54,7 @@ import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.base.Preconditions;
-import org.apache.hadoop.util.Lists;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Optional;
@@ -127,9 +127,13 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
                 checkPredicate(conjunct);
             }
         } catch (Exception e) {
-            new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
-                    logicalQuery, Optional.empty()).run(ctx, executor);
-            return;
+            try {
+                new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
+                        logicalQuery, Optional.empty()).run(ctx, executor);
+                return;
+            } catch (Exception e2) {
+                throw e;
+            }
         }
 
         // call delete handler to process
@@ -226,56 +230,65 @@ public class DeleteFromCommand extends Command implements ForwardWithSync {
         }
     }
 
+    private void checkComparisonPredicate(ComparisonPredicate cp) {
+        if (!(cp.left() instanceof SlotReference)) {
+            throw new AnalysisException(
+                    "Left expr of binary predicate should be column name, predicate: " + cp.toSql()
+                            + ", left expr type:" + cp.left().getDataType());
+        }
+        if (!(cp.right() instanceof Literal)) {
+            throw new AnalysisException(
+                    "Right expr of binary predicate should be value, predicate: " + cp.toSql()
+                            + ", right expr type:" + cp.right().getDataType());
+        }
+    }
+
+    private void checkIsNull(IsNull isNull) {
+        if (!(isNull.child() instanceof SlotReference)) {
+            throw new AnalysisException(
+                    "Child expr of is_null predicate should be column name, predicate: " + isNull.toSql());
+        }
+    }
+
+    private void checkInPredicate(InPredicate in) {
+        if (!(in.getCompareExpr() instanceof SlotReference)) {
+            throw new AnalysisException(
+                    "Left expr of in predicate should be column name, predicate: " + in.toSql()
+                            + ", left expr type:" + in.getCompareExpr().getDataType());
+        }
+        int maxAllowedInElementNumOfDelete = Config.max_allowed_in_element_num_of_delete;
+        if (in.getOptions().size() > maxAllowedInElementNumOfDelete) {
+            throw new AnalysisException("Element num of in predicate should not be more than "
+                    + maxAllowedInElementNumOfDelete);
+        }
+        for (Expression option : in.getOptions()) {
+            if (!(option instanceof Literal)) {
+                throw new AnalysisException("Child of in predicate should be value, but get " + option);
+            }
+        }
+    }
+
     private void checkPredicate(Expression predicate) {
         if (predicate instanceof And) {
             checkPredicate(((And) predicate).left());
             checkPredicate(((And) predicate).right());
         } else if (predicate instanceof ComparisonPredicate) {
-            ComparisonPredicate cp = (ComparisonPredicate) predicate;
-            if (!(cp.left() instanceof SlotReference)) {
-                throw new AnalysisException(
-                        "Left expr of binary predicate should be column name, predicate: " + predicate.toSql()
-                                + ", left expr type:" + cp.left().getDataType());
-            }
-            if (!(cp.right() instanceof Literal)) {
-                throw new AnalysisException(
-                        "Right expr of binary predicate should be value, predicate: " + predicate.toSql()
-                                + ", right expr type:" + cp.right().getDataType());
-            }
+            checkComparisonPredicate((ComparisonPredicate) predicate);
         } else if (predicate instanceof IsNull) {
-            if (!(((IsNull) predicate).child() instanceof SlotReference)) {
-                throw new AnalysisException(
-                        "Child expr of is_null predicate should be column name, predicate: " + predicate.toSql());
-            }
+            checkIsNull((IsNull) predicate);
         } else if (predicate instanceof Not) {
             Expression child = ((Not) predicate).child();
             if (child instanceof IsNull) {
-                if (!(((IsNull) child).child() instanceof SlotReference)) {
-                    throw new AnalysisException(
-                            "Child expr of is_null predicate should be column name, predicate: " + predicate.toSql());
-                }
+                checkIsNull((IsNull) child);
+            } else if (child instanceof ComparisonPredicate) {
+                checkComparisonPredicate((ComparisonPredicate) child);
             } else {
                 throw new AnalysisException("Where clause only supports compound predicate,"
                         + " binary predicate, is_null predicate or in predicate. But we meet "
                         + child.toSql());
             }
         } else if (predicate instanceof InPredicate) {
-            InPredicate in = (InPredicate) predicate;
-            if (!(in.getCompareExpr() instanceof SlotReference)) {
-                throw new AnalysisException(
-                        "Left expr of in predicate should be column name, predicate: " + predicate.toSql()
-                                + ", left expr type:" + in.getCompareExpr().getDataType());
-            }
-            int maxAllowedInElementNumOfDelete = Config.max_allowed_in_element_num_of_delete;
-            if (in.getOptions().size() > maxAllowedInElementNumOfDelete) {
-                throw new AnalysisException("Element num of in predicate should not be more than "
-                        + maxAllowedInElementNumOfDelete);
-            }
-            for (Expression option : in.getOptions()) {
-                if (!(option instanceof Literal)) {
-                    throw new AnalysisException("Child of in predicate should be value, but get " + option);
-                }
-            }
+            checkInPredicate((InPredicate) predicate);
         } else {
             throw new AnalysisException("Where clause only supports compound predicate,"
                     + " binary predicate, is_null predicate or in predicate. But we meet "

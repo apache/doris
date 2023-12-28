@@ -50,13 +50,6 @@ public class MultiLoadMgrTest {
                 result = context;
             }
         };
-        new Expectations(context) {
-            {
-                context.getClusterName();
-                minTimes = 0;
-                result = "default";
-            }
-        };
         new Expectations() {
             {
                 systemInfoService.selectBackendIdsByPolicy((BeSelectionPolicy) any, anyInt);

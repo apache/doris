@@ -122,6 +122,7 @@ suite("github_event_advance_p2", "variant_type,p2"){
                     break;
                 }
                 if (result[0][2].equals("CANCELLED")) {
+                    log.warn("load failed: $result")
                     assertTrue(false, "load failed: $result")
                     break;
                 }

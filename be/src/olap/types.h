@@ -791,7 +791,7 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
         if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_LARGEINT) {
             return get_int128_from_unalign(address);
         } else if constexpr (field_type == FieldType::OLAP_FIELD_TYPE_IPV6) {
-            return get_uint128_from_unalign(address);
+            return get_int128_from_unalign(address);
         }
         return *reinterpret_cast<const CppType*>(address);
     }
@@ -1016,7 +1016,7 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
             return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                     "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
         }
-        *reinterpret_cast<int128_t*>(buf) = value;
+        memcpy(buf, &value, sizeof(int128_t));
         return Status::OK();
     }
 

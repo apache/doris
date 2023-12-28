@@ -139,7 +139,7 @@ public:
     void register_report_listener(ReportWorker* listener);
     void deregister_report_listener(ReportWorker* listener);
     void notify_listeners();
-    void notify_listener(std::string_view name);
+    bool notify_listener(std::string_view name);
 
     TabletManager* tablet_manager() { return _tablet_manager.get(); }
     TxnManager* txn_manager() { return _txn_manager.get(); }
@@ -180,18 +180,6 @@ public:
     void get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
                                     PGetTabletVersionsResponse* response);
 
-    void create_cumulative_compaction(TabletSharedPtr best_tablet,
-                                      std::shared_ptr<CumulativeCompaction>& cumulative_compaction);
-    void create_base_compaction(TabletSharedPtr best_tablet,
-                                std::shared_ptr<BaseCompaction>& base_compaction);
-
-    void create_full_compaction(TabletSharedPtr best_tablet,
-                                std::shared_ptr<FullCompaction>& full_compaction);
-
-    void create_single_replica_compaction(
-            TabletSharedPtr best_tablet,
-            std::shared_ptr<SingleReplicaCompaction>& single_replica_compaction,
-            CompactionType compaction_type);
     bool get_peer_replica_info(int64_t tablet_id, TReplicaInfo* replica, std::string* token);
 
     bool should_fetch_from_peer(int64_t tablet_id);
@@ -208,7 +196,7 @@ public:
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
                                   bool force);
-    Status submit_seg_compaction_task(SegcompactionWorker* worker,
+    Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
     std::unique_ptr<ThreadPool>& tablet_publish_txn_thread_pool() {
@@ -325,8 +313,9 @@ private:
     void _remove_unused_remote_files_callback();
     void _cold_data_compaction_producer_callback();
 
-    Status _handle_seg_compaction(SegcompactionWorker* worker,
-                                  SegCompactionCandidatesSharedPtr segments);
+    Status _handle_seg_compaction(std::shared_ptr<SegcompactionWorker> worker,
+                                  SegCompactionCandidatesSharedPtr segments,
+                                  uint64_t submission_time);
 
     Status _handle_index_change(IndexBuilderSharedPtr index_builder);
 

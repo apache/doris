@@ -20,7 +20,7 @@ PhysicalResultSink
 ----------------------------PhysicalOlapScan[supplier] apply RFs: RF2
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------filter(((n1.n_name = 'FRANCE') OR (n1.n_name = 'GERMANY')))
+------------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
 --------------------------------PhysicalOlapScan[nation]
 ------------------PhysicalDistribute
 --------------------PhysicalProject
@@ -34,6 +34,6 @@ PhysicalResultSink
 ------------------------------PhysicalOlapScan[customer] apply RFs: RF0
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
---------------------------------filter(((n2.n_name = 'GERMANY') OR (n2.n_name = 'FRANCE')))
+--------------------------------filter(n_name IN ('FRANCE', 'GERMANY'))
 ----------------------------------PhysicalOlapScan[nation]
 

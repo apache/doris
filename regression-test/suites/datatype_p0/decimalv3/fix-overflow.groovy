@@ -104,4 +104,47 @@ suite("fix-overflow") {
     qt_select_insert """
         select * from fix_overflow_null2 order by 1,2;
     """
+
+    sql """
+        drop table if exists fix_overflow_null3;
+    """
+    sql """
+        create table fix_overflow_null3(k1 decimalv3(38, 6), k2 double, k3 double) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        insert into fix_overflow_null3 values (9.9, -1, null);
+    """
+    qt_select_fix_overflow_float_null1 """
+        select cast(pow(k2+k3, 0.2) as decimalv3(38,6)) from fix_overflow_null3;
+    """
+
+    sql """
+        drop table if exists fix_overflow_null4
+    """
+    sql """
+        create table fix_overflow_null4(k1 int, k2 int, k3 decimalv3(38,6)) distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        insert into fix_overflow_null4 values (1, null, 99999999999999999999999999999999.999999);
+    """
+    qt_select_fix_overflow_int_null1 """
+        select k1 + k2 + k3 from fix_overflow_null4;
+    """
+    qt_select_fix_overflow_int_null2 """
+        select cast( (k1 + k2) as decimalv3(3, 0) ) from fix_overflow_null4;
+    """
+
+    sql """
+        drop table if exists fix_overflow_null5
+    """
+    sql """
+        create table fix_overflow_null5(k1 int, k2 int, k3 decimalv3(38,6))
+            distributed by hash(k1) properties("replication_num"="1");
+    """
+    sql """
+        insert into fix_overflow_null5 values (-1, null, 99999999999999999999999999999999.999999);
+    """
+    qt_select_fix_overflow_bool_null1 """
+        select (k1 < k2) + k3 from fix_overflow_null5;
+    """
 }

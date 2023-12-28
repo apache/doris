@@ -50,7 +50,7 @@ public class MergeLimits extends OneRewriteRuleFactory {
                             Math.min(upperLimit.getLimit(),
                                     Math.max(bottomLimit.getLimit() - upperLimit.getOffset(), 0)),
                             bottomLimit.getOffset() + upperLimit.getOffset(),
-                            upperLimit.getPhase(), bottomLimit.child()
+                            upperLimit.child().getPhase(), bottomLimit.child()
                     );
                 }).toRule(RuleType.MERGE_LIMITS);
     }

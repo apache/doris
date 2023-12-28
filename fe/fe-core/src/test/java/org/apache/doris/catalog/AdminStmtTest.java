@@ -76,7 +76,7 @@ public class AdminStmtTest extends TestWithFeService {
 
     @Test
     public void testAdminSetReplicaStatus() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         Assertions.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
         Assertions.assertNotNull(tbl);
@@ -116,7 +116,7 @@ public class AdminStmtTest extends TestWithFeService {
 
     @Test
     public void testAdminSetReplicaVersion() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         Assertions.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl3");
         Assertions.assertNotNull(tbl);
@@ -249,7 +249,7 @@ public class AdminStmtTest extends TestWithFeService {
 
     @Test
     public void testAdminSetPartitionVersion() throws Exception {
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
         Assertions.assertNotNull(db);
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl2");
         Assertions.assertNotNull(tbl);

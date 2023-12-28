@@ -40,7 +40,7 @@ except ImportError:
         elif val in ('n', 'no', 'f', 'false', 'off', '0'):
             return 0
         else:
-            raise ValueError(f"Invalid truth value '{val}'")
+            raise ValueError("Invalid truth value '{}'".format(val))
 
 
 from functools import partial

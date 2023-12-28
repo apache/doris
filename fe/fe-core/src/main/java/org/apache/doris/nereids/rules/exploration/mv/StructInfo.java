@@ -24,7 +24,7 @@ import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -32,13 +32,14 @@ import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.Filter;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.algebra.Project;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
@@ -47,15 +48,17 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
 /**
- * StructInfo
+ * StructInfo for plan, this contains necessary info for query rewrite by materialized view
  */
 public class StructInfo {
     public static final JoinPatternChecker JOIN_PATTERN_CHECKER = new JoinPatternChecker();
+    public static final AggregatePatternChecker AGGREGATE_PATTERN_CHECKER = new AggregatePatternChecker();
     // struct info splitter
     public static final PlanSplitter PLAN_SPLITTER = new PlanSplitter();
     private static final RelationCollector RELATION_COLLECTOR = new RelationCollector();
@@ -72,7 +75,9 @@ public class StructInfo {
     private final List<CatalogRelation> relations = new ArrayList<>();
     // this is for LogicalCompatibilityContext later
     private final Map<RelationId, StructInfoNode> relationIdStructInfoNodeMap = new HashMap<>();
+    // this recorde the predicates which can pull up, not shuttled
     private Predicates predicates;
+    // split predicates is shuttled
     private SplitPredicate splitPredicate;
     private EquivalenceClass equivalenceClass;
     // this is for LogicalCompatibilityContext later
@@ -87,20 +92,28 @@ public class StructInfo {
     }
 
     private void init() {
-
+        // split the top plan to two parts by join node
         if (topPlan == null || bottomPlan == null) {
             PlanSplitContext planSplitContext = new PlanSplitContext(Sets.newHashSet(LogicalJoin.class));
             originalPlan.accept(PLAN_SPLITTER, planSplitContext);
             this.bottomPlan = planSplitContext.getBottomPlan();
             this.topPlan = planSplitContext.getTopPlan();
         }
+        collectStructInfoFromGraph();
+        initPredicates();
+        predicatesDerive();
+    }
 
-        this.predicates = Predicates.of();
-        // Collect predicate from join condition in hyper graph
+    public void addPredicates(List<Expression> canPulledUpExpressions) {
+        canPulledUpExpressions.forEach(this.predicates::addPredicate);
+        predicatesDerive();
+    }
+
+    private void collectStructInfoFromGraph() {
+        // Collect expression from join condition in hyper graph
         this.hyperGraph.getJoinEdges().forEach(edge -> {
             List<Expression> hashJoinConjuncts = edge.getHashJoinConjuncts();
             hashJoinConjuncts.forEach(conjunctExpr -> {
-                predicates.addPredicate(conjunctExpr);
                 // shuttle expression in edge for LogicalCompatibilityContext later
                 shuttledHashConjunctsToConjunctsMap.put(
                         ExpressionUtils.shuttleExpressionWithLineage(
@@ -115,8 +128,7 @@ public class StructInfo {
         if (!this.isValid()) {
             return;
         }
-
-        // Collect predicate from filter node in hyper graph
+        // Collect relations from hyper graph which in the bottom plan
         this.hyperGraph.getNodes().forEach(node -> {
             // plan relation collector and set to map
             Plan nodePlan = node.getPlan();
@@ -125,28 +137,40 @@ public class StructInfo {
             this.relations.addAll(nodeRelations);
             // every node should only have one relation, this is for LogicalCompatibilityContext
             relationIdStructInfoNodeMap.put(nodeRelations.get(0).getRelationId(), (StructInfoNode) node);
-
-            // if inner join add where condition
-            Set<Expression> predicates = new HashSet<>();
-            nodePlan.accept(PREDICATE_COLLECTOR, predicates);
-            predicates.forEach(this.predicates::addPredicate);
         });
+        // Collect expression from where in hyper graph
+        this.hyperGraph.getFilterEdges().forEach(filterEdge -> {
+            List<? extends Expression> filterExpressions = filterEdge.getExpressions();
+            filterExpressions.forEach(predicate -> {
+                // this is used for LogicalCompatibilityContext
+                ExpressionUtils.extractConjunction(predicate).forEach(expr ->
+                        shuttledHashConjunctsToConjunctsMap.put(
+                                ExpressionUtils.shuttleExpressionWithLineage(predicate, topPlan), predicate));
+            });
+        });
+    }
 
-        // TODO Collect predicate from top plan not in hyper graph, should optimize, twice now
+    private void initPredicates() {
+        // Collect predicate from top plan which not in hyper graph
+        this.predicates = Predicates.of();
         Set<Expression> topPlanPredicates = new HashSet<>();
         topPlan.accept(PREDICATE_COLLECTOR, topPlanPredicates);
         topPlanPredicates.forEach(this.predicates::addPredicate);
+    }
 
+    // derive some useful predicate by predicates
+    private void predicatesDerive() {
         // construct equivalenceClass according to equals predicates
-        this.equivalenceClass = new EquivalenceClass();
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                        this.predicates.getPulledUpPredicates(), originalPlan).stream()
+                        new ArrayList<>(this.predicates.getPulledUpPredicates()), originalPlan).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
         this.splitPredicate = splitPredicate;
+
+        this.equivalenceClass = new EquivalenceClass();
         for (Expression expression : ExpressionUtils.extractConjunction(splitPredicate.getEqualPredicate())) {
-            if (expression instanceof BooleanLiteral && ((BooleanLiteral) expression).getValue()) {
+            if (expression instanceof Literal) {
                 continue;
             }
             if (expression instanceof EqualTo) {
@@ -166,6 +190,7 @@ public class StructInfo {
         // TODO only consider the inner join currently, Should support outer join
         // Split plan by the boundary which contains multi child
         PlanSplitContext planSplitContext = new PlanSplitContext(Sets.newHashSet(LogicalJoin.class));
+        // if single table without join, the bottom is
         originalPlan.accept(PLAN_SPLITTER, planSplitContext);
 
         List<HyperGraph> structInfos = HyperGraph.toStructInfo(planSplitContext.getBottomPlan());
@@ -238,11 +263,10 @@ public class StructInfo {
      * For inner join should judge only the join tables,
      * for other join type should also judge the join direction, it's input filter that can not be pulled up etc.
      */
-    public static @Nullable List<Expression> isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
+    public static ComparisonResult isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
             LogicalCompatibilityContext compatibilityContext) {
-        // TODO: open it after supporting filter
-        // return queryStructInfo.hyperGraph.isLogicCompatible(viewStructInfo.hyperGraph, compatibilityContext);
-        return ImmutableList.of();
+        return HyperGraphComparator
+                .isLogicCompatible(queryStructInfo.hyperGraph, viewStructInfo.hyperGraph, compatibilityContext);
     }
 
     private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {
@@ -258,8 +282,14 @@ public class StructInfo {
     private static class PredicateCollector extends DefaultPlanVisitor<Void, Set<Expression>> {
         @Override
         public Void visit(Plan plan, Set<Expression> predicates) {
+            // Just collect the filter in top plan, if meet other node except project and filter, return
+            if (!(plan instanceof LogicalProject)
+                    && !(plan instanceof LogicalFilter)
+                    && !(plan instanceof LogicalAggregate)) {
+                return null;
+            }
             if (plan instanceof LogicalFilter) {
-                predicates.add(((LogicalFilter) plan).getPredicate());
+                predicates.addAll(ExpressionUtils.extractConjunction(((LogicalFilter) plan).getPredicate()));
             }
             return super.visit(plan, predicates);
         }
@@ -267,13 +297,17 @@ public class StructInfo {
 
     /**
      * Split the plan into bottom and up, the boundary is given by context,
-     * the bottom contains the boundary.
+     * the bottom contains the boundary, and top plan doesn't contain the boundary.
      */
     public static class PlanSplitter extends DefaultPlanVisitor<Void, PlanSplitContext> {
         @Override
         public Void visit(Plan plan, PlanSplitContext context) {
             if (context.getTopPlan() == null) {
                 context.setTopPlan(plan);
+            }
+            if (plan.children().isEmpty() && context.getBottomPlan() == null) {
+                context.setBottomPlan(plan);
+                return null;
             }
             if (context.isBoundary(plan)) {
                 context.setBottomPlan(plan);
@@ -347,6 +381,30 @@ public class StructInfo {
                 }
             }
             return true;
+        }
+    }
+
+    /**
+     * AggregatePatternChecker
+     */
+    public static class AggregatePatternChecker extends DefaultPlanVisitor<Boolean, Void> {
+        @Override
+        public Boolean visit(Plan plan, Void context) {
+            if (plan instanceof LogicalAggregate) {
+                LogicalAggregate<Plan> aggregate = (LogicalAggregate<Plan>) plan;
+                Optional<LogicalRepeat<?>> sourceRepeat = aggregate.getSourceRepeat();
+                if (sourceRepeat.isPresent()) {
+                    return false;
+                }
+                super.visit(aggregate, context);
+                return true;
+            }
+            if (plan instanceof LogicalProject || plan instanceof LogicalFilter) {
+                super.visit(plan, context);
+                return true;
+            }
+            super.visit(plan, context);
+            return false;
         }
     }
 }

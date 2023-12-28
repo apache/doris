@@ -51,7 +51,8 @@ public class MergeProjects extends OneRewriteRuleFactory {
     public static Plan mergeProjects(LogicalProject<?> project) {
         LogicalProject<? extends Plan> childProject = (LogicalProject<?>) project.child();
         List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
-        return project.withProjectsAndChild(projectExpressions, childProject.child(0));
+        LogicalProject<?> newProject = childProject.canEliminate() ? project : childProject;
+        return newProject.withProjectsAndChild(projectExpressions, childProject.child(0));
     }
 
     private boolean containsWindowExpression(List<NamedExpression> expressions) {

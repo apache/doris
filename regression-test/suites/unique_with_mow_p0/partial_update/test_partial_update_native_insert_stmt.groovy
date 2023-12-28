@@ -122,7 +122,7 @@ suite("test_partial_update_native_insert_stmt", "p0") {
             // but field `name` is not nullable and doesn't have default value
             test {
                 sql """insert into ${tableName3}(id,score) values(2,400),(1,200),(4,400)"""
-                exception "INTERNAL_ERROR"
+                exception "the unmentioned column `name` should have default value or be nullable"
             }
             sql "set enable_unique_key_partial_update=false;"
             sql "sync;"

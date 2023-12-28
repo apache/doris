@@ -385,6 +385,7 @@ ON a.city = c.city
 | CHAR       | STRING             |
 | LARGEINT   | STRING             |
 | VARCHAR    | STRING            |
+| STRING     | STRING            |
 | DECIMALV2  | DECIMAL                      |
 | TIME       | DOUBLE             |
 | HLL        | Unsupported datatype             |

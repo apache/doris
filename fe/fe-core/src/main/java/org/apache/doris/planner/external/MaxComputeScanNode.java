@@ -63,7 +63,14 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         catalog = (MaxComputeExternalCatalog) table.getCatalog();
     }
 
-    public static void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (split instanceof MaxComputeSplit) {
+            setScanParams(rangeDesc, (MaxComputeSplit) split);
+        }
+    }
+
+    public void setScanParams(TFileRangeDesc rangeDesc, MaxComputeSplit maxComputeSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(TableFormatType.MAX_COMPUTE.value());
         TMaxComputeFileDesc fileDesc = new TMaxComputeFileDesc();

@@ -446,8 +446,16 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
         }
     }
 
-    if (out.size() > 0) {
-        (*_error_log_file) << fmt::to_string(out) << std::endl;
+    size_t error_row_size = out.size();
+    if (error_row_size > 0) {
+        if (error_row_size > config::load_error_log_limit_bytes) {
+            fmt::memory_buffer limit_byte_out;
+            limit_byte_out.append(out.data(), out.data() + config::load_error_log_limit_bytes);
+            (*_error_log_file) << fmt::to_string(limit_byte_out) + "error log is too long"
+                               << std::endl;
+        } else {
+            (*_error_log_file) << fmt::to_string(out) << std::endl;
+        }
     }
     return Status::OK();
 }
@@ -463,7 +471,6 @@ int64_t RuntimeState::get_load_mem_limit() {
 
 void RuntimeState::resize_op_id_to_local_state(int operator_size, int sink_size) {
     _op_id_to_local_state.resize(operator_size);
-    _op_id_to_sink_local_state.resize(sink_size);
 }
 
 void RuntimeState::emplace_local_state(
@@ -490,26 +497,19 @@ Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
 
 void RuntimeState::emplace_sink_local_state(
         int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
-    DCHECK(id < _op_id_to_sink_local_state.size())
-            << " id=" << id << " state: " << state->debug_string(0);
-    DCHECK(!_op_id_to_sink_local_state[id]) << " id=" << id << " state: " << state->debug_string(0);
-    _op_id_to_sink_local_state[id] = std::move(state);
+    DCHECK(!_sink_local_state) << " id=" << id << " state: " << state->debug_string(0);
+    _sink_local_state = std::move(state);
 }
 
-doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int id) {
-    return _op_id_to_sink_local_state[id].get();
+doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state(int) {
+    return _sink_local_state.get();
 }
 
 Result<RuntimeState::SinkLocalState*> RuntimeState::get_sink_local_state_result(int id) {
-    if (id >= _op_id_to_sink_local_state.size()) {
-        return ResultError(
-                Status::InternalError("_op_id_to_sink_local_state out of range size:{} , id:{}",
-                                      _op_id_to_sink_local_state.size(), id));
-    }
-    if (!_op_id_to_sink_local_state[id]) {
+    if (!_sink_local_state) {
         return ResultError(Status::InternalError("_op_id_to_sink_local_state id:{} is null", id));
     }
-    return _op_id_to_sink_local_state[id].get();
+    return _sink_local_state.get();
 }
 
 bool RuntimeState::enable_page_cache() const {
@@ -517,21 +517,4 @@ bool RuntimeState::enable_page_cache() const {
            (_query_options.__isset.enable_page_cache && _query_options.enable_page_cache);
 }
 
-RuntimeFilterParamsContext* RuntimeFilterParamsContext::create(RuntimeState* state) {
-    RuntimeFilterParamsContext* params = state->obj_pool()->add(new RuntimeFilterParamsContext());
-    params->runtime_filter_wait_infinitely = state->runtime_filter_wait_infinitely();
-    params->runtime_filter_wait_time_ms = state->runtime_filter_wait_time_ms();
-    params->enable_pipeline_exec = state->enable_pipeline_exec();
-    params->execution_timeout = state->execution_timeout();
-    params->runtime_filter_mgr = state->runtime_filter_mgr();
-    params->exec_env = state->exec_env();
-    params->query_id.set_hi(state->query_id().hi);
-    params->query_id.set_lo(state->query_id().lo);
-
-    params->fragment_instance_id.set_hi(state->fragment_instance_id().hi);
-    params->fragment_instance_id.set_lo(state->fragment_instance_id().lo);
-    params->be_exec_version = state->be_exec_version();
-    params->query_ctx = state->get_query_ctx();
-    return params;
-}
 } // end namespace doris

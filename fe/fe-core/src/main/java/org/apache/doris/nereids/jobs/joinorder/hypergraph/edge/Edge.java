@@ -22,7 +22,10 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.BitSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
@@ -51,6 +54,9 @@ public abstract class Edge {
     // record all sub nodes behind in this operator. It's T function in paper
     private final long subTreeNodes;
 
+    private final Set<JoinEdge> leftRejectEdges;
+    private final Set<JoinEdge> rightRejectEdges;
+
     /**
      * Create simple edge.
      */
@@ -65,10 +71,36 @@ public abstract class Edge {
         this.leftExtendedNodes = leftRequiredNodes;
         this.rightExtendedNodes = rightRequiredNodes;
         this.subTreeNodes = subTreeNodes;
+        this.leftRejectEdges = new HashSet<>();
+        this.rightRejectEdges = new HashSet<>();
     }
 
     public boolean isSimple() {
         return LongBitmap.getCardinality(leftExtendedNodes) == 1 && LongBitmap.getCardinality(rightExtendedNodes) == 1;
+    }
+
+    public void addLeftRejectEdge(JoinEdge edge) {
+        leftRejectEdges.add(edge);
+    }
+
+    public void addRightRejectEdge(JoinEdge edge) {
+        rightRejectEdges.add(edge);
+    }
+
+    public void addLeftRejectEdges(Set<JoinEdge> edge) {
+        leftRejectEdges.addAll(edge);
+    }
+
+    public void addRightRejectEdges(Set<JoinEdge> edge) {
+        rightRejectEdges.addAll(edge);
+    }
+
+    public Set<JoinEdge> getLeftRejectEdge() {
+        return ImmutableSet.copyOf(leftRejectEdges);
+    }
+
+    public Set<JoinEdge> getRightRejectEdge() {
+        return ImmutableSet.copyOf(rightRejectEdges);
     }
 
     public void addLeftExtendNode(long left) {
@@ -170,6 +202,10 @@ public abstract class Edge {
     public abstract Set<Slot> getInputSlots();
 
     public abstract List<? extends Expression> getExpressions();
+
+    public Set<? extends Expression> getExpressionSet() {
+        return ImmutableSet.copyOf(getExpressions());
+    }
 
     public Expression getExpression(int i) {
         return getExpressions().get(i);

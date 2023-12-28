@@ -50,61 +50,49 @@ echo "#### Run tpch-sf100 test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 exit_flag=0
 
+check_tpch_result() {
+    log_file="$1"
+    if ! grep '^Total cold run time' "${log_file}" || ! grep '^Total hot run time' "${log_file}"; then
+        echo "ERROR: can not find 'Total hot run time' in '${log_file}'"
+        return 1
+    else
+        cold_run_time=$(grep '^Total cold run time' "${log_file}" | awk '{print $5}')
+        hot_run_time=$(grep '^Total hot run time' "${log_file}" | awk '{print $5}')
+    fi
+    # 单位是毫秒
+    cold_run_time_threshold=${cold_run_time_threshold:-50000}
+    hot_run_time_threshold=${hot_run_time_threshold:-42000}
+    if [[ ${cold_run_time} -gt 50000 || ${hot_run_time} -gt 42000 ]]; then
+        echo "ERROR:
+    cold_run_time ${cold_run_time} is great than the threshold ${cold_run_time_threshold},
+    or, hot_run_time ${hot_run_time} is great than the threshold ${hot_run_time_threshold}"
+        return 1
+    else
+        echo "INFO:
+    cold_run_time ${cold_run_time} is less than the threshold ${cold_run_time_threshold},
+    or, hot_run_time ${hot_run_time} is less than the threshold ${hot_run_time_threshold}"
+    fi
+}
+
 (
     set -e
     shopt -s inherit_errexit
 
     echo "#### 1. check if need to load data"
     SF="100" # SCALE FACTOR
-    if ${DEBUG:-false}; then
-        SF="100"
-    fi
-    TPCH_DATA_DIR="/data/tpch/sf_${SF}"                                               # no / at the end
-    TPCH_DATA_DIR_LINK="${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/tpch-data # no / at the end
+    if ${DEBUG:-false}; then SF="1"; fi
     db_name="tpch_sf${SF}"
     sed -i "s|^export DB=.*$|export DB='${db_name}'|g" \
         "${teamcity_build_checkoutDir}"/tools/tpch-tools/conf/doris-cluster.conf
     if ! check_tpch_table_rows "${db_name}" "${SF}"; then
-        echo "INFO: need to load tpch-sf${SF} data"
-        # prepare data
-        mkdir -p "${TPCH_DATA_DIR}"
-        (
-            cd "${TPCH_DATA_DIR}" || exit 1
-            declare -A table_file_count
-            table_file_count=(['region']=1 ['nation']=1 ['supplier']=1 ['customer']=1 ['part']=1 ['partsupp']=10 ['orders']=10 ['lineitem']=10)
-            for table_name in ${!table_file_count[*]}; do
-                if [[ ${table_file_count[${table_name}]} -eq 1 ]]; then
-                    url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl"
-                    if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && exit 1; fi
-                elif [[ ${table_file_count[${table_name}]} -eq 10 ]]; then
-                    (
-                        for i in {1..10}; do
-                            url="https://doris-build-1308700295.cos.ap-beijing.myqcloud.com/regression/tpch/sf${SF}/${table_name}.tbl.${i}"
-                            if ! wget --continue -t3 -q "${url}"; then echo "ERROR: wget --continue ${url}" && exit 1; fi
-                        done
-                    ) &
-                    wait
-                fi
-            done
-        )
-        # create table and load data
-        sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
-        bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/create-tpch-tables.sh
-        rm -rf "${TPCH_DATA_DIR_LINK}"
-        ln -s "${TPCH_DATA_DIR}" "${TPCH_DATA_DIR_LINK}"
-        bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/load-tpch-data.sh -c 10
-        if ! check_tpch_table_rows "${db_name}" "${SF}"; then
-            exit 1
-        fi
-        echo "INFO: sleep 10min to wait compaction done" && sleep 10m
-        data_reload="true"
+        echo "ERROR: check_tpch_table_rows failed." && exit 1
     fi
 
     echo "#### 2. run tpch-sf${SF} query"
     set_session_variable runtime_filter_mode global
     sed -i "s|^SCALE_FACTOR=[0-9]\+$|SCALE_FACTOR=${SF}|g" "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh
     bash "${teamcity_build_checkoutDir}"/tools/tpch-tools/bin/run-tpch-queries.sh | tee "${teamcity_build_checkoutDir}"/run-tpch-queries.log
-    if ! grep '^Total hot run time' "${teamcity_build_checkoutDir}"/run-tpch-queries.log >/dev/null; then exit 1; fi
+    if ! check_tpch_result "${teamcity_build_checkoutDir}"/run-tpch-queries.log; then exit 1; fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpch-queries.log)
     line_begin=$((line_end - 23))
     comment_body="Tpch sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}

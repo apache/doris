@@ -32,7 +32,7 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTable("create table t1 (\n"
                 + "    k1 int,\n"
                 + "    k2 int,\n"
@@ -73,7 +73,7 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
     public void testFromClauseDelete() throws AnalysisException {
         String sql = "delete from t1 a using src join t2 on src.k1 = t2.k1 where t2.k1 = a.k1";
         LogicalPlan parsed = new NereidsParser().parseSingle(sql);
-        Assertions.assertTrue(parsed instanceof DeleteFromUsingCommand);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, parsed);
         DeleteFromUsingCommand command = ((DeleteFromUsingCommand) parsed);
         LogicalPlan plan = command.completeQueryPlan(connectContext, command.getLogicalQuery());
         PlanChecker.from(connectContext, plan)
@@ -83,19 +83,22 @@ public class DeleteFromUsingCommandTest extends TestWithFeService implements Pla
                         logicalOlapTableSink(
                                 logicalProject(
                                         logicalJoin(
-                                                logicalJoin(
-                                                        logicalProject(
-                                                                logicalFilter(
-                                                                        logicalOlapScan()
+                                                logicalProject(
+                                                        logicalJoin(
+                                                                logicalProject(
+                                                                        logicalFilter(
+                                                                                logicalOlapScan()
+                                                                        )
+                                                                ),
+                                                                logicalProject(
+                                                                        logicalFilter(
+                                                                                logicalOlapScan()
+                                                                        )
                                                                 )
-                                                        ),
-                                                        logicalProject(
-                                                                logicalOlapScan())
+                                                        )
                                                 ),
                                                 logicalProject(
-                                                        logicalFilter(
-                                                                logicalOlapScan()
-                                                        )
+                                                        logicalOlapScan()
                                                 )
                                         )
                                 )

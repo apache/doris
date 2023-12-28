@@ -2,42 +2,44 @@
 -- !ds_shape_31 --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----hashAgg[GLOBAL]
-------PhysicalDistribute
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ss_addr_sk]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
---------------------PhysicalDistribute
-----------------------PhysicalProject
-------------------------filter((ss.d_year = 2000) and d_qoy IN (1, 2, 3))
---------------------------PhysicalOlapScan[date_dim]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[customer_address]
---PhysicalCteAnchor ( cteId=CTEId#1 )
-----PhysicalCteProducer ( cteId=CTEId#1 )
+----PhysicalProject
 ------hashAgg[GLOBAL]
 --------PhysicalDistribute
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[ws_bill_addr_sk]
+--------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[ss_addr_sk]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ws_sold_date_sk]
+--------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[ss_sold_date_sk]
 ----------------------PhysicalProject
-------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
+------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
---------------------------filter((ws.d_year = 2000) and d_qoy IN (1, 2, 3))
+--------------------------filter((ss.d_year = 2000) and d_qoy IN (1, 2, 3))
 ----------------------------PhysicalOlapScan[date_dim]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[customer_address]
+--PhysicalCteAnchor ( cteId=CTEId#1 )
+----PhysicalCteProducer ( cteId=CTEId#1 )
+------PhysicalProject
+--------hashAgg[GLOBAL]
+----------PhysicalDistribute
+------------hashAgg[LOCAL]
+--------------PhysicalProject
+----------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_bill_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF3 ca_address_sk->[ws_bill_addr_sk]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------hashJoin[INNER_JOIN] hashCondition=((web_sales.ws_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF2 d_date_sk->[ws_sold_date_sk]
+------------------------PhysicalProject
+--------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------filter((ws.d_year = 2000) and d_qoy IN (1, 2, 3))
+------------------------------PhysicalOlapScan[date_dim]
+------------------PhysicalDistribute
+--------------------PhysicalProject
+----------------------PhysicalOlapScan[customer_address]
 ----PhysicalResultSink
 ------PhysicalQuickSort[MERGE_SORT]
 --------PhysicalDistribute

@@ -59,14 +59,13 @@ struct BasicSharedState {
     Dependency* source_dep = nullptr;
     Dependency* sink_dep = nullptr;
 
-    std::atomic<int> ref_count = 0;
-
-    void ref() { ref_count++; }
     virtual Status close(RuntimeState* state) { return Status::OK(); }
     virtual ~BasicSharedState() = default;
 };
 
 class Dependency : public std::enable_shared_from_this<Dependency> {
+    ENABLE_FACTORY_CREATOR(Dependency);
+
 public:
     Dependency(int id, int node_id, std::string name, QueryContext* query_ctx)
             : _id(id),
@@ -126,7 +125,7 @@ protected:
     std::atomic<bool> _ready;
     const QueryContext* _query_ctx = nullptr;
 
-    std::shared_ptr<BasicSharedState> _shared_state;
+    std::shared_ptr<BasicSharedState> _shared_state = nullptr;
     MonotonicStopWatch _watcher;
     std::list<std::shared_ptr<Dependency>> _children;
 
@@ -276,16 +275,6 @@ public:
     AndDependency(int id, int node_id, QueryContext* query_ctx)
             : Dependency(id, node_id, "AndDependency", query_ctx) {}
 
-    [[nodiscard]] std::string name() const override {
-        fmt::memory_buffer debug_string_buffer;
-        fmt::format_to(debug_string_buffer, "{}[", Dependency::_name);
-        for (auto& child : Dependency::_children) {
-            fmt::format_to(debug_string_buffer, "{}, ", child->name());
-        }
-        fmt::format_to(debug_string_buffer, "]");
-        return fmt::to_string(debug_string_buffer);
-    }
-
     std::string debug_string(int indentation_level = 0) override;
 
     [[nodiscard]] Dependency* is_blocked_by(PipelineXTask* task) override {
@@ -304,23 +293,16 @@ public:
         agg_data = std::make_unique<vectorized::AggregatedDataVariants>();
         agg_arena_pool = std::make_unique<vectorized::Arena>();
     }
-    ~AggSharedState() override = default;
+    ~AggSharedState() override {
+        if (probe_expr_ctxs.empty()) {
+            _close_without_key();
+        } else {
+            _close_with_serialized_key();
+        }
+    }
     void init_spill_partition_helper(size_t spill_partition_count_bits) {
         spill_partition_helper =
                 std::make_unique<vectorized::SpillPartitionHelper>(spill_partition_count_bits);
-    }
-    Status close(RuntimeState* state) override {
-        if (ref_count.fetch_sub(1) == 1) {
-            for (auto* aggregate_evaluator : aggregate_evaluators) {
-                aggregate_evaluator->close(state);
-            }
-            if (probe_expr_ctxs.empty()) {
-                _close_without_key();
-            } else {
-                _close_with_serialized_key();
-            }
-        }
-        return Status::OK();
     }
 
     vectorized::AggregatedDataVariantsUPtr agg_data = nullptr;
@@ -489,8 +471,6 @@ struct SetSharedState : public BasicSharedState {
 public:
     SetSharedState(int num_deps) { probe_finished_children_dependency.resize(num_deps, nullptr); }
     /// default init
-    //record memory during running
-    int64_t mem_used = 0;
     vectorized::Block build_block; // build to source
     //record element size in hashtable
     int64_t valid_element_in_hash_tbl = 0;
@@ -573,10 +553,18 @@ public:
 
 enum class ExchangeType : uint8_t {
     NOOP = 0,
+    // Shuffle data by Crc32HashPartitioner<LocalExchangeChannelIds>.
     HASH_SHUFFLE = 1,
+    // Round-robin passthrough data blocks.
     PASSTHROUGH = 2,
+    // Shuffle data by Crc32HashPartitioner<ShuffleChannelIds> (e.g. same as storage engine).
     BUCKET_HASH_SHUFFLE = 3,
+    // Passthrough data blocks to all channels.
     BROADCAST = 4,
+    // Passthrough data to channels evenly in an adaptive way.
+    ADAPTIVE_PASSTHROUGH = 5,
+    // Send all data to the first channel.
+    PASS_TO_ONE = 6,
 };
 
 inline std::string get_exchange_type_name(ExchangeType idx) {
@@ -591,10 +579,30 @@ inline std::string get_exchange_type_name(ExchangeType idx) {
         return "BUCKET_HASH_SHUFFLE";
     case ExchangeType::BROADCAST:
         return "BROADCAST";
+    case ExchangeType::ADAPTIVE_PASSTHROUGH:
+        return "ADAPTIVE_PASSTHROUGH";
+    case ExchangeType::PASS_TO_ONE:
+        return "PASS_TO_ONE";
     }
     LOG(FATAL) << "__builtin_unreachable";
     __builtin_unreachable();
 }
+
+struct DataDistribution {
+    DataDistribution(ExchangeType type) : distribution_type(type) {}
+    DataDistribution(ExchangeType type, const std::vector<TExpr>& partition_exprs_)
+            : distribution_type(type), partition_exprs(partition_exprs_) {}
+    DataDistribution(const DataDistribution& other)
+            : distribution_type(other.distribution_type), partition_exprs(other.partition_exprs) {}
+    bool need_local_exchange() const { return distribution_type != ExchangeType::NOOP; }
+    DataDistribution& operator=(const DataDistribution& other) {
+        distribution_type = other.distribution_type;
+        partition_exprs = other.partition_exprs;
+        return *this;
+    }
+    ExchangeType distribution_type;
+    std::vector<TExpr> partition_exprs;
+};
 
 class Exchanger;
 
@@ -602,25 +610,25 @@ struct LocalExchangeSharedState : public BasicSharedState {
 public:
     ENABLE_FACTORY_CREATOR(LocalExchangeSharedState);
     std::unique_ptr<Exchanger> exchanger {};
-    std::vector<Dependency*> source_dependencies;
+    std::vector<DependencySPtr> source_dependencies;
     Dependency* sink_dependency;
     std::vector<MemTracker*> mem_trackers;
     std::atomic<size_t> mem_usage = 0;
     std::mutex le_lock;
     void sub_running_sink_operators();
     void _set_ready_for_read() {
-        for (auto* dep : source_dependencies) {
+        for (auto& dep : source_dependencies) {
             DCHECK(dep);
             dep->set_ready();
         }
     }
 
-    void set_dep_by_channel_id(Dependency* dep, int channel_id) {
+    void set_dep_by_channel_id(DependencySPtr dep, int channel_id) {
         source_dependencies[channel_id] = dep;
     }
 
     void set_ready_to_read(int channel_id) {
-        auto* dep = source_dependencies[channel_id];
+        auto& dep = source_dependencies[channel_id];
         DCHECK(dep) << channel_id;
         dep->set_ready();
     }

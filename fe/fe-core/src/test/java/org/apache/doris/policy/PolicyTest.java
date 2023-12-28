@@ -34,7 +34,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
@@ -76,7 +75,7 @@ public class PolicyTest extends TestWithFeService {
         List<AccessPrivilegeWithCols> privileges = Lists
                 .newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
-        tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        tablePattern.analyze();
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
         Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         grantStmt.analyze(analyzer);

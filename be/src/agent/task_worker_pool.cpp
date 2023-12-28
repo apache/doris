@@ -273,8 +273,8 @@ Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateR
     // check local disk capacity
     int64_t tablet_size = tablet->tablet_local_size();
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
-        return Status::InternalError("reach the capacity limit of path {}, tablet_size={}",
-                                     (*dest_store)->path(), tablet_size);
+        return Status::Error<EXCEEDED_LIMIT>("reach the capacity limit of path {}, tablet_size={}",
+                                             (*dest_store)->path(), tablet_size);
     }
     return Status::OK();
 }
@@ -1493,7 +1493,6 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
                 .tag("retry_time", retry_time)
                 .error(status);
         ++retry_time;
-        std::this_thread::sleep_for(std::chrono::seconds(1));
     }
 
     for (auto& item : discontinuous_version_tablets) {

@@ -67,6 +67,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -124,7 +125,7 @@ public abstract class BulkLoadJob extends LoadJob {
                     break;
                 case SPARK:
                     bulkLoadJob = new SparkLoadJob(db.getId(), stmt.getLabel().getLabelName(), stmt.getResourceDesc(),
-                        stmt.getOrigStmt(), stmt.getUserInfo());
+                            stmt.getOrigStmt(), stmt.getUserInfo());
                     break;
                 case MINI:
                 case DELETE:
@@ -209,7 +210,10 @@ public abstract class BulkLoadJob extends LoadJob {
             if (loadTask == null) {
                 return;
             }
-            if (loadTask.getRetryTime() <= 0) {
+            Predicate<LoadTask> isTaskTimeout =
+                    (LoadTask task) -> task instanceof LoadLoadingTask
+                            && ((LoadLoadingTask) task).getLeftTimeMs() <= 0;
+            if (loadTask.getRetryTime() <= 0 || isTaskTimeout.test(loadTask)) {
                 unprotectedExecuteCancel(failMsg, true);
                 logFinalOperation();
                 return;
@@ -330,6 +334,11 @@ public abstract class BulkLoadJob extends LoadJob {
 
     public UserIdentity getUserInfo() {
         return userInfo;
+    }
+
+    public void recycleProgress() {
+        // Recycle memory occupied by Progress.
+        Env.getCurrentProgressManager().removeProgress(String.valueOf(id));
     }
 
     @Override

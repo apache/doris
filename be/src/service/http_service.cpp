@@ -44,6 +44,7 @@
 #include "http/action/pipeline_task_action.h"
 #include "http/action/pprof_actions.h"
 #include "http/action/reload_tablet_action.h"
+#include "http/action/report_action.h"
 #include "http/action/reset_rpc_channel_action.h"
 #include "http/action/restore_tablet_action.h"
 #include "http/action/snapshot_action.h"
@@ -289,6 +290,18 @@ Status HttpService::start() {
             new ClearDebugPointsAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN));
     _ev_http_server->register_handler(HttpMethod::POST, "/api/debug_point/clear",
                                       clear_debug_points_action);
+
+    ReportAction* report_tablet_action = _pool.add(new ReportAction(
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_OLAP_TABLE"));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/report/tablet", report_tablet_action);
+
+    ReportAction* report_disk_action = _pool.add(new ReportAction(
+            _env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_DISK_STATE"));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/report/disk", report_disk_action);
+
+    ReportAction* report_task_action = _pool.add(
+            new ReportAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN, "REPORT_TASK"));
+    _ev_http_server->register_handler(HttpMethod::GET, "/api/report/task", report_task_action);
 
     _ev_http_server->start();
     return Status::OK();

@@ -153,4 +153,43 @@ suite("test_auto_partition_behavior") {
     sql """ insert into agg_dt6 values ('2020-12-12', '2020-12-12'), ('2020-12-12', '2020-12-12 12:12:12.123456'), ('2020-12-12', '20121212'), (20131212, 20131212) """
     result = sql "show partitions from agg_dt6"
     assertEquals(result.size(), 5)
+
+    /// insert overwrite
+    sql "drop table if exists `rewrite`"
+    sql """
+        CREATE TABLE `rewrite` (
+            `str` varchar not null
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`str`)
+        COMMENT 'OLAP'
+        AUTO PARTITION BY LIST (`str`)
+        (
+            PARTITION `p1` values in (("Xxx"), ("Yyy"))
+        )
+        DISTRIBUTED BY HASH(`str`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+    sql """ insert into rewrite values ("Xxx"); """
+    // legacy planner
+    sql " set experimental_enable_nereids_planner=false "
+    try {
+        sql """ insert overwrite table rewrite partition(p1) values ("XXX") """
+        fail()
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
+    }
+    sql """ insert overwrite table rewrite partition(p1) values ("Yyy") """
+    qt_sql_overwrite1 """ select * from rewrite """ // Yyy
+    // nereids planner
+    sql " set experimental_enable_nereids_planner=true "
+    try {
+        sql """ insert overwrite table rewrite partition(p1) values ("") """
+        fail()
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
+    }
+    sql """ insert overwrite table rewrite partition(p1) values ("Xxx") """
+    qt_sql_overwrite2 """ select * from rewrite """ // Xxx
 }

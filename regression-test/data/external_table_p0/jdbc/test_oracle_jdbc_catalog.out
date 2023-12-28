@@ -78,6 +78,31 @@
 -- !filter3 --
 1	1	china 	beijing	alice	abcdefghrjkmnopq
 
+-- !filter4 --
+1	alice	20	99.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !filter5 --
+1	alice	20	99.5
+2	bob	21	90.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !filter6 --
+1	alice	20	99.5
+4	andy	21	93.0
+
+-- !filter7 --
+3	jerry	23	88.0
+
+-- !filter8 --
+4	andy	21	93.0
+
+-- !filter9 --
+3	jerry	23	88.0
+4	andy	21	93.0
+
 -- !date1 --
 1	2022-01-21T05:23:01	\N	\N
 2	2022-11-12T20:32:56	\N	\N
@@ -101,6 +126,31 @@
 
 -- !date7 --
 3	\N	2019-11-12T20:33:57.999	\N	\N	\N	\N	\N
+
+-- !filter4_old_plan --
+1	alice	20	99.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !filter5_old_plan --
+1	alice	20	99.5
+2	bob	21	90.5
+3	jerry	23	88.0
+4	andy	21	93.0
+
+-- !filter6_old_plan --
+1	alice	20	99.5
+4	andy	21	93.0
+
+-- !filter7_old_plan --
+3	jerry	23	88.0
+
+-- !filter8_old_plan --
+4	andy	21	93.0
+
+-- !filter9_old_plan --
+3	jerry	23	88.0
+4	andy	21	93.0
 
 -- !test_insert1 --
 doris1	18

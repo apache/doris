@@ -1573,6 +1573,9 @@ inline bool JsonbPath::parse_member(Stream* stream, JsonbPath* path) {
             stream->skip(1);
             stream->add_leg_len();
             stream->set_has_escapes(true);
+            if (stream->exhausted()) {
+                return false;
+            }
             continue;
         } else if (stream->peek() == DOUBLE_QUOTE) {
             if (left_quotation_marks == nullptr) {

@@ -566,13 +566,6 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         return this.bdbEnvironment;
     }
 
-    public long getEnvDiskUsagePercent() {
-        if (bdbEnvironment == null) {
-            return -1;
-        }
-        return bdbEnvironment.getEnvDiskUsagePercent();
-    }
-
     public String getBDBStats() {
         if (bdbEnvironment == null) {
             return "";
@@ -584,5 +577,13 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         }
 
         return repEnv.getRepStats(StatsConfig.DEFAULT).toString();
+    }
+
+    public String getNotReadyReason() {
+        if (bdbEnvironment == null) {
+            LOG.warn("replicatedEnvironment is null");
+            return "replicatedEnvironment is null";
+        }
+        return bdbEnvironment.getNotReadyReason();
     }
 }
