@@ -56,8 +56,8 @@ namespace doris::vectorized {
     M(TypeIndex::Int128, ColumnVector<Int128>, Int128)                \
     M(TypeIndex::Float32, ColumnVector<Float32>, Float32)             \
     M(TypeIndex::Float64, ColumnVector<Float64>, Float64)             \
-    M(TypeIndex::Decimal128, ColumnDecimal<Decimal<Int128>>, Int128)  \
-    M(TypeIndex::Decimal128I, ColumnDecimal<Decimal<Int128>>, Int128) \
+    M(TypeIndex::Decimal128V2, ColumnDecimal<Decimal<Int128>>, Int128)  \
+    M(TypeIndex::Decimal128V3, ColumnDecimal<Decimal<Int128>>, Int128) \
     M(TypeIndex::Decimal32, ColumnDecimal<Decimal<Int32>>, Int32)     \
     M(TypeIndex::Decimal64, ColumnDecimal<Decimal<Int64>>, Int64)     \
     M(TypeIndex::Date, ColumnVector<Int64>, Int64)                    \

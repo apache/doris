@@ -78,12 +78,12 @@ TEST_P(AggMinMaxTest, min_max_test) {
 
 TEST_P(AggMinMaxTest, min_max_decimal_test) {
     std::string min_max_type = GetParam();
-    auto data_type = std::make_shared<DataTypeDecimal<Decimal128>>();
+    auto data_type = std::make_shared<DataTypeDecimal<Decimal128V2>>();
     // Prepare test data.
     auto column_vector_decimal128 = data_type->create_column();
     for (int i = 0; i < agg_test_batch_size; i++) {
         column_vector_decimal128->insert(
-                cast_to_nearest_field_type(DecimalField<Decimal128>(Decimal128(i), 9)));
+                cast_to_nearest_field_type(DecimalField<Decimal128V2>(Decimal128V2(i), 9)));
     }
 
     // Prepare test function and parameters.

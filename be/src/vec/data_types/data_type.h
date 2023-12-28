@@ -266,8 +266,8 @@ struct WhichDataType {
 
     bool is_decimal32() const { return idx == TypeIndex::Decimal32; }
     bool is_decimal64() const { return idx == TypeIndex::Decimal64; }
-    bool is_decimal128() const { return idx == TypeIndex::Decimal128; }
-    bool is_decimal128i() const { return idx == TypeIndex::Decimal128I; }
+    bool is_decimal128() const { return idx == TypeIndex::Decimal128V2; }
+    bool is_decimal128i() const { return idx == TypeIndex::Decimal128V3; }
     bool is_decimal256() const { return idx == TypeIndex::Decimal256; }
     bool is_decimal() const {
         return is_decimal32() || is_decimal64() || is_decimal128() || is_decimal128i() ||

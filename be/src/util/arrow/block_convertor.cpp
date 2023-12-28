@@ -178,7 +178,7 @@ public:
         size_t start = _cur_start;
         size_t num_rows = _cur_rows;
         if (auto* decimalv2_column = vectorized::check_and_get_column<
-                    vectorized::ColumnDecimal<vectorized::Decimal128>>(
+                    vectorized::ColumnDecimal<vectorized::Decimal128V2>>(
                     *vectorized::remove_nullable(_cur_col))) {
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(27, 9);
@@ -193,12 +193,12 @@ public:
                 const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
                 int64_t high = (p_value->value) >> 64;
                 uint64 low = p_value->value;
-                arrow::Decimal128 value(high, low);
+                arrow::Decimal128V2 value(high, low);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
             }
             return arrow::Status::OK();
         } else if (auto* decimal128_column = vectorized::check_and_get_column<
-                           vectorized::ColumnDecimal<vectorized::Decimal128I>>(
+                           vectorized::ColumnDecimal<vectorized::Decimal128V3>>(
                            *vectorized::remove_nullable(_cur_col))) {
             std::shared_ptr<arrow::DataType> s_decimal_ptr =
                     std::make_shared<arrow::Decimal128Type>(38, decimal128_column->get_scale());
@@ -213,7 +213,7 @@ public:
                 const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
                 int64_t high = (p_value->value) >> 64;
                 uint64 low = p_value->value;
-                arrow::Decimal128 value(high, low);
+                arrow::Decimal128V2 value(high, low);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
             }
             return arrow::Status::OK();
@@ -232,7 +232,7 @@ public:
                 const auto& data_ref = decimal32_column->get_data_at(i);
                 const int32_t* p_value = reinterpret_cast<const int32_t*>(data_ref.data);
                 int64_t high = *p_value > 0 ? 0 : 1UL << 63;
-                arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
+                arrow::Decimal128V2 value(high, *p_value > 0 ? *p_value : -*p_value);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
             }
             return arrow::Status::OK();
@@ -251,7 +251,7 @@ public:
                 const auto& data_ref = decimal64_column->get_data_at(i);
                 const int64_t* p_value = reinterpret_cast<const int64_t*>(data_ref.data);
                 int64_t high = *p_value > 0 ? 0 : 1UL << 63;
-                arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
+                arrow::Decimal128V2 value(high, *p_value > 0 ? *p_value : -*p_value);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
             }
             return arrow::Status::OK();

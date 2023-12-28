@@ -207,9 +207,9 @@ private:
         } else if (which.is_decimal64()) {                                         \
             *dst = _apply_internal<Decimal64, OP>(src_column, src_offsets, cmp);   \
         } else if (which.is_decimal128()) {                                        \
-            *dst = _apply_internal<Decimal128, OP>(src_column, src_offsets, cmp);  \
+            *dst = _apply_internal<Decimal128V2, OP>(src_column, src_offsets, cmp);  \
         } else if (which.is_decimal128i()) {                                       \
-            *dst = _apply_internal<Decimal128I, OP>(src_column, src_offsets, cmp); \
+            *dst = _apply_internal<Decimal128V3, OP>(src_column, src_offsets, cmp); \
         } else if (which.is_decimal256()) {                                        \
             *dst = _apply_internal<Decimal256, OP>(src_column, src_offsets, cmp);  \
         } else {                                                                   \

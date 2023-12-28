@@ -49,10 +49,10 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
             return creator_without_type::create<AggregateFunctionUniq<Decimal64, Data<Int64>>>(
                     argument_types, result_is_nullable);
         } else if (which.is_decimal128i()) {
-            return creator_without_type::create<AggregateFunctionUniq<Decimal128I, Data<Int128>>>(
+            return creator_without_type::create<AggregateFunctionUniq<Decimal128V3, Data<Int128>>>(
                     argument_types, result_is_nullable);
         } else if (which.is_decimal128() || which.is_decimal128i()) {
-            return creator_without_type::create<AggregateFunctionUniq<Decimal128, Data<Int128>>>(
+            return creator_without_type::create<AggregateFunctionUniq<Decimal128V2, Data<Int128>>>(
                     argument_types, result_is_nullable);
         } else if (which.is_string_or_fixed_string()) {
             return creator_without_type::create<AggregateFunctionUniq<String, Data<String>>>(

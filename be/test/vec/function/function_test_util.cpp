@@ -130,9 +130,9 @@ size_t type_index_to_data_type(const std::vector<AnyType>& input_types, size_t i
         desc.type = doris::PrimitiveType::TYPE_DOUBLE;
         type = std::make_shared<DataTypeFloat64>();
         return 1;
-    case TypeIndex::Decimal128:
+    case TypeIndex::Decimal128V2:
         desc.type = doris::PrimitiveType::TYPE_DECIMALV2;
-        type = std::make_shared<DataTypeDecimal<Decimal128>>();
+        type = std::make_shared<DataTypeDecimal<Decimal128V2>>();
         return 1;
     case TypeIndex::DateTime:
         desc.type = doris::PrimitiveType::TYPE_DATETIME;

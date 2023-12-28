@@ -102,12 +102,12 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
             uint64 low = p_value->value;
-            arrow::Decimal128 value(high, low);
+            arrow::Decimal128V2 value(high, low);
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
         // TODO: decimal256
-    } else if constexpr (std::is_same_v<T, Decimal128I>) {
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
         std::shared_ptr<arrow::DataType> s_decimal_ptr =
                 std::make_shared<arrow::Decimal128Type>(38, col.get_scale());
         for (size_t i = start; i < end; ++i) {
@@ -120,7 +120,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
             uint64 low = p_value->value;
-            arrow::Decimal128 value(high, low);
+            arrow::Decimal128V2 value(high, low);
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
@@ -134,7 +134,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                 continue;
             }
             Int128 p_value = Int128(col.get_element(i));
-            arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
+            arrow::Decimal128V2 value(reinterpret_cast<const uint8_t*>(&p_value));
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
@@ -148,7 +148,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                 continue;
             }
             Int128 p_value = Int128(col.get_element(i));
-            arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
+            arrow::Decimal128V2 value(reinterpret_cast<const uint8_t*>(&p_value));
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
@@ -172,18 +172,18 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         // TODO check precision
         for (size_t value_i = start; value_i < end; ++value_i) {
-            auto value = *reinterpret_cast<const vectorized::Decimal128*>(
+            auto value = *reinterpret_cast<const vectorized::Decimal128V2*>(
                     concrete_array->Value(value_i));
             // convert scale to 9;
             if (9 > arrow_scale) {
-                using MaxNativeType = typename Decimal128::NativeType;
+                using MaxNativeType = typename Decimal128V2::NativeType;
                 MaxNativeType converted_value = common::exp10_i128(9 - arrow_scale);
                 if (common::mul_overflow(static_cast<MaxNativeType>(value), converted_value,
                                          converted_value)) {
                     VLOG_DEBUG << "Decimal convert overflow";
                     value = converted_value < 0
-                                    ? std::numeric_limits<typename Decimal128 ::NativeType>::min()
-                                    : std::numeric_limits<typename Decimal128 ::NativeType>::max();
+                                    ? std::numeric_limits<typename Decimal128V2 ::NativeType>::min()
+                                    : std::numeric_limits<typename Decimal128V2 ::NativeType>::max();
                 } else {
                     value = converted_value;
                 }
@@ -192,7 +192,7 @@ void DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
             }
             column_data.emplace_back(value);
         }
-    } else if constexpr (std::is_same_v<T, Decimal128I> || std::is_same_v<T, Decimal64> ||
+    } else if constexpr (std::is_same_v<T, Decimal128V3> || std::is_same_v<T, Decimal64> ||
                          std::is_same_v<T, Decimal32>) {
         for (size_t value_i = start; value_i < end; ++value_i) {
             column_data.emplace_back(*reinterpret_cast<const T*>(concrete_array->Value(value_i)));
@@ -274,8 +274,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
 
 template class DataTypeDecimalSerDe<Decimal32>;
 template class DataTypeDecimalSerDe<Decimal64>;
-template class DataTypeDecimalSerDe<Decimal128>;
-template class DataTypeDecimalSerDe<Decimal128I>;
+template class DataTypeDecimalSerDe<Decimal128V2>;
+template class DataTypeDecimalSerDe<Decimal128V3>;
 template class DataTypeDecimalSerDe<Decimal256>;
 } // namespace vectorized
 } // namespace doris
