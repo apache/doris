@@ -1900,7 +1900,7 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
         break;
     }
     case TYPE_DECIMAL128I: {
-        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128);
+        CHECK_VALIDATION_FOR_DECIMALV3(Decimal128I, Decimal128I);
         break;
     }
     case TYPE_ARRAY: {
