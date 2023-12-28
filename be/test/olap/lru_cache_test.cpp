@@ -92,7 +92,7 @@ public:
 
     ~CacheTest() { delete _cache; }
 
-    Cache* cache() { return _cache->get(); }
+    Cache* cache() { return _cache->cache(); }
 
     int Lookup(int key) {
         std::string result;

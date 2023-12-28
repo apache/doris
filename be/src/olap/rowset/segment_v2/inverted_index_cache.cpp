@@ -287,7 +287,6 @@ Status InvertedIndexSearcherCache::erase(const std::string& index_file_path) {
 
 int64_t InvertedIndexSearcherCache::mem_consumption() {
     return cache()->mem_consumption();
-    ;
 }
 
 bool InvertedIndexSearcherCache::_lookup(const InvertedIndexSearcherCache::CacheKey& key,
