@@ -197,7 +197,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
         if (!dir) {
             dir = new DorisCompoundReader(
-                    DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
+                    DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
                     index_file_name.c_str(), config::inverted_index_read_buffer_size);
             owned_dir = true;
         }
@@ -734,7 +734,7 @@ BkdIndexReader::BkdIndexReader(io::FileSystemSPtr fs, const std::string& path,
     }
     _file_full_path = index_file;
     _compoundReader = std::make_unique<DorisCompoundReader>(
-            DorisCompoundDirectory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
+            DorisCompoundDirectoryFactory::getDirectory(fs, index_dir.c_str()), index_file_name.c_str(),
             config::inverted_index_read_buffer_size);
 }
 

@@ -64,7 +64,6 @@ const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
-const std::string empty_value;
 
 template <FieldType field_type>
 class InvertedIndexColumnWriterImpl : public InvertedIndexColumnWriter {
@@ -162,7 +161,10 @@ public:
         }
 
         _doc = std::make_unique<lucene::document::Document>();
-        _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
+        bool use_compound_file_writer = true;
+        bool can_use_ram_dir = true;
+        _dir.reset(DorisCompoundDirectoryFactory::getDirectory(
+                _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir));
 
         if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
             _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
@@ -296,7 +298,7 @@ public:
                     get_parser_ignore_above_value_from_properties(_index_meta->properties());
             auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
-                // only ignore_above UNTOKENIZED strings
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
                 if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
                      v->get_size() > ignore_above) ||
                     (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
@@ -346,7 +348,7 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                // only ignore_above UNTOKENIZED strings
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
                 if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
                      value.length() > ignore_above) ||
                     (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
@@ -493,7 +495,10 @@ public:
             if constexpr (field_is_numeric_type(field_type)) {
                 auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                         _directory + "/" + _segment_file_name, _index_meta->index_id());
-                dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+                bool use_compound_file_writer = true;
+                bool can_use_ram_dir = true;
+                dir = DorisCompoundDirectoryFactory::getDirectory(
+                        _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir);
                 write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;
                 _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
