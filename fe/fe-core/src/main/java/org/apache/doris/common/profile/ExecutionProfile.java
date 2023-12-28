@@ -33,12 +33,11 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
-
 
 /**
  * ExecutionProfile is used to collect profile of a complete query plan(including query or load).
@@ -85,7 +84,7 @@ public class ExecutionProfile {
         for (int i = 0; i < fragmentNum; i++) {
             fragmentProfiles.add(new RuntimeProfile("Fragment " + i));
             fragmentsProfile.addChild(fragmentProfiles.get(i));
-            multiBeProfile.add(new HashMap<TNetworkAddress, List<RuntimeProfile>>());
+            multiBeProfile.add(new ConcurrentHashMap<TNetworkAddress, List<RuntimeProfile>>());
         }
         loadChannelProfile = new RuntimeProfile("LoadChannels");
         executionProfile.addChild(loadChannelProfile);
