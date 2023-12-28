@@ -443,4 +443,20 @@ public class NereidsParserTest extends ParserTestBase {
         NereidsParser nereidsParser = new NereidsParser();
         nereidsParser.parseSingle(sql);
     }
+
+
+    @Test
+    public void testParseBIANRYKeyword() {
+        String sql = "SELECT BINARY 'abc' FROM t";
+        NereidsParser nereidsParser = new NereidsParser();
+        nereidsParser.parseSingle(sql);
+    }
+
+    @Test
+    public void testParseReserveKeyword() {
+        // partitions and auto_increment are reserve keywords
+        String sql = "SELECT BINARY 'abc' FROM information_schema.partitions order by AUTO_INCREMENT";
+        NereidsParser nereidsParser = new NereidsParser();
+        nereidsParser.parseSingle(sql);
+    }
 }
