@@ -99,5 +99,5 @@ suite("test_load") {
         """
         exception "error"
     }
-    qt_decimalv3_insert "select * from test_decimalv3_insert order by 1;"
+    qt_decimalv3_insert "select * from test_decimalv3_insert order by 1, 2;"
 }
