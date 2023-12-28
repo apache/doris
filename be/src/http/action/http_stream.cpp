@@ -167,47 +167,8 @@ int HttpStreamAction::on_header(HttpRequest* req) {
 
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
-
-    Status st = Status::OK();
-    std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
-    if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
-        !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
-        st = Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
-    } else if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
-        // off_mode and empty
-        group_commit_mode = "off_mode";
-        ctx->group_commit = false;
-    } else {
-        // sync_mode and async_mode
-        ctx->group_commit = true;
-    }
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
-    auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
-    auto partitions = !req->header(HTTP_PARTITIONS).empty();
-    if (!temp_partitions && !partitions && !ctx->two_phase_commit &&
-        (!group_commit_mode.empty() || config::wait_internal_group_commit_finish)) {
-        if (iequal(group_commit_mode, "async_mode") || config::wait_internal_group_commit_finish) {
-            ctx->group_commit = true;
-            if (iequal(group_commit_mode, "async_mode")) {
-                group_commit_mode =
-                        load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
-                if (iequal(group_commit_mode, "sync_mode")) {
-                    size_t max_available_size =
-                            ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
-                    LOG(INFO) << "When enable group commit, the data size can't be too large. The "
-                                 "data size for this http load("
-                              << (req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                          ? 0
-                                          : std::stol(req->header(HttpHeaders::CONTENT_LENGTH)))
-                              << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
-                              << max_available_size
-                              << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
-                                 "automatically.";
-                    st = Status::Error<EXCEEDED_LIMIT>("Http load size too large.");
-                }
-            }
-        }
-    }
+    Status st = _handle_group_commit(req, ctx);
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
               << " sql : " << req->header(HTTP_SQL) << ", group_commit=" << ctx->group_commit;
@@ -403,6 +364,54 @@ void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContex
     } else {
         LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
     }
+}
+
+Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
+                                              std::shared_ptr<StreamLoadContext> ctx) {
+    Status st = Status::OK();
+    std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
+    if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
+        !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
+        return Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
+    }
+    if (config::wait_internal_group_commit_finish) {
+        group_commit_mode = "sync_mode";
+    }
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
+        // off_mode and empty
+        ctx->group_commit = false;
+        return Status::OK();
+    } else {
+        // sync_mode and async_mode
+        ctx->group_commit = true;
+    }
+    auto partial_columns = !req->header(HTTP_PARTIAL_COLUMNS).empty() &&
+                           iequal(req->header(HTTP_PARTIAL_COLUMNS), "true");
+    auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
+    auto partitions = !req->header(HTTP_PARTITIONS).empty();
+    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
+        if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
+            st = Status::InternalError("label and group_commit can't be set at the same time");
+        }
+        if (iequal(group_commit_mode, "async_mode")) {
+            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
+            if (iequal(group_commit_mode, "sync_mode")) {
+                size_t max_available_size =
+                        ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
+                LOG(INFO) << "When enable group commit, the data size can't be too large or "
+                             "unknown. The data size for this stream load("
+                          << (req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                      ? 0
+                                      : req->header(HttpHeaders::CONTENT_LENGTH))
+                          << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                          << max_available_size
+                          << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
+                             "automatically.";
+                st = Status::Error<EXCEEDED_LIMIT>("Http load size too large.");
+            }
+        }
+    }
+    return st;
 }
 
 } // namespace doris
