@@ -64,7 +64,7 @@ under the License.
 注意其中 jdk 和 nodejs 都需要下载对应的 aarch64 版本：
 
 1. [Java8-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/jdk-8u291-linux-aarch64.tar.gz)
-2. [Node v12.13.0-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz)
+2. [Node v16.3.0-aarch64](https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/node-v16.3.0-linux-arm64.tar.xz)
 
 ## CentOS & Ubuntu
 
@@ -585,11 +585,11 @@ USE_AVX2=OFF sh build.sh
 
    - 问题原因
 
-     未使用 Ldb-Toolschain 进行编译
+     未使用 ldb-toolchain 进行编译
 
    - 解决方案
 
-     - 检查 Ldb-Toolschain 环境变量是否配置
+     - 检查 ldb-toolchain 环境变量是否配置
      - 查看 gcc 版本是否是 `gcc-11`
-     - 删除 `ldb-toolschain.sh` 脚本执行后的 ldb 目录，重新执行并配置环境变量，验证 gcc 版本
+     - 删除 `ldb_toolchain_gen.aarch64.sh` 脚本执行后的 ldb 目录，重新执行并配置环境变量，验证 gcc 版本
 

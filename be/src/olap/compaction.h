@@ -58,6 +58,8 @@ public:
     virtual Status prepare_compact() = 0;
     Status execute_compact();
     virtual Status execute_compact_impl() = 0;
+
+    const std::vector<RowsetSharedPtr>& input_rowsets() { return _input_rowsets; }
 #ifdef BE_TEST
     void set_input_rowset(const std::vector<RowsetSharedPtr>& rowsets);
     RowsetSharedPtr output_rowset();
@@ -65,10 +67,11 @@ public:
 
     RuntimeProfile* runtime_profile() const { return _profile.get(); }
 
+    virtual ReaderType compaction_type() const = 0;
+    virtual std::string compaction_name() const = 0;
+
 protected:
     virtual Status pick_rowsets_to_compact() = 0;
-    virtual std::string compaction_name() const = 0;
-    virtual ReaderType compaction_type() const = 0;
 
     Status do_compaction(int64_t permits);
     Status do_compaction_impl(int64_t permits);

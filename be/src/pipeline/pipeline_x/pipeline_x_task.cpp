@@ -300,6 +300,7 @@ void PipelineXTask::finalize() {
     _finished = true;
     std::vector<DependencySPtr> {}.swap(_downstream_dependency);
     DependencyMap {}.swap(_upstream_dependency);
+    std::map<int, DependencySPtr> {}.swap(_source_dependency);
 
     _le_state_map.clear();
 }

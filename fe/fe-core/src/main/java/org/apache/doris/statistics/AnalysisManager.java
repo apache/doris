@@ -519,6 +519,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
+        infoBuilder.setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0);
         return infoBuilder.build();
     }
 

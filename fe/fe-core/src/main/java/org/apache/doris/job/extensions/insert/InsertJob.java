@@ -217,7 +217,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                      Long createTimeMs,
                      String executeSql) {
         super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
-                jobConfig, createTimeMs, executeSql, null);
+                jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
     }
 

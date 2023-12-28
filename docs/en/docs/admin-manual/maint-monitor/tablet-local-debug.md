@@ -52,7 +52,7 @@ PartitionName: tbl1
     DetailCmd: SHOW PROC '/dbs/10004/10016/partitions/10015/10017/10020';
 ```
 
-Execute `DetailCmd` in the previous step to obtain information such as BackendId/SchemHash.
+Execute `DetailCmd` in the previous step to obtain information such as BackendId/SchemaHash.
 
 ```
 mysql>  SHOW PROC '/dbs/10004/10016/partitions/10015/10017/10020'\G

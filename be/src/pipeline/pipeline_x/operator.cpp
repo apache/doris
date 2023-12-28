@@ -335,7 +335,6 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
             _dependency->set_shared_state(info.le_state_map[_parent->operator_id()].first);
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
-            _shared_state->ref();
 
             _shared_state->source_dep = _dependency;
             _shared_state->sink_dep = deps.front().get();
@@ -343,7 +342,6 @@ Status PipelineXLocalState<DependencyType>::init(RuntimeState* state, LocalState
             _dependency->set_shared_state(deps.front()->shared_state());
             _shared_state =
                     (typename DependencyType::SharedState*)_dependency->shared_state().get();
-            _shared_state->ref();
 
             _shared_state->source_dep = _dependency;
             _shared_state->sink_dep = deps.front().get();
@@ -419,10 +417,6 @@ Status PipelineXSinkLocalState<DependencyType>::init(RuntimeState* state,
             _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(
                     _profile, "WaitForDependency[" + _dependency->name() + "]Time", 1);
         }
-        if constexpr (!is_fake_shared) {
-            _shared_state->ref();
-        }
-
     } else {
         auto& deps = info.dependencys;
         deps.front() = std::make_shared<FakeDependency>(0, 0, state->get_query_ctx());

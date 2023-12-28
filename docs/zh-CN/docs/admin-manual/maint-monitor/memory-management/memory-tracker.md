@@ -78,7 +78,7 @@ https://shimo.im/docs/DT6JXDRkdTvdyV3G
 - SegmentCache: 用于缓存已打开的 Segment，如索引信息。
 - DiskIO: 用于缓存 Disk IO 数据，仅在非向量化使用。
 - ChunkAllocator: 用于缓存2的幂大小的内存块，在应用层内存复用。
-- LastestSuccessChannelCache: 用于缓存导入接收端的 LoadChannel。
+- LastSuccessChannelCache: 用于缓存导入接收端的 LoadChannel。
 - DeleteBitmap AggCache: Gets aggregated delete_bitmap on rowset_id and version。
 
 ### Query Type `/mem_tracker?type=query`

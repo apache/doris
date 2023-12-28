@@ -220,7 +220,8 @@ public class FunctionalDependencies {
                     .map(s -> replaceMap.getOrDefault(s, s))
                     .collect(Collectors.toSet());
             slotSets = slotSets.stream()
-                    .map(set -> set.stream().map(replaceMap::get).collect(ImmutableSet.toImmutableSet()))
+                    .map(set -> set.stream().map(s -> replaceMap.getOrDefault(s, s))
+                            .collect(ImmutableSet.toImmutableSet()))
                     .collect(Collectors.toSet());
         }
 

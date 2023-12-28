@@ -754,8 +754,8 @@ public class GlobalTransactionMgr implements Writable {
         return getDatabaseTransactionMgr(dbId).getPreCommittedTxnList();
     }
 
-    public void cleanLabel(Long dbId, String label) throws AnalysisException {
-        getDatabaseTransactionMgr(dbId).cleanLabel(label);
+    public void cleanLabel(Long dbId, String label, boolean isReplay) throws AnalysisException {
+        getDatabaseTransactionMgr(dbId).cleanLabel(label, isReplay);
     }
 
     public Long getTransactionIdByLabel(Long dbId, String label, List<TransactionStatus> statusList)

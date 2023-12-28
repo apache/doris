@@ -1414,9 +1414,11 @@ void TabletManager::get_tablets_distribution_on_different_disks(
 }
 
 struct SortCtx {
-    SortCtx(TabletSharedPtr tablet, int64_t cooldown_timestamp, int64_t file_size)
+    SortCtx(TabletSharedPtr tablet, RowsetSharedPtr rowset, int64_t cooldown_timestamp,
+            int64_t file_size)
             : tablet(tablet), cooldown_timestamp(cooldown_timestamp), file_size(file_size) {}
     TabletSharedPtr tablet;
+    RowsetSharedPtr rowset;
     // to ensure the tablet with -1 would always be greater than other
     uint64_t cooldown_timestamp;
     int64_t file_size;
@@ -1429,6 +1431,7 @@ struct SortCtx {
 };
 
 void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
+                                         std::vector<RowsetSharedPtr>* rowsets,
                                          std::function<bool(const TabletSharedPtr&)> skip_tablet) {
     std::vector<SortCtx> sort_ctx_vec;
     std::vector<std::weak_ptr<Tablet>> candidates;
@@ -1436,14 +1439,16 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
                     filter_all_tablets);
     auto get_cooldown_tablet = [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
         const TabletSharedPtr& tablet = t.lock();
+        RowsetSharedPtr rowset = nullptr;
         if (UNLIKELY(nullptr == tablet)) {
             return;
         }
         std::shared_lock rdlock(tablet->get_header_lock());
         int64_t cooldown_timestamp = -1;
         size_t file_size = -1;
-        if (!skip_tablet(tablet) && tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
-            sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
+        if (!skip_tablet(tablet) &&
+            (rowset = tablet->need_cooldown(&cooldown_timestamp, &file_size))) {
+            sort_ctx_vec.emplace_back(tablet, rowset, cooldown_timestamp, file_size);
         }
     };
     std::for_each(candidates.begin(), candidates.end(), get_cooldown_tablet);
@@ -1453,6 +1458,7 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
     for (SortCtx& ctx : sort_ctx_vec) {
         VLOG_DEBUG << "get cooldown tablet: " << ctx.tablet->tablet_id();
         tablets->push_back(std::move(ctx.tablet));
+        rowsets->push_back(std::move(ctx.rowset));
     }
 }
 

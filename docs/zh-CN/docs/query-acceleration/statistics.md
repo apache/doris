@@ -299,8 +299,8 @@ mysql> KILL ANALYZE 52357;
 |auto_analyze_end_time|自动统计信息收集结束时间|23:59:59|
 |enable_auto_analyze|开启自动收集功能|true|
 |huge_table_default_sample_rows|对大表的采样行数|4194304|
-|huge_table_lower_bound_size_in_bytes|大小超过该值的的表，在自动收集时将会自动通过采样收集统计信息|5368709120|
-|huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes * 5的表仅ANALYZE一次|43200000|
+|huge_table_lower_bound_size_in_bytes|大小超过该值的的表，在自动收集时将会自动通过采样收集统计信息|0|
+|huge_table_auto_analyze_interval_in_millis|控制对大表的自动ANALYZE的最小时间间隔，在该时间间隔内大小超过huge_table_lower_bound_size_in_bytes * 5的表仅ANALYZE一次|0|
 |table_stats_health_threshold|取值在0-100之间，当自上次统计信息收集操作之后，数据更新量达到 (100 - table_stats_health_threshold)% ，认为该表的统计信息已过时|60|
 |analyze_timeout|控制ANALYZE超时时间，单位为秒|43200|
 |auto_analyze_table_width_threshold|控制自动统计信息收集处理的最大表宽度，列数大于该值的表不会参与自动统计信息收集|70|

@@ -83,7 +83,7 @@ void LoadChannelMgr::stop() {
 
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     _last_success_channel =
-            std::unique_ptr<Cache>(new ShardedLRUCache("LastestSuccessChannelCache", 1024));
+            std::unique_ptr<Cache>(new ShardedLRUCache("LastSuccessChannelCache", 1024));
     RETURN_IF_ERROR(_start_bg_worker());
     return Status::OK();
 }

@@ -68,7 +68,7 @@ HA Action 用于获取 FE 集群的高可用组信息。
 			"Value": "name: 192.168.1.1_9213_1597652404352, role: FOLLOWER, 192.168.1.1:9213",
 			"Name": "192.168.1.1_9213_1597652404352"
 		}],
-		"removedFronteds": [],
+		"removedFrontends": [],
 		"CanRead": [{
 			"Value": true,
 			"Name": "Status"

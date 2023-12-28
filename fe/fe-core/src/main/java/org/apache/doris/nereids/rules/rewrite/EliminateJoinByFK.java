@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -88,9 +87,6 @@ public class EliminateJoinByFK extends DefaultPlanRewriter<JobContext> implement
         @Override
         public Plan visitLogicalRelation(LogicalRelation relation, ForeignKeyContext context) {
             if (!(relation instanceof LogicalCatalogRelation)) {
-                return relation;
-            }
-            if (!(((LogicalCatalogRelation) relation).getTable() instanceof Table)) {
                 return relation;
             }
             context.putAllForeignKeys(((LogicalCatalogRelation) relation).getTable());

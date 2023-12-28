@@ -44,9 +44,4 @@ inline int128_t get_int128_from_unalign(const void* address) {
     return value;
 }
 
-inline uint128_t get_uint128_from_unalign(const void* address) {
-    uint128_t value = 0;
-    memcpy(&value, address, sizeof(uint128_t));
-    return value;
-}
 } // namespace doris

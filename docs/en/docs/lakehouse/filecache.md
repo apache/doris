@@ -53,42 +53,43 @@ SET GLOBAL enable_file_cache = true;
 > The File Cache is only applicable to external queries for files (such as Hive, Hudi). It has no effect on internal table queries, or non-file external queries (such as JDBC, Elasticsearch), etc.
 
 ### Configurations for BE
+
 Add settings to the BE node's configuration file `conf/be.conf`, and restart the BE node for the configuration to take effect.
 
-|  Parameter   | Description  |
-|  ---  | ---  |
-| `enable_file_cache`  | Whether to enable File Cache, default false |
-| `file_cache_path` | Parameters about cache path, json format, for exmaple: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": "10737418240"},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": "10737418240"},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": "10737418240"}]`. `path` is the path to save cached data; `total_size` is the max size of cached data; `query_limit` is the max size of cached data for a single query. |
-| `file_cache_min_file_segment_size` | Min size of a single cached block, default 1MB, should greater than 4096 |
-| `file_cache_max_file_segment_size` | Max size of a single cached block, default 4MB, should greater than 4096 |
-| `enable_file_cache_query_limit` | Whether to limit the cache size used by a single query, default false |
-| `clear_file_cache` | Whether to delete the previous cache data when the BE restarts, default false |
+|  Parameter | Required  | Description  |
+|  ---  | ---  | --- |
+| `enable_file_cache` | Yes | Whether to enable File Cache, default false |
+| `file_cache_path` | Yes | Parameters about cache path, json format, for exmaple: `[{"path": "/path/to/file_cache1", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache2", "total_size":53687091200,"query_limit": 10737418240},{"path": "/path/to/file_cache3", "total_size":53687091200,"query_limit": 10737418240}]`. `path` is the path to save cached data; `total_size` is the max size of cached data; `query_limit` is the max size of cached data for a single query. |
+| `file_cache_min_file_segment_size` | No | Min size of a single cached block, default 1MB, should greater than 4096 |
+| `file_cache_max_file_segment_size` | No | Max size of a single cached block, default 4MB, should greater than 4096 |
+| `enable_file_cache_query_limit` | No | Whether to limit the cache size used by a single query, default false |
+| `clear_file_cache` | No | Whether to delete the previous cache data when the BE restarts, default false |
 
 ## Check whether a query hits cache
 
 Execute `set enable_profile = true` to enable the session variable, and you can view the query profile in the Queris tab of FE's web page. The metrics related to File Cache are as follows:
 
 ```
--  FileCache:
-  -  IOHitCacheNum:  552
-  -  IOTotalNum:  835
-  -  ReadFromFileCacheBytes:  19.98  MB
-  -  ReadFromWriteCacheBytes:  0.00  
-  -  ReadTotalBytes:  29.52  MB
-  -  WriteInFileCacheBytes:  915.77  MB
-  -  WriteInFileCacheNum:  283 
+-  FileCache:  0ns
+    -  BytesScannedFromCache:  2.02  GB
+    -  BytesScannedFromRemote:  0.00  
+    -  BytesWriteIntoCache:  0.00  
+    -  LocalIOUseTimer:  2s723ms
+    -  NumLocalIOTotal:  444
+    -  NumRemoteIOTotal:  0
+    -  NumSkipCacheIOTotal:  0
+    -  RemoteIOUseTimer:  0ns
+    -  WriteCacheIOUseTimer:  0ns
 ```
 
-- `IOTotalNum`:  Number of remote access
-- `IOHitCacheNum`: Number of cache hits
-- `ReadFromFileCacheBytes`: Amount of data read from cache file
-- `ReadTotalBytes`: Total amount of data read
-- `SkipCacheBytes`: Failed to create the cache file, or the cache file was deleted. The amount of data that needs to be read from the remote again
-- `WriteInFileCacheBytes`: Amount of data saved to cache file
-- `WriteInFileCacheNum`: The number of blocks saved, so 'WriteInFileCacheBytes'/' WriteInFileCacheBytes' is the average size of blocks
+- `BytesScannedFromCache`: The amount of data read from the local cache.
+- `BytesScannedFromRemote`: The amount of data read from the remote end.
+- `BytesWriteIntoCache`: The amount of data written to the cache.
+- `LocalIOUseTimer`: Local cached IO time.
+- `RemoteIOUseTimer`: IO time for remote reading.
+- `NumLocalIOTotal`: The number of locally cached IOs.
+- `NumRemoteIOTotal`: Number of remote IOs.
+- `WriteCacheIOUseTimer`: IO time to write cache.
 
-`IOHitCacheNum` / `IOTotalNum` Equal to 1, indicating that read data only from file cache
+If `BytesScannedFromRemote` is 0, it means all caches are hit.
 
-`ReadFromFileCacheBytes` / `ReadTotalBytes` Equal to 1, indicating that read data only from file cache
-
-`ReadFromFileCacheBytes` The smaller the better, the smaller the amount of data read from remote
