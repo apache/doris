@@ -154,6 +154,7 @@ public class NativeInsertStmt extends InsertStmt {
     private long tableId = -1;
     public boolean isGroupCommitStreamLoadSql = false;
     private GroupCommitPlanner groupCommitPlanner;
+    private boolean reuseGroupCommitPlan = false;
 
     private boolean isFromDeleteOrUpdateStmt = false;
 
@@ -1162,12 +1163,18 @@ public class NativeInsertStmt extends InsertStmt {
         return isGroupCommit;
     }
 
+    public boolean isReuseGroupCommitPlan() {
+        return reuseGroupCommitPlan;
+    }
+
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
         if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
             LOG.debug("reuse group commit plan, table={}", olapTable);
+            reuseGroupCommitPlan = true;
             return groupCommitPlanner;
         }
+        reuseGroupCommitPlan = false;
         if (!targetColumns.isEmpty()) {
             Analyzer analyzerTmp = analyzer;
             reset();
