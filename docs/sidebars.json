@@ -926,7 +926,9 @@
                                 "sql-manual/sql-reference/Data-Types/STRUCT",
                                 "sql-manual/sql-reference/Data-Types/JSON",
                                 "sql-manual/sql-reference/Data-Types/AGG_STATE",
-                                "sql-manual/sql-reference/Data-Types/VARIANT"
+                                "sql-manual/sql-reference/Data-Types/VARIANT",
+                                "sql-manual/sql-reference/Data-Types/IPV4",
+                                "sql-manual/sql-reference/Data-Types/IPV6"
                             ]
                         },
                         {
