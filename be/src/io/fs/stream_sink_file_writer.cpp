@@ -21,6 +21,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset_writer.h"
+#include "util/debug_points.h"
 #include "util/uid_util.h"
 #include "vec/sink/load_stream_stub.h"
 
