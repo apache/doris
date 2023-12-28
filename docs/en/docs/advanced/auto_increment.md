@@ -46,6 +46,10 @@ Doris ensures that values generated on the auto-increment column have **table-wi
 
 Doris guarantees that values filled on the auto-increment column are **strictly monotonically increasing within a tablet**. However, it's important to note that Doris **cannot guarantee** that the value filled on the auto-increment column for data imported at a later physical time will be larger than that of earlier imports. This is becasue each BE caches a portion of pre-allocated auto-increment column values due to performance considerations, and these cached values on different BEs do not intersect. Thus, the order of import times cannot be determined based on the values of auto-increment column. Additionally, due to this caching, Doris can only ensure that automatically filled values on the auto-increment column are to some extent dense, but **cannot guarantee** that the values filled automatically in a single import are completely contiguous. Hence, there might be instances where auto-filled values in an import exhibit certain jumps.
 
+### Usage Scenarios
+
+Based on the automatic assignment, table-level uniqueness, and density of the auto-increment column, we can use auto-increment column to build a mapping from strings to BIGINT to enable speeding up precise deduplication and JOIN calculations. Further, auto-increment column can be combined with bitmap types to accelerate the selection and deduplication computations in user profile analysis.
+
 ## Syntax
 
 To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to the corresponding column during table creation ([CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE)).
@@ -182,7 +186,7 @@ mysql> select * from tbl order by id;
 5 rows in set (0.04 sec)
 ```
 
-When importing using insert into statement while specifying the auto-increment column `id`, null values will be replaced by generated values.
+When importing using insert into statement while specifying the auto-increment column `id`, null values in the imported data for that column will be replaced by generated values.
 
 ```sql
 mysql> insert into tbl(id, name, value) values(null, "Doris", 60), (null, "Nereids", 70);
@@ -260,7 +264,7 @@ mysql> select * from tbl2 order by id;
 4 rows in set (0.04 sec)
 ```
 
-When the auto-increment column is a non-key column and users haven't specified the value for the auto-increment column, the value will be filled from existing data rows in the table. If users specify the auto-increment column, null values will be replaced by generated values, while non-null values will remain unchanged, and then these data will be loaded with the semantics of partial updates.
+When the auto-increment column is a non-key column and users haven't specified the value for the auto-increment column, the value will be filled from existing data rows in the table. If users specify the auto-increment column, null values in the imported data for that column will be replaced by generated values, while non-null values will remain unchanged, and then these data will be loaded with the semantics of partial updates.
 
 ```sql
 mysql> CREATE TABLE `tbl3` (
