@@ -556,8 +556,9 @@ Status VTabletWriterV2::close(Status exec_status) {
                 ss << "])";
             }
             if (_missing_tablets.size() > print_limit) {
-                ss << " ...";
+                ss << ", ...";
             }
+            LOG(INFO) << ss.str() << ", load_id=" << print_id(_load_id);
             return Status::InternalError(ss.str());
         }
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
