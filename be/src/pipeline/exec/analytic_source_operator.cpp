@@ -559,9 +559,6 @@ Status AnalyticLocalState::close(RuntimeState* state) {
     if (_closed) {
         return Status::OK();
     }
-    for (auto* agg_function : _agg_functions) {
-        agg_function->close(state);
-    }
 
     static_cast<void>(_destroy_agg_status());
     _agg_arena_pool = nullptr;

@@ -292,9 +292,6 @@ void VAnalyticEvalNode::release_resource(RuntimeState* state) {
     if (is_closed()) {
         return;
     }
-    for (auto* agg_function : _agg_functions) {
-        agg_function->close(state);
-    }
 
     static_cast<void>(_destroy_agg_status());
     _release_mem();
