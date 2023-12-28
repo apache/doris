@@ -173,7 +173,9 @@
                 "advanced/small-file-mgr",
                 "advanced/cold-hot-separation",
                 "advanced/compute-node",
-                "advanced/lateral-view"
+                "advanced/lateral-view",
+                "advanced/is-being-synced",
+                "advanced/sql-mode"
             ]
         },
         {
@@ -203,7 +205,7 @@
             "items": [
                 {
                     "type": "category",
-                    "label": "Multi Catalog",
+                    "label": "Multi-catalog",
                     "items": [
                         "lakehouse/multi-catalog/multi-catalog",
                         "lakehouse/multi-catalog/hive",
@@ -213,7 +215,8 @@
                         "lakehouse/multi-catalog/dlf",
                         "lakehouse/multi-catalog/max-compute",
                         "lakehouse/multi-catalog/es",
-                        "lakehouse/multi-catalog/jdbc"
+                        "lakehouse/multi-catalog/jdbc",
+                        "lakehouse/multi-catalog/faq-multi-catalog"
                     ]
                 },
                 "lakehouse/file",
@@ -246,7 +249,8 @@
                     "items": [
                         "ecosystem/udf/contribute-udf",
                         "ecosystem/udf/remote-user-defined-function",
-                        "ecosystem/udf/java-user-defined-function"
+                        "ecosystem/udf/java-user-defined-function",
+                        "ecosystem/udf/native-user-defined-function"
                     ]
                 },
                 {
@@ -859,7 +863,8 @@
                                 "sql-manual/sql-reference/Database-Administration-Statements/RECOVER",
                                 "sql-manual/sql-reference/Database-Administration-Statements/KILL",
                                 "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-REBALANCE-DISK",
-                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK"
+                                "sql-manual/sql-reference/Database-Administration-Statements/ADMIN-CANCEL-REBALANCE-DISK",
+                                "sql-manual/sql-reference/Database-Administration-Statements/enable-feature"
                             ]
                         },
                         {
@@ -1169,6 +1174,7 @@
                         "admin-manual/maint-monitor/be-olap-error-code",
                         "admin-manual/maint-monitor/doris-error-code",
                         "admin-manual/maint-monitor/tablet-meta-tool",
+                        "admin-manual/maint-monitor/tablet-restore-tool",
                         "admin-manual/maint-monitor/monitor-alert",
                         "admin-manual/maint-monitor/tablet-local-debug",
                         "admin-manual/maint-monitor/metadata-operation",
