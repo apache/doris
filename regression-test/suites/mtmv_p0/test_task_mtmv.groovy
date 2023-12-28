@@ -19,7 +19,8 @@ suite("test_task_mtmv") {
     def tableName = "t_test_task_mtmv_user"
     def mvName = "multi_mv_test_task_mtmv"
     def dbName = "regression_test_mtmv_p0"
-
+    sql """drop materialized view if exists ${mvName};"""
+    sql """drop table if exists `${tableName}`"""
     sql """
         CREATE TABLE IF NOT EXISTS `${tableName}` (
             event_day DATE,
@@ -51,4 +52,5 @@ suite("test_task_mtmv") {
     sql """
             cancel MATERIALIZED VIEW TASK ${taskId} on ${mvName};
         """
+    sql """drop materialized view if exists ${mvName};"""
 }
