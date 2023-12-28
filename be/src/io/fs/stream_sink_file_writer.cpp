@@ -88,6 +88,12 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
             st = Status::InternalError("stream sink file writer append data failed");
         });
         ok = ok || st.ok();
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to write segments on backend " << stream->dst_id()
+                         << ", load_id: " << print_id(_load_id) << ", index_id: " << _index_id
+                         << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id
+                         << ", data_length: " << bytes_req << ", reason: " << st;
+        }
     }
     if (!ok) {
         std::stringstream ss;
@@ -113,6 +119,12 @@ Status StreamSinkFileWriter::finalize() {
         auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
                                       _bytes_appended, {}, true);
         ok = ok || st.ok();
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to finalize segment on backend " << stream->dst_id()
+                         << ", load_id: " << print_id(_load_id) << ", index_id: " << _index_id
+                         << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id
+                         << ", reason: " << st;
+        }
     }
     if (!ok) {
         std::stringstream ss;
