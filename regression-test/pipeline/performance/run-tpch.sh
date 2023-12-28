@@ -112,7 +112,8 @@ exit_flag=0
         if ! check_tpch_table_rows "${db_name}" "${SF}"; then
             exit 1
         fi
-        echo "INFO: sleep 10min to wait compaction done" && sleep 10m
+        echo "INFO: sleep 10min to wait compaction done"
+        if ${DEBUG:-false}; then sleep 10s; else sleep 10m; fi
         data_reload="true"
     fi
 
@@ -124,7 +125,7 @@ exit_flag=0
     line_begin=$((line_end - 23))
     comment_body="Tpch sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
-run tpch-sf${SF} query with default conf and session variables
+------ Round 1 ----------------------------------
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
     echo "#### 4. run tpch-sf${SF} query with runtime_filter_mode=off"
@@ -135,7 +136,7 @@ $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-q
     line_begin=$((line_end - 23))
     comment_body="${comment_body}
 
-run tpch-sf${SF} query with default conf and set session variable runtime_filter_mode=off
+----- Round 2, with runtime_filter_mode=off -----
 $(sed -n "${line_begin},${line_end}p" "${teamcity_build_checkoutDir}"/run-tpch-queries.log)"
 
     echo "#### 5. comment result on tpch"
@@ -147,6 +148,7 @@ exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
+    stop_doris
     print_doris_fe_log
     print_doris_be_log
     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then

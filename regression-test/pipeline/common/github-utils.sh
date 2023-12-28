@@ -74,6 +74,19 @@ ${COMMENT_BODY}
     create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
 }
 
+function create_an_issue_comment_clickbench() {
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY="$2"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    COMMENT_BODY="
+ClickBench test result on machine: '${machine}', run with scripts in https://github.com/apache/doris/tree/master/tools/clickbench-tools
+\`\`\`
+${COMMENT_BODY}
+\`\`\`
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
+}
+
 _get_pr_changed_files_count() {
     PULL_NUMBER="${PULL_NUMBER:-$1}"
     if [[ -z "${PULL_NUMBER}" ]]; then

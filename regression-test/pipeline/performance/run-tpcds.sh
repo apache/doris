@@ -82,6 +82,7 @@ exit_flag=0
         "${teamcity_build_checkoutDir}"/tools/tpcds-tools/conf/doris-cluster.conf
     if ! check_tpcds_table_rows "${db_name}" "${SF}"; then
         echo "INFO: need to load tpcds-sf${SF} data"
+        if ${force_load_data:-false}; then echo "INFO: force_load_data is true"; else echo "ERROR: force_load_data is false" && exit 1; fi
         # prepare data
         mkdir -p "${TPCDS_DATA_DIR}"
         (
@@ -120,7 +121,7 @@ exit_flag=0
             exit 1
         fi
         echo "INFO: sleep 10min to wait compaction done"
-        if ${DEBUG}; then sleep 10s; else sleep 10m; fi
+        if ${DEBUG:-false}; then sleep 10s; else sleep 10m; fi
         data_reload="true"
     fi
 
@@ -129,7 +130,7 @@ exit_flag=0
     bash "${teamcity_build_checkoutDir}"/tools/tpcds-tools/bin/run-tpcds-queries.sh -s "${SF}" | tee "${teamcity_build_checkoutDir}"/run-tpcds-queries.log
     if ! check_tpcds_result "${teamcity_build_checkoutDir}"/run-tpcds-queries.log; then exit 1; fi
     line_end=$(sed -n '/^Total hot run time/=' "${teamcity_build_checkoutDir}"/run-tpcds-queries.log)
-    line_begin=$((line_end - 23))
+    line_begin=$((line_end - 100))
     comment_body="TPC-DS sf${SF} test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
 run tpcds-sf${SF} query with default conf and session variables
@@ -144,6 +145,7 @@ exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
 if [[ ${exit_flag} != "0" ]]; then
+    stop_doris
     print_doris_fe_log
     print_doris_be_log
     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then

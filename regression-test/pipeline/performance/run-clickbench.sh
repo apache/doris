@@ -42,7 +42,7 @@ source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-ut
 # upload_doris_log_to_oss
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh
 
-if ${DEBUG:-false}; then 
+if ${DEBUG:-false}; then
     pull_request_num="28431"
     commit_id="5f5c4c80564c76ff4267fc4ce6a5408498ed1ab5"
 fi
@@ -61,8 +61,8 @@ if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else
 echo "#### Run clickbench test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"
 export DORIS_HOME
-cold_run_time_threshold=${cold_run_time_threshold:-666}
-hot_run_time_threshold=${hot_run_time_threshold:-555}
+cold_run_time_threshold=${cold_run_time_threshold:-666} # 单位 秒
+hot_run_time_threshold=${hot_run_time_threshold:-555}   # 单位 秒
 exit_flag=0
 
 (
@@ -76,14 +76,15 @@ exit_flag=0
 
     echo "####optimize doris config"
     echo "
-priority_networks=172.16.0.0/24
+priority_networks=127.0.0.1/24
 meta_dir=/data/doris-meta
 stream_load_default_timeout_second=3600
+ignore_unknown_metadata_module=true
 enable_full_auto_analyze=false
-" >>"${DORIS_HOME}"/fe/conf/fe_custom.conf
+" | tee "${DORIS_HOME}"/fe/conf/fe_custom.conf
 
     echo "
-priority_networks=172.16.0.0/24
+priority_networks=127.0.0.1/24
 storage_root_path=/data/doris-storage
 load_channel_memory_refresh_sleep_time_ms=1000
 soft_mem_limit_frac=1
@@ -102,7 +103,7 @@ disable_auto_compaction=true
 disable_storage_page_cache=false
 disable_chunk_allocator=false
 enable_simdjson_reader = true
-" >>"${DORIS_HOME}"/be/conf/be_custom.conf
+" | tee "${DORIS_HOME}"/be/conf/be_custom.conf
 
     opt_session_variables="
 set global exec_mem_limit=34359738368;
@@ -113,7 +114,7 @@ set global enable_function_pushdown=true;
 set global forbid_unknown_col_stats=false;
 set global runtime_filter_mode=global;
 "
-    echo -e "${opt_session_variables}" >"${opt_session_variables_file}"
+    echo -e "${opt_session_variables}" | tee "${opt_session_variables_file}"
 
     backup_session_variables() {
         _IFS="${IFS}"
@@ -138,6 +139,7 @@ set global runtime_filter_mode=global;
     db_name="clickbench"
     if ! check_clickbench_table_rows "${db_name}"; then
         echo "INFO: need to load clickbench data"
+        if ${force_load_data:-false}; then echo "INFO: force_load_data is true"; else echo "ERROR: force_load_data is false" && exit 1; fi
         # prepare data
         mkdir -p "${data_home}"
 
@@ -261,11 +263,11 @@ set global runtime_filter_mode=global;
             cd "${data_home}"
             wget --continue 'https://datasets.clickhouse.com/hits_compatible/hits.tsv.gz'
             gzip -d hits.tsv.gz
-            if ${DEBUG}; then head -n 10000 hits.tsv >hits.tsv.10000; fi
+            if ${DEBUG:-false}; then head -n 10000 hits.tsv >hits.tsv.10000; fi
             cd -
         fi
         data_file_name="${data_home}/hits.tsv"
-        if ${DEBUG}; then data_file_name="${data_home}/hits.tsv.10000"; fi
+        if ${DEBUG:-false}; then data_file_name="${data_home}/hits.tsv.10000"; fi
         echo "start loading ..."
         START=$(date +%s)
         curl --location-trusted \
@@ -282,8 +284,6 @@ set global runtime_filter_mode=global;
         if ! check_clickbench_table_rows "${db_name}"; then
             exit 1
         fi
-        echo "INFO: sleep 10min to wait compaction done"
-        if ${DEBUG}; then sleep 10s; else sleep 10m; fi
         data_reload="true"
     fi
 
@@ -296,8 +296,7 @@ set global runtime_filter_mode=global;
     best_hot_run_sum=$(awk -F ',' '{if($3<$4){sum+=$3}else{sum+=$4}} END {print sum}' result.csv)
     comment_body="ClickBench test result on commit ${commit_id:-}, data reload: ${data_reload:-"false"}
 
-run clickbench query with tuned conf and tuned session variables
-$(cat result.csv)
+$(sed 's|,|\t|g' result.csv)
 Total cold run time: ${cold_run_sum} s
 Total hot run time: ${best_hot_run_sum} s"
 
@@ -312,12 +311,13 @@ Total hot run time: ${best_hot_run_sum} s"
 exit_flag="$?"
 
 echo "#### 5. check if need backup doris logs"
-# if [[ ${exit_flag} != "0" ]]; then
-#     print_doris_fe_log
-#     print_doris_be_log
-#     if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
-#         upload_doris_log_to_oss "${file_name}"
-#     fi
-# fi
+if [[ ${exit_flag} != "0" ]]; then
+    stop_doris
+    print_doris_fe_log
+    print_doris_be_log
+    if file_name=$(archive_doris_logs "${pull_request_num}_${commit_id}_doris_logs.tar.gz"); then
+        upload_doris_log_to_oss "${file_name}"
+    fi
+fi
 
 exit "${exit_flag}"
