@@ -196,9 +196,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
                               .set_max_queue_size(1000000)
                               .build(&_lazy_release_obj_pool));
 
-    _workload_sched_mgr = new WorkloadSchedPolicyMgr();
-    _workload_sched_mgr->start(this);
-
     init_file_cache_factory();
     RETURN_IF_ERROR(init_pipeline_task_scheduler());
     _task_group_manager = new taskgroup::TaskGroupManager();
@@ -274,6 +271,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
         LOG(ERROR) << "Failed to starge bg threads of storage engine, res=" << st;
         return st;
     }
+
+    _workload_sched_mgr = new WorkloadSchedPolicyMgr();
+    _workload_sched_mgr->start(this);
 
     _s_ready = true;
 
