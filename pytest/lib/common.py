@@ -111,7 +111,7 @@ def assert_stop_routine_load(ret, client, stop_job=None, info=''):
 
 def wait_commit(client, routine_load_job_name, committed_expect_num, timeout=600):
     """wait task committed"""
-    print('expect commited rows: %s\n' % committed_expect_num)
+    print('expect committed rows: %s\n' % committed_expect_num)
     while timeout > 0:
         ret = client.show_routine_load(routine_load_job_name,)
         routine_load_job = palo_job.RoutineLoadJob(ret[0])
