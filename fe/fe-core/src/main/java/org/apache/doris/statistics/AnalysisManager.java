@@ -519,6 +519,7 @@ public class AnalysisManager implements Writable {
         infoBuilder.setColToPartitions(colToPartitions);
         infoBuilder.setTaskIds(Lists.newArrayList());
         infoBuilder.setTblUpdateTime(table.getUpdateTime());
+        infoBuilder.setEmptyJob(table instanceof OlapTable && table.getRowCount() == 0);
         return infoBuilder.build();
     }
 
@@ -542,7 +543,9 @@ public class AnalysisManager implements Writable {
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
             if (jobInfo.analysisType != AnalysisType.HISTOGRAM) {
                 colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
-                colTaskInfoBuilder.setColToPartitions(Collections.singletonMap(colName, entry.getValue()));
+                Map<String, Set<String>> colToParts = new HashMap<>();
+                colToParts.put(colName, entry.getValue());
+                colTaskInfoBuilder.setColToPartitions(colToParts);
             }
             AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
                     .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();

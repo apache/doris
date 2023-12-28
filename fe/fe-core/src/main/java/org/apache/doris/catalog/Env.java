@@ -1608,7 +1608,8 @@ public class Env {
      * frontend log is deleted because of checkpoint.
      */
     private void checkCurrentNodeExist() {
-        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY);
+        boolean metadataFailureRecovery = null != System.getProperty(FeConstants.METADATA_FAILURE_RECOVERY_KEY)
+                || Config.metadata_failure_recovery.equals("true");
         if (metadataFailureRecovery) {
             return;
         }
@@ -3876,8 +3877,8 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}", indexColumns.size());
-        if (isKeysRequired) {
-            Preconditions.checkArgument(indexColumns.size() > 0);
+        if (isKeysRequired && indexColumns.isEmpty()) {
+            throw new DdlException("The materialized view need key column");
         }
 
         // figure out shortKeyColumnCount

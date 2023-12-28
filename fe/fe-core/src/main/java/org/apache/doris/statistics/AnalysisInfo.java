@@ -180,11 +180,6 @@ public class AnalysisInfo implements Writable {
     @SerializedName("usingSqlForPartitionColumn")
     public final boolean usingSqlForPartitionColumn;
 
-    /**
-     * Used to store the newest partition version of tbl when creating this job.
-     */
-    public final long tblUpdateTime;
-
     @SerializedName("createTime")
     public final long createTime = System.currentTimeMillis();
 
@@ -194,6 +189,15 @@ public class AnalysisInfo implements Writable {
     @SerializedName("endTime")
     public long endTime;
 
+    @SerializedName("emptyJob")
+    public final boolean emptyJob;
+    /**
+     *
+     * Used to store the newest partition version of tbl when creating this job.
+     * This variables would be saved by table stats meta.
+     */
+    public final long tblUpdateTime;
+
     public AnalysisInfo(long jobId, long taskId, List<Long> taskIds, long catalogId, long dbId, long tblId,
             Map<String, Set<String>> colToPartitions, Set<String> partitionNames, String colName, Long indexId,
             JobType jobType, AnalysisMode analysisMode, AnalysisMethod analysisMethod, AnalysisType analysisType,
@@ -201,7 +205,7 @@ public class AnalysisInfo implements Writable {
             long lastExecTimeInMs, long timeCostInMs, AnalysisState state, ScheduleType scheduleType,
             boolean isExternalTableLevelTask, boolean partitionOnly, boolean samplingPartition,
             boolean isAllPartition, long partitionCount, CronExpression cronExpression, boolean forceFull,
-            boolean usingSqlForPartitionColumn, long tblUpdateTime) {
+            boolean usingSqlForPartitionColumn, long tblUpdateTime, boolean emptyJob) {
         this.jobId = jobId;
         this.taskId = taskId;
         this.taskIds = taskIds;
@@ -237,6 +241,7 @@ public class AnalysisInfo implements Writable {
         this.forceFull = forceFull;
         this.usingSqlForPartitionColumn = usingSqlForPartitionColumn;
         this.tblUpdateTime = tblUpdateTime;
+        this.emptyJob = emptyJob;
     }
 
     @Override
@@ -278,6 +283,7 @@ public class AnalysisInfo implements Writable {
         }
         sj.add("forceFull: " + forceFull);
         sj.add("usingSqlForPartitionColumn: " + usingSqlForPartitionColumn);
+        sj.add("emptyJob: " + emptyJob);
         return sj.toString();
     }
 

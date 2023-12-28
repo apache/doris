@@ -414,7 +414,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                 .setMinValue(Double.NEGATIVE_INFINITY)
                 .setNdv(0);
         StatisticsBuilder builder = new StatisticsBuilder(context.statistics);
-        builder.putColumnStatistics(isNull.child(), colBuilder.build());
+        builder.setRowCount(outputRowCount);
+        builder.putColumnStatistics(isNull, colBuilder.build());
         context.addKeyIfSlot(isNull.child());
         return builder.build();
     }
