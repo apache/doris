@@ -27,8 +27,6 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_lookup_count, MetricUnit::OPERATIONS)
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(cache_hit_count, MetricUnit::OPERATIONS);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(cache_hit_ratio, MetricUnit::NOUNIT);
 
-bvar::Adder<int64_t> g_doris_cache_dummy_usage_num("doris_cache_dummy_usage_num");
-
 uint32_t CacheKey::hash(const char* data, size_t n, uint32_t seed) const {
     // Similar to murmur hash
     const uint32_t m = 0xc6a4a793;
@@ -674,19 +672,16 @@ Cache::Handle* DummyLRUCache::insert(const CacheKey& key, void* value, size_t ch
                                      CachePriority priority, size_t bytes) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
     auto* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
-    g_doris_cache_dummy_usage_num << 1;
     e->value = value;
     e->deleter = deleter;
     e->charge = charge;
-    e->key_length = key.size();
+    e->key_length = 0;
     e->total_size = 0;
     e->bytes = 0;
     e->hash = 0;
     e->refs = 1; // only one for the returned handle
     e->next = e->prev = nullptr;
     e->in_cache = false;
-    e->priority = priority;
-    memcpy(e->key_data, key.data(), key.size());
     return reinterpret_cast<Cache::Handle*>(e);
 }
 
@@ -696,7 +691,6 @@ void DummyLRUCache::release(Cache::Handle* handle) {
     }
     auto* e = reinterpret_cast<LRUHandle*>(handle);
     e->free();
-    g_doris_cache_dummy_usage_num << -1;
 }
 
 void* DummyLRUCache::value(Handle* handle) {
