@@ -368,7 +368,6 @@ void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContex
 
 Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
                                               std::shared_ptr<StreamLoadContext> ctx) {
-    Status st = Status::OK();
     std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
     if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
         !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
@@ -391,7 +390,7 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
     auto partitions = !req->header(HTTP_PARTITIONS).empty();
     if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
         if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
-            st = Status::InternalError("label and group_commit can't be set at the same time");
+            return Status::InternalError("label and group_commit can't be set at the same time");
         }
         if (iequal(group_commit_mode, "async_mode")) {
             group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
@@ -407,11 +406,11 @@ Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
                           << max_available_size
                           << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
                              "automatically.";
-                st = Status::Error<EXCEEDED_LIMIT>("Http load size too large.");
+                return Status::Error<EXCEEDED_LIMIT>("Http load size too large.");
             }
         }
     }
-    return st;
+    return Status::OK();
 }
 
 } // namespace doris
