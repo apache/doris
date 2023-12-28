@@ -542,7 +542,9 @@ public class AnalysisManager implements Writable {
             AnalysisInfoBuilder colTaskInfoBuilder = new AnalysisInfoBuilder(jobInfo);
             if (jobInfo.analysisType != AnalysisType.HISTOGRAM) {
                 colTaskInfoBuilder.setAnalysisType(AnalysisType.FUNDAMENTALS);
-                colTaskInfoBuilder.setColToPartitions(Collections.singletonMap(colName, entry.getValue()));
+                Map<String, Set<String>> colToParts = new HashMap<>();
+                colToParts.put(colName, entry.getValue());
+                colTaskInfoBuilder.setColToPartitions(colToParts);
             }
             AnalysisInfo analysisInfo = colTaskInfoBuilder.setColName(colName).setIndexId(indexId)
                     .setTaskId(taskId).setLastExecTimeInMs(System.currentTimeMillis()).build();
