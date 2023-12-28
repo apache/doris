@@ -1424,7 +1424,8 @@ std::ostream& operator<<(std::ostream& out, const std::vector<T>& v) {
         bool is_newval_set = false;                                                            \
         if (!props.get_or_default((FIELD).name, ((SET_TO_DEFAULT) ? (FIELD).defval : nullptr), \
                                   new_value, &is_newval_set)) {                                \
-            std::cerr << "config field error: " << (FIELD).name << std::endl;                  \
+            std::cerr << "config field error: " << (FIELD).name << "="                         \
+                      << file_conf_map[(FIELD).name] << std::endl;                             \
             return false;                                                                      \
         }                                                                                      \
         if (!is_newval_set) {                                                                  \
