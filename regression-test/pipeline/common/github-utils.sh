@@ -53,7 +53,20 @@ function create_an_issue_comment_tpch() {
     local COMMENT_BODY="$2"
     local machine='aliyun_ecs.c7a.8xlarge_32C64G'
     COMMENT_BODY="
-TPC-H test result on machine: '${machine}'
+TPC-H test result on machine: '${machine}', run with scripts in https://github.com/apache/doris/tree/master/tools/tpch-tools
+\`\`\`
+${COMMENT_BODY}
+\`\`\`
+"
+    create_an_issue_comment "${ISSUE_NUMBER}" "${COMMENT_BODY}"
+}
+
+function create_an_issue_comment_tpcds() {
+    local ISSUE_NUMBER="$1"
+    local COMMENT_BODY="$2"
+    local machine='aliyun_ecs.c7a.8xlarge_32C64G'
+    COMMENT_BODY="
+TPC-DS test result on machine: '${machine}', run with scripts in https://github.com/apache/doris/tree/master/tools/tpcds-tools
 \`\`\`
 ${COMMENT_BODY}
 \`\`\`
