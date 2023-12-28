@@ -50,7 +50,8 @@ OperatorPtr SetProbeSinkOperatorBuilder<is_intersect>::build_operator() {
 template <bool is_intersect>
 SetProbeSinkOperator<is_intersect>::SetProbeSinkOperator(OperatorBuilderBase* operator_builder,
                                                          int child_id, ExecNode* set_node)
-        : StreamingOperator<SetProbeSinkOperatorBuilder<is_intersect>>(operator_builder, set_node),
+        : StreamingOperator<vectorized::VSetOperationNode<is_intersect>>(operator_builder,
+                                                                         set_node),
           _child_id(child_id) {}
 
 template <bool is_intersect>

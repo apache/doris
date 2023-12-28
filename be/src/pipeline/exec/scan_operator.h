@@ -43,7 +43,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class ScanOperator : public SourceOperator<ScanOperatorBuilder> {
+class ScanOperator : public SourceOperator<vectorized::VScanNode> {
 public:
     ScanOperator(OperatorBuilderBase* operator_builder, ExecNode* scan_node);
 

@@ -328,14 +328,11 @@ protected:
 /**
  * All operators inherited from Operator will hold a ExecNode inside.
  */
-template <typename OperatorBuilderType>
+template <typename StreamingNodeType>
 class StreamingOperator : public OperatorBase {
 public:
-    using NodeType =
-            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
-
     StreamingOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
+            : OperatorBase(builder), _node(reinterpret_cast<StreamingNodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
 
@@ -399,24 +396,21 @@ public:
     }
 
 protected:
-    NodeType* _node = nullptr;
+    StreamingNodeType* _node = nullptr;
     bool _use_projection;
 };
 
-template <typename OperatorBuilderType>
-class SourceOperator : public StreamingOperator<OperatorBuilderType> {
+template <typename SourceNodeType>
+class SourceOperator : public StreamingOperator<SourceNodeType> {
 public:
-    using NodeType =
-            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
-
     SourceOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : StreamingOperator<OperatorBuilderType>(builder, node) {}
+            : StreamingOperator<SourceNodeType>(builder, node) {}
 
     ~SourceOperator() override = default;
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        auto& node = StreamingOperator<OperatorBuilderType>::_node;
+        auto& node = StreamingOperator<SourceNodeType>::_node;
         bool eos = false;
         RETURN_IF_ERROR(node->get_next_after_projects(
                 state, block, &eos,
@@ -435,14 +429,11 @@ public:
  * If there are still remain rows in probe block, we can get output block by calling `get_block` without any data from its child.
  * In a nutshell, it is a one-to-many relation between input blocks and output blocks for StatefulOperator.
  */
-template <typename OperatorBuilderType>
-class StatefulOperator : public StreamingOperator<OperatorBuilderType> {
+template <typename StatefulNodeType>
+class StatefulOperator : public StreamingOperator<StatefulNodeType> {
 public:
-    using NodeType =
-            std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
-
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : StreamingOperator<OperatorBuilderType>(builder, node),
+            : StreamingOperator<StatefulNodeType>(builder, node),
               _child_block(vectorized::Block::create_shared()),
               _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
@@ -450,8 +441,8 @@ public:
 
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
-        auto& node = StreamingOperator<OperatorBuilderType>::_node;
-        auto& child = StreamingOperator<OperatorBuilderType>::_child;
+        auto& node = StreamingOperator<StatefulNodeType>::_node;
+        auto& child = StreamingOperator<StatefulNodeType>::_child;
 
         if (node->need_more_input_data()) {
             _child_block->clear_column_data();
