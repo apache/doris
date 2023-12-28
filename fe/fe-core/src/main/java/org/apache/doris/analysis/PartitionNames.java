@@ -70,8 +70,8 @@ public class PartitionNames implements ParseNode, Writable {
         this.count = 0;
         this.expr = null;
     }
-    
-public PartitionNames(Expr expr) {
+
+    public PartitionNames(Expr expr) {
         this.partitionNames = null;
         this.isTemp = false;
         this.expr = expr;
@@ -94,12 +94,12 @@ public PartitionNames(Expr expr) {
         this.count = partitionCount;
         this.expr = null;
     }
-  
-    public Expr getExpr() {
-		return expr;
-	}
 
-	public List<String> getPartitionNames() {
+    public Expr getExpr() {
+        return expr;
+    }
+
+    public List<String> getPartitionNames() {
         return partitionNames;
     }
 

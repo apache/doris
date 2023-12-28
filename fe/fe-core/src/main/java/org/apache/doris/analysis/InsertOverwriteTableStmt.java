@@ -32,7 +32,7 @@ public class InsertOverwriteTableStmt extends DdlStmt {
     private final String label;
 
     @Getter
-    private final  List<String> cols;
+    private final List<String> cols;
 
     private final InsertSource source;
 
@@ -40,7 +40,7 @@ public class InsertOverwriteTableStmt extends DdlStmt {
     private final List<String> hints;
 
     public InsertOverwriteTableStmt(InsertTarget target, String label, List<String> cols, InsertSource source,
-            List<String> hints) {
+                                    List<String> hints) {
         this.target = target;
         this.label = label;
         this.cols = cols;
@@ -61,13 +61,13 @@ public class InsertOverwriteTableStmt extends DdlStmt {
     }
 
     public Expr getPartitionExpr() {
-   	 if (target.getPartitionNames() == null) {
+        if (target.getPartitionNames() == null) {
             return null;
         }
-      return target.getPartitionNames().getExpr();
-   }
-   
-    
+        return target.getPartitionNames().getExpr();
+    }
+
+
     public List<String> getPartitionNames() {
         if (target.getPartitionNames() == null) {
             return new ArrayList<>();

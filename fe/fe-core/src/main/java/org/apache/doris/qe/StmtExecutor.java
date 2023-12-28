@@ -2289,17 +2289,16 @@ public class StmtExecutor {
             handleOverwritePartition(iotStmt);
         }
     }
-    
+
     private void handleOverwritePartition(InsertOverwriteTableStmt iotStmt) {
-    	
         Expr exp = iotStmt.getPartitionExpr();
-        if (exp !=null) {
-        	//expr partition table overwrite
-       	 handleOverwriteTableExpPartition(iotStmt);
-        }else {
-        	handleOverwriteTableStaticPartition(iotStmt,null);
+        if (exp != null) {
+            //expr partition table overwrite
+            handleOverwriteTableExpPartition(iotStmt);
+        } else {
+            handleOverwriteTableStaticPartition(iotStmt, null);
         }
-    	
+
     }
 
     private void handleOverwriteTable(InsertOverwriteTableStmt iotStmt) {
@@ -2366,9 +2365,9 @@ public class StmtExecutor {
 
     }
 
-    private void handleOverwriteTableStaticPartition(InsertOverwriteTableStmt iotStmt,List<String> pms) {
+    private void handleOverwriteTableStaticPartition(InsertOverwriteTableStmt iotStmt, List<String> pms) {
         TableName targetTableName = new TableName(null, iotStmt.getDb(), iotStmt.getTbl());
-        List<String> partitionNames = pms!=null?pms:iotStmt.getPartitionNames();
+        List<String> partitionNames = pms != null ? pms : iotStmt.getPartitionNames();
         List<String> tempPartitionName = new ArrayList<>();
         try {
             // create tmp partitions with uuid
@@ -2400,7 +2399,7 @@ public class StmtExecutor {
         try {
             parsedStmt = new NativeInsertStmt(targetTableName, new PartitionNames(true, tempPartitionName),
                     new LabelName(iotStmt.getDb(), iotStmt.getLabel()), iotStmt.getQueryStmt(),
-                    iotStmt.getHints(), iotStmt.getCols());
+                iotStmt.getHints(), iotStmt.getCols());
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
             if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
@@ -2421,7 +2420,7 @@ public class StmtExecutor {
             Map<String, String> properties = new HashMap<>();
             properties.put("use_temp_partition_name", "false");
             ops.add(new ReplacePartitionClause(new PartitionNames(false, partitionNames),
-                    new PartitionNames(true, tempPartitionName), properties));
+                     new PartitionNames(true, tempPartitionName), properties));
             parsedStmt = new AlterTableStmt(targetTableName, ops);
             parsedStmt.setUserInfo(context.getCurrentUserIdentity());
             execute();
@@ -2438,48 +2437,41 @@ public class StmtExecutor {
             handleIotPartitionRollback(targetTableName, tempPartitionName);
         }
     }
-    
+
     /**
      * handleOverwriteTableExpPartition
+     *
      * @param iotStmt
      */
-    private void handleOverwriteTableExpPartition(InsertOverwriteTableStmt iotStmt)
-    {
-    	List<ResultRow> resultRows  = null;
-    	try {
-    		SelectList selec = new SelectList();
-    		selec.addItem(new SelectListItem(iotStmt.getPartitionExpr(), null));
-    		SelectStmt selectInnerStmt = new SelectStmt(
-    				selec,
-    	            null,
-    	            null,
-    	           null,
-    	            null,
-    	           null,
-    	           new LimitElement(0,10));
-    		  parsedStmt = selectInnerStmt;
- 	         parsedStmt.setUserInfo(context.getCurrentUserIdentity());
- 	        StmtExecutor executor = new StmtExecutor(context,selectInnerStmt.toSql());
- 	       resultRows =   executor.executeInternalQuery();
- 	      // executor.execute();
- 	       
-	          if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
-	              LOG.warn("IOT  Select expr  partitions error, stmt={}", originStmt.originStmt);
-	              return ;
-	          }
-		} catch (Exception e) {
-			 LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
-             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
-             return;
-		}
-    
-    	//
-    	for(ResultRow r :resultRows) {
-    		  //write partition
-            handleOverwriteTableStaticPartition(iotStmt,r.getValues());
-    	}
-    	
-    	
+    private void handleOverwriteTableExpPartition(InsertOverwriteTableStmt iotStmt) {
+        List<ResultRow> resultRows = null;
+        try {
+            SelectList selec = new SelectList();
+            selec.addItem(new SelectListItem(iotStmt.getPartitionExpr(), null));
+            SelectStmt selectInnerStmt = new SelectStmt(selec, null, null, null, null, null, new LimitElement(0, 10));
+            parsedStmt = selectInnerStmt;
+            parsedStmt.setUserInfo(context.getCurrentUserIdentity());
+            StmtExecutor executor = new StmtExecutor(context, selectInnerStmt.toSql());
+            resultRows = executor.executeInternalQuery();
+            // executor.execute();
+
+            if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                LOG.warn("IOT  Select expr  partitions error, stmt={}", originStmt.originStmt);
+                return;
+            }
+        } catch (Exception e) {
+            LOG.warn("IOT insert data error, stmt={}", parsedStmt.toSql(), e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+            return;
+        }
+
+        //
+        for (ResultRow r : resultRows) {
+            //write partition
+            handleOverwriteTableStaticPartition(iotStmt, r.getValues());
+        }
+
+
     }
 
     private void handleIotRollback(TableName table) {
