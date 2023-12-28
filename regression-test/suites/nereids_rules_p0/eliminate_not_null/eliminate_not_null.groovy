@@ -18,6 +18,8 @@
 suite("eliminate_not_null") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "SET disable_join_reorder=true"
 
     sql """
         DROP TABLE IF EXISTS t

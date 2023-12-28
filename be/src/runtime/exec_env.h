@@ -63,6 +63,7 @@ class InvertedIndexSearcherCache;
 class InvertedIndexQueryCache;
 } // namespace segment_v2
 
+class WorkloadSchedPolicyMgr;
 class BfdParser;
 class BrokerMgr;
 template <class T>
@@ -153,6 +154,7 @@ public:
     pipeline::TaskScheduler* pipeline_task_scheduler() { return _without_group_task_scheduler; }
     pipeline::TaskScheduler* pipeline_task_group_scheduler() { return _with_group_task_scheduler; }
     taskgroup::TaskGroupManager* task_group_manager() { return _task_group_manager; }
+    WorkloadSchedPolicyMgr* workload_sched_policy_mgr() { return _workload_sched_mgr; }
 
     // using template to simplify client cache management
     template <typename T>
@@ -378,6 +380,8 @@ private:
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _with_group_block_scheduler;
 
     doris::pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+
+    WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
 };
 
 template <>

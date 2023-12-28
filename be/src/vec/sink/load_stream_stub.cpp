@@ -44,9 +44,6 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
             for (auto tablet_id : response.success_tablet_ids()) {
                 ss << " " << tablet_id;
             }
-            if (response.success_tablet_ids_size() == 0) {
-                ss << " none";
-            }
             std::lock_guard<bthread::Mutex> lock(_success_tablets_mutex);
             for (auto tablet_id : response.success_tablet_ids()) {
                 _success_tablets.push_back(tablet_id);
@@ -56,9 +53,6 @@ int LoadStreamStub::LoadStreamReplyHandler::on_received_messages(brpc::StreamId 
             ss << ", failed tablet ids:";
             for (auto tablet_id : response.failed_tablet_ids()) {
                 ss << " " << tablet_id;
-            }
-            if (response.failed_tablet_ids_size() == 0) {
-                ss << " none";
             }
             std::lock_guard<bthread::Mutex> lock(_failed_tablets_mutex);
             for (auto tablet_id : response.failed_tablet_ids()) {

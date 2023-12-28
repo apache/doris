@@ -187,7 +187,7 @@ Status InvertedIndexReader::read_null_bitmap(InvertedIndexQueryCacheHandle* cach
 
         if (!dir) {
             dir = new DorisCompoundReader(
-                    DorisCompoundDirectory::getDirectory(_fs, index_dir.c_str()),
+                    DorisCompoundDirectoryFactory::getDirectory(_fs, index_dir.c_str()),
                     index_file_name.c_str(), config::inverted_index_read_buffer_size);
             owned_dir = true;
         }

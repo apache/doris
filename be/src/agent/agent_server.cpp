@@ -31,6 +31,7 @@
 #include "agent/topic_subscriber.h"
 #include "agent/utils.h"
 #include "agent/workload_group_listener.h"
+#include "agent/workload_sched_policy_listener.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -72,6 +73,13 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     LOG(INFO) << "Register workload group listener";
     _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_GROUP,
                                          std::move(wg_listener));
+
+    std::unique_ptr<TopicListener> policy_listener =
+            std::make_unique<WorkloadschedPolicyListener>(exec_env);
+    LOG(INFO) << "Register workload scheduler policy listener";
+    _topic_subscriber->register_listener(doris::TTopicInfoType::type::WORKLOAD_SCHED_POLICY,
+                                         std::move(policy_listener));
+
 #endif
 }
 

@@ -37,9 +37,12 @@
 #include "runtime/load_channel.h"
 #include "runtime/load_stream_mgr.h"
 #include "runtime/load_stream_writer.h"
+#include "util/debug_points.h"
 #include "util/runtime_profile.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+
+#define UNKNOWN_ID_FOR_TEST 0x7c00
 
 namespace doris {
 
@@ -169,6 +172,7 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
     int64_t src_id = header.src_id();
     uint32_t segid = header.segment_id();
     uint32_t new_segid;
+    DBUG_EXECUTE_IF("TabletStream.add_segment.unknown_segid", { segid = UNKNOWN_ID_FOR_TEST; });
     {
         std::lock_guard lock_guard(_lock);
         if (!_segids_mapping.contains(src_id)) {
@@ -440,6 +444,8 @@ Status LoadStream::_append_data(const PStreamHeader& header, butil::IOBuf* data)
     IndexStreamSharedPtr index_stream;
 
     int64_t index_id = header.index_id();
+    DBUG_EXECUTE_IF("TabletStream.add_segment.unknown_indexid",
+                    { index_id = UNKNOWN_ID_FOR_TEST; });
     auto it = _index_streams_map.find(index_id);
     if (it == _index_streams_map.end()) {
         return Status::Error<ErrorCode::INVALID_ARGUMENT>("unknown index_id {}", index_id);
@@ -479,6 +485,15 @@ int LoadStream::on_received_messages(StreamId id, butil::IOBuf* const messages[]
 void LoadStream::_dispatch(StreamId id, const PStreamHeader& hdr, butil::IOBuf* data) {
     VLOG_DEBUG << PStreamHeader_Opcode_Name(hdr.opcode()) << " from " << hdr.src_id()
                << " with tablet " << hdr.tablet_id();
+    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_loadid", {
+        PUniqueId& load_id = const_cast<PUniqueId&>(hdr.load_id());
+        load_id.set_hi(UNKNOWN_ID_FOR_TEST);
+        load_id.set_lo(UNKNOWN_ID_FOR_TEST);
+    });
+    DBUG_EXECUTE_IF("LoadStream._dispatch.unknown_srcid", {
+        PStreamHeader& t_hdr = const_cast<PStreamHeader&>(hdr);
+        t_hdr.set_src_id(UNKNOWN_ID_FOR_TEST);
+    });
     if (UniqueId(hdr.load_id()) != UniqueId(_load_id)) {
         Status st = Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "invalid load id {}, expected {}", print_id(hdr.load_id()), print_id(_load_id));

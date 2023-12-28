@@ -59,14 +59,15 @@ public class TopicPublisherThread extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
-        if (!Config.enable_workload_group) {
-            return;
-        }
         LOG.info("begin publish topic info");
         // step 1: get all publish topic info
         TPublishTopicRequest request = new TPublishTopicRequest();
         for (TopicPublisher topicPublisher : topicPublisherList) {
             topicPublisher.getTopicInfo(request);
+        }
+
+        if (request.getTopicMap().size() == 0) {
+            return;
         }
 
         // step 2: publish topic info to all be

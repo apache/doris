@@ -93,6 +93,8 @@ public:
         return false;
     }
 
+    int64_t query_time(VecDateTimeValue& now) { return now.second_diff(_start_time); }
+
     void set_thread_token(int concurrency, bool is_serial) {
         _thread_token = _exec_env->scanner_scheduler()->new_limited_scan_pool_token(
                 is_serial ? ThreadPool::ExecutionMode::SERIAL

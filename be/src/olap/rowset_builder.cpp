@@ -149,6 +149,8 @@ Status RowsetBuilder::check_tablet_version_count() {
                      << st;
     }
     int version_count = tablet()->version_count();
+    DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
+                    { version_count = INT_MAX; });
     if (version_count > config::max_tablet_version_num) {
         return Status::Error<TOO_MANY_VERSION>(
                 "failed to init rowset builder. version count: {}, exceed limit: {}, "
