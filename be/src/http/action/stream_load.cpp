@@ -214,21 +214,23 @@ int StreamLoadAction::on_header(HttpRequest* req) {
         }
         if (iequal(group_commit_mode, "async_mode") || config::wait_internal_group_commit_finish) {
             ctx->group_commit = true;
-            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
-            if (iequal(group_commit_mode, "sync_mode")) {
-                size_t max_available_size =
-                        ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
-                LOG(INFO) << "When enable group commit, the data size can't be too large. The data "
-                             "size "
-                             "for this stream load("
-                          << (req->header(HttpHeaders::CONTENT_LENGTH).empty()
-                                      ? 0
-                                      : std::stol(req->header(HttpHeaders::CONTENT_LENGTH)))
-                          << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
-                          << max_available_size
-                          << " Bytes). So we set this load to \"group commit\"=sync_mode "
-                             "automatically.";
-                st = Status::Error<EXCEEDED_LIMIT>("Stream load size too large.");
+            if (iequal(group_commit_mode, "async_mode")) {
+                group_commit_mode =
+                        load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
+                if (iequal(group_commit_mode, "sync_mode")) {
+                    size_t max_available_size =
+                            ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
+                    LOG(INFO) << "When enable group commit, the data size can't be too large. The "
+                                 "data size for this stream load("
+                              << (req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                          ? 0
+                                          : std::stol(req->header(HttpHeaders::CONTENT_LENGTH)))
+                              << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                              << max_available_size
+                              << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
+                                 "automatically.";
+                    st = Status::Error<EXCEEDED_LIMIT>("Stream load size too large.");
+                }
             }
         }
     }
