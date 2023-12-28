@@ -719,9 +719,9 @@ void PipelineXFragmentContext::_inherit_pipeline_properties(
 }
 
 Status PipelineXFragmentContext::_add_local_exchange_impl(
-        int pip_idx, int idx, int node_id, ObjectPool* pool, PipelinePtr cur_pipe,
-        PipelinePtr new_pip, DataDistribution data_distribution, bool* do_local_exchange,
-        int num_buckets, const std::map<int, int>& bucket_seq_to_instance_idx,
+        int idx, ObjectPool* pool, PipelinePtr cur_pipe, PipelinePtr new_pip,
+        DataDistribution data_distribution, bool* do_local_exchange, int num_buckets,
+        const std::map<int, int>& bucket_seq_to_instance_idx,
         const bool ignore_data_hash_distribution) {
     auto& operator_xs = cur_pipe->operator_xs();
     const auto downstream_pipeline_id = cur_pipe->id();
@@ -849,8 +849,8 @@ Status PipelineXFragmentContext::_add_local_exchange(
     auto& operator_xs = cur_pipe->operator_xs();
     auto total_op_num = operator_xs.size();
     auto new_pip = add_pipeline(cur_pipe, pip_idx + 1);
-    RETURN_IF_ERROR(_add_local_exchange_impl(pip_idx, idx, node_id, pool, cur_pipe, new_pip,
-                                             data_distribution, do_local_exchange, num_buckets,
+    RETURN_IF_ERROR(_add_local_exchange_impl(idx, pool, cur_pipe, new_pip, data_distribution,
+                                             do_local_exchange, num_buckets,
                                              bucket_seq_to_instance_idx, ignore_data_distribution));
 
     CHECK(total_op_num + 1 == cur_pipe->operator_xs().size() + new_pip->operator_xs().size())
@@ -858,11 +858,11 @@ Status PipelineXFragmentContext::_add_local_exchange(
             << " cur_pipe->operator_xs().size(): " << cur_pipe->operator_xs().size()
             << " new_pip->operator_xs().size(): " << new_pip->operator_xs().size();
 
-    // 8. Add passthrough local exchanger if necessary
+    // Add passthrough local exchanger if necessary
     if (cur_pipe->num_tasks() > 1 && new_pip->num_tasks() == 1 &&
         Pipeline::is_hash_exchange(data_distribution.distribution_type)) {
         RETURN_IF_ERROR(_add_local_exchange_impl(
-                pip_idx, idx, node_id, pool, new_pip, add_pipeline(cur_pipe, pip_idx + 1),
+                total_op_num, pool, new_pip, add_pipeline(cur_pipe, pip_idx),
                 DataDistribution(ExchangeType::PASSTHROUGH), do_local_exchange, num_buckets,
                 bucket_seq_to_instance_idx, ignore_data_distribution));
     }
