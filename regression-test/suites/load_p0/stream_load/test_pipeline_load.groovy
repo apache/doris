@@ -128,7 +128,7 @@ suite("test_pipeline_load", "nonConcurrent") {
                 `c47` varchar(48) NULL,
                 `c48` varchar(48) NULL,
                 `c49` varchar(48) NULL,
-                `c50` varchar(48) NULL,
+                `c50` varchar(48) NULL
             ) ENGINE=OLAP
             DUPLICATE KEY(`c1`)
             COMMENT 'OLAP'
@@ -138,7 +138,7 @@ suite("test_pipeline_load", "nonConcurrent") {
             "disable_auto_compaction" = "false"
             );
         """
-        // Trigger error which is different from non-pipeline load
+        // The error should be different from non-pipeline load
         streamLoad {
             table "${tableName}"
             set 'column_separator', ','
