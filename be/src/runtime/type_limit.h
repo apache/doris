@@ -64,10 +64,7 @@ struct type_limit<vectorized::Decimal128I> {
 
 template <>
 struct type_limit<vectorized::Decimal128> {
-    static vectorized::Decimal128 max() {
-        return (static_cast<int128_t>(999999999999999999ll) * 100000000000000000ll * 1000ll +
-                static_cast<int128_t>(99999999999999999ll) * 1000ll + 999ll);
-    }
+    static vectorized::Decimal128 max() { return DecimalV2Value::get_max_decimal().value(); }
     static vectorized::Decimal128 min() { return -max(); }
 };
 static wide::Int256 MAX_DECIMAL256_INT({18446744073709551615ul, 8607968719199866879ul,
