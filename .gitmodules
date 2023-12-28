@@ -32,4 +32,4 @@
 [submodule "be/src/clucene"]
 	path = be/src/clucene
 	url = https://github.com/apache/doris-thirdparty.git
-	branch = clucene
+	branch = clucene-2.0
