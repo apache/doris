@@ -1,7 +1,7 @@
 ---
 {
     "title": "IPV4",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -35,14 +35,14 @@ IPv4
 ### description
 
 IPV4
-IPv4类型，以UInt32的形式存储在4个字节中，用于表示IPv4地址
-取值范围是 ['0.0.0.0', '255.255.255.255']
+IPv4 type, stored in the form of UInt32 in 4 bytes, used to represent IPv4 addresses
+The range of values is ['0.0.0.0', '255.255.255.255']
 
-`超出取值范围的输入将返回NULL`
+`Inputs that exceed the value range will return NULL`
 
 ### example
-    
-建表示例如下：
+
+Create table example:
 
 ```
 CREATE TABLE ipv4_test (
@@ -55,7 +55,7 @@ PROPERTIES (
 );
 ```
 
-插入数据示例：
+Insert data example:
 
 ```
 insert into ipv4_test values(1, '0.0.0.0');
@@ -65,7 +65,7 @@ insert into ipv4_test values(4, '255.255.255.255');
 insert into ipv4_test values(5, '255.255.255.256'); // invalid data
 ```
 
-查询数据示例：
+Select data example:
 
 ```
 mysql> select * from ipv4_test order by id;

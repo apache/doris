@@ -1,7 +1,7 @@
 ---
 {
     "title": "IPV6",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -35,14 +35,14 @@ IPv6
 ### description
 
 IPV6
-IPv6类型，以Int128的形式存储在16个字节中，用于表示IPv6地址
-取值范围是 ['::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff']
+IPv6 type, stored in Int128 format in 16 bytes, used to represent IPv6 addresses
+The range of values is ['::', 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff']
 
-`超出取值范围的输入将返回NULL`
+`Inputs that exceed the value range will return NULL`
 
 ### example
-    
-建表示例如下：
+
+Create table example:
 
 ```
 CREATE TABLE ipv6_test (
@@ -55,7 +55,7 @@ PROPERTIES (
 );
 ```
 
-插入数据示例：
+Insert data example:
 
 ```
 insert into ipv6_test values(1, '::');
@@ -64,7 +64,7 @@ insert into ipv6_test values(3, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff');
 insert into ipv6_test values(4, 'ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffffg'); // invalid data
 ```
 
-查询数据示例：
+Select data example:
 
 ```
 mysql> select * from ipv6_test order by id;
