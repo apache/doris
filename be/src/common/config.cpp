@@ -1014,7 +1014,7 @@ DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
 DEFINE_Bool(inverted_index_compaction_enable, "false");
 // index by RAM directory
-DEFINE_mBool(inverted_index_ram_dir_enable, "false ");
+DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
