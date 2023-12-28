@@ -254,7 +254,6 @@ public class MTMVTask extends AbstractTask {
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(super.getJobId())));
         trow.addToColumnValue(new TCell().setStringVal(super.getJobName()));
-        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(mtmvId)));
         String dbName = "";
         String mvName = "";
         try {

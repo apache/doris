@@ -587,7 +587,7 @@ public class MetadataGenerator {
         TJobsMetadataParams jobsMetadataParams = params.getJobsMetadataParams();
         String type = jobsMetadataParams.getType();
         JobType jobType = JobType.valueOf(type);
-        TUserIdentity currentUserIdent = params.getCurrentUserIdent();
+        TUserIdentity currentUserIdent = jobsMetadataParams.getCurrentUserIdent();
         UserIdentity userIdentity = UserIdentity.fromThrift(currentUserIdent);
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
@@ -616,7 +616,7 @@ public class MetadataGenerator {
         TTasksMetadataParams tasksMetadataParams = params.getTasksMetadataParams();
         String type = tasksMetadataParams.getType();
         JobType jobType = JobType.valueOf(type);
-        TUserIdentity currentUserIdent = params.getCurrentUserIdent();
+        TUserIdentity currentUserIdent = tasksMetadataParams.getCurrentUserIdent();
         UserIdentity userIdentity = UserIdentity.fromThrift(currentUserIdent);
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
