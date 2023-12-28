@@ -29,6 +29,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/exception.h"
 #include "common/logging.h" // LOG
 #include "gutil/port.h"
 #include "io/fs/file_writer.h"
@@ -685,8 +686,12 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             }
         }
     }
+    try {
+        _olap_data_convertor->set_source_content(block, row_pos, num_rows);
+    } catch (const Exception& e) {
+        return Status::InternalError("failed to convert {}", e.what());
+    }
 
-    _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // find all row pos for short key indexes
     std::vector<size_t> short_key_pos;
