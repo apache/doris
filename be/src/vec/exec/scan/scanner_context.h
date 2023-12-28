@@ -170,7 +170,7 @@ public:
 
     SimplifiedScanScheduler* get_simple_scan_scheduler() { return _simple_scan_scheduler; }
 
-    void reschedule_scanner_ctx();
+    virtual void reschedule_scanner_ctx();
 
     // the unique id of this context
     std::string ctx_id;

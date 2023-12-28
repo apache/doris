@@ -383,6 +383,19 @@ public:
         }
         _current_used_bytes += local_bytes;
     }
+
+    void reschedule_scanner_ctx() override {
+        if (done()) {
+            return;
+        }
+        auto state = _scanner_scheduler->submit(shared_from_this());
+        //todo(wb) rethinking is it better to mark current scan_context failed when submit failed many times?
+        if (state.ok()) {
+            _num_scheduling_ctx++;
+        } else {
+            set_status_on_error(state, false);
+        }
+    }
 };
 
 } // namespace doris::pipeline
