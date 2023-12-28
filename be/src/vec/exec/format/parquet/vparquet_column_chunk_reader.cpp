@@ -97,10 +97,12 @@ Status ColumnChunkReader::next_page() {
         return next_page();
     } else if (_page_reader->get_page_header()->type == tparquet::PageType::DATA_PAGE_V2) {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header_v2.num_values;
+        _chunk_parsed_values += _remaining_num_values;
         _state = HEADER_PARSED;
         return Status::OK();
     } else {
         _remaining_num_values = _page_reader->get_page_header()->data_page_header.num_values;
+        _chunk_parsed_values += _remaining_num_values;
         _state = HEADER_PARSED;
         return Status::OK();
     }

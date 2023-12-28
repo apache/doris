@@ -129,7 +129,14 @@ public class IcebergScanNode extends FileQueryScanNode {
         super.doInitialize();
     }
 
-    public static void setIcebergParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit) {
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (split instanceof IcebergSplit) {
+            setIcebergParams(rangeDesc, (IcebergSplit) split);
+        }
+    }
+
+    public void setIcebergParams(TFileRangeDesc rangeDesc, IcebergSplit icebergSplit) {
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
         tableFormatFileDesc.setTableFormatType(icebergSplit.getTableFormatType().value());
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();

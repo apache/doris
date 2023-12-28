@@ -54,6 +54,7 @@ Status Pipeline::add_operator(OperatorBuilderPtr& op) {
 }
 
 Status Pipeline::add_operator(OperatorXPtr& op) {
+    op->set_parallel_tasks(num_tasks());
     operatorXs.emplace_back(op);
     if (op->is_source()) {
         std::reverse(operatorXs.begin(), operatorXs.end());

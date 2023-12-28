@@ -299,7 +299,7 @@ public class StatisticsAutoCollectorTest {
         // A very huge table has been updated recently, so we should skip it this time
         stats.updatedTime = System.currentTimeMillis() - 1000;
         StatisticsAutoCollector autoCollector = new StatisticsAutoCollector();
-        Assertions.assertTrue(autoCollector.skip(olapTable));
+        Assertions.assertFalse(autoCollector.skip(olapTable));
         // The update of this huge table is long time ago, so we shouldn't skip it this time
         stats.updatedTime = System.currentTimeMillis()
                 - StatisticsUtil.getHugeTableAutoAnalyzeIntervalInMillis() - 10000;
@@ -346,7 +346,7 @@ public class StatisticsAutoCollectorTest {
 
             @Mock
             public long getDataSize(boolean singleReplica) {
-                return 1000;
+                return StatisticsUtil.getHugeTableLowerBoundSizeInBytes() - 1;
             }
 
             @Mock

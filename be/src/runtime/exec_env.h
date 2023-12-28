@@ -18,10 +18,10 @@
 #pragma once
 
 #include <common/multi_version.h>
-#include <stddef.h>
 
 #include <algorithm>
 #include <atomic>
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -168,31 +168,16 @@ public:
     MemTracker* brpc_iobuf_block_memory_tracker() { return _brpc_iobuf_block_memory_tracker.get(); }
 
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
-    ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
     ThreadPool* buffered_reader_prefetch_thread_pool() {
         return _buffered_reader_prefetch_thread_pool.get();
     }
     ThreadPool* s3_file_upload_thread_pool() { return _s3_file_upload_thread_pool.get(); }
     ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
     ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
+    ThreadPool* lazy_release_obj_pool() { return _lazy_release_obj_pool.get(); }
 
-    void set_serial_download_cache_thread_token() {
-        _serial_download_cache_thread_token =
-                download_cache_thread_pool()->new_token(ThreadPool::ExecutionMode::SERIAL, 1);
-    }
-    ThreadPoolToken* get_serial_download_cache_thread_token() {
-        return _serial_download_cache_thread_token.get();
-    }
-    void init_download_cache_buf();
-    void init_download_cache_required_components();
     Status init_pipeline_task_scheduler();
     void init_file_cache_factory();
-    char* get_download_cache_buf(ThreadPoolToken* token) {
-        if (_download_cache_buf_map.find(token) == _download_cache_buf_map.end()) {
-            return nullptr;
-        }
-        return _download_cache_buf_map[token].get();
-    }
     io::FileCacheFactory* file_cache_factory() { return _file_cache_factory; }
     UserFunctionCache* user_function_cache() { return _user_function_cache; }
     FragmentMgr* fragment_mgr() { return _fragment_mgr; }
@@ -244,6 +229,7 @@ public:
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
         this->_routine_load_task_executor = r;
     }
+    void set_wal_mgr(std::shared_ptr<WalManager> wm) { this->_wal_manager = wm; }
 
 #endif
     stream_load::LoadStreamStubPool* load_stream_stub_pool() {
@@ -321,21 +307,17 @@ private:
     std::shared_ptr<MemTracker> _brpc_iobuf_block_memory_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
-
-    // Threadpool used to download cache from remote storage
-    std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // Threadpool used to prefetch remote file for buffered reader
     std::unique_ptr<ThreadPool> _buffered_reader_prefetch_thread_pool;
     // Threadpool used to upload local file to s3
     std::unique_ptr<ThreadPool> _s3_file_upload_thread_pool;
-    // A token used to submit download cache task serially
-    std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
     // Pool used by fragment manager to send profile or status to FE coordinator
     std::unique_ptr<ThreadPool> _send_report_thread_pool;
     // Pool used by join node to build hash table
     std::unique_ptr<ThreadPool> _join_node_thread_pool;
-    // ThreadPoolToken -> buffer
-    std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
+    // Pool to use a new thread to release object
+    std::unique_ptr<ThreadPool> _lazy_release_obj_pool;
+
     FragmentMgr* _fragment_mgr = nullptr;
     pipeline::TaskScheduler* _without_group_task_scheduler = nullptr;
     pipeline::TaskScheduler* _with_group_task_scheduler = nullptr;
@@ -368,6 +350,7 @@ private:
     std::shared_ptr<WalManager> _wal_manager;
 
     std::mutex _frontends_lock;
+    // ip:brpc_port -> frontend_indo
     std::map<TNetworkAddress, FrontendInfo> _frontends;
     GroupCommitMgr* _group_commit_mgr = nullptr;
 

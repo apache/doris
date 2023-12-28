@@ -172,6 +172,19 @@ Status LocalFileSystem::file_size_impl(const Path& file, int64_t* file_size) con
     return Status::OK();
 }
 
+Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
+    *dir_size = 0;
+    if (std::filesystem::exists(dir_path) && std::filesystem::is_directory(dir_path)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(dir_path)) {
+            if (std::filesystem::is_regular_file(entry)) {
+                *dir_size += std::filesystem::file_size(entry);
+            }
+        }
+        return Status::OK();
+    }
+    return Status::IOError("faile to get dir size {}", dir_path.native());
+}
+
 Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                                   bool* exists) {
     RETURN_IF_ERROR(exists_impl(dir, exists));

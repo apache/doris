@@ -951,6 +951,10 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
+        if (newColumn.getType().isTime() || newColumn.getType().isTimeV2()) {
+            throw new DdlException("Time type is not supported for olap table");
+        }
+
         // hll must be used in agg_keys
         if (newColumn.getType().isHllType() && KeysType.AGG_KEYS != olapTable.getKeysType()) {
             throw new DdlException("HLL type column can only be in Aggregation data model table: " + newColName);

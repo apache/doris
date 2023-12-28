@@ -19,7 +19,7 @@
 
 #include "operator.h"
 #include "pipeline/pipeline_x/operator.h"
-#include "vec/sink/vtablet_sink.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace doris {
 

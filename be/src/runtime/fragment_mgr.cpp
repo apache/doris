@@ -220,6 +220,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     DCHECK(req.runtime_state != nullptr);
 
     if (req.query_statistics) {
+        // use to report 'insert into select'
         TQueryStatistics queryStatistics;
         DCHECK(req.query_statistics->collect_dml_statistics());
         req.query_statistics->to_thrift(&queryStatistics);
@@ -1166,6 +1167,8 @@ void FragmentMgr::cancel_worker() {
             } else {
                 for (const auto& q : _query_ctx_map) {
                     if (q.second->get_fe_process_uuid() == 0) {
+                        // zero means this query is from a older version fe or
+                        // this fe is starting
                         continue;
                     }
 
@@ -1174,7 +1177,16 @@ void FragmentMgr::cancel_worker() {
                         if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
                             itr->second.info.process_uuid == 0) {
                             continue;
+                        } else {
+                            LOG_WARNING("Coordinator of query {} restarted, going to cancel it.",
+                                        print_id(q.second->query_id()));
                         }
+                    } else {
+                        LOG_WARNING(
+                                "Could not find target coordinator {}:{} of query {}, going to "
+                                "cancel it.",
+                                q.second->coord_addr.hostname, q.second->coord_addr.port,
+                                print_id(q.second->query_id()));
                     }
 
                     // Coorninator of this query has already dead.
@@ -1194,7 +1206,7 @@ void FragmentMgr::cancel_worker() {
 
         if (!queries_to_cancel.empty()) {
             LOG(INFO) << "There are " << queries_to_cancel.size()
-                      << " queries need to be cancelled, coordinator dead.";
+                      << " queries need to be cancelled, coordinator dead or restarted.";
         }
 
         for (const auto& qid : queries_to_cancel) {

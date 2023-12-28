@@ -287,7 +287,7 @@ suite("regression_test_variant", "variant_type"){
         // 12. streamload remote file
         table_name = "logdata"
         create_table.call(table_name, "4")
-        sql "set enable_two_phase_read_opt = false;"
+        // sql "set enable_two_phase_read_opt = false;"
         // no sparse columns
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "1")
         load_json_data.call(table_name, """${getS3Url() + '/load/logdata.json'}""")
@@ -340,7 +340,7 @@ suite("regression_test_variant", "variant_type"){
         qt_sql_36_1 "select cast(v:a as int), cast(v:b as int), cast(v:c as int) from ${table_name} order by k limit 10"
         sql "DELETE FROM ${table_name} WHERE k=1"
         sql "select * from ${table_name}"
-        qt_sql_36_2 "select * from ${table_name} where k > 3 order by k desc limit 10"
+        qt_sql_36_2 """select k, json_extract(cast(v as text), "\$.repo") from ${table_name} where k > 3 order by k desc limit 10"""
         sql "insert into ${table_name} select * from ${table_name}"
         sql """UPDATE ${table_name} set v = '{"updated_value" : 10}' where k = 2"""
         qt_sql_36_3 """select * from ${table_name} where k = 2"""
@@ -386,13 +386,13 @@ suite("regression_test_variant", "variant_type"){
         sql """insert into ${table_name} values (2, "abe", '{"c" : 1}')"""
         sql """insert into ${table_name} values (3, "abd", '{"d" : 1}')"""
         sql "delete from ${table_name} where k in (select k from variant_mow where k in (1, 2))"
-        qt_sql_38 "select * from ${table_name} order by k"
+        qt_sql_38 "select * from ${table_name} order by k limit 10"
 
         // read text from sparse col
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
         sql """insert into  sparse_columns select 0, '{"a": 1123, "b" : [123, {"xx" : 1}], "c" : {"c" : 456, "d" : null, "e" : 7.111}, "zzz" : null, "oooo" : {"akakaka" : null, "xxxx" : {"xxx" : 123}}}'  as json_str
             union  all select 0, '{"a" : 1234, "xxxx" : "kaana", "ddd" : {"aaa" : 123, "mxmxm" : [456, "789"]}}' as json_str from numbers("number" = "4096") limit 4096 ;"""
-        qt_sql_31 """select cast(v:xxxx as string) from sparse_columns where cast(v:xxxx as string) != 'null' limit 1;"""
+        qt_sql_31 """select cast(v:xxxx as string) from sparse_columns where cast(v:xxxx as string) != 'null' order by k limit 1;"""
         sql "truncate table sparse_columns"
         set_be_config.call("variant_ratio_of_defaults_as_sparse_column", "0.95")
     } finally {

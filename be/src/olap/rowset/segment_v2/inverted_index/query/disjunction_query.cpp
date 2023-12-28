@@ -22,26 +22,25 @@ namespace doris {
 DisjunctionQuery::DisjunctionQuery(IndexReader* reader) : _reader(reader) {}
 
 DisjunctionQuery::~DisjunctionQuery() {
-    for (auto& term : _terms) {
-        if (term) {
-            _CLDELETE(term);
-        }
-    }
     for (auto& term_doc : _term_docs) {
         if (term_doc) {
             _CLDELETE(term_doc);
         }
     }
+    for (auto& term : _terms) {
+        if (term) {
+            _CLDELETE(term);
+        }
+    }
 }
 
 void DisjunctionQuery::add(const std::wstring& field_name, const std::vector<std::string>& terms) {
-    if (terms.size() < 1) {
-        _CLTHROWA(CL_ERR_IllegalArgument, "ConjunctionQuery::add: terms.size() < 1");
+    if (terms.empty()) {
+        _CLTHROWA(CL_ERR_IllegalArgument, "DisjunctionQuery::add: terms empty");
     }
 
-    for (auto& term : terms) {
+    for (const auto& term : terms) {
         std::wstring ws_term = StringUtil::string_to_wstring(term);
-        _wsterms.emplace_back(&ws_term);
         Term* t = _CLNEW Term(field_name.c_str(), ws_term.c_str());
         _terms.push_back(t);
         TermDocs* term_doc = _reader->termDocs(t);

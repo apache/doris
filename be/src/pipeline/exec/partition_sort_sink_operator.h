@@ -105,11 +105,11 @@ public:
     Status open(RuntimeState* state) override;
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    ExchangeType get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_topn_phase == TPartTopNPhase::TWO_PHASE_GLOBAL) {
-            return ExchangeType::NOOP;
+            return DataSinkOperatorX<PartitionSortSinkLocalState>::required_data_distribution();
         }
-        return ExchangeType::PASSTHROUGH;
+        return {ExchangeType::PASSTHROUGH};
     }
 
 private:

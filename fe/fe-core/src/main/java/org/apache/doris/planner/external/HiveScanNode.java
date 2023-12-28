@@ -78,6 +78,8 @@ public class HiveScanNode extends FileQueryScanNode {
     public static final String DEFAULT_FIELD_DELIMITER = "\1"; // "\x01"
     public static final String PROP_LINE_DELIMITER = "line.delim";
     public static final String DEFAULT_LINE_DELIMITER = "\n";
+    public static final String PROP_SEPERATOR_CHAR = "seperatorChar";
+    public static final String PROP_QUOTA_CHAR = "quoteChar";
 
     public static final String PROP_COLLECTION_DELIMITER_HIVE2 = "colelction.delim";
     public static final String PROP_COLLECTION_DELIMITER_HIVE3 = "collection.delim";
@@ -364,7 +366,16 @@ public class HiveScanNode extends FileQueryScanNode {
     protected TFileAttributes getFileAttributes() throws UserException {
         TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
         java.util.Map<String, String> delimiter = hmsTable.getRemoteTable().getSd().getSerdeInfo().getParameters();
-        textParams.setColumnSeparator(delimiter.getOrDefault(PROP_FIELD_DELIMITER, DEFAULT_FIELD_DELIMITER));
+        if (delimiter.containsKey(PROP_FIELD_DELIMITER)) {
+            textParams.setColumnSeparator(delimiter.get(PROP_FIELD_DELIMITER));
+        } else if (delimiter.containsKey(PROP_SEPERATOR_CHAR)) {
+            textParams.setColumnSeparator(delimiter.get(PROP_SEPERATOR_CHAR));
+        } else {
+            textParams.setColumnSeparator(DEFAULT_FIELD_DELIMITER);
+        }
+        if (delimiter.containsKey(PROP_QUOTA_CHAR)) {
+            textParams.setEnclose(delimiter.get(PROP_QUOTA_CHAR).getBytes()[0]);
+        }
         textParams.setLineDelimiter(delimiter.getOrDefault(PROP_LINE_DELIMITER, DEFAULT_LINE_DELIMITER));
         textParams.setMapkvDelimiter(delimiter.getOrDefault(PROP_MAP_KV_DELIMITER, DEFAULT_MAP_KV_DELIMITER));
 
@@ -379,6 +390,9 @@ public class HiveScanNode extends FileQueryScanNode {
         TFileAttributes fileAttributes = new TFileAttributes();
         fileAttributes.setTextParams(textParams);
         fileAttributes.setHeaderType("");
+        if (textParams.isSet(TFileTextScanRangeParams._Fields.ENCLOSE)) {
+            fileAttributes.setTrimDoubleQuotes(true);
+        }
         return fileAttributes;
     }
 

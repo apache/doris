@@ -31,15 +31,23 @@ import java.time.temporal.ChronoUnit;
 public class DateTimeType extends DateLikeType {
 
     public static final DateTimeType INSTANCE = new DateTimeType();
+    public static final DateTimeType NOT_CONVERSION = new DateTimeType(false);
 
     private static final int WIDTH = 16;
 
+    private final boolean shouldConversion;
+
     private DateTimeType() {
+        this.shouldConversion = true;
+    }
+
+    private DateTimeType(boolean shouldConversion) {
+        this.shouldConversion = shouldConversion;
     }
 
     @Override
     public DataType conversion() {
-        if (Config.enable_date_conversion) {
+        if (Config.enable_date_conversion && shouldConversion) {
             return DateTimeV2Type.SYSTEM_DEFAULT;
         }
         return this;

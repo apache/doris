@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.FunctionalDependencies;
 import org.apache.doris.nereids.properties.FunctionalDependencies.Builder;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.rules.exploration.join.JoinReorderContext;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -36,6 +37,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.ImmutableEquivalenceSet;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
@@ -177,6 +179,11 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
         this.markJoinSlotReference = markJoinSlotReference;
+    }
+
+    public LogicalJoin<? extends Plan, ? extends Plan> swap() {
+        return withTypeChildren(getJoinType().swap(),
+                right(), left());
     }
 
     public List<Expression> getOtherJoinConjuncts() {
@@ -421,8 +428,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         // TODO: consider Null-safe hash condition when left and rigth is not nullable
         boolean isLeftUnique = left().getLogicalProperties()
                 .getFunctionalDependencies().isUnique(keys.first);
-        boolean isRightUnique = left().getLogicalProperties()
-                .getFunctionalDependencies().isUnique(keys.first);
+        boolean isRightUnique = right().getLogicalProperties()
+                .getFunctionalDependencies().isUnique(keys.second);
         Builder fdBuilder = new Builder();
         if (joinType.isInnerJoin()) {
             // inner join propagate uniforms slots
@@ -452,6 +459,24 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             fdBuilder.addUniformSlot(left().getLogicalProperties().getFunctionalDependencies());
         }
         return fdBuilder.build();
+    }
+
+    /**
+     * get Equal slot from join
+     */
+    public ImmutableEquivalenceSet<Slot> getEqualSlots() {
+        // TODO: Use fd in the future
+        if (!joinType.isInnerJoin() && !joinType.isSemiJoin()) {
+            return ImmutableEquivalenceSet.of();
+        }
+        ImmutableEquivalenceSet.Builder<Slot> builder = new ImmutableEquivalenceSet.Builder<>();
+        hashJoinConjuncts.stream()
+                .filter(e -> e instanceof EqualPredicate
+                        && e.child(0) instanceof Slot
+                        && e.child(1) instanceof Slot)
+                .forEach(e ->
+                        builder.addEqualPair((Slot) e.child(0), (Slot) e.child(1)));
+        return builder.build();
     }
 
     @Override

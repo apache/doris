@@ -24,18 +24,12 @@ suite("query14") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_14 '''
-    explain shape plan
-
-
-with  cross_items as
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """with  cross_items as
  (select i_item_sk ss_item_sk
  from item,
  (select iss.i_brand_id brand_id
@@ -135,7 +129,9 @@ with  cross_items as
  ) y
  group by rollup (channel, i_brand_id,i_class_id,i_category_id)
  order by channel,i_brand_id,i_class_id,i_category_id
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_14 """
+    explain shape plan
+    ${ds}
+    """
 }

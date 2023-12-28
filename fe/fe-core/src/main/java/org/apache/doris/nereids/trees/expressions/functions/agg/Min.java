@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.window.SupportWindowAnalytic;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
@@ -34,7 +35,7 @@ import java.util.List;
 
 /** min agg function. */
 public class Min extends NullableAggregateFunction
-        implements UnaryExpression, CustomSignature, SupportWindowAnalytic {
+        implements UnaryExpression, CustomSignature, SupportWindowAnalytic, CouldRollUp {
 
     public Min(Expression child) {
         this(false, false, child);
@@ -80,5 +81,10 @@ public class Min extends NullableAggregateFunction
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMin(this, context);
+    }
+
+    @Override
+    public Function constructRollUp(Expression param, Expression... varParams) {
+        return new Min(this.distinct, this.alwaysNullable, param);
     }
 }
