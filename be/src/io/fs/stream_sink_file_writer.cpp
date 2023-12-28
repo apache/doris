@@ -58,6 +58,14 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
         ok = ok || st.ok();
     }
     if (!ok) {
+        std::stringstream ss;
+        for (auto& stream : _streams) {
+            ss << " " << stream->dst_id();
+        }
+        LOG(WARNING) << "failed to write any replicas, load_id: " << print_id(_load_id)
+                     << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
+                     << ", segment_id: " << _segment_id << ", data_length: " << bytes_req
+                     << ", backends:" << ss.str();
         return Status::InternalError("failed to write any replicas");
     }
     _bytes_appended += bytes_req;
@@ -75,6 +83,13 @@ Status StreamSinkFileWriter::finalize() {
         ok = ok || st.ok();
     }
     if (!ok) {
+        std::stringstream ss;
+        for (auto& stream : _streams) {
+            ss << " " << stream->dst_id();
+        }
+        LOG(WARNING) << "failed to finalize any replicas, load_id: " << print_id(_load_id)
+                     << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
+                     << ", segment_id: " << _segment_id << ", backends:" << ss.str();
         return Status::InternalError("failed to finalize any replicas");
     }
     return Status::OK();
