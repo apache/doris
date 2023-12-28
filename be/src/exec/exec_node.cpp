@@ -557,11 +557,10 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
                 reinterpret_cast<ColumnNullable*>(mutable_columns[i].get())
                         ->insert_range_from_not_nullable(*column_ptr, 0, rows);
             } else {
-                std::swap(output_block->get_by_position(i).column,
-                          origin_block->get_by_position(result_column_id).column);
+                mutable_columns[i]->insert_range_from(*column_ptr, 0, rows);
             }
         }
-        DCHECK(output_block->rows() == rows);
+        DCHECK(mutable_block.rows() == rows);
     }
 
     return Status::OK();
