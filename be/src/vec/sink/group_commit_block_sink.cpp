@@ -17,12 +17,20 @@
 
 #include "vec/sink/group_commit_block_sink.h"
 
+#include <gen_cpp/DataSinks_types.h>
+
+#include <chrono>
+#include <mutex>
+#include <shared_mutex>
+
+#include "common/exception.h"
+#include "runtime/exec_env.h"
 #include "runtime/group_commit_mgr.h"
 #include "runtime/runtime_state.h"
 #include "util/doris_metrics.h"
 #include "vec/exprs/vexpr.h"
+#include "vec/sink/volap_table_sink.h"
 #include "vec/sink/vtablet_finder.h"
-#include "vec/sink/vtablet_sink.h"
 
 namespace doris {
 
@@ -30,13 +38,17 @@ namespace vectorized {
 
 GroupCommitBlockSink::GroupCommitBlockSink(ObjectPool* pool, const RowDescriptor& row_desc,
                                            const std::vector<TExpr>& texprs, Status* status)
-        : DataSink(row_desc) {
+        : DataSink(row_desc), _filter_bitmap(1024) {
     // From the thrift expressions create the real exprs.
     *status = vectorized::VExpr::create_expr_trees(texprs, _output_vexpr_ctxs);
     _name = "GroupCommitBlockSink";
 }
 
-GroupCommitBlockSink::~GroupCommitBlockSink() = default;
+GroupCommitBlockSink::~GroupCommitBlockSink() {
+    if (_load_block_queue) {
+        _load_block_queue->remove_load_id(_load_id);
+    }
+}
 
 Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     DCHECK(t_sink.__isset.olap_table_sink);
@@ -50,11 +62,15 @@ Status GroupCommitBlockSink::init(const TDataSink& t_sink) {
     _group_commit_mode = table_sink.group_commit_mode;
     _load_id = table_sink.load_id;
     _max_filter_ratio = table_sink.max_filter_ratio;
+    _vpartition = new doris::VOlapTablePartitionParam(_schema, table_sink.partition);
+    RETURN_IF_ERROR(_vpartition->init());
     return Status::OK();
 }
 
 Status GroupCommitBlockSink::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSink::prepare(state));
+    RETURN_IF_ERROR(
+            ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(_load_id.to_thrift(), 0));
     _state = state;
 
     // profile must add to state's object pool
@@ -101,7 +117,7 @@ Status GroupCommitBlockSink::close(RuntimeState* state, Status close_status) {
             (double)state->num_rows_load_filtered() / num_selected_rows > _max_filter_ratio) {
             return Status::DataQualityError("too many filtered rows");
         }
-        RETURN_IF_ERROR(_add_blocks());
+        RETURN_IF_ERROR(_add_blocks(_group_commit_mode != TGroupCommitMode::SYNC_MODE, true));
     }
     if (_load_block_queue) {
         _load_block_queue->remove_load_id(_load_id);
@@ -139,11 +155,33 @@ Status GroupCommitBlockSink::send(RuntimeState* state, vectorized::Block* input_
     bool has_filtered_rows = false;
     RETURN_IF_ERROR(_block_convertor->validate_and_convert_block(
             state, input_block, block, _output_vexpr_ctxs, rows, has_filtered_rows));
-    if (_block_convertor->num_filtered_rows() > 0) {
+    _has_filtered_rows = false;
+    if (!_vpartition->is_auto_partition()) {
+        //reuse vars for find_partition
+        _partitions.assign(rows, nullptr);
+        _filter_bitmap.Reset(rows);
+
+        for (int index = 0; index < rows; index++) {
+            _vpartition->find_partition(block.get(), index, _partitions[index]);
+        }
+        for (int row_index = 0; row_index < rows; row_index++) {
+            if (_partitions[row_index] == nullptr) [[unlikely]] {
+                _filter_bitmap.Set(row_index, true);
+                LOG(WARNING) << "no partition for this tuple. tuple="
+                             << block->dump_data(row_index, 1);
+            }
+            _has_filtered_rows = true;
+        }
+    }
+
+    if (_block_convertor->num_filtered_rows() > 0 || _has_filtered_rows) {
         auto cloneBlock = block->clone_without_columns();
         auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
         for (int i = 0; i < rows; ++i) {
             if (_block_convertor->filter_map()[i]) {
+                continue;
+            }
+            if (_filter_bitmap.Get(i)) {
                 continue;
             }
             res_block.add_row(block.get(), i);
@@ -185,7 +223,7 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
         _blocks.emplace_back(output_block);
     } else {
         if (!_is_block_appended) {
-            RETURN_IF_ERROR(_add_blocks());
+            RETURN_IF_ERROR(_add_blocks(_group_commit_mode != TGroupCommitMode::SYNC_MODE, false));
         }
         RETURN_IF_ERROR(_load_block_queue->add_block(
                 output_block, _group_commit_mode != TGroupCommitMode::SYNC_MODE));
@@ -193,7 +231,7 @@ Status GroupCommitBlockSink::_add_block(RuntimeState* state,
     return Status::OK();
 }
 
-Status GroupCommitBlockSink::_add_blocks() {
+Status GroupCommitBlockSink::_add_blocks(bool write_wal, bool is_blocks_contain_all_load_data) {
     DCHECK(_is_block_appended == false);
     TUniqueId load_id;
     load_id.__set_hi(_load_id.hi);
@@ -203,6 +241,20 @@ Status GroupCommitBlockSink::_add_blocks() {
             RETURN_IF_ERROR(_state->exec_env()->group_commit_mgr()->get_first_block_load_queue(
                     _db_id, _table_id, _base_schema_version, load_id, _load_block_queue,
                     _state->be_exec_version()));
+            if (write_wal) {
+                _group_commit_mode = _load_block_queue->has_enough_wal_disk_space(
+                                             _blocks, load_id, is_blocks_contain_all_load_data)
+                                             ? TGroupCommitMode::ASYNC_MODE
+                                             : TGroupCommitMode::SYNC_MODE;
+                if (_group_commit_mode == TGroupCommitMode::SYNC_MODE) {
+                    LOG(INFO)
+                            << "Load label " << _load_block_queue->label
+                            << " will not write wal because wal disk space usage reachs max limit.";
+                } else {
+                    LOG(INFO) << "Load label " << _load_block_queue->label << " will write wal to "
+                              << _load_block_queue->wal_base_path << ".";
+                }
+            }
             _state->set_import_label(_load_block_queue->label);
             _state->set_wal_id(_load_block_queue->txn_id);
         } else {

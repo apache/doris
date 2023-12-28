@@ -189,7 +189,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
 PipelinePtr PipelineFragmentContext::add_pipeline() {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(
+            id, _num_instances,
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
     _pipelines.emplace_back(pipeline);
     return pipeline;
 }
@@ -197,7 +199,9 @@ PipelinePtr PipelineFragmentContext::add_pipeline() {
 PipelinePtr PipelineFragmentContext::add_pipeline(PipelinePtr parent, int idx) {
     // _prepared、_submitted, _canceled should do not add pipeline
     PipelineId id = _next_pipeline_id++;
-    auto pipeline = std::make_shared<Pipeline>(id, _num_instances, weak_from_this());
+    auto pipeline = std::make_shared<Pipeline>(
+            id, _num_instances,
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
     if (idx >= 0) {
         _pipelines.insert(_pipelines.begin() + idx, pipeline);
     } else {
@@ -213,7 +217,7 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
         return Status::InternalError("Already prepared");
     }
     const auto& local_params = request.local_params[idx];
-    _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
+    _runtime_profile = std::make_unique<RuntimeProfile>("PipelineContext");
     _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
     COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
     _prepare_timer = ADD_TIMER(_runtime_profile, "PrepareTime");
@@ -231,6 +235,8 @@ Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& re
     if (local_params.__isset.runtime_filter_params) {
         _runtime_state->set_runtime_filter_params(local_params.runtime_filter_params);
     }
+
+    _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_ctx(_query_ctx.get());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
@@ -885,7 +891,8 @@ void PipelineFragmentContext::_close_fragment_instance() {
             _fragment_watcher.elapsed_time());
     static_cast<void>(send_report(true));
     // all submitted tasks done
-    _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
+    _exec_env->fragment_mgr()->remove_pipeline_context(
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
 void PipelineFragmentContext::close_a_pipeline() {
@@ -935,7 +942,7 @@ Status PipelineFragmentContext::send_report(bool done) {
              std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
                        std::placeholders::_2),
              _dml_query_statistics()},
-            shared_from_this());
+            std::dynamic_pointer_cast<PipelineFragmentContext>(shared_from_this()));
 }
 
 bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSink sink) {
@@ -954,6 +961,13 @@ bool PipelineFragmentContext::_has_inverted_index_or_partial_update(TOlapTableSi
         }
     }
     return false;
+}
+
+std::string PipelineFragmentContext::debug_string() {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "PipelineFragmentContext Info: QueryId = {}\n",
+                   print_id(_query_ctx->query_id()));
+    return fmt::to_string(debug_string_buffer);
 }
 
 } // namespace doris::pipeline

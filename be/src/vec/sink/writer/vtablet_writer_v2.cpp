@@ -42,6 +42,7 @@
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/threadpool.h"
@@ -187,7 +188,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     DCHECK(_num_local_sink > 0) << "num local sink should be greator than 0";
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
-
+    DBUG_EXECUTE_IF("VTabletWriterV2._init.is_high_priority", { _is_high_priority = true; });
     _mem_tracker =
             std::make_shared<MemTracker>("VTabletWriterV2:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
@@ -501,6 +502,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             for (const auto& [_, streams] : _streams_for_node) {
                 streams->release();
             }
+            _streams_for_node.clear();
         });
 
         {
@@ -540,7 +542,6 @@ Status VTabletWriterV2::close(Status exec_status) {
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
                                              std::make_move_iterator(tablet_commit_infos.end()));
-        _streams_for_node.clear();
 
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +

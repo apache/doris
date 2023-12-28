@@ -48,6 +48,8 @@ WalTable::~WalTable() {}
 std::string k_request_line;
 #endif
 
+bool retry = false;
+
 void WalTable::add_wals(std::vector<std::string> wals) {
     std::lock_guard<std::mutex> lock(_replay_wal_lock);
     for (const auto& wal : wals) {
@@ -57,6 +59,7 @@ void WalTable::add_wals(std::vector<std::string> wals) {
 }
 Status WalTable::replay_wals() {
     std::vector<std::string> need_replay_wals;
+    std::vector<std::string> need_erase_wals;
     {
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
         if (_replay_wal_map.empty()) {
@@ -67,7 +70,8 @@ Status WalTable::replay_wals() {
         for (auto& [wal, info] : _replay_wal_map) {
             auto& [retry_num, start_ts, replaying] = info;
             if (replaying) {
-                continue;
+                LOG(INFO) << wal << " is replaying, skip this round";
+                return Status::OK();
             }
             if (retry_num >= config::group_commit_replay_wal_retry_num) {
                 LOG(WARNING) << "All replay wal failed, db=" << _db_id << ", table=" << _table_id
@@ -76,7 +80,7 @@ Status WalTable::replay_wals() {
                 std::string rename_path = _get_tmp_path(wal);
                 LOG(INFO) << "rename wal from " << wal << " to " << rename_path;
                 std::rename(wal.c_str(), rename_path.c_str());
-                _replay_wal_map.erase(wal);
+                need_erase_wals.push_back(wal);
                 continue;
             }
             if (_need_replay(info)) {
@@ -84,6 +88,13 @@ Status WalTable::replay_wals() {
             }
         }
         std::sort(need_replay_wals.begin(), need_replay_wals.end());
+        for (const auto& wal : need_erase_wals) {
+            if (_replay_wal_map.erase(wal)) {
+                LOG(INFO) << "erase wal " << wal << " from _replay_wal_map";
+            } else {
+                LOG(WARNING) << "fail to erase wal " << wal << " from _replay_wal_map";
+            }
+        }
     }
     for (const auto& wal : need_replay_wals) {
         {
@@ -193,7 +204,17 @@ Status WalTable::_replay_wal_internal(const std::string& wal) {
     if (!st.ok()) {
         LOG(WARNING) << "abort txn " << wal_id << " fail";
     }
-    RETURN_IF_ERROR(_get_column_info(_db_id, _table_id));
+    auto get_st = _get_column_info(_db_id, _table_id);
+    if (!get_st.ok()) {
+        if (get_st.is<ErrorCode::NOT_FOUND>()) {
+            {
+                std::lock_guard<std::mutex> lock(_replay_wal_lock);
+                _replay_wal_map.erase(wal);
+            }
+            RETURN_IF_ERROR(_delete_wal(wal_id));
+        }
+        return get_st;
+    }
 #endif
     RETURN_IF_ERROR(_send_request(wal_id, wal, label));
     return Status::OK();
@@ -216,7 +237,49 @@ Status WalTable::_get_wal_info(const std::string& wal,
 }
 
 void http_request_done(struct evhttp_request* req, void* arg) {
-    event_base_loopbreak((struct event_base*)arg);
+    std::stringstream out;
+    std::string status;
+    std::string msg;
+    std::string wal_id;
+    size_t len = 0;
+    if (req != nullptr) {
+        auto input = evhttp_request_get_input_buffer(req);
+        char* request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
+        while (request_line != nullptr) {
+            std::string s(request_line);
+            out << request_line;
+            request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
+        }
+        auto out_str = out.str();
+        LOG(INFO) << "replay wal out_str:" << out_str;
+        rapidjson::Document doc;
+        if (!out_str.empty()) {
+            doc.Parse(out.str().c_str());
+            status = std::string(doc["Status"].GetString());
+            msg = std::string(doc["Message"].GetString());
+            LOG(INFO) << "replay wal status:" << status << ",msg:" << msg;
+            if (status.find("Fail") != status.npos) {
+                if (msg.find("Label") != msg.npos &&
+                    msg.find("has already been used") != msg.npos) {
+                    retry = false;
+                } else {
+                    retry = true;
+                }
+            } else {
+                retry = false;
+            }
+        } else {
+            retry = true;
+        }
+    } else {
+        LOG(WARNING) << "req is null";
+    }
+
+    if (arg != nullptr) {
+        event_base_loopbreak((struct event_base*)arg);
+    } else {
+        LOG(WARNING) << "arg is null";
+    }
 }
 
 Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std::string& label) {
@@ -224,6 +287,7 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
     struct event_base* base = nullptr;
     struct evhttp_connection* conn = nullptr;
     struct evhttp_request* req = nullptr;
+    retry = false;
     event_init();
     base = event_base_new();
     conn = evhttp_connection_new("127.0.0.1", doris::config::webserver_port);
@@ -239,18 +303,20 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
     std::vector<size_t> index_vector;
     std::stringstream ss_name;
     std::stringstream ss_id;
-    int index = 0;
+    int index_raw = 0;
     for (auto column_id_str : column_id_element) {
         try {
             int64_t column_id = std::strtoll(column_id_str.c_str(), NULL, 10);
             auto it = _column_id_name_map.find(column_id);
-            if (it != _column_id_name_map.end()) {
-                ss_name << it->second << ",";
+            auto it2 = _column_id_index_map.find(column_id);
+            if (it != _column_id_name_map.end() && it2 != _column_id_index_map.end()) {
+                ss_name << "`" << it->second << "`,";
                 ss_id << "c" << std::to_string(_column_id_index_map[column_id]) << ",";
-                index_vector.emplace_back(index);
+                index_vector.emplace_back(index_raw);
                 _column_id_name_map.erase(column_id);
+                _column_id_index_map.erase(column_id);
             }
-            index++;
+            index_raw++;
         } catch (const std::invalid_argument& e) {
             return Status::InvalidArgument("Invalid format, {}", e.what());
         }
@@ -273,44 +339,21 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
     evhttp_connection_free(conn);
     event_base_free(base);
 
-#endif
-    bool retry = false;
-    std::string status;
-    std::string msg;
-    std::stringstream out;
-    rapidjson::Document doc;
-#ifndef BE_TEST
-    size_t len = 0;
-    auto input = evhttp_request_get_input_buffer(req);
-    char* request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
-    while (request_line != nullptr) {
-        std::string s(request_line);
-        out << request_line;
-        request_line = evbuffer_readln(input, &len, EVBUFFER_EOL_CRLF);
-    }
 #else
+    std::stringstream out;
     out << k_request_line;
-#endif
     auto out_str = out.str();
-    if (!out_str.empty()) {
-        doc.Parse(out.str().c_str());
-        status = std::string(doc["Status"].GetString());
-        msg = std::string(doc["Message"].GetString());
-        LOG(INFO) << "replay wal " << wal_id << " status:" << status << ",msg:" << msg;
-        if (status.find("Fail") != status.npos) {
-            if (msg.find("Label") != msg.npos && msg.find("has already been used") != msg.npos) {
-                retry = false;
-            } else {
-                retry = true;
-            }
-        } else {
-            retry = false;
-        }
-    } else {
+    rapidjson::Document doc;
+    doc.Parse(out_str.c_str());
+    auto status = std::string(doc["Status"].GetString());
+    if (status.find("Fail") != status.npos) {
         retry = true;
+    } else {
+        retry = false;
     }
+#endif
     if (retry) {
-        LOG(INFO) << "fail to replay wal =" << wal << ",status:" << status << ",msg:" << msg;
+        LOG(INFO) << "fail to replay wal =" << wal;
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
         auto it = _replay_wal_map.find(wal);
         if (it != _replay_wal_map.end()) {
@@ -320,9 +363,8 @@ Status WalTable::_send_request(int64_t wal_id, const std::string& wal, const std
             _replay_wal_map.emplace(wal, replay_wal_info {0, UnixMillis(), false});
         }
     } else {
-        LOG(INFO) << "success to replay wal =" << wal << ",status:" << status << ",msg:" << msg;
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
-        RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
+        LOG(INFO) << "success to replay wal =" << wal;
+        RETURN_IF_ERROR(_delete_wal(wal_id));
         std::lock_guard<std::mutex> lock(_replay_wal_lock);
         if (_replay_wal_map.erase(wal)) {
             LOG(INFO) << "erase " << wal << " from _replay_wal_map";
@@ -381,23 +423,21 @@ Status WalTable::_get_column_info(int64_t db_id, int64_t tb_id) {
                 [&request, &result](FrontendServiceConnection& client) {
                     client->getColumnInfo(result, request);
                 }));
-        std::string columns_str = result.column_info;
-        std::vector<std::string> column_element;
-        doris::vectorized::WalReader::string_split(columns_str, ",", column_element);
-        int64_t index = 1;
-        for (auto column : column_element) {
-            auto pos = column.find(":");
-            try {
-                auto column_name = column.substr(0, pos);
-                int64_t column_id = std::strtoll(column.substr(pos + 1).c_str(), NULL, 10);
-                _column_id_name_map.emplace(column_id, column_name);
-                _column_id_index_map.emplace(column_id, index++);
-            } catch (const std::invalid_argument& e) {
-                return Status::InvalidArgument("Invalid format, {}", e.what());
-            }
-        }
-
         status = Status::create(result.status);
+        if (!status.ok()) {
+            return status;
+        }
+        std::vector<TColumnInfo> column_element = result.columns;
+        int64_t column_index = 1;
+        _column_id_name_map.clear();
+        _column_id_index_map.clear();
+        for (auto column : column_element) {
+            auto column_name = column.columnName;
+            auto column_id = column.columnId;
+            _column_id_name_map.emplace(column_id, column_name);
+            _column_id_index_map.emplace(column_id, column_index);
+            column_index++;
+        }
     }
     return status;
 }
@@ -408,6 +448,12 @@ Status WalTable::_read_wal_header(const std::string& wal_path, std::string& colu
     uint32_t version = 0;
     RETURN_IF_ERROR(wal_reader->read_header(version, columns));
     RETURN_IF_ERROR(wal_reader->finalize());
+    return Status::OK();
+}
+
+Status WalTable::_delete_wal(int64_t wal_id) {
+    RETURN_IF_ERROR(_exec_env->wal_mgr()->delete_wal(wal_id));
+    RETURN_IF_ERROR(_exec_env->wal_mgr()->erase_wal_status_queue(_table_id, wal_id));
     return Status::OK();
 }
 

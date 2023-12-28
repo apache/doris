@@ -58,10 +58,6 @@ public class ShowPartitionsStmtTest {
                 analyzer.getEnv();
                 minTimes = 0;
                 result = env;
-
-                analyzer.getClusterName();
-                minTimes = 0;
-                result = "testCluster";
             }
         };
 
@@ -71,7 +67,7 @@ public class ShowPartitionsStmtTest {
     public void testNormal() throws UserException {
         ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName(internalCtl, "testDb", "testTable"), null, null, null, false);
         stmt.analyzeImpl(analyzer);
-        Assert.assertEquals("SHOW PARTITIONS FROM `testCluster:testDb`.`testTable`", stmt.toString());
+        Assert.assertEquals("SHOW PARTITIONS FROM `testDb`.`testTable`", stmt.toString());
     }
 
     @Test
@@ -81,7 +77,7 @@ public class ShowPartitionsStmtTest {
         BinaryPredicate binaryPredicate = new BinaryPredicate(BinaryPredicate.Operator.GT, slotRef, stringLiteral);
         ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName(internalCtl, "testDb", "testTable"), binaryPredicate, null, null, false);
         stmt.analyzeImpl(analyzer);
-        Assert.assertEquals("SHOW PARTITIONS FROM `testCluster:testDb`.`testTable` WHERE `LastConsistencyCheckTime` > '2019-12-22 10:22:11'", stmt.toString());
+        Assert.assertEquals("SHOW PARTITIONS FROM `testDb`.`testTable` WHERE `LastConsistencyCheckTime` > '2019-12-22 10:22:11'", stmt.toString());
     }
 
     @Test
@@ -91,7 +87,7 @@ public class ShowPartitionsStmtTest {
         LikePredicate likePredicate = new LikePredicate(LikePredicate.Operator.LIKE, slotRef, stringLiteral);
         ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName(internalCtl, "testDb", "testTable"), likePredicate, null, null, false);
         stmt.analyzeImpl(analyzer);
-        Assert.assertEquals("SHOW PARTITIONS FROM `testCluster:testDb`.`testTable` WHERE `PartitionName` LIKE '%p2019%'", stmt.toString());
+        Assert.assertEquals("SHOW PARTITIONS FROM `testDb`.`testTable` WHERE `PartitionName` LIKE '%p2019%'", stmt.toString());
     }
 
     @Test
@@ -101,7 +97,7 @@ public class ShowPartitionsStmtTest {
         LimitElement limitElement = new LimitElement(10);
         ShowPartitionsStmt stmt = new ShowPartitionsStmt(new TableName(internalCtl, "testDb", "testTable"), null, Arrays.asList(orderByElement), limitElement, false);
         stmt.analyzeImpl(analyzer);
-        Assert.assertEquals("SHOW PARTITIONS FROM `testCluster:testDb`.`testTable` ORDER BY `PartitionId` ASC LIMIT 10", stmt.toString());
+        Assert.assertEquals("SHOW PARTITIONS FROM `testDb`.`testTable` ORDER BY `PartitionId` ASC LIMIT 10", stmt.toString());
     }
 
     @Test

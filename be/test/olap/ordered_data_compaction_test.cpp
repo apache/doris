@@ -271,6 +271,7 @@ protected:
         std::string json_rowset_meta = R"({
             "rowset_id": 540085,
             "tablet_id": 15674,
+            "partition_id": 10000,
             "txn_id": 4045,
             "tablet_schema_hash": 567997588,
             "rowset_type": "BETA_ROWSET",

@@ -33,7 +33,6 @@ import java.util.Objects;
  * @see PlaceholderCollector
  */
 public class PlaceholderExpression extends Expression implements AlwaysNotNullable {
-
     private final Class<? extends Expression> delegateClazz;
     /**
      * 1 based

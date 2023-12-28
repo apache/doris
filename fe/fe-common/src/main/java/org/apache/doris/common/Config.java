@@ -144,7 +144,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {"broker load 时，单个节点上 load 执行计划的默认并行度",
             "The default parallelism of the load execution plan on a single node when the broker load is submitted"})
-    public static int default_load_parallelism = 1;
+    public static int default_load_parallelism = 8;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "已完成或取消的导入作业信息的 label 会在这个时间后被删除。被删除的 label 可以被重用。",
@@ -456,6 +456,10 @@ public class Config extends ConfigBase {
             + " dead lock" })
     public static boolean publish_version_check_alter_replica = true;
 
+    @ConfField(mutable = true, masterOnly = true, description = {"单个事务 publish 失败打日志间隔",
+            "print log interval for publish transaction failed interval"})
+    public static long publish_fail_log_interval_second = 5 * 60;
+
     @ConfField(mutable = true, masterOnly = true, description = {"提交事务的最大超时时间，单位是秒。"
             + "该参数仅用于事务型 insert 操作中。",
             "Maximal waiting time for all data inserted before one transaction to be committed, in seconds. "
@@ -519,7 +523,7 @@ public class Config extends ConfigBase {
             "Default pre-commit timeout for stream load job, in seconds."})
     public static int stream_load_default_precommit_timeout_second = 3600; // 3600s
 
-    @ConfField(description = {"Stream Load 是否默认打开 memtable 前移",
+    @ConfField(mutable = true, masterOnly = true, description = {"Stream Load 是否默认打开 memtable 前移",
             "Whether to enable memtable on sink node by default in stream load"})
     public static boolean stream_load_default_memtable_on_sink_node = false;
 
@@ -1778,6 +1782,27 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long max_backend_heartbeat_failure_tolerance_count = 1;
 
+    /**
+     * Abort transaction time after lost heartbeat.
+     * The default value is 300s, which means transactions of be will be aborted after lost heartbeat 300s.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static int abort_txn_after_lost_heartbeat_time_second = 300;
+
+    /**
+     * Heartbeat interval in seconds.
+     * Default is 10, which means every 10 seconds, the master will send a heartbeat to all backends.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static int heartbeat_interval_second = 10;
+
+    /**
+     * After a backend is marked as unavailable, it will be added to blacklist.
+     * Default is 120.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static int blacklist_duration_second = 120;
+
     @ConfField(mutable = true, masterOnly = false, description = {
             "禁止创建odbc, mysql, broker类型的外表", "Disallow the creation of odbc, mysql, broker type external tables"})
     public static boolean enable_odbc_mysql_broker_table = false;
@@ -1905,6 +1930,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static boolean enable_hms_events_incremental_sync = false;
+
+    /**
+     * If set to true, doris will try to parse the ddl of a hive view and try to execute the query
+     * otherwise it will throw an AnalysisException.
+     */
+    @ConfField(mutable = true, varType = VariableAnnotation.EXPERIMENTAL, description = {
+            "当前默认设置为 false，开启后支持使用新优化器的load语句导入数据，失败后会降级旧的load语句。",
+            "Now default set to true, After this function is enabled, the load statement of "
+                    + "the new optimizer can be used to import data. If this function fails, "
+                    + "the old load statement will be degraded."})
+    public static boolean enable_nereids_load = false;
+
 
     /**
      * Maximum number of events to poll in each RPC.
@@ -2038,7 +2075,13 @@ public class Config extends ConfigBase {
     public static boolean skip_localhost_auth_check  = true;
 
     @ConfField(mutable = true)
-    public static boolean enable_round_robin_create_tablet = false;
+    public static boolean enable_round_robin_create_tablet = true;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "创建分区时，总是从第一个 BE 开始创建。注意：这种方式可能造成BE不均衡",
+            "When creating tablet of a partition, always start from the first BE. "
+                    + "Note: This method may cause BE imbalance"})
+    public static boolean create_tablet_round_robin_from_start = false;
 
     /**
      * To prevent different types (V1, V2, V3) of behavioral inconsistencies,
@@ -2275,6 +2318,12 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int publish_topic_info_interval_ms = 30000; // 30s
 
+    @ConfField(mutable = true)
+    public static int workload_sched_policy_interval_ms = 10000; // 10s
+
+    @ConfField(mutable = true)
+    public static int workload_action_interval_ms = 10000; // 10s
+
     @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})
     public static int check_wal_queue_timeout_threshold = 180000;   // 3 min
@@ -2331,4 +2380,13 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否开启通过http接口获取log文件的功能",
             "Whether to enable the function of getting log files through http interface"})
     public static boolean enable_get_log_file_api = false;
+
+    @ConfField(description = {"用于SQL方言转换的服务地址。",
+            "The service address for SQL dialect conversion."})
+    public static String sql_convertor_service = "";
+
+    @ConfField(mutable = true)
+    public static boolean enable_profile_when_analyze = false;
+    @ConfField(mutable = true)
+    public static boolean enable_collect_internal_query_profile = false;
 }

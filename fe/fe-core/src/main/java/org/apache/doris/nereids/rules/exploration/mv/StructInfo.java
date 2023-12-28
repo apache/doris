@@ -162,7 +162,7 @@ public class StructInfo {
     private void predicatesDerive() {
         // construct equivalenceClass according to equals predicates
         List<Expression> shuttledExpression = ExpressionUtils.shuttleExpressionWithLineage(
-                        this.predicates.getPulledUpPredicates(), originalPlan).stream()
+                        new ArrayList<>(this.predicates.getPulledUpPredicates()), originalPlan).stream()
                 .map(Expression.class::cast)
                 .collect(Collectors.toList());
         SplitPredicate splitPredicate = Predicates.splitPredicates(ExpressionUtils.and(shuttledExpression));
@@ -263,9 +263,10 @@ public class StructInfo {
      * For inner join should judge only the join tables,
      * for other join type should also judge the join direction, it's input filter that can not be pulled up etc.
      */
-    public static @Nullable List<Expression> isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
+    public static ComparisonResult isGraphLogicalEquals(StructInfo queryStructInfo, StructInfo viewStructInfo,
             LogicalCompatibilityContext compatibilityContext) {
-        return queryStructInfo.hyperGraph.isLogicCompatible(viewStructInfo.hyperGraph, compatibilityContext);
+        return HyperGraphComparator
+                .isLogicCompatible(queryStructInfo.hyperGraph, viewStructInfo.hyperGraph, compatibilityContext);
     }
 
     private static class RelationCollector extends DefaultPlanVisitor<Void, List<CatalogRelation>> {
@@ -282,7 +283,9 @@ public class StructInfo {
         @Override
         public Void visit(Plan plan, Set<Expression> predicates) {
             // Just collect the filter in top plan, if meet other node except project and filter, return
-            if (!(plan instanceof LogicalProject) && !(plan instanceof LogicalFilter)) {
+            if (!(plan instanceof LogicalProject)
+                    && !(plan instanceof LogicalFilter)
+                    && !(plan instanceof LogicalAggregate)) {
                 return null;
             }
             if (plan instanceof LogicalFilter) {
@@ -396,7 +399,7 @@ public class StructInfo {
                 super.visit(aggregate, context);
                 return true;
             }
-            if (plan instanceof LogicalProject) {
+            if (plan instanceof LogicalProject || plan instanceof LogicalFilter) {
                 super.visit(plan, context);
                 return true;
             }

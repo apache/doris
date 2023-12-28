@@ -18,12 +18,12 @@
 package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.system.SystemInfoService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,7 +67,7 @@ public class StatisticConstants {
 
     public static int ANALYZE_TASK_RETRY_TIMES = 5;
 
-    public static final String DB_NAME = SystemInfoService.DEFAULT_CLUSTER + ":" + FeConstants.INTERNAL_DB_NAME;
+    public static final String DB_NAME = FeConstants.INTERNAL_DB_NAME;
 
     public static final String FULL_QUALIFIED_STATS_TBL_NAME = InternalCatalog.INTERNAL_CATALOG_NAME
             + "." + FeConstants.INTERNAL_DB_NAME + "." + STATISTIC_TBL_NAME;
@@ -86,9 +86,9 @@ public class StatisticConstants {
     public static final int INSERT_MERGE_ITEM_COUNT = 200;
 
     public static final long HUGE_TABLE_DEFAULT_SAMPLE_ROWS = 4194304;
-    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 5L * 1024 * 1024 * 1024;
+    public static final long HUGE_TABLE_LOWER_BOUND_SIZE_IN_BYTES = 0;
 
-    public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(12);
+    public static final long HUGE_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(0);
 
     public static final long EXTERNAL_TABLE_AUTO_ANALYZE_INTERVAL_IN_MILLIS = TimeUnit.HOURS.toMillis(24);
 
@@ -103,10 +103,9 @@ public class StatisticConstants {
     public static final int MSG_LEN_UPPER_BOUND = 1024;
 
     static {
-        SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
-                + ClusterNamespace.CLUSTER_DELIMITER + FeConstants.INTERNAL_DB_NAME);
-        SYSTEM_DBS.add(SystemInfoService.DEFAULT_CLUSTER
-                + ClusterNamespace.CLUSTER_DELIMITER + "information_schema");
+        SYSTEM_DBS.add(FeConstants.INTERNAL_DB_NAME);
+        SYSTEM_DBS.add(InfoSchemaDb.DATABASE_NAME);
+        SYSTEM_DBS.add(MysqlDb.DATABASE_NAME);
     }
 
     public static boolean isSystemTable(TableIf tableIf) {

@@ -26,6 +26,7 @@ import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 public class ForeignKeyConstraint extends Constraint {
@@ -59,6 +60,18 @@ public class ForeignKeyConstraint extends Constraint {
 
     public String getReferencedColumnName(String column) {
         return foreignToReference.get(column);
+    }
+
+    public ImmutableMap<String, String> getForeignToReference() {
+        return foreignToReference;
+    }
+
+    public Map<Column, Column> getForeignToPrimary(TableIf curTable) {
+        ImmutableMap.Builder<Column, Column> columnBuilder = new ImmutableMap.Builder<>();
+        TableIf refTable = referencedTable.toTableIf();
+        foreignToReference.forEach((k, v) ->
+                columnBuilder.put(curTable.getColumn(k), refTable.getColumn(v)));
+        return columnBuilder.build();
     }
 
     public Column getReferencedColumn(String column) {

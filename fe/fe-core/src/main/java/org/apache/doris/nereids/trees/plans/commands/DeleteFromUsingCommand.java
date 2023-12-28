@@ -19,9 +19,9 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
@@ -96,7 +96,7 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
                 selectLists.add(new UnboundSlot(tableName, targetTable.getSequenceMapCol()));
             } else if (column.isKey()) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
-            } else if (!isMow && !column.isVisible()) {
+            } else if (!isMow && (!column.isVisible() || (!column.isAllowNull() && !column.hasDefaultValue()))) {
                 selectLists.add(new UnboundSlot(tableName, column.getName()));
             } else {
                 continue;
@@ -123,6 +123,14 @@ public class DeleteFromUsingCommand extends Command implements ForwardWithSync, 
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        if (!ctx.getSessionVariable().isEnableNereidsDML()) {
+            try {
+                ctx.getSessionVariable().enableFallbackToOriginalPlannerOnce();
+            } catch (Exception e) {
+                throw new AnalysisException("failed to set fallback to original planner to true", e);
+            }
+            throw new AnalysisException("Nereids DML is disabled, will try to fall back to the original planner");
+        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 

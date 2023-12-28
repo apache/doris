@@ -237,10 +237,23 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     for (int i = seg_start; i < seg_end; i++) {
         auto& seg_ptr = segments[i];
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
-            return Status::Error<ROWSET_READER_INIT>(s.to_string());
+        Status status;
+
+        /// If `_segment_row_ranges` is empty, the segment is not split.
+        if (_segment_row_ranges.empty()) {
+            _read_options.row_ranges.clear();
+            status = seg_ptr->new_iterator(_input_schema, _read_options, &iter);
+        } else {
+            DCHECK_EQ(seg_end - seg_start, _segment_row_ranges.size());
+            auto local_options = _read_options;
+            local_options.row_ranges = _segment_row_ranges[i - seg_start];
+            status = seg_ptr->new_iterator(_input_schema, local_options, &iter);
+        }
+
+        if (!status.ok()) {
+            LOG(WARNING) << "failed to create iterator[" << seg_ptr->id()
+                         << "]: " << status.to_string();
+            return Status::Error<ROWSET_READER_INIT>(status.to_string());
         }
         if (iter->empty()) {
             continue;
@@ -255,6 +268,7 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context, const RowSetSpl
     _read_context = read_context;
     _read_context->rowset_id = _rowset->rowset_id();
     _segment_offsets = rs_splits.segment_offsets;
+    _segment_row_ranges = rs_splits.segment_row_ranges;
     return Status::OK();
 }
 

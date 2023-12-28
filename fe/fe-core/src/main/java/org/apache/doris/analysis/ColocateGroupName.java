@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -55,7 +54,6 @@ public class ColocateGroupName {
                 }
                 db = analyzer.getDefaultDb();
             }
-            db = ClusterNamespace.getFullName(analyzer.getClusterName(), db);
         }
     }
 

@@ -547,7 +547,7 @@ public class CreateTableAsSelectStmtTest extends TestWithFeService {
 
     @Test
     public void testQuerySchema() throws Exception {
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         String create1 = "create table test.qs1 (k1 int, k2 int) distributed by hash(k1) "
                 + "buckets 1 properties('replication_num' = '1')";
         String create2 = "create table test.qs2 (k1 int, k2 int) distributed by hash(k1) "

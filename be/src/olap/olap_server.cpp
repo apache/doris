@@ -57,6 +57,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segcompaction.h"
 #include "olap/schema_change.h"
+#include "olap/single_replica_compaction.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_manager.h"
@@ -593,11 +594,6 @@ void StorageEngine::_compaction_tasks_producer_callback() {
                 continue;
             }
 
-            /// Regardless of whether the tablet is submitted for compaction or not,
-            /// we need to call 'reset_compaction' to clean up the base_compaction or cumulative_compaction objects
-            /// in the tablet, because these two objects store the tablet's own shared_ptr.
-            /// If it is not cleaned up, the reference count of the tablet will always be greater than 1,
-            /// thus cannot be collected by the garbage collector. (TabletManager::start_trash_sweep)
             for (const auto& tablet : tablets_compaction) {
                 if (compaction_type == CompactionType::BASE_COMPACTION) {
                     tablet->set_last_base_compaction_schedule_time(UnixMillis());
@@ -717,33 +713,39 @@ Status StorageEngine::_submit_single_replica_compaction_task(TabletSharedPtr tab
         return Status::AlreadyExist<false>(
                 "compaction task has already been submitted, tablet_id={}", tablet->tablet_id());
     }
-    Status st = tablet->prepare_single_replica_compaction(tablet, compaction_type);
+
+    auto compaction = std::make_shared<SingleReplicaCompaction>(tablet, compaction_type);
+    auto st = compaction->prepare_compact();
+
     auto clean_single_replica_compaction = [tablet, this]() {
-        tablet->reset_single_replica_compaction();
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::CUMULATIVE_COMPACTION);
         _pop_tablet_from_submitted_compaction(tablet, CompactionType::BASE_COMPACTION);
     };
 
-    if (st.ok()) {
-        auto submit_st = _single_replica_compaction_thread_pool->submit_func(
-                [tablet, compaction_type, clean_single_replica_compaction]() {
-                    tablet->execute_single_replica_compaction(compaction_type);
-                    clean_single_replica_compaction();
-                });
-        if (!submit_st.ok()) {
-            clean_single_replica_compaction();
-            return Status::InternalError(
-                    "failed to submit single replica compaction task to thread pool, "
-                    "tablet_id={} ",
-                    tablet->tablet_id());
+    if (!st.ok()) {
+        clean_single_replica_compaction();
+        if (!st.is<ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION>()) {
+            LOG(WARNING) << "failed to prepare single replica compaction, tablet_id="
+                         << tablet->tablet_id() << " : " << st;
+            return st;
         }
-        return Status::OK();
-    } else {
+        return Status::OK(); // No suitable version, regard as OK
+    }
+
+    auto submit_st = _single_replica_compaction_thread_pool->submit_func(
+            [tablet, compaction = std::move(compaction),
+             clean_single_replica_compaction]() mutable {
+                tablet->execute_single_replica_compaction(*compaction);
+                clean_single_replica_compaction();
+            });
+    if (!submit_st.ok()) {
         clean_single_replica_compaction();
         return Status::InternalError(
-                "failed to prepare single replica compaction task tablet_id={} ",
+                "failed to submit single replica compaction task to thread pool, "
+                "tablet_id={}",
                 tablet->tablet_id());
     }
+    return Status::OK();
 }
 
 void StorageEngine::get_tablet_rowset_versions(const PGetTabletVersionsRequest* request,
@@ -917,8 +919,10 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 "compaction task has already been submitted, tablet_id={}, compaction_type={}.",
                 tablet->tablet_id(), compaction_type);
     }
+    std::shared_ptr<Compaction> compaction;
     int64_t permits = 0;
-    Status st = tablet->prepare_compaction_and_calculate_permits(compaction_type, tablet, &permits);
+    Status st = Tablet::prepare_compaction_and_calculate_permits(compaction_type, tablet,
+                                                                 compaction, permits);
     bool is_low_priority_task = [&]() {
         // Can add more strategies to determine whether a task is a low priority task in the future
         if (!config::enable_compaction_priority_scheduling) {
@@ -938,27 +942,24 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                 (compaction_type == CompactionType::CUMULATIVE_COMPACTION)
                         ? _cumu_compaction_thread_pool
                         : _base_compaction_thread_pool;
-        auto st = thread_pool->submit_func([tablet, compaction_type, permits, is_low_priority_task,
+        auto st = thread_pool->submit_func([tablet, compaction = std::move(compaction),
+                                            compaction_type, permits, is_low_priority_task,
                                             this]() {
             if (is_low_priority_task && !_increase_low_priority_task_nums(tablet->data_dir())) {
                 VLOG_DEBUG << "skip low priority compaction task for tablet: "
                            << tablet->tablet_id();
                 // Todo: push task back
             } else {
-                tablet->execute_compaction(compaction_type);
+                tablet->execute_compaction(*compaction);
                 if (is_low_priority_task) {
                     _decrease_low_priority_task_nums(tablet->data_dir());
                 }
             }
             _permit_limiter.release(permits);
-            // reset compaction
-            tablet->reset_compaction(compaction_type);
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         });
         if (!st.ok()) {
             _permit_limiter.release(permits);
-            // reset compaction
-            tablet->reset_compaction(compaction_type);
             _pop_tablet_from_submitted_compaction(tablet, compaction_type);
             return Status::InternalError(
                     "failed to submit compaction task to thread pool, "
@@ -967,8 +968,6 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
         }
         return Status::OK();
     } else {
-        // reset compaction
-        tablet->reset_compaction(compaction_type);
         _pop_tablet_from_submitted_compaction(tablet, compaction_type);
         if (!st.ok()) {
             return Status::InternalError(

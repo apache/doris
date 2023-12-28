@@ -107,6 +107,22 @@ Status Channel<Parent>::init(RuntimeState* state) {
 }
 
 template <typename Parent>
+std::shared_ptr<pipeline::LocalExchangeChannelDependency>
+PipChannel<Parent>::get_local_channel_dependency() {
+    if (!Channel<Parent>::_local_recvr) {
+        if constexpr (std::is_same_v<pipeline::ExchangeSinkLocalState, Parent>) {
+            throw Exception(ErrorCode::INTERNAL_ERROR,
+                            "_local_recvr is null: " +
+                                    std::to_string(Channel<Parent>::_parent->parent()->node_id()));
+        } else {
+            throw Exception(ErrorCode::INTERNAL_ERROR, "_local_recvr is null");
+        }
+    }
+    return Channel<Parent>::_local_recvr->get_local_channel_dependency(
+            Channel<Parent>::_parent->sender_id());
+}
+
+template <typename Parent>
 Status Channel<Parent>::send_current_block(bool eos, Status exec_status) {
     // FIXME: Now, local exchange will cause the performance problem is in a multi-threaded scenario
     // so this feature is turned off here by default. We need to re-examine this logic
@@ -361,8 +377,10 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
     }
     _name = "VDataStreamSender";
     if (_enable_pipeline_exec) {
-        _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
-        _broadcast_pb_block_idx = 0;
+        _broadcast_pb_blocks = vectorized::BroadcastPBlockHolderQueue::create_shared();
+        for (int i = 0; i < config::num_broadcast_buffer; ++i) {
+            _broadcast_pb_blocks->push(vectorized::BroadcastPBlockHolder::create_shared());
+        }
     } else {
         _cur_pb_block = &_pb_block1;
     }
@@ -536,7 +554,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 }
             }
         } else if (_enable_pipeline_exec) {
-            BroadcastPBlockHolder* block_holder = nullptr;
+            std::shared_ptr<BroadcastPBlockHolder> block_holder = nullptr;
             RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
@@ -552,19 +570,15 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                         block_holder->get_block()->Clear();
                     }
                     Status status;
-                    block_holder->ref(_channels.size());
                     for (auto channel : _channels) {
                         if (!channel->is_receiver_eof()) {
                             if (channel->is_local()) {
-                                block_holder->unref();
                                 status = channel->send_local_block(&cur_block);
                             } else {
                                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                                 status = channel->send_broadcast_block(block_holder, eos);
                             }
                             HANDLE_CHANNEL_STATUS(state, channel, status);
-                        } else {
-                            block_holder->unref();
                         }
                     }
                     cur_block.clear_column_data();
@@ -777,23 +791,20 @@ void VDataStreamSender::_roll_pb_block() {
     _cur_pb_block = (_cur_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
 }
 
-Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** holder) {
-    if (_broadcast_pb_block_idx >= _broadcast_pb_blocks.size()) {
-        return Status::InternalError(
-                "get_next_available_buffer meet invalid index, index={}, size={}",
-                _broadcast_pb_block_idx, _broadcast_pb_blocks.size());
+Status VDataStreamSender::_get_next_available_buffer(
+        std::shared_ptr<BroadcastPBlockHolder>* holder) {
+    if (_broadcast_pb_blocks->empty()) {
+        return Status::InternalError("No broadcast buffer left!");
+    } else {
+        *holder = _broadcast_pb_blocks->pop();
+        return Status::OK();
     }
-    if (!_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
-        return Status::InternalError("broadcast_pb_blocks not available");
-    }
-    *holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx];
-    _broadcast_pb_block_idx++;
-    return Status::OK();
 }
 
-void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer) {
+void VDataStreamSender::register_pipeline_channels(
+        pipeline::ExchangeSinkBuffer<VDataStreamSender>* buffer) {
     for (auto channel : _channels) {
-        ((PipChannel<VDataStreamSender>*)channel)->registe(buffer);
+        ((PipChannel<VDataStreamSender>*)channel)->register_exchange_buffer(buffer);
     }
 }
 
@@ -802,16 +813,7 @@ bool VDataStreamSender::channel_all_can_write() {
         !_only_local_exchange) {
         // This condition means we need use broadcast buffer, so we should make sure
         // there are available buffer before running pipeline
-        if (_broadcast_pb_block_idx == _broadcast_pb_blocks.size()) {
-            _broadcast_pb_block_idx = 0;
-        }
-
-        for (; _broadcast_pb_block_idx < _broadcast_pb_blocks.size(); _broadcast_pb_block_idx++) {
-            if (_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
-                return true;
-            }
-        }
-        return false;
+        return !_broadcast_pb_blocks->empty();
     } else {
         for (auto channel : _channels) {
             if (!channel->can_write()) {
@@ -824,6 +826,8 @@ bool VDataStreamSender::channel_all_can_write() {
 
 template class Channel<pipeline::ExchangeSinkLocalState>;
 template class Channel<VDataStreamSender>;
+template class PipChannel<pipeline::ExchangeSinkLocalState>;
+template class PipChannel<VDataStreamSender>;
 template class Channel<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ResultFileSinkLocalState>;
 template class BlockSerializer<pipeline::ExchangeSinkLocalState>;

@@ -20,11 +20,9 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.CatalogIf;
-import org.apache.doris.qe.ConnectContext;
 
 public class AnalyzeDBStmt extends AnalyzeStmt {
 
@@ -38,7 +36,7 @@ public class AnalyzeDBStmt extends AnalyzeStmt {
     public AnalyzeDBStmt(String ctlName, String dbName, AnalyzeProperties analyzeProperties) {
         super(analyzeProperties);
         this.ctlName = ctlName;
-        this.dbName = ConnectContext.get().getClusterName() + ClusterNamespace.CLUSTER_DELIMITER + dbName;
+        this.dbName = dbName;
     }
 
     @Override

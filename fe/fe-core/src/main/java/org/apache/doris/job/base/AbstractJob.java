@@ -23,6 +23,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.LogBuilder;
+import org.apache.doris.common.util.LogKey;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
@@ -76,13 +78,55 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     private JobExecutionConfiguration jobConfig;
 
     @SerializedName(value = "ctms")
-    private Long createTimeMs;
+    private long createTimeMs;
+
+    @SerializedName(value = "stm")
+    private long startTimeMs = -1L;
+
+    @SerializedName(value = "ftm")
+    private long finishTimeMs;
 
     @SerializedName(value = "sql")
     String executeSql;
 
-    @SerializedName(value = "ftm")
-    private long finishTimeMs;
+    public AbstractJob() {
+    }
+
+    public AbstractJob(Long id) {
+        jobId = id;
+    }
+
+    /**
+     * executeSql and runningTasks is not required for load.
+     */
+    public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
+                       String currentDbName,
+                       String comment,
+                       UserIdentity createUser,
+                       JobExecutionConfiguration jobConfig) {
+        this(jobId, jobName, jobStatus, currentDbName, comment,
+                createUser, jobConfig, System.currentTimeMillis(), null, null);
+    }
+
+    public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
+                       String currentDbName,
+                       String comment,
+                       UserIdentity createUser,
+                       JobExecutionConfiguration jobConfig,
+                       Long createTimeMs,
+                       String executeSql,
+                       List<T> runningTasks) {
+        this.jobId = jobId;
+        this.jobName = jobName;
+        this.jobStatus = jobStatus;
+        this.currentDbName = currentDbName;
+        this.comment = comment;
+        this.createUser = createUser;
+        this.jobConfig = jobConfig;
+        this.createTimeMs = createTimeMs;
+        this.executeSql = executeSql;
+        this.runningTasks = runningTasks;
+    }
 
     private List<T> runningTasks = new ArrayList<>();
 
@@ -94,6 +138,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         for (T task : runningTasks) {
             task.cancel();
         }
+        runningTasks = new ArrayList<>();
     }
 
     private static final ImmutableList<String> TITLE_NAMES =
@@ -109,6 +154,10 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                     .add("Comment")
                     .build();
 
+    protected static long getNextJobId() {
+        return System.nanoTime() + RandomUtils.nextInt();
+    }
+
     @Override
     public void cancelTaskById(long taskId) throws JobException {
         if (CollectionUtils.isEmpty(runningTasks)) {
@@ -116,6 +165,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         runningTasks.stream().filter(task -> task.getTaskId().equals(taskId)).findFirst()
                 .orElseThrow(() -> new JobException("no task id: " + taskId)).cancel();
+        runningTasks.removeIf(task -> task.getTaskId().equals(taskId));
         if (jobConfig.getExecuteType().equals(JobExecuteType.ONE_TIME)) {
             updateJobStatus(JobStatus.FINISHED);
         }
@@ -154,17 +204,18 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         return createTasks(taskType, taskContext);
     }
 
-    public void initTasks(List<? extends AbstractTask> tasks) {
+    public void initTasks(Collection<? extends T> tasks, TaskType taskType) {
+        if (CollectionUtils.isEmpty(getRunningTasks())) {
+            runningTasks = new ArrayList<>();
+        }
         tasks.forEach(task -> {
-            task.setJobId(jobId);
-            task.setTaskId(getNextId());
+            task.setTaskType(taskType);
+            task.setJobId(getJobId());
             task.setCreateTimeMs(System.currentTimeMillis());
             task.setStatus(TaskStatus.PENDING);
         });
-        if (CollectionUtils.isEmpty(getRunningTasks())) {
-            setRunningTasks(new ArrayList<>());
-        }
-        getRunningTasks().addAll((Collection<? extends T>) tasks);
+        getRunningTasks().addAll(tasks);
+        this.startTimeMs = System.currentTimeMillis();
     }
 
     public void checkJobParams() {
@@ -208,8 +259,20 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     public static AbstractJob readFields(DataInput in) throws IOException {
         String jsonJob = Text.readString(in);
         AbstractJob job = GsonUtils.GSON.fromJson(jsonJob, AbstractJob.class);
-        job.setRunningTasks(new ArrayList<>());
+        job.runningTasks = new ArrayList<>();
         return job;
+    }
+
+    public void logCreateOperation() {
+        Env.getCurrentEnv().getEditLog().logCreateJob(this);
+    }
+
+    public void logFinalOperation() {
+        Env.getCurrentEnv().getEditLog().logEndJob(this);
+    }
+
+    public void logUpdateOperation() {
+        Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
 
     @Override
@@ -303,7 +366,21 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         return builder.build();
     }
 
-    private static long getNextId() {
-        return System.nanoTime() + RandomUtils.nextInt();
+    @Override
+    public void onRegister() throws JobException {
+    }
+
+    @Override
+    public void onUnRegister() throws JobException {
+    }
+
+    @Override
+    public void onReplayCreate() throws JobException {
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay create scheduler job").build());
+    }
+
+    @Override
+    public void onReplayEnd(AbstractJob<?, C> replayJob) throws JobException {
+        log.info(new LogBuilder(LogKey.SCHEDULER_JOB, getJobId()).add("msg", "replay delete scheduler job").build());
     }
 }

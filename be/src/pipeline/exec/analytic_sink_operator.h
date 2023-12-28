@@ -107,14 +107,15 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;
-    std::vector<TExpr> get_local_shuffle_exprs() const override { return _partition_exprs; }
-    ExchangeType get_local_exchange_type() const override {
+    DataDistribution required_data_distribution() const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
-            return ExchangeType::PASSTHROUGH;
+            return {ExchangeType::PASSTHROUGH};
         } else if (_order_by_eq_expr_ctxs.empty()) {
-            return _is_colocate ? ExchangeType::BUCKET_HASH_SHUFFLE : ExchangeType::HASH_SHUFFLE;
+            return _is_colocate
+                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
+                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
         }
-        return ExchangeType::NOOP;
+        return DataSinkOperatorX<AnalyticSinkLocalState>::required_data_distribution();
     }
 
 private:

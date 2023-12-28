@@ -85,7 +85,6 @@ public class CreateTableStmt extends DdlStmt {
 
     // set in analyze
     private List<Column> columns = Lists.newArrayList();
-
     private List<Index> indexes = Lists.newArrayList();
 
     static {
@@ -130,48 +129,26 @@ public class CreateTableStmt extends DdlStmt {
         columnDefs = Lists.newArrayList();
     }
 
-    public CreateTableStmt(boolean ifNotExists,
-            boolean isExternal,
-            TableName tableName,
-            List<ColumnDef> columnDefinitions,
-            String engineName,
-            KeysDesc keysDesc,
-            PartitionDesc partitionDesc,
-            DistributionDesc distributionDesc,
-            Map<String, String> properties,
-            Map<String, String> extProperties,
+    public CreateTableStmt(boolean ifNotExists, boolean isExternal, TableName tableName,
+            List<ColumnDef> columnDefinitions, String engineName, KeysDesc keysDesc, PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc, Map<String, String> properties, Map<String, String> extProperties,
             String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
                 distributionDesc, properties, extProperties, comment, null);
     }
 
-    public CreateTableStmt(boolean ifNotExists,
-            boolean isExternal,
-            TableName tableName,
-            List<ColumnDef> columnDefinitions,
-            String engineName,
-            KeysDesc keysDesc,
-            PartitionDesc partitionDesc,
-            DistributionDesc distributionDesc,
-            Map<String, String> properties,
-            Map<String, String> extProperties,
+    public CreateTableStmt(boolean ifNotExists, boolean isExternal, TableName tableName,
+            List<ColumnDef> columnDefinitions, String engineName, KeysDesc keysDesc, PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc, Map<String, String> properties, Map<String, String> extProperties,
             String comment, List<AlterClause> ops) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
                 distributionDesc, properties, extProperties, comment, ops);
     }
 
-    public CreateTableStmt(boolean ifNotExists,
-            boolean isExternal,
-            TableName tableName,
-            List<ColumnDef> columnDefinitions,
-            List<IndexDef> indexDefs,
-            String engineName,
-            KeysDesc keysDesc,
-            PartitionDesc partitionDesc,
-            DistributionDesc distributionDesc,
-            Map<String, String> properties,
-            Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList) {
+    public CreateTableStmt(boolean ifNotExists, boolean isExternal, TableName tableName,
+            List<ColumnDef> columnDefinitions, List<IndexDef> indexDefs, String engineName, KeysDesc keysDesc,
+            PartitionDesc partitionDesc, DistributionDesc distributionDesc, Map<String, String> properties,
+            Map<String, String> extProperties, String comment, List<AlterClause> rollupAlterClauseList) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -198,21 +175,10 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     // for Nereids
-    public CreateTableStmt(boolean ifNotExists,
-            boolean isExternal,
-            TableName tableName,
-            List<Column> columns,
-            List<Index> indexes,
-            String engineName,
-            KeysDesc keysDesc,
-            PartitionDesc partitionDesc,
-            DistributionDesc distributionDesc,
-            Map<String, String> properties,
-            Map<String, String> extProperties,
-            String comment,
-            List<AlterClause> rollupAlterClauseList,
-            String clusterName,
-            Void unused) {
+    public CreateTableStmt(boolean ifNotExists, boolean isExternal, TableName tableName, List<Column> columns,
+            List<Index> indexes, String engineName, KeysDesc keysDesc, PartitionDesc partitionDesc,
+            DistributionDesc distributionDesc, Map<String, String> properties, Map<String, String> extProperties,
+            String comment, List<AlterClause> rollupAlterClauseList, Void unused) {
         this.ifNotExists = ifNotExists;
         this.isExternal = isExternal;
         this.tableName = tableName;
@@ -227,7 +193,6 @@ public class CreateTableStmt extends DdlStmt {
         this.columnDefs = Lists.newArrayList();
         this.comment = Strings.nullToEmpty(comment);
         this.rollupAlterClauseList = (rollupAlterClauseList == null) ? Lists.newArrayList() : rollupAlterClauseList;
-        this.setClusterName(clusterName);
     }
 
     public void addColumnDef(ColumnDef columnDef) {
@@ -310,8 +275,8 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException, AnalysisException {
-        if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
+    public void analyze(Analyzer analyzer) throws UserException {
+        if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
         }
 
@@ -321,8 +286,8 @@ public class CreateTableStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
 
-        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName.getDb(),
-                tableName.getTbl(), PrivPredicate.CREATE)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "CREATE");
         }
 
@@ -330,10 +295,10 @@ public class CreateTableStmt extends DdlStmt {
 
         boolean enableDuplicateWithoutKeysByDefault = false;
         if (properties != null) {
-            enableDuplicateWithoutKeysByDefault =
-                    PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(properties);
+            enableDuplicateWithoutKeysByDefault = PropertyAnalyzer.analyzeEnableDuplicateWithoutKeysByDefault(
+                    properties);
         }
-        //pre-block creation with column type ALL
+        // pre-block creation with column type ALL
         for (ColumnDef columnDef : columnDefs) {
             if (Objects.equals(columnDef.getType(), Type.ALL)) {
                 throw new AnalysisException("Disable to create table with `ALL` type columns.");
@@ -342,14 +307,14 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Disable to create table with `DATE` type columns, please use `DATEV2`.");
             }
             if (Objects.equals(columnDef.getType(), Type.DECIMALV2) && Config.disable_decimalv2) {
-                throw new AnalysisException("Disable to create table with `DECIMAL` type columns,"
-                                            + "please use `DECIMALV3`.");
+                throw new AnalysisException(
+                        "Disable to create table with `DECIMAL` type columns," + "please use `DECIMALV3`.");
             }
         }
 
         boolean enableUniqueKeyMergeOnWrite = false;
         // analyze key desc
-        if (engineName.equalsIgnoreCase("olap")) {
+        if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // olap table
             if (keysDesc == null) {
                 List<String> keysColumnNames = Lists.newArrayList();
@@ -363,9 +328,9 @@ public class CreateTableStmt extends DdlStmt {
                 }
                 if (hasAggregate) {
                     for (ColumnDef columnDef : columnDefs) {
-                        if (columnDef.getAggregateType() == null
-                                && !columnDef.getType().isScalarType(PrimitiveType.STRING)
-                                && !columnDef.getType().isScalarType(PrimitiveType.JSONB)) {
+                        if (columnDef.getAggregateType() == null && !columnDef.getType()
+                                .isScalarType(PrimitiveType.STRING) && !columnDef.getType()
+                                .isScalarType(PrimitiveType.JSONB)) {
                             keysColumnNames.add(columnDef.getName());
                         }
                     }
@@ -376,8 +341,8 @@ public class CreateTableStmt extends DdlStmt {
                             keyLength += columnDef.getType().getIndexSize();
                             if (keysColumnNames.size() >= FeConstants.shortkey_max_column_count
                                     || keyLength > FeConstants.shortkey_maxsize_bytes) {
-                                if (keysColumnNames.size() == 0
-                                        && columnDef.getType().getPrimitiveType().isCharFamily()) {
+                                if (keysColumnNames.isEmpty() && columnDef.getType().getPrimitiveType()
+                                        .isCharFamily()) {
                                     keysColumnNames.add(columnDef.getName());
                                 }
                                 break;
@@ -413,7 +378,7 @@ public class CreateTableStmt extends DdlStmt {
             } else {
                 if (enableDuplicateWithoutKeysByDefault) {
                     throw new AnalysisException("table property 'enable_duplicate_without_keys_by_default' only can"
-                                    + " set 'true' when create olap table by default.");
+                            + " set 'true' when create olap table by default.");
                 }
             }
 
@@ -465,13 +430,11 @@ public class CreateTableStmt extends DdlStmt {
         }
 
         // analyze column def
-        if (!(engineName.equals("elasticsearch"))
-                && (columnDefs == null || columnDefs.isEmpty())) {
+        if (!(engineName.equalsIgnoreCase("elasticsearch")) && (columnDefs == null || columnDefs.isEmpty())) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLE_MUST_HAVE_COLUMNS);
         }
         // add a hidden column as delete flag for unique table
-        if (Config.enable_batch_delete_by_default
-                && keysDesc != null
+        if (Config.enable_batch_delete_by_default && keysDesc != null
                 && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
             if (enableUniqueKeyMergeOnWrite) {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.NONE));
@@ -504,14 +467,14 @@ public class CreateTableStmt extends DdlStmt {
         }
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
-            columnDef.analyze(engineName.equals("olap"));
+            columnDef.analyze(engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME));
 
-            if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
-                if (columnDef.getAggregateType() != null
-                        && columnDef.getAggregateType() != AggregateType.NONE
+            if (columnDef.getType().isComplexType() && engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
+                if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE
                         && columnDef.getAggregateType() != AggregateType.REPLACE) {
-                    throw new AnalysisException(columnDef.getType().getPrimitiveType()
-                            + " column can't support aggregation " + columnDef.getAggregateType());
+                    throw new AnalysisException(
+                            columnDef.getType().getPrimitiveType() + " column can't support aggregation "
+                                    + columnDef.getAggregateType());
                 }
                 if (columnDef.isKey()) {
                     throw new AnalysisException(columnDef.getType().getPrimitiveType()
@@ -523,30 +486,22 @@ public class CreateTableStmt extends DdlStmt {
                 throw new AnalysisException("Time type is not supported for olap table");
             }
 
-            if (columnDef.getType().isObjectStored()) {
-                if (!columnDef.getType().isBitmapType()) {
-                    if (keysDesc.getKeysType() != KeysType.AGG_KEYS) {
-                        throw new AnalysisException("column:" + columnDef.getName() + " must be used in AGG_KEYS.");
-                    }
-                }
-            }
-
             if (!columnSet.add(columnDef.getName())) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_DUP_FIELDNAME, columnDef.getName());
             }
         }
 
-        if (engineName.equals("olap")) {
+        if (engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
             // before analyzing partition, handle the replication allocation info
-            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(
-                    tableName.getCtl(), tableName.getDb(), properties);
+            properties = PropertyAnalyzer.rewriteReplicaAllocationProperties(tableName.getCtl(), tableName.getDb(),
+                    properties);
             // analyze partition
             if (partitionDesc != null) {
                 if (partitionDesc instanceof ListPartitionDesc || partitionDesc instanceof RangePartitionDesc) {
                     partitionDesc.analyze(columnDefs, properties);
                 } else {
-                    throw new AnalysisException("Currently only support range"
-                            + " and list partition with engine type olap");
+                    throw new AnalysisException(
+                            "Currently only support range" + " and list partition with engine type olap");
                 }
 
             }
@@ -563,10 +518,10 @@ public class CreateTableStmt extends DdlStmt {
                     for (ColumnDef columnDef : columnDefs) {
                         if (columnDef.getAggregateType() == AggregateType.REPLACE
                                 || columnDef.getAggregateType() == AggregateType.REPLACE_IF_NOT_NULL) {
-                            throw new AnalysisException("Create aggregate keys table with value columns of which"
-                                    + " aggregate type is " + columnDef.getAggregateType()
-                                    + " should not contain random"
-                                    + " distribution desc");
+                            throw new AnalysisException(
+                                    "Create aggregate keys table with value columns of which" + " aggregate type is "
+                                            + columnDef.getAggregateType() + " should not contain random"
+                                            + " distribution desc");
                         }
                     }
                 }
@@ -575,8 +530,8 @@ public class CreateTableStmt extends DdlStmt {
             EsUtil.analyzePartitionAndDistributionDesc(partitionDesc, distributionDesc);
         } else {
             if (partitionDesc != null || distributionDesc != null) {
-                throw new AnalysisException("Create " + engineName
-                        + " table should not contain partition or distribution desc");
+                throw new AnalysisException(
+                        "Create " + engineName + " table should not contain partition or distribution desc");
             }
         }
 
@@ -596,7 +551,7 @@ public class CreateTableStmt extends DdlStmt {
 
             for (IndexDef indexDef : indexDefs) {
                 indexDef.analyze();
-                if (!engineName.equalsIgnoreCase("olap")) {
+                if (!engineName.equalsIgnoreCase(DEFAULT_ENGINE_NAME)) {
                     throw new AnalysisException("index only support in olap engine at current version.");
                 }
                 for (String indexColName : indexDef.getColumns()) {
@@ -609,13 +564,11 @@ public class CreateTableStmt extends DdlStmt {
                         }
                     }
                     if (!found) {
-                        throw new AnalysisException("Column does not exist in table. invalid column: "
-                                + indexColName);
+                        throw new AnalysisException("Column does not exist in table. invalid column: " + indexColName);
                     }
                 }
-                indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(),
-                        indexDef.getColumns(), indexDef.getIndexType(),
-                        indexDef.getProperties(), indexDef.getComment()));
+                indexes.add(new Index(Env.getCurrentEnv().getNextId(), indexDef.getIndexName(), indexDef.getColumns(),
+                        indexDef.getIndexType(), indexDef.getProperties(), indexDef.getComment()));
                 distinct.add(indexDef.getIndexName());
                 distinctCol.add(Pair.of(indexDef.getIndexType(),
                         indexDef.getColumns().stream().map(String::toUpperCase).collect(Collectors.toList())));
@@ -697,10 +650,14 @@ public class CreateTableStmt extends DdlStmt {
             }
         }
         sb.append("\n)");
-        sb.append(" ENGINE = ").append(engineName);
+        sb.append(" ENGINE = ").append(engineName.toLowerCase());
 
         if (keysDesc != null) {
             sb.append("\n").append(keysDesc.toSql());
+        }
+
+        if (!Strings.isNullOrEmpty(comment)) {
+            sb.append("\nCOMMENT \"").append(comment).append("\"");
         }
 
         if (partitionDesc != null) {
@@ -711,7 +668,7 @@ public class CreateTableStmt extends DdlStmt {
             sb.append("\n").append(distributionDesc.toSql());
         }
 
-        if (rollupAlterClauseList != null && rollupAlterClauseList.size() != 0) {
+        if (rollupAlterClauseList != null && !rollupAlterClauseList.isEmpty()) {
             sb.append("\n rollup(");
             StringBuilder opsSb = new StringBuilder();
             for (int i = 0; i < rollupAlterClauseList.size(); i++) {
@@ -729,18 +686,14 @@ public class CreateTableStmt extends DdlStmt {
         // which is implemented in Catalog.getDdlStmt()
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");
-            sb.append(new PrintableMap<String, String>(properties, " = ", true, true, true));
+            sb.append(new PrintableMap<>(properties, " = ", true, true, true));
             sb.append(")");
         }
 
         if (extProperties != null && !extProperties.isEmpty()) {
             sb.append("\n").append(engineName.toUpperCase()).append(" PROPERTIES (");
-            sb.append(new PrintableMap<String, String>(extProperties, " = ", true, true, true));
+            sb.append(new PrintableMap<>(extProperties, " = ", true, true, true));
             sb.append(")");
-        }
-
-        if (!Strings.isNullOrEmpty(comment)) {
-            sb.append("\nCOMMENT \"").append(comment).append("\"");
         }
 
         return sb.toString();

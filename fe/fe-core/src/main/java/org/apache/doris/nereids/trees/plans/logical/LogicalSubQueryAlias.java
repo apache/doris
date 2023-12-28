@@ -183,6 +183,10 @@ public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<
         return relationId;
     }
 
+    public List<String> getQualifier() {
+        return qualifier;
+    }
+
     @Override
     public Set<RelationId> getInputRelations() {
         Set<RelationId> relationIdSet = Sets.newHashSet();

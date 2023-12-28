@@ -52,8 +52,8 @@
 #include "vec/data_types/data_type.h"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/sink/volap_table_sink.h"
 #include "vec/sink/vrow_distribution.h"
-#include "vec/sink/vtablet_sink.h"
 
 #ifdef DEBUG
 #include <unordered_set>
@@ -1139,7 +1139,7 @@ Status VTabletWriter::_init(RuntimeState* state, RuntimeProfile* profile) {
     _num_senders = state->num_per_fragment_instances();
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
-
+    DBUG_EXECUTE_IF("VTabletWriter._init.is_high_priority", { _is_high_priority = true; });
     // profile must add to state's object pool
     _mem_tracker =
             std::make_shared<MemTracker>("OlapTableSink:" + std::to_string(state->load_job_id()));

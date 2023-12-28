@@ -20,7 +20,9 @@ suite("limit_push_down") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "use regression_test_nereids_rules_p0"
     sql """ SET inline_cte_referenced_threshold=0 """
-    sql "set disable_join_reorder=true"
+    sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "SET disable_join_reorder=true"
+
     sql 'set be_number_for_test=3'
     //`limit 1, project`:
     qt_limit_project """ explain shape plan SELECT t1.id as c FROM t1 LIMIT 1; """

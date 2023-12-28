@@ -527,6 +527,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     }
 
+    @Override
+    public void rewriteElementAtToSlot(ExprRewriter rewriter, TQueryOptions tQueryOptions) throws AnalysisException {
+    }
+
 
     /**
      * register expr_id of expr and its children, if not set

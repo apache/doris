@@ -49,6 +49,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.BetweenToCompoundRule;
 import org.apache.doris.rewrite.CompoundPredicateWriteRule;
+import org.apache.doris.rewrite.ElementAtToSlotRefRule;
 import org.apache.doris.rewrite.EliminateUnnecessaryFunctions;
 import org.apache.doris.rewrite.EraseRedundantCastExpr;
 import org.apache.doris.rewrite.ExprRewriteRule;
@@ -454,6 +455,7 @@ public class Analyzer {
             rules.add(RewriteIsNullIsNotNullRule.INSTANCE);
             rules.add(MatchPredicateRule.INSTANCE);
             rules.add(EliminateUnnecessaryFunctions.INSTANCE);
+            rules.add(ElementAtToSlotRefRule.INSTANCE);
             List<ExprRewriteRule> onceRules = Lists.newArrayList();
             onceRules.add(ExtractCommonFactorsRule.INSTANCE);
             onceRules.add(InferFiltersRule.INSTANCE);
@@ -1335,6 +1337,14 @@ public class Analyzer {
     public void registerConjuncts(Expr e, boolean fromHavingClause, List<TupleId> ids) throws AnalysisException {
         for (Expr conjunct : e.getConjuncts()) {
             registerConjunct(conjunct);
+            if (!conjunct.isConstant()) {
+                ArrayList<TupleId> tupleIds = Lists.newArrayList();
+                ArrayList<SlotId> slotIds = Lists.newArrayList();
+                conjunct.getIds(tupleIds, slotIds);
+                if (tupleIds.isEmpty() && slotIds.isEmpty()) {
+                    conjunct.setBoundTupleIds(ids);
+                }
+            }
             if (ids != null) {
                 for (TupleId id : ids) {
                     registerConstantConjunct(id, conjunct);
@@ -2312,10 +2322,6 @@ public class Analyzer {
 
     public String getDefaultDb() {
         return globalState.context.getDatabase();
-    }
-
-    public String getClusterName() {
-        return globalState.context.getClusterName();
     }
 
     public String getQualifiedUser() {

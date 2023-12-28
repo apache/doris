@@ -198,7 +198,7 @@ public class CreateTableTest extends TestWithFeService {
                         + "distributed by hash(k2) buckets 1\n" + "properties('replication_num' = '1',\n"
                         + "'function_column.sequence_col' = 'v1');"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl6 = (OlapTable) db.getTableOrDdlException("tbl6");
         Assert.assertTrue(tbl6.getColumn("k1").isKey());
         Assert.assertTrue(tbl6.getColumn("k2").isKey());
@@ -714,7 +714,7 @@ public class CreateTableTest extends TestWithFeService {
             createTable("create table test.test_strLen(k1 CHAR, k2 CHAR(10) , k3 VARCHAR ,k4 VARCHAR(10))"
                     + " duplicate key (k1) distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
         });
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tb = (OlapTable) db.getTableOrDdlException("test_strLen");
         Assert.assertEquals(1, tb.getColumn("k1").getStrLen());
         Assert.assertEquals(10, tb.getColumn("k2").getStrLen());
@@ -739,7 +739,7 @@ public class CreateTableTest extends TestWithFeService {
                         alterTableSync("alter table test.test_replica modify partition p1 set ('replication_num' = '4')");
                     });
 
-            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
             OlapTable tb = (OlapTable) db.getTableOrDdlException("test_replica");
             Partition p1 = tb.getPartition("p1");
             Assert.assertEquals(1, tb.getPartitionInfo().getReplicaAllocation(p1.getId()).getTotalReplicaNum());
@@ -761,7 +761,7 @@ public class CreateTableTest extends TestWithFeService {
                                   + " 'min_load_replica_num' = '1'\n"
                                   + ");"));
 
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         OlapTable tbl1 = (OlapTable) db.getTableOrDdlException("tbl_min_load_replica_num_1");
         Assert.assertEquals(1, tbl1.getMinLoadReplicaNum());
         Assert.assertEquals(2, (int) tbl1.getDefaultReplicaAllocation().getTotalReplicaNum());

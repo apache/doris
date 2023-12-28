@@ -109,7 +109,7 @@ public class CreateTableStmtTest {
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
     }
@@ -119,7 +119,7 @@ public class CreateTableStmtTest {
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblName, cols, "olap",
                 new KeysDesc(KeysType.DUP_KEYS, colsName), null, new RandomDistributionDesc(6), null, null, "");
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
         Assert.assertTrue(stmt.toSql().contains("DISTRIBUTED BY RANDOM\nBUCKETS 6"));
@@ -271,7 +271,7 @@ public class CreateTableStmtTest {
                 new KeysDesc(KeysType.AGG_KEYS, colsName), null,
                 new HashDistributionDesc(10, Lists.newArrayList("col1")), null, null, "", ops);
         stmt.analyze(analyzer);
-        Assert.assertEquals("testCluster:db1", stmt.getDbName());
+        Assert.assertEquals("db1", stmt.getDbName());
         Assert.assertEquals("table1", stmt.getTableName());
         Assert.assertTrue(stmt.getProperties() == null || stmt.getProperties().isEmpty());
         Assert.assertTrue(stmt.toSql()
@@ -298,10 +298,6 @@ public class CreateTableStmtTest {
                 noDbAnalyzer.getDefaultDb();
                 minTimes = 0;
                 result = "";
-
-                noDbAnalyzer.getClusterName();
-                minTimes = 0;
-                result = "cluster";
             }
         };
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
@@ -356,19 +352,6 @@ public class CreateTableStmtTest {
                 null, new RandomDistributionDesc(10), null, null, "");
         expectedEx.expect(AnalysisException.class);
         expectedEx.expectMessage("Key column can not set complex type:col3");
-        stmt.analyze(analyzer);
-    }
-
-    @Test
-    public void testHllNoAggTab() throws Exception {
-        ColumnDef hll = new ColumnDef("col3", new TypeDef(ScalarType.createType(PrimitiveType.HLL)));
-        cols.add(hll);
-        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, cols, "olap",
-                        new KeysDesc(KeysType.DUP_KEYS, colsName), null, new RandomDistributionDesc(10),
-                                        null, null, "");
-        expectedEx.expect(AnalysisException.class);
-        expectedEx.expectMessage(
-                "Aggregate type `col3` HLL NONE NOT NULL COMMENT \"\" is not compatible with primitive type HLL");
         stmt.analyze(analyzer);
     }
 
@@ -472,5 +455,67 @@ public class CreateTableStmtTest {
                 + "PROPERTIES (\"replication_num\"  =  \"10\")";
         Assert.assertEquals(createTableStmt.toSql(), createTableSql);
 
+    }
+
+    @Test
+    public void testToSqlWithComment() {
+        List<ColumnDef> columnDefs = new ArrayList<>();
+        columnDefs.add(new ColumnDef("a", TypeDef.create(PrimitiveType.BIGINT), false));
+        columnDefs.add(new ColumnDef("b", TypeDef.create(PrimitiveType.INT), false));
+        String engineName = "olap";
+        ArrayList<String> aggKeys = Lists.newArrayList("a");
+        KeysDesc keysDesc = new KeysDesc(KeysType.AGG_KEYS, aggKeys);
+        Map<String, String> properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Math.max(1,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        TableName tableName = new TableName("internal", "demo", "testToSqlWithComment1");
+        CreateTableStmt createTableStmt = new CreateTableStmt(true, false,
+                tableName, columnDefs, engineName, keysDesc, null, null,
+                properties, null, "xxx", null);
+        String createTableSql = "CREATE TABLE IF NOT EXISTS `demo`.`testToSqlWithComment1` (\n"
+                + "  `a` BIGINT NOT NULL COMMENT \"\",\n"
+                + "  `b` INT NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "AGGREGATE KEY(`a`)\n"
+                + "COMMENT \"xxx\"\n"
+                + "PROPERTIES (\"replication_num\"  =  \"1\")";
+        Assert.assertEquals(createTableStmt.toSql(), createTableSql);
+
+
+        columnDefs.add(new ColumnDef("c", TypeDef.create(PrimitiveType.STRING), true));
+        columnDefs.add(new ColumnDef("d", TypeDef.create(PrimitiveType.DOUBLE), true));
+        columnDefs.add(new ColumnDef("e", TypeDef.create(PrimitiveType.DECIMAL128), false));
+        columnDefs.add(new ColumnDef("f", TypeDef.create(PrimitiveType.DATE), false));
+        columnDefs.add(new ColumnDef("g", TypeDef.create(PrimitiveType.SMALLINT), false));
+        columnDefs.add(new ColumnDef("h", TypeDef.create(PrimitiveType.BOOLEAN), false));
+        aggKeys = Lists.newArrayList("a", "d", "f");
+        keysDesc = new KeysDesc(KeysType.DUP_KEYS, aggKeys);
+        properties = new HashMap<String, String>() {
+            {
+                put("replication_num", String.valueOf(Math.max(10,
+                        Config.min_replication_num_per_tablet)));
+            }
+        };
+        tableName = new TableName("internal", "demo", "testToSqlWithComment2");
+        createTableStmt = new CreateTableStmt(false, false,
+                tableName, columnDefs, engineName, keysDesc, null, null,
+                properties, null, "xxx", null);
+        createTableSql = "CREATE TABLE `demo`.`testToSqlWithComment2` (\n"
+                + "  `a` BIGINT NOT NULL COMMENT \"\",\n"
+                + "  `b` INT NOT NULL COMMENT \"\",\n"
+                + "  `c` TEXT NULL COMMENT \"\",\n"
+                + "  `d` DOUBLE NULL COMMENT \"\",\n"
+                + "  `e` DECIMALV3(38, 0) NOT NULL COMMENT \"\",\n"
+                + "  `f` DATE NOT NULL COMMENT \"\",\n"
+                + "  `g` SMALLINT NOT NULL COMMENT \"\",\n"
+                + "  `h` BOOLEAN NOT NULL COMMENT \"\"\n"
+                + ") ENGINE = olap\n"
+                + "DUPLICATE KEY(`a`, `d`, `f`)\n"
+                + "COMMENT \"xxx\"\n"
+                + "PROPERTIES (\"replication_num\"  =  \"10\")";
+        Assert.assertEquals(createTableStmt.toSql(), createTableSql);
     }
 }

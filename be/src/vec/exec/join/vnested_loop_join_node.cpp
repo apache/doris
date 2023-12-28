@@ -278,8 +278,8 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     return pull(state, block, eos);
 }
 
-void VNestedLoopJoinNode::_append_left_data_with_null(MutableBlock& mutable_block) const {
-    auto& dst_columns = mutable_block.mutable_columns();
+void VNestedLoopJoinNode::_append_left_data_with_null(Block& block) const {
+    auto dst_columns = block.mutate_columns();
     DCHECK(_is_mark_join);
     for (size_t i = 0; i < _num_probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = _left_block->get_by_position(i);
@@ -305,11 +305,12 @@ void VNestedLoopJoinNode::_append_left_data_with_null(MutableBlock& mutable_bloc
 
     auto& mark_column = *dst_columns[dst_columns.size() - 1];
     ColumnFilterHelper(mark_column).resize_fill(mark_column.size() + _left_side_process_count, 0);
+    block.set_columns(std::move(dst_columns));
 }
 
-void VNestedLoopJoinNode::_process_left_child_block(MutableBlock& mutable_block,
+void VNestedLoopJoinNode::_process_left_child_block(Block& block,
                                                     const Block& now_process_build_block) const {
-    auto& dst_columns = mutable_block.mutable_columns();
+    auto dst_columns = block.mutate_columns();
     const int max_added_rows = now_process_build_block.rows();
     for (size_t i = 0; i < _num_probe_side_columns; ++i) {
         const ColumnWithTypeAndName& src_column = _left_block->get_by_position(i);
@@ -345,6 +346,7 @@ void VNestedLoopJoinNode::_process_left_child_block(MutableBlock& mutable_block,
                                                                         max_added_rows);
         }
     }
+    block.set_columns(std::move(dst_columns));
 }
 
 void VNestedLoopJoinNode::_update_additional_flags(Block* block) {
@@ -395,8 +397,8 @@ void VNestedLoopJoinNode::_add_tuple_is_null_column(Block* block) {
 }
 
 template <bool BuildSide, bool IsSemi>
-void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, size_t batch_size) {
-    auto& dst_columns = mutable_block.mutable_columns();
+void VNestedLoopJoinNode::_finalize_current_phase(Block& block, size_t batch_size) {
+    auto dst_columns = block.mutate_columns();
     DCHECK_GT(dst_columns.size(), 0);
     auto column_size = dst_columns[0]->size();
     if constexpr (BuildSide) {
@@ -508,6 +510,7 @@ void VNestedLoopJoinNode::_finalize_current_phase(MutableBlock& mutable_block, s
             _resize_fill_tuple_is_null_column(_left_side_process_count, 0, 1);
         }
     }
+    block.set_columns(std::move(dst_columns));
 }
 
 void VNestedLoopJoinNode::_reset_with_next_probe_row() {

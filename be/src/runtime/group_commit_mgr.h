@@ -20,9 +20,17 @@
 #include <gen_cpp/PaloInternalService_types.h>
 
 #include <atomic>
+#include <condition_variable>
+#include <cstdint>
 #include <memory>
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_map>
+#include <utility>
 
 #include "common/status.h"
+#include "olap/wal_manager.h"
+#include "runtime/exec_env.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
 #include "vec/sink/writer/vwal_writer.h"
@@ -45,12 +53,11 @@ public:
               wait_internal_group_commit_finish(wait_internal_group_commit_finish),
               _start_time(std::chrono::steady_clock::now()),
               _all_block_queues_bytes(all_block_queues_bytes),
-              _group_commit_interval_ms(group_commit_interval_ms) {
-        _single_block_queue_bytes = std::make_shared<std::atomic_size_t>(0);
-    };
+              _group_commit_interval_ms(group_commit_interval_ms) {};
 
     Status add_block(std::shared_ptr<vectorized::Block> block, bool write_wal);
-    Status get_block(vectorized::Block* block, bool* find_block, bool* eos);
+    Status get_block(RuntimeState* runtime_state, vectorized::Block* block, bool* find_block,
+                     bool* eos);
     Status add_load_id(const UniqueId& load_id);
     void remove_load_id(const UniqueId& load_id);
     void cancel(const Status& st);
@@ -58,6 +65,8 @@ public:
                       WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
                       int be_exe_version);
     Status close_wal();
+    bool has_enough_wal_disk_space(const std::vector<std::shared_ptr<vectorized::Block>>& blocks,
+                                   const TUniqueId& load_id, bool is_blocks_contain_all_load_data);
 
     static constexpr size_t MAX_BLOCK_QUEUE_ADD_WAIT_TIME = 1000;
     UniqueId load_instance_id;
@@ -70,8 +79,11 @@ public:
     bool process_finish = false;
     std::condition_variable internal_group_commit_finish_cv;
     Status status = Status::OK();
+    std::string wal_base_path;
+    std::atomic_size_t block_queue_pre_allocated = 0;
 
 private:
+    void _cancel_without_lock(const Status& st);
     std::chrono::steady_clock::time_point _start_time;
 
     std::condition_variable _put_cond;
@@ -82,8 +94,6 @@ private:
 
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
-    // memory consumption of one load block queue, used for correctness check.
-    std::shared_ptr<std::atomic_size_t> _single_block_queue_bytes;
     // group commit interval in ms, can be changed by 'ALTER TABLE my_table SET ("group_commit_interval_ms"="1000");'
     int64_t _group_commit_interval_ms;
     std::shared_ptr<vectorized::VWalWriter> _v_wal_writer;
@@ -114,7 +124,7 @@ private:
                                const TPipelineFragmentParams& pipeline_params);
     Status _finish_group_commit_load(int64_t db_id, int64_t table_id, const std::string& label,
                                      int64_t txn_id, const TUniqueId& instance_id, Status& status,
-                                     bool prepare_failed, RuntimeState* state);
+                                     RuntimeState* state);
 
     ExecEnv* _exec_env = nullptr;
     ThreadPool* _thread_pool = nullptr;
@@ -143,6 +153,10 @@ public:
                                       const UniqueId& load_id,
                                       std::shared_ptr<LoadBlockQueue>& load_block_queue,
                                       int be_exe_version);
+    Status update_load_info(TUniqueId load_id, size_t content_length);
+    Status get_load_info(TUniqueId load_id, size_t* content_length);
+    Status remove_load_info(TUniqueId load_id);
+    std::condition_variable cv;
 
 private:
     ExecEnv* _exec_env = nullptr;
@@ -153,6 +167,8 @@ private:
     std::unique_ptr<doris::ThreadPool> _thread_pool;
     // memory consumption of all tables' load block queues, used for back pressure.
     std::shared_ptr<std::atomic_size_t> _all_block_queues_bytes;
+    std::shared_mutex _load_info_lock;
+    std::unordered_map<TUniqueId, size_t> _load_id_to_content_length_map;
 };
 
 } // namespace doris
