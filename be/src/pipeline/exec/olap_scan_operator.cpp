@@ -259,10 +259,9 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::VScannerSPtr>* s
     bool enable_parallel_scan = state()->enable_parallel_scan();
     bool has_cpu_limit = state()->query_options().__isset.resource_limit &&
                          state()->query_options().resource_limit.__isset.cpu_limit;
-    bool ignore_data_distribution = p.ignore_data_distribution();
 
-    if (ignore_data_distribution && enable_parallel_scan && !p._should_run_serial &&
-        !has_cpu_limit && p._push_down_agg_type == TPushAggOp::NONE) {
+    if (enable_parallel_scan && !p._should_run_serial && !has_cpu_limit &&
+        p._push_down_agg_type == TPushAggOp::NONE) {
         std::vector<TabletWithVersion> tablets;
         bool is_dup_mow_key = true;
         for (auto&& scan_range : _scan_ranges) {
