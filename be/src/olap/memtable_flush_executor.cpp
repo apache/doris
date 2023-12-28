@@ -124,7 +124,8 @@ void FlushToken::_flush_memtable(MemTable* memtable, int64_t submit_task_time) {
 
     if (!s.ok()) {
         std::lock_guard wrlk(_flush_status_lock);
-        LOG(WARNING) << "Flush memtable failed with res = " << s;
+        LOG(WARNING) << "Flush memtable failed with res = " << s
+                     << ", load_id: " << print_id(_rowset_writer->load_id());
         _flush_status = s;
         return;
     }
