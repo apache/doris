@@ -45,12 +45,6 @@ if [[ -z "${target_branch}" ]]; then echo "ERROR: env target_branch not set" && 
 # shellcheck source=/dev/null
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
-# shellcheck source=/dev/null
-# _get_pr_changed_files file_changed_ckb
-source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
-if _get_pr_changed_files "${pull_request_num}"; then
-    if ! file_changed_ckb; then bash get-or-set-tmp-env.sh 'set' "export skip_pipeline=true" && exit 0; fi
-fi
 
 merge_pr_to_target_branch_latest() {
     local pull_request_num="$1"

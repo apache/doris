@@ -31,7 +31,12 @@ else
 fi
 EOF
 
+#####################################################################################
 ## clean.sh content ##
+
+# shellcheck source=/dev/null
+source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
 # shellcheck source=/dev/null
 # stop_doris

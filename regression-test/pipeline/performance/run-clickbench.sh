@@ -29,7 +29,8 @@ else
 fi
 EOF
 
-## run.sh content ##
+#####################################################################################
+## run-clickbench.sh content ##
 
 # shellcheck source=/dev/null
 # check_clickbench_table_rows, stop_doris, set_session_variable, check_clickbench_result
@@ -52,6 +53,10 @@ if [[ -z "${teamcity_build_checkoutDir}" ||
     echo "ERROR: env teamcity_build_checkoutDir or pull_request_num or commit_id not set"
     exit 1
 fi
+
+# shellcheck source=/dev/null
+source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 
 echo "#### Run clickbench test on Doris ####"
 DORIS_HOME="${teamcity_build_checkoutDir}/output"

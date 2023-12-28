@@ -64,11 +64,24 @@ if [[ "${commit_id_from_trigger}" != "${commit_id_from_checkout}" ]]; then
     commit_id_from_trigger is outdate"
     exit 1
 fi
+# shellcheck source=/dev/null
+source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
+if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
+# shellcheck source=/dev/null
+# _get_pr_changed_files file_changed_perf
+source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
+if _get_pr_changed_files "${pull_request_num}"; then
+    if ! file_changed_perf; then
+        bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
+        exit 0
+    fi
+fi
 
 echo "#### 2. check if tpch depending files exist"
 if ! [[ -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/oss-utils.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/doris-utils.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh &&
+    -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/be_custom.conf &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/custom_env.sh &&
     -f "${teamcity_build_checkoutDir}"/regression-test/pipeline/performance/conf/fe_custom.conf &&
