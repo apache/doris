@@ -168,7 +168,6 @@ size_t WalDirsInfo::get_max_available_size() {
 }
 
 Status WalDirsInfo::update_wal_dir_limit(std::string wal_dir, size_t limit) {
-    LOG(INFO) << "wal_dir:" << wal_dir;
     for (const auto& wal_dir_info : _wal_dirs_info_vec) {
         LOG(INFO) << "wal_dir_info:" << wal_dir_info->get_wal_dir();
         if (wal_dir_info->get_wal_dir() == wal_dir) {

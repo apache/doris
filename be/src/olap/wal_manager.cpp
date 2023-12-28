@@ -308,7 +308,6 @@ Status WalManager::scan_wals(const std::string& wal_path) {
         return st;
     }
     for (const auto& database_id : dbs) {
-        LOG(INFO) << "file:" << database_id.file_name;
         if (database_id.is_file || database_id.file_name == tmp) {
             continue;
         }
@@ -354,13 +353,7 @@ Status WalManager::scan_wals(const std::string& wal_path) {
                     }
                 }
             }
-            //            st = add_recover_wal(std::stoll(db_id.file_name), std::stoll(table_id.file_name), res);
             count += res.size();
-            //            if (!st.ok()) {
-            //                LOG(WARNING) << "Failed add replay wal, db=" << db_id.file_name
-            //                             << ", table=" << table_id.file_name << ", st=" << st.to_string();
-            //                return st;
-            //            }
         }
     }
     LOG(INFO) << "Finish list all wals, size:" << count;
