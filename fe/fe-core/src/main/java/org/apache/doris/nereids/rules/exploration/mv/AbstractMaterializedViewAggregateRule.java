@@ -358,7 +358,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         if (queryFunction.equals(viewFunction)) {
             return true;
         }
-        // get query equivalent function
+        // check the argument of rollup function is equivalent or not
         Expression equivalentFunction;
         for (Pair<Expression, Expression> pair : AGGREGATE_ROLL_UP_EQUIVALENT_FUNCTION_LIST) {
             if (pair.key().equals(queryFunction)) {
@@ -368,7 +368,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
                     continue;
                 }
                 // check param in query function is same as the view function
-                List<Expression> viewFunctionArguments = extractArguments(equivalentFunction, viewFunction);
+                List<Expression> viewFunctionArguments = extractViewArguments(equivalentFunction, viewFunction);
                 if (queryFunctionShuttled.getArguments().size() != 1 || viewFunctionArguments.size() != 1) {
                     continue;
                 }
@@ -380,7 +380,7 @@ public abstract class AbstractMaterializedViewAggregateRule extends AbstractMate
         return false;
     }
 
-    private List<Expression> extractArguments(Expression equivalentFunction, Function viewFunction) {
+    private List<Expression> extractViewArguments(Expression equivalentFunction, Function viewFunction) {
         Set<Object> exprSetToRemove = equivalentFunction.collectToSet(expr -> !(expr instanceof Any));
         return viewFunction.collectFirst(expr ->
                 exprSetToRemove.stream().noneMatch(exprToRemove -> exprToRemove.equals(expr)));
