@@ -1683,7 +1683,7 @@ public class Config extends ConfigBase {
      * List of S3 API compatible object storage systems.
      */
     @ConfField
-    public static String s3_compatible_object_storages = "s3,oss,cos,bos";
+    public static String s3_compatible_object_storages = "s3,oss,cos,bos,obs";
 
     /**
      * Support complex data type ARRAY.
