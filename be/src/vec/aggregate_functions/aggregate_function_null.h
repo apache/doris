@@ -210,7 +210,7 @@ public:
         }
     }
 
-    void add_batch(size_t batch_size, AggregateDataPtr* places, size_t place_offset,
+    void add_batch(size_t batch_size, AggregateDataPtr* __restrict places, size_t place_offset,
                    const IColumn** columns, Arena* arena, bool agg_many) const override {
         const ColumnNullable* column = assert_cast<const ColumnNullable*>(columns[0]);
         const IColumn* nested_column = &column->get_nested_column();

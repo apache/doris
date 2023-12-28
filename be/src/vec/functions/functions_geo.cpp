@@ -133,7 +133,7 @@ struct StX {
             auto pt = point.decode_from(point_value.data, point_value.size);
 
             if (!pt) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             auto x_value = point.x();
@@ -165,7 +165,7 @@ struct StY {
             auto pt = point.decode_from(point_value.data, point_value.size);
 
             if (!pt) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             auto y_value = point.y();
@@ -200,7 +200,7 @@ struct StDistanceSphere {
                                            x_lat->operator[](row).get<Float64>(),
                                            y_lng->operator[](row).get<Float64>(),
                                            y_lat->operator[](row).get<Float64>(), &distance)) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             res->insert_data(const_cast<const char*>((char*)&distance), 0);
@@ -234,7 +234,7 @@ struct StAngleSphere {
                                               x_lat->operator[](row).get<Float64>(),
                                               y_lng->operator[](row).get<Float64>(),
                                               y_lat->operator[](row).get<Float64>(), &angle)) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             res->insert_data(const_cast<const char*>((char*)&angle), 0);
@@ -267,26 +267,26 @@ struct StAngle {
             auto shape_value1 = p1->get_data_at(row);
             auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
             if (!pt1) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
 
             auto shape_value2 = p2->get_data_at(row);
             auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
             if (!pt2) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             auto shape_value3 = p3->get_data_at(row);
             auto pt3 = point3.decode_from(shape_value3.data, shape_value3.size);
             if (!pt3) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
 
             double angle = 0;
             if (!GeoPoint::ComputeAngle(&point1, &point2, &point3, &angle)) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             res->insert_data(const_cast<const char*>((char*)&angle), 0);
@@ -316,20 +316,20 @@ struct StAzimuth {
             auto shape_value1 = p1->get_data_at(row);
             auto pt1 = point1.decode_from(shape_value1.data, shape_value1.size);
             if (!pt1) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
 
             auto shape_value2 = p2->get_data_at(row);
             auto pt2 = point2.decode_from(shape_value2.data, shape_value2.size);
             if (!pt2) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
 
             double angle = 0;
             if (!GeoPoint::ComputeAzimuth(&point1, &point2, &angle)) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             res->insert_data(const_cast<const char*>((char*)&angle), 0);
@@ -363,7 +363,7 @@ struct StAreaSquareMeters {
 
             double area = 0;
             if (!GeoShape::ComputeArea(shape.get(), &area, "square_meters")) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             res->insert_data(const_cast<const char*>((char*)&area), 0);
@@ -398,7 +398,7 @@ struct StAreaSquareKm {
 
             double area = 0;
             if (!GeoShape::ComputeArea(shape.get(), &area, "square_km")) {
-                res->insert_data(nullptr, 0);
+                res->insert_default();
                 continue;
             }
             res->insert_data(const_cast<const char*>((char*)&area), 0);
@@ -480,7 +480,7 @@ struct StContains {
                 shapes[i] = std::shared_ptr<GeoShape>(
                         GeoShape::from_encoded(strs[i]->data, strs[i]->size));
                 if (shapes[i] == nullptr) {
-                    res->insert_data(nullptr, 0);
+                    res->insert_default();
                     break;
                 }
             }

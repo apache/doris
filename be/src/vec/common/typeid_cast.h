@@ -59,13 +59,18 @@ To typeid_cast(From& from) {
 
 template <typename To, typename From>
 To typeid_cast(From* from) {
+#ifndef NDEBUG
     try {
         if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
             return static_cast<To>(from);
-        } else {
-            return nullptr;
         }
     } catch (const std::exception& e) {
         throw doris::Exception(doris::ErrorCode::BAD_CAST, e.what());
     }
+#else
+    if (typeid(*from) == typeid(std::remove_pointer_t<To>)) {
+        return static_cast<To>(from);
+    }
+#endif
+    return nullptr;
 }

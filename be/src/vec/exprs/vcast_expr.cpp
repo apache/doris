@@ -106,9 +106,6 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     int column_id = 0;
     RETURN_IF_ERROR(_children[0]->execute(context, block, &column_id));
 
-    size_t const_param_id = VExpr::insert_param(
-            block, {_cast_param, _cast_param_data_type, _target_data_type_name}, block->rows());
-
     // call function
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
@@ -117,8 +114,8 @@ doris::Status VCastExpr::execute(VExprContext* context, doris::vectorized::Block
     auto state = Status::OK();
     try {
         state = _function->execute(context->fn_context(_fn_context_index), *block,
-                                   {static_cast<size_t>(column_id), const_param_id},
-                                   num_columns_without_result, block->rows(), false);
+                                   {static_cast<size_t>(column_id)}, num_columns_without_result,
+                                   block->rows(), false);
         *result_column_id = num_columns_without_result;
     } catch (const Exception& e) {
         state = e.to_status();
