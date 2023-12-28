@@ -862,7 +862,7 @@ Status PipelineXFragmentContext::_add_local_exchange(
     if (cur_pipe->num_tasks() > 1 && new_pip->num_tasks() == 1 &&
         Pipeline::is_hash_exchange(data_distribution.distribution_type)) {
         RETURN_IF_ERROR(_add_local_exchange_impl(
-                total_op_num, pool, new_pip, add_pipeline(cur_pipe, pip_idx),
+                new_pip->operator_xs().size(), pool, new_pip, add_pipeline(new_pip, pip_idx + 2),
                 DataDistribution(ExchangeType::PASSTHROUGH), do_local_exchange, num_buckets,
                 bucket_seq_to_instance_idx, ignore_data_distribution));
     }
