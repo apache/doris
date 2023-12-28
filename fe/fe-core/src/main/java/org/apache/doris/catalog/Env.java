@@ -3876,8 +3876,8 @@ public class Env {
             }
         }
         LOG.debug("index column size: {}", indexColumns.size());
-        if (isKeysRequired) {
-            Preconditions.checkArgument(indexColumns.size() > 0);
+        if (isKeysRequired && indexColumns.isEmpty()) {
+            throw new DdlException("The materialized view need key column");
         }
 
         // figure out shortKeyColumnCount
