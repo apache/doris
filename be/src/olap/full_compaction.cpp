@@ -51,28 +51,18 @@ Status FullCompaction::prepare_compact() {
         return Status::Error<INVALID_ARGUMENT, false>("Full compaction init failed");
     }
 
-    std::unique_lock full_lock(_tablet->get_full_compaction_lock());
     std::unique_lock base_lock(_tablet->get_base_compaction_lock());
     std::unique_lock cumu_lock(_tablet->get_cumulative_compaction_lock());
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-    _tablet->set_clone_occurred(false);
 
     return Status::OK();
 }
 
 Status FullCompaction::execute_compact_impl() {
-    std::unique_lock full_lock(_tablet->get_full_compaction_lock());
     std::unique_lock base_lock(_tablet->get_base_compaction_lock());
     std::unique_lock cumu_lock(_tablet->get_cumulative_compaction_lock());
-
-    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
-    // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED, false>("get_clone_occurred failed");
-    }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
