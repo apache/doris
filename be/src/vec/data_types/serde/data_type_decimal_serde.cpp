@@ -102,7 +102,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
             uint64 low = p_value->value;
-            arrow::Decimal128V2 value(high, low);
+            arrow::Decimal128 value(high, low);
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
@@ -120,7 +120,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
             const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
             int64_t high = (p_value->value) >> 64;
             uint64 low = p_value->value;
-            arrow::Decimal128V2 value(high, low);
+            arrow::Decimal128 value(high, low);
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
@@ -134,7 +134,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                 continue;
             }
             Int128 p_value = Int128(col.get_element(i));
-            arrow::Decimal128V2 value(reinterpret_cast<const uint8_t*>(&p_value));
+            arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }
@@ -148,7 +148,7 @@ void DataTypeDecimalSerDe<T>::write_column_to_arrow(const IColumn& column, const
                 continue;
             }
             Int128 p_value = Int128(col.get_element(i));
-            arrow::Decimal128V2 value(reinterpret_cast<const uint8_t*>(&p_value));
+            arrow::Decimal128 value(reinterpret_cast<const uint8_t*>(&p_value));
             checkArrowStatus(builder.Append(value), column.get_name(),
                              array_builder->type()->name());
         }

@@ -193,7 +193,7 @@ public:
                 const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
                 int64_t high = (p_value->value) >> 64;
                 uint64 low = p_value->value;
-                arrow::Decimal128V2 value(high, low);
+                arrow::Decimal128 value(high, low);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
             }
             return arrow::Status::OK();
@@ -213,7 +213,7 @@ public:
                 const PackedInt128* p_value = reinterpret_cast<const PackedInt128*>(data_ref.data);
                 int64_t high = (p_value->value) >> 64;
                 uint64 low = p_value->value;
-                arrow::Decimal128V2 value(high, low);
+                arrow::Decimal128 value(high, low);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
             }
             return arrow::Status::OK();
@@ -232,7 +232,7 @@ public:
                 const auto& data_ref = decimal32_column->get_data_at(i);
                 const int32_t* p_value = reinterpret_cast<const int32_t*>(data_ref.data);
                 int64_t high = *p_value > 0 ? 0 : 1UL << 63;
-                arrow::Decimal128V2 value(high, *p_value > 0 ? *p_value : -*p_value);
+                arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
             }
             return arrow::Status::OK();
@@ -251,7 +251,7 @@ public:
                 const auto& data_ref = decimal64_column->get_data_at(i);
                 const int64_t* p_value = reinterpret_cast<const int64_t*>(data_ref.data);
                 int64_t high = *p_value > 0 ? 0 : 1UL << 63;
-                arrow::Decimal128V2 value(high, *p_value > 0 ? *p_value : -*p_value);
+                arrow::Decimal128 value(high, *p_value > 0 ? *p_value : -*p_value);
                 ARROW_RETURN_NOT_OK(builder.Append(value));
             }
             return arrow::Status::OK();
