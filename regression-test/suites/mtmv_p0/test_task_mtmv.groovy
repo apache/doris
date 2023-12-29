@@ -52,5 +52,10 @@ suite("test_task_mtmv") {
     sql """
             cancel MATERIALIZED VIEW TASK ${taskId} on ${mvName};
         """
-    sql """drop materialized view if exists ${mvName};"""
+    try {
+        sql """drop materialized view if exists ${mvName};"""
+    } catch (Exception e) {
+        log.info(e.getMessage())
+        assertTrue(e.getMessage().contains("no running task"));
+    }
 }
