@@ -57,7 +57,7 @@ statement
         partitionSpec?  // partition define
         (WITH LABEL labelName=identifier)? cols=identifierList?  // label and columns define
         (LEFT_BRACKET hints=identifierSeq RIGHT_BRACKET)?  // hint define
-        (query | inlineTable)                                          #insertTable
+        query                                                          #insertTable
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
@@ -287,6 +287,7 @@ setQuantifier
 queryPrimary
     : querySpecification                                                   #queryPrimaryDefault
     | LEFT_PAREN query RIGHT_PAREN                                         #subquery
+    | inlineTable                                                          #valuesTable
     ;
 
 querySpecification

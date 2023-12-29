@@ -26,6 +26,7 @@
 #include "io/fs/local_file_system.h"
 #include "io/fs/path.h"
 #include "olap/storage_engine.h"
+#include "olap/wal_manager.h"
 #include "util/crc32c.h"
 
 namespace doris {
@@ -33,14 +34,7 @@ namespace doris {
 const char* k_wal_magic = "WAL1";
 const uint32_t k_wal_magic_length = 4;
 
-WalWriter::WalWriter(const std::string& file_name,
-                     const std::shared_ptr<std::atomic_size_t>& all_wal_disk_bytes,
-                     const std::shared_ptr<std::condition_variable>& cv)
-        : cv(cv),
-          _file_name(file_name),
-          _disk_bytes(0),
-          _all_wal_disk_bytes(all_wal_disk_bytes),
-          _is_first_append_blocks(true) {}
+WalWriter::WalWriter(const std::string& file_name) : _file_name(file_name) {}
 
 WalWriter::~WalWriter() {}
 
@@ -58,22 +52,6 @@ Status WalWriter::finalize() {
 }
 
 Status WalWriter::append_blocks(const PBlockArray& blocks) {
-    {
-        if (_is_first_append_blocks) {
-            _is_first_append_blocks = false;
-            std::unique_lock l(_mutex);
-            while (_all_wal_disk_bytes->load(std::memory_order_relaxed) >
-                   config::wal_max_disk_size) {
-                LOG(INFO) << "First time to append blocks to wal file " << _file_name
-                          << ". Currently, all wal disk space usage is "
-                          << _all_wal_disk_bytes->load(std::memory_order_relaxed)
-                          << ", larger than the maximum limit " << config::wal_max_disk_size
-                          << ", so we need to wait. When any other load finished, that wal will be "
-                             "removed, the space used by that wal will be free.";
-                cv->wait_for(l, std::chrono::milliseconds(WalWriter::MAX_WAL_WRITE_WAIT_TIME));
-            }
-        }
-    }
     size_t total_size = 0;
     for (const auto& block : blocks) {
         total_size += LENGTH_SIZE + block->ByteSizeLong() + CHECKSUM_SIZE;
@@ -99,8 +77,6 @@ Status WalWriter::append_blocks(const PBlockArray& blocks) {
                 "failed to write block to wal expected= " + std::to_string(total_size) +
                 ",actually=" + std::to_string(offset));
     }
-    _disk_bytes.fetch_add(total_size, std::memory_order_relaxed);
-    _all_wal_disk_bytes->fetch_add(total_size, std::memory_order_relaxed);
     return Status::OK();
 }
 

@@ -154,6 +154,7 @@ public class NativeInsertStmt extends InsertStmt {
     private long tableId = -1;
     public boolean isGroupCommitStreamLoadSql = false;
     private GroupCommitPlanner groupCommitPlanner;
+    private boolean reuseGroupCommitPlan = false;
 
     private boolean isFromDeleteOrUpdateStmt = false;
 
@@ -1108,7 +1109,12 @@ public class NativeInsertStmt extends InsertStmt {
         }
     }
 
-    public void analyzeGroupCommit(Analyzer analyzer) {
+    public void analyzeGroupCommit(Analyzer analyzer) throws AnalysisException {
+        if (isGroupCommitStreamLoadSql && (targetTable instanceof OlapTable)
+                && !((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()) {
+            throw new AnalysisException(
+                    "table light_schema_change is false, can't do http_stream with group commit mode");
+        }
         if (isGroupCommit) {
             return;
         }
@@ -1123,6 +1129,7 @@ public class NativeInsertStmt extends InsertStmt {
         if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
                 && ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && targetTable instanceof OlapTable
+                && ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
                 && ((SelectStmt) getQueryStmt()).getTableRefs().isEmpty() && targetPartitionNames == null
@@ -1162,12 +1169,18 @@ public class NativeInsertStmt extends InsertStmt {
         return isGroupCommit;
     }
 
+    public boolean isReuseGroupCommitPlan() {
+        return reuseGroupCommitPlan;
+    }
+
     public GroupCommitPlanner planForGroupCommit(TUniqueId queryId) throws UserException, TException {
         OlapTable olapTable = (OlapTable) getTargetTable();
         if (groupCommitPlanner != null && olapTable.getBaseSchemaVersion() == baseSchemaVersion) {
             LOG.debug("reuse group commit plan, table={}", olapTable);
+            reuseGroupCommitPlan = true;
             return groupCommitPlanner;
         }
+        reuseGroupCommitPlan = false;
         if (!targetColumns.isEmpty()) {
             Analyzer analyzerTmp = analyzer;
             reset();

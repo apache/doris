@@ -71,6 +71,7 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -392,7 +393,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     private void collectPushDownCTEInfos(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Set<CTEId> cteIds = new HashSet<>();
+        Set<CTEId> cteIds = new LinkedHashSet<>(); // use LinkedHashSet to make runtime filter order stable
         PhysicalPlan leftChild = (PhysicalPlan) join.left();
         PhysicalPlan rightChild = (PhysicalPlan) join.right();
 
@@ -404,7 +405,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         if ((leftHasCTE && !rightHasCTE) || (!leftHasCTE && rightHasCTE)) {
             for (CTEId id : cteIds) {
                 if (ctx.getCteToJoinsMap().get(id) == null) {
-                    Set<PhysicalHashJoin> newJoin = new HashSet<>();
+                    // use LinkedHashSet to make runtime filter order stable
+                    Set<PhysicalHashJoin> newJoin = new LinkedHashSet<>();
                     newJoin.add(join);
                     ctx.getCteToJoinsMap().put(id, newJoin);
                 } else {

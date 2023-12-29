@@ -1113,6 +1113,7 @@ public class RestoreJob extends AbstractJob {
         long visibleVersion = remotePart.getVisibleVersion();
 
         // tablets
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
@@ -1127,7 +1128,7 @@ public class RestoreJob extends AbstractJob {
                 // replicas
                 try {
                     Map<Tag, List<Long>> beIds = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, null, false, false);
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs, null, false, false);
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = env.getNextId();

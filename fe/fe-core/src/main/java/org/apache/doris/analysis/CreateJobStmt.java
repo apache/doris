@@ -85,7 +85,7 @@ public class CreateJobStmt extends DdlStmt {
     private JobExecuteType executeType;
 
     // exclude job name prefix, which is used by inner job
-    private final String excludeJobNamePrefix = "inner_";
+    private static final String excludeJobNamePrefix = "inner_";
 
     private static final ImmutableSet<Class<? extends DdlStmt>> supportStmtSuperClass
             = new ImmutableSet.Builder<Class<? extends DdlStmt>>().add(InsertStmt.class)
@@ -207,5 +207,9 @@ public class CreateJobStmt extends DdlStmt {
             throw new AnalysisException("execute sql has invalid format");
         }
         return executeSql;
+    }
+
+    protected static boolean isInnerJob(String jobName) {
+        return jobName.startsWith(excludeJobNamePrefix);
     }
 }

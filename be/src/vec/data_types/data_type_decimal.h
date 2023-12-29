@@ -86,11 +86,11 @@ constexpr size_t max_decimal_precision<Decimal64>() {
     return BeConsts::MAX_DECIMAL64_PRECISION;
 }
 template <>
-constexpr size_t max_decimal_precision<Decimal128>() {
-    return BeConsts::MAX_DECIMAL128_PRECISION;
+constexpr size_t max_decimal_precision<Decimal128V2>() {
+    return BeConsts::MAX_DECIMALV2_PRECISION;
 }
 template <>
-constexpr size_t max_decimal_precision<Decimal128I>() {
+constexpr size_t max_decimal_precision<Decimal128V3>() {
     return BeConsts::MAX_DECIMAL128_PRECISION;
 }
 template <>
@@ -160,7 +160,7 @@ public:
             desc = TypeDescriptor(TYPE_DECIMAL32);
         } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
             desc = TypeDescriptor(TYPE_DECIMAL64);
-        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+        } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V3>>) {
             desc = TypeDescriptor(TYPE_DECIMAL128I);
         } else if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
             desc = TypeDescriptor(TYPE_DECIMAL256);
@@ -179,7 +179,7 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL64;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V3>>) {
             return doris::FieldType::OLAP_FIELD_TYPE_DECIMAL128I;
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
@@ -201,11 +201,11 @@ public:
         DCHECK_EQ(node.node_type, TExprNodeType::DECIMAL_LITERAL);
         DCHECK(node.__isset.decimal_literal);
         // decimalv2
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V2>>) {
             DecimalV2Value value;
             if (value.parse_from_str(node.decimal_literal.value.c_str(),
                                      node.decimal_literal.value.size()) == E_DEC_OK) {
-                return DecimalField<Decimal128>(value.value(), value.scale());
+                return DecimalField<Decimal128V2>(value.value(), value.scale());
             } else {
                 throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
                                        "Invalid decimal(scale: {}) value: {}", value.scale(),
@@ -364,10 +364,10 @@ inline UInt32 get_decimal_scale(const IDataType& data_type, UInt32 default_value
     if (auto* decimal_type = check_decimal<Decimal64>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal128>(data_type)) {
+    if (auto* decimal_type = check_decimal<Decimal128V2>(data_type)) {
         return decimal_type->get_scale();
     }
-    if (auto* decimal_type = check_decimal<Decimal128I>(data_type)) {
+    if (auto* decimal_type = check_decimal<Decimal128V3>(data_type)) {
         return decimal_type->get_scale();
     }
     if (auto* decimal_type = check_decimal<Decimal256>(data_type)) {
@@ -385,21 +385,21 @@ inline constexpr bool IsDataTypeDecimal<DataTypeDecimal<Decimal32>> = true;
 template <>
 inline constexpr bool IsDataTypeDecimal<DataTypeDecimal<Decimal64>> = true;
 template <>
-inline constexpr bool IsDataTypeDecimal<DataTypeDecimal<Decimal128>> = true;
+inline constexpr bool IsDataTypeDecimal<DataTypeDecimal<Decimal128V2>> = true;
 template <>
-inline constexpr bool IsDataTypeDecimal<DataTypeDecimal<Decimal128I>> = true;
+inline constexpr bool IsDataTypeDecimal<DataTypeDecimal<Decimal128V3>> = true;
 template <>
 inline constexpr bool IsDataTypeDecimal<DataTypeDecimal<Decimal256>> = true;
 
 template <typename DataType>
 constexpr bool IsDataTypeDecimalV2 = false;
 template <>
-inline constexpr bool IsDataTypeDecimalV2<DataTypeDecimal<Decimal128>> = true;
+inline constexpr bool IsDataTypeDecimalV2<DataTypeDecimal<Decimal128V2>> = true;
 
 template <typename DataType>
-constexpr bool IsDataTypeDecimal128I = false;
+constexpr bool IsDataTypeDecimal128V3 = false;
 template <>
-inline constexpr bool IsDataTypeDecimal128I<DataTypeDecimal<Decimal128I>> = true;
+inline constexpr bool IsDataTypeDecimal128V3<DataTypeDecimal<Decimal128V3>> = true;
 
 template <typename DataType>
 constexpr bool IsDataTypeDecimal256 = false;
@@ -499,9 +499,9 @@ void convert_decimal_cols(
     using ToFieldType = typename ToDataType::FieldType;
     using MaxFieldType =
             std::conditional_t<(sizeof(FromFieldType) == sizeof(ToFieldType)) &&
-                                       (std::is_same_v<ToFieldType, Decimal128I> ||
-                                        std::is_same_v<FromFieldType, Decimal128I>),
-                               Decimal128I,
+                                       (std::is_same_v<ToFieldType, Decimal128V3> ||
+                                        std::is_same_v<FromFieldType, Decimal128V3>),
+                               Decimal128V3,
                                std::conditional_t<(sizeof(FromFieldType) > sizeof(ToFieldType)),
                                                   FromFieldType, ToFieldType>>;
     using MaxNativeType = typename MaxFieldType::NativeType;
@@ -657,7 +657,7 @@ void convert_to_decimal(typename ToDataType::FieldType* dst,
         }
     } else {
         using DecimalFrom =
-                std::conditional_t<std::is_same_v<FromFieldType, Int128>, Decimal128,
+                std::conditional_t<std::is_same_v<FromFieldType, Int128>, Decimal128V2,
                                    std::conditional_t<std::is_same_v<FromFieldType, wide::Int256>,
                                                       Decimal256, Decimal64>>;
         convert_to_decimals<DataTypeDecimal<DecimalFrom>, ToDataType, multiply_may_overflow,

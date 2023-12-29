@@ -47,12 +47,9 @@ public:
 private:
     Status _on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
     Status _handle(HttpRequest* req, std::shared_ptr<StreamLoadContext> ctx);
-    Status _data_saved_path(HttpRequest* req, std::string* file_path);
     Status _process_put(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
     void _save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx, const std::string& str);
-    void _parse_format(const std::string& format_str, const std::string& compress_type_str,
-                       TFileFormatType::type* format_type, TFileCompressType::type* compress_type);
-    bool _is_format_support_streaming(TFileFormatType::type format);
+    Status _handle_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     ExecEnv* _exec_env;
