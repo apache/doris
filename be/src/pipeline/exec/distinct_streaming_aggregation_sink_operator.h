@@ -54,7 +54,7 @@ private:
 };
 
 class DistinctStreamingAggSinkOperator final
-        : public StreamingOperator<DistinctStreamingAggSinkOperatorBuilder> {
+        : public StreamingOperator<vectorized::DistinctAggregationNode> {
 public:
     DistinctStreamingAggSinkOperator(OperatorBuilderBase* operator_builder, ExecNode*,
                                      std::shared_ptr<DataQueue>);

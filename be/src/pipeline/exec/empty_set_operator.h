@@ -37,7 +37,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class EmptySetSourceOperator final : public SourceOperator<EmptySetSourceOperatorBuilder> {
+class EmptySetSourceOperator final : public SourceOperator<vectorized::VEmptySetNode> {
 public:
     EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
     bool can_read() override { return true; }

@@ -318,7 +318,8 @@ DECLARE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes);
 // the prune stale interval of all cache
 DECLARE_mInt32(cache_prune_stale_interval);
 // the clean interval of tablet lookup cache
-DECLARE_mInt32(tablet_lookup_cache_clean_interval);
+DECLARE_mInt32(tablet_lookup_cache_stale_sweep_time_sec);
+DECLARE_mInt32(point_query_row_cache_stale_sweep_time_sec);
 DECLARE_mInt32(disk_stat_monitor_interval);
 DECLARE_mInt32(unused_rowset_monitor_interval);
 DECLARE_String(storage_root_path);
@@ -863,6 +864,10 @@ DECLARE_mInt32(external_table_connect_timeout_sec);
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DECLARE_Int64(delete_bitmap_agg_cache_capacity);
+DECLARE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec);
+
+// A common object cache depends on an Sharded LRU Cache.
+DECLARE_mInt32(common_obj_lru_cache_stale_sweep_time_sec);
 
 // s3 config
 DECLARE_mInt32(max_remote_storage_count);
