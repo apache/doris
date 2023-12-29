@@ -48,7 +48,7 @@ Status LoadBlockQueue::add_block(RuntimeState* runtime_state,
     auto start = std::chrono::steady_clock::now();
     while (!runtime_state->is_cancelled() && status.ok() &&
            _all_block_queues_bytes->load(std::memory_order_relaxed) >
-                   config::group_commit_queue_max_mem_limit) {
+                   config::group_commit_queue_mem_limit) {
         _put_cond.wait_for(
                 l, std::chrono::milliseconds(LoadBlockQueue::MAX_BLOCK_QUEUE_ADD_WAIT_TIME));
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(
