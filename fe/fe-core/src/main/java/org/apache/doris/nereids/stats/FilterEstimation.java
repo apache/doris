@@ -107,7 +107,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
             Set<Slot> rightInputSlots = rightExpr.getInputSlots();
             for (Slot slot : context.keyColumns) {
                 if (leftInputSlots.contains(slot) && rightInputSlots.contains(slot)) {
-                    ColumnStatistic origColStats = context.statistics.findColumnStatistics(slot);
                     ColumnStatistic leftColStats = leftStats.findColumnStatistics(slot);
                     ColumnStatistic rightColStats = rightStats.findColumnStatistics(slot);
                     StatisticRange leftRange = StatisticRange.from(leftColStats, slot.getDataType());
@@ -118,11 +117,8 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     colBuilder.setMinValue(union.getLow()).setMinExpr(union.getLowExpr())
                             .setMaxValue(union.getHigh()).setMaxExpr(union.getHighExpr())
                             .setNdv(union.getDistinctValues());
-                    if (!(leftExpr instanceof IsNull || rightExpr instanceof IsNull)) {
-                        colBuilder.setNumNulls(0);
-                    } else {
-                        colBuilder.setNumNulls(origColStats.numNulls);
-                    }
+                    double maxNumNulls = Math.max(leftColStats.numNulls, rightColStats.numNulls);
+                    colBuilder.setNumNulls(Math.min(colBuilder.getCount(), maxNumNulls));
                     orStats.addColumnStats(slot, colBuilder.build());
                 }
             }
