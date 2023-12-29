@@ -211,9 +211,6 @@ Status S3FileSystem::delete_directory_impl(const Path& dir) {
                 return Status::IOError("fail to delete object: {}",
                                        error_msg(e.GetKey(), e.GetMessage()));
             }
-            VLOG_TRACE << "delete " << objects.size()
-                       << " s3 objects, endpoint: " << _s3_conf.endpoint
-                       << ", bucket: " << _s3_conf.bucket << ", prefix: " << _s3_conf.prefix;
         }
         is_trucated = result.GetIsTruncated();
         request.SetContinuationToken(result.GetNextContinuationToken());
