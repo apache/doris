@@ -72,7 +72,7 @@ public class RelationMapping extends Mapping {
                     MappedRelation.of(relation.getRelationId(), relation));
         }
         Set<Long> sourceTableKeySet = sourceTableRelationIdMap.keySet();
-        List<List<RelationMapping>> mappedRelations = new ArrayList<>();
+        List<List<BiMap<MappedRelation, MappedRelation>>> mappedRelations = new ArrayList<>();
 
         for (Long sourceTableQualifier : sourceTableKeySet) {
             Set<MappedRelation> sourceMappedRelations = sourceTableRelationIdMap.get(sourceTableQualifier);
@@ -84,8 +84,8 @@ public class RelationMapping extends Mapping {
             if (targetMappedRelations.size() == 1 && sourceMappedRelations.size() == 1) {
                 ImmutableBiMap.Builder<MappedRelation, MappedRelation> biMapBuilder = ImmutableBiMap.builder();
                 mappedRelations.add(ImmutableList.of(
-                        RelationMapping.of(biMapBuilder.put(sourceMappedRelations.iterator().next(),
-                                targetMappedRelations.iterator().next()).build())));
+                        biMapBuilder.put(sourceMappedRelations.iterator().next(),
+                                targetMappedRelations.iterator().next()).build()));
                 continue;
             }
             // relation appear more than once, should cartesian them and power set to correct combination
@@ -106,7 +106,7 @@ public class RelationMapping extends Mapping {
             //    {a0-b0, a1-b1}
             //    {a1-b0, a0-b1}
             // ]
-            List<RelationMapping> relationMappingPowerList = new ArrayList<>();
+            List<BiMap<MappedRelation, MappedRelation>> relationMappingPowerList = new ArrayList<>();
             int relationMappingSize = relationMapping.size();
             int relationMappingMinSize = Math.min(sourceMappedRelations.size(), targetMappedRelations.size());
             for (int i = 0; i < relationMappingSize; i++) {
@@ -120,7 +120,7 @@ public class RelationMapping extends Mapping {
                 }
                 // mapping should contain min num of relation in source or target at least
                 if (relationBiMap.size() >= relationMappingMinSize) {
-                    relationMappingPowerList.add(RelationMapping.of(ImmutableBiMap.copyOf(relationBiMap)));
+                    relationMappingPowerList.add(relationBiMap);
                 }
             }
             mappedRelations.add(relationMappingPowerList);
@@ -131,10 +131,10 @@ public class RelationMapping extends Mapping {
                 .collect(ImmutableList.toImmutableList());
     }
 
-    public static RelationMapping merge(List<RelationMapping> relationMappings) {
+    public static RelationMapping merge(List<BiMap<MappedRelation, MappedRelation>> relationMappings) {
         Builder<MappedRelation, MappedRelation> mappingBuilder = ImmutableBiMap.builder();
-        for (RelationMapping relationMapping : relationMappings) {
-            relationMapping.getMappedRelationMap().forEach(mappingBuilder::put);
+        for (BiMap<MappedRelation, MappedRelation> relationMapping : relationMappings) {
+            relationMapping.forEach(mappingBuilder::put);
         }
         return RelationMapping.of(mappingBuilder.build());
     }
