@@ -24,55 +24,91 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 物化视图
+# 异步物化视图
 
-在数据仓库环境中，应用程序通常会对大型表执行复杂的查询。
-
-一个例子是SELECT语句对包含数十亿行的表执行多表连接和聚合。就系统资源和计算结果所花费的时间而言，处理这些查询可能代价高昂。
-物化视图提供了一种解决这些问题的方法。
-物化视图包含基于对一个或多个基表的SQL查询而预先计算的结果集。
-您可以发出SELECT语句来查询物化视图，与查询数据库中的其他表或视图的方式相同。Doris从物化视图返回预先计算的结果，不需要访问基表。
-从用户的角度来看，与从基表检索相同的数据相比，查询结果的返回速度要快得多。
-
-## 适用场景
-
-- BI报表。
-
-  物化视图对于加速可预测和重复的查询特别有用。应用程序不需要对大型表(如聚合或多个连接)执行资源密集型查询，而是可以查询物化视图并检索预先计算的结果集。
-  例如，考虑使用一组查询来填充仪表板的场景。这个用例对于物化视图来说是理想的，因为查询是可预测的，并且是反复重复的。    
-
-- 简单的ETL。
-
-  可以利用物化视图对数据进行分层。
-
-- Ad Hoc
-  
-  如果查询结果只包含基表中的少数行，或者查询结果需要大量的逻辑处理，例如半结构数据或花费大量时间的聚合。这时如果基表的数据变更不频繁，可以用物化视图来加速查询。
-
-- 湖仓加速。
-
-  查询是在外部catalog上进行的(例如存在hive catalog)，与查询本地数据库表相比，这可能会有较低的性能，这时可以通过建立物化视图，把外部数据存在Doris，来加速查询。
-
-## 使用物化视图
+## 物化视图的构建和维护
 
 ### 创建物化视图
 
-物化视图支持多种刷新策略，
+准备两张表
+```sql
+use tpch;
+
+CREATE TABLE IF NOT EXISTS orders  (
+                                       o_orderkey       integer not null,
+                                       o_custkey        integer not null,
+                                       o_orderstatus    char(1) not null,
+    o_totalprice     decimalv3(15,2) not null,
+    o_orderdate      date not null,
+    o_orderpriority  char(15) not null,
+    o_clerk          char(15) not null,
+    o_shippriority   integer not null,
+    o_comment        varchar(79) not null
+    )
+    DUPLICATE KEY(o_orderkey, o_custkey)
+    PARTITION BY RANGE(o_orderdate)(
+    FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
+    DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
+    PROPERTIES ("replication_num" = "1");
+
+insert into orders values
+                   (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+                   (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+                   (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy');
+
+CREATE TABLE IF NOT EXISTS lineitem (
+                                        l_orderkey    integer not null,
+                                        l_partkey     integer not null,
+                                        l_suppkey     integer not null,
+                                        l_linenumber  integer not null,
+                                        l_quantity    decimalv3(15,2) not null,
+    l_extendedprice  decimalv3(15,2) not null,
+    l_discount    decimalv3(15,2) not null,
+    l_tax         decimalv3(15,2) not null,
+    l_returnflag  char(1) not null,
+    l_linestatus  char(1) not null,
+    l_shipdate    date not null,
+    l_commitdate  date not null,
+    l_receiptdate date not null,
+    l_shipinstruct char(25) not null,
+    l_shipmode     char(10) not null,
+    l_comment      varchar(44) not null
+    )
+    DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
+    PARTITION BY RANGE(l_shipdate)
+    (FROM ('2023-10-17') TO ('2023-10-20') INTERVAL 1 DAY)
+    DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
+    PROPERTIES ("replication_num" = "1");
+insert into lineitem values
+             (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+             (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+             (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
+```
+创建物化视图
+```
+CREATE MATERIALIZED VIEW mv1 
+        BUILD DEFERRED REFRESH AUTO ON MANUAL
+        partition by(l_shipdate)
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1') 
+        AS 
+        select l_shipdate, o_orderdate, l_partkey, l_suppkey, sum(o_totalprice) as sum_total
+            from lineitem
+            left join orders on lineitem.l_orderkey = orders.o_orderkey and l_shipdate = o_orderdate
+            group by
+            l_shipdate,
+            o_orderdate,
+            l_partkey,
+            l_suppkey;
+```
 
 具体的语法可查看[CREATE ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
-### 删除物化视图
-物化视图有专门的删除语法，不能通过drop table来删除，
-
-具体的语法可查看[DROP ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
-
-### 修改物化视图
-
-修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)来修改
-
-table相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法来修改
-
 ### 查看已创建的物化视图
+
+```
+select * from mv_infos("database"="tpch") where Name="mv1"
+```
 
 物化视图独有的特性可以通过[mv_infos()](../sql-manual/sql-functions/table-functions/mv_infos.md)查看
 
@@ -80,11 +116,25 @@ table相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法�
 
 ### 手动刷新物化视图
 
+首先查看物化视图分区列表
+```
+SHOW PARTITIONS FROM mv1;
+```
+
+刷新名字为`p_20231017_20231018`的分区
+```
+refresh MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
+```
+
 物化视图有多种刷新方式，无论哪种方式，都可以随时进行手动刷新，
 
 具体的语法可查看[REFRESH MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW.md)
 
 ### 查看物化视图刷新数据的job
+
+```
+select * from jobs("type"="mv") order by CreateTime;
+```
 
 每个物化视图底层都会默认创建一个job，用来定义物化视图的刷新逻辑，
 
@@ -92,18 +142,61 @@ table相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法�
 
 ### 暂停物化视图job调度
 
+```
+PAUSE MATERIALIZED VIEW JOB ON mv1;
+```
+
 可以暂停物化视图的定时调度
 
-具体的语法可查看[PAUSE MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
+具体的语法可查看[PAUSE MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
 
 ### 恢复物化视图job调度
 
+```
+RESUME MATERIALIZED VIEW JOB ON mv1;
+```
+
 可以恢复物化视图的定时调度
 
-具体的语法可查看[RESUME MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
+具体的语法可查看[RESUME MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
 
 ### 查看物化视图刷新数据的task
+
+```
+select * from tasks("type"="mv");
+```
 
 每个job可以有一个或多个task，用来记录物化视图的刷新记录及状态等信息
 
 具体的语法可查看[tasks("type"="mv")](../sql-manual/sql-functions/table-functions/tasks.md)
+
+### 取消物化视图刷新数据的task
+
+```
+CANCEL MATERIALIZED VIEW TASK 1 on mv1;
+```
+
+具体的语法可查看[CANCEL MATERIALIZED VIEW TASK](../sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK.md)
+
+### 修改物化视图
+
+修改物化视图的属性
+```
+alter Materialized View mv1 set("grace_period"="3333");
+```
+
+修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)来修改
+
+物化视图本身也是一个 Table，所以 Table 相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法来修改。
+
+### 删除物化视图
+
+```
+DROP MATERIALIZED VIEW mv1;
+```
+
+物化视图有专门的删除语法，不能通过drop table来删除，
+
+具体的语法可查看[DROP ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
+
+## 物化视图的使用
