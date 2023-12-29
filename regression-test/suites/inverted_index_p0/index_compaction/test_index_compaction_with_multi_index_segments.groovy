@@ -203,7 +203,6 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
 
         tablets = sql """ show tablets from ${tableName}; """
 
-        replicaNum = get_table_replica_num(tableName)
         logger.info("get table replica num: " + replicaNum)
         // before full compaction, there are 2 rowsets.
         rowsetCount = 0
