@@ -2161,6 +2161,22 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
                 _current_return_columns[cid]->reserve(_opts.block_row_max);
             }
         }
+
+        // Additional deleted filter condition will be materialized column be at the end of the block,
+        // after _output_column_by_sel_idx  will be erase, we not need to filter it,
+        // so erase it from _columns_to_filter in the first next_batch.
+        // Eg:
+        //      `delete from table where a = 10;`
+        //      `select b from table;`
+        // a column only effective in segment iterator, the block from query engine only contain the b column,
+        // so no need to filter a column by expr.
+        for (auto it = _columns_to_filter.begin(); it != _columns_to_filter.end();) {
+            if (*it >= block->columns()) {
+                it = _columns_to_filter.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
     _init_current_block(block, _current_return_columns);
     _converted_column_ids.assign(_schema->columns().size(), 0);
@@ -2173,24 +2189,6 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
     if (std::find(_first_read_column_ids.begin(), _first_read_column_ids.end(),
                   _schema->version_col_idx()) != _first_read_column_ids.end()) {
         _replace_version_col(_current_batch_rows_read);
-    }
-
-    // Additional deleted filter condition will be materialized column be at the end of the block,
-    // after _output_column_by_sel_idx  will be erase, we not need to filter it,
-    // so erase it from _columns_to_filter in the first next_batch.
-    // Eg:
-    //      `delete from table where a = 10;`
-    //      `select b from table;`
-    // a column only effective in segment iterator, the block from query engine only contain the b column,
-    // so no need to filter a column by expr.
-    if (_opts.stats->blocks_load == 0) {
-        for (auto it = _columns_to_filter.begin(); it != _columns_to_filter.end();) {
-            if (*it >= block->columns()) {
-                it = _columns_to_filter.erase(it);
-            } else {
-                ++it;
-            }
-        }
     }
 
     _opts.stats->blocks_load += 1;
