@@ -46,6 +46,7 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
+#include "runtime/memory/lru_cache_policy.h"
 #include "util/uid_util.h"
 
 namespace json2pb {
@@ -469,6 +470,14 @@ public:
      */
     std::shared_ptr<roaring::Roaring> get_agg(const BitmapKey& bmk) const;
 
+    class AggCachePolicy : public LRUCachePolicy {
+    public:
+        AggCachePolicy(size_t capacity)
+                : LRUCachePolicy(CachePolicy::CacheType::DELETE_BITMAP_AGG_CACHE, capacity,
+                                 LRUCacheType::SIZE,
+                                 config::delete_bitmap_agg_cache_stale_sweep_time_sec, 256) {}
+    };
+
     class AggCache {
     public:
         struct Value {
@@ -478,8 +487,7 @@ public:
         AggCache(size_t size_in_bytes) {
             static std::once_flag once;
             std::call_once(once, [size_in_bytes] {
-                auto tmp = new ShardedLRUCache("DeleteBitmap AggCache", size_in_bytes,
-                                               LRUCacheType::SIZE, 256);
+                auto* tmp = new AggCachePolicy(size_in_bytes);
                 AggCache::s_repr.store(tmp, std::memory_order_release);
             });
 
@@ -487,8 +495,8 @@ public:
             }
         }
 
-        static ShardedLRUCache* repr() { return s_repr.load(std::memory_order_acquire); }
-        static std::atomic<ShardedLRUCache*> s_repr;
+        static Cache* repr() { return s_repr.load(std::memory_order_acquire)->cache(); }
+        static std::atomic<AggCachePolicy*> s_repr;
     };
 
 private:
