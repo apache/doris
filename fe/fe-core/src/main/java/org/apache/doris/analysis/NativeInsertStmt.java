@@ -1110,7 +1110,7 @@ public class NativeInsertStmt extends InsertStmt {
     }
 
     public void analyzeGroupCommit(Analyzer analyzer) throws AnalysisException {
-        if (isGroupCommitStreamLoadSql && (targetTable instanceof OlapTable)
+        if (isGroupCommitStreamLoadSql && targetTable != null && (targetTable instanceof OlapTable)
                 && !((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()) {
             throw new AnalysisException(
                     "table light_schema_change is false, can't do http_stream with group commit mode");
@@ -1129,6 +1129,7 @@ public class NativeInsertStmt extends InsertStmt {
         if (!partialUpdate && ConnectContext.get().getSessionVariable().isEnableInsertGroupCommit()
                 && ConnectContext.get().getSessionVariable().getSqlMode() != SqlModeHelper.MODE_NO_BACKSLASH_ESCAPES
                 && targetTable instanceof OlapTable
+                && ((OlapTable) targetTable).getTableProperty().getUseSchemaLightChange()
                 && !ConnectContext.get().isTxnModel()
                 && getQueryStmt() instanceof SelectStmt
                 && ((SelectStmt) getQueryStmt()).getTableRefs().isEmpty() && targetPartitionNames == null

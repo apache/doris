@@ -291,7 +291,7 @@ void HttpStreamAction::free_handler_ctx(std::shared_ptr<void> param) {
 }
 
 Status HttpStreamAction::process_put(HttpRequest* http_req,
-                                      std::shared_ptr<StreamLoadContext> ctx) {
+                                     std::shared_ptr<StreamLoadContext> ctx) {
     TStreamLoadPutRequest request;
     set_request_auth(&request, ctx->auth);
     if (http_req != nullptr) {
