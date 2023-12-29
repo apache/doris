@@ -193,9 +193,6 @@ Status TabletStream::add_segment(const PStreamHeader& header, butil::IOBuf* data
         }
     };
     auto& flush_token = _flush_tokens[new_segid % _flush_tokens.size()];
-    while (flush_token->num_tasks() >= config::load_stream_flush_token_max_tasks) {
-        bthread_usleep(10 * 1000); // 10ms
-    }
     return flush_token->submit_func(add_segment_func);
 }
 
