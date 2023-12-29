@@ -55,7 +55,7 @@ suite("test_task_mtmv") {
     try {
         sql """drop materialized view if exists ${mvName};"""
     } catch (Exception e) {
-        log.info(e.getMessage())
+        log.info("cancel error msg: " + e.getMessage())
         assertTrue(e.getMessage().contains("no running task"));
     }
 }
