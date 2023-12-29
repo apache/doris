@@ -88,6 +88,10 @@ suite("test_build_mtmv") {
     logger.info("showCreateTableResult: " + showCreateTableResult.toString())
     assertTrue(showCreateTableResult.toString().contains("CREATE MATERIALIZED VIEW `multi_mv_test_create_mtmv` (\n  `aa` BIGINT NULL COMMENT 'aaa',\n  `bb` VARCHAR(20) NULL\n) ENGINE=MATERIALIZED_VIEW\nCOMMENT 'comment1'\nDISTRIBUTED BY RANDOM BUCKETS 2\nPROPERTIES"))
 
+    def descTableAllResult = sql """desc ${mvName} all"""
+    logger.info("descTableAllResult: " + descTableAllResult.toString())
+    assertTrue(descTableAllResult.toString().contains(${mvName}))
+
     // if not exist
     try {
         sql """

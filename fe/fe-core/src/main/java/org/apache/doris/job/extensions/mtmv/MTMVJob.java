@@ -125,6 +125,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
 
     @Override
     public List<MTMVTask> createTasks(TaskType taskType, MTMVTaskContext taskContext) {
+        LOG.info("begin create mtmv task, jobId: {}, taskContext: {}", super.getJobId(), taskContext);
         if (taskContext == null) {
             taskContext = new MTMVTaskContext(MTMVTaskTriggerMode.SYSTEM);
         }
@@ -133,6 +134,7 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         ArrayList<MTMVTask> tasks = new ArrayList<>();
         tasks.add(task);
         super.initTasks(tasks, taskType);
+        LOG.info("finish create mtmv task, task: {}", task);
         return tasks;
     }
 
@@ -151,6 +153,8 @@ public class MTMVJob extends AbstractJob<MTMVTask, MTMVTaskContext> {
         List<MTMVTask> runningTasks = getRunningTasks();
         for (MTMVTask task : runningTasks) {
             if (task.getTaskContext() == null || task.getTaskContext().getTriggerMode() == MTMVTaskTriggerMode.SYSTEM) {
+                LOG.warn("isReadyForScheduling return false, because current taskContext is null, exist task: {}",
+                        task);
                 return false;
             }
         }

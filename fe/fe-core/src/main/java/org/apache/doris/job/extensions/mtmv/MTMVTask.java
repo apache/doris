@@ -374,4 +374,19 @@ public class MTMVTask extends AbstractTask {
     public MTMVTaskContext getTaskContext() {
         return taskContext;
     }
+
+    @Override
+    public String toString() {
+        return "MTMVTask{"
+                + "dbId=" + dbId
+                + ", mtmvId=" + mtmvId
+                + ", taskContext=" + taskContext
+                + ", needRefreshPartitions=" + needRefreshPartitions
+                + ", completedPartitions=" + completedPartitions
+                + ", refreshMode=" + refreshMode
+                + ", mtmv=" + mtmv
+                + ", relation=" + relation
+                + ", executor=" + executor
+                + "} " + super.toString();
+    }
 }
