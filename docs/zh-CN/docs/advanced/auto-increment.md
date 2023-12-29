@@ -44,7 +44,7 @@ Doris保证了自增列上生成的值具有**表内唯一性**。但需要注�
 
 ### 聚集性
 
-Doris保证自增列上自动生成的值是稠密的，但**不能保证**在一次导入中自动填充的自增列的值是完全连续的，因此可能会出现一次导入中自增列自动填充的值具有一定的跳跃性的现象。这是因为出于性能考虑，每个BE上都会缓存一部分预先分配的自增列的值，每个BE上缓存的值互不相交。此外，由于缓存的存在，Doris仅能保证在自增列上自动生成的值**在一个分桶内**是严格单调递增的，而不能保证在物理时间上后一次导入的数据在自增列上自动生成的值比前一次更大。因此，不能根据自增列分配出的值的大小来判断导入时间上的先后顺序。
+Doris保证自增列上自动生成的值是稠密的，但**不能保证**在一次导入中自动填充的自增列的值是完全连续的，因此可能会出现一次导入中自增列自动填充的值具有一定的跳跃性的现象。这是因为出于性能考虑，每个BE上都会缓存一部分预先分配的自增列的值，每个BE上缓存的值互不相交。此外，由于缓存的存在，Doris不能保证在物理时间上后一次导入的数据在自增列上自动生成的值比前一次更大。因此，不能根据自增列分配出的值的大小来判断导入时间上的先后顺序。
 
 
 ## 语法
@@ -135,7 +135,7 @@ CREATE TABLE `tbl` (
 UNIQUE KEY(`id`)
 DISTRIBUTED BY HASH(`id`) BUCKETS 10
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1",
+"replication_allocation" = "tag.location.default: 3",
 "enable_unique_key_merge_on_write" = "true"
 );
 ```
@@ -218,7 +218,7 @@ mysql> CREATE TABLE `tbl2` (
     -> UNIQUE KEY(`id`)
     -> DISTRIBUTED BY HASH(`id`) BUCKETS 10
     -> PROPERTIES (
-    -> "replication_allocation" = "tag.location.default: 1",
+    -> "replication_allocation" = "tag.location.default: 3",
     -> "enable_unique_key_merge_on_write" = "true"
     -> );
 Query OK, 0 rows affected (0.03 sec)
@@ -271,7 +271,7 @@ mysql> CREATE TABLE `tbl3` (
     -> UNIQUE KEY(`id`)
     -> DISTRIBUTED BY HASH(`id`) BUCKETS 1
     -> PROPERTIES (
-    -> "replication_allocation" = "tag.location.default: 1",
+    -> "replication_allocation" = "tag.location.default: 3",
     -> "enable_unique_key_merge_on_write" = "true"
     -> );
 Query OK, 0 rows affected (0.16 sec)
@@ -346,7 +346,7 @@ CREATE TABLE `dwd_tbl` (
 DUPLICATE KEY(`user_id`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1"
+"replication_allocation" = "tag.location.default: 3"
 );
 ```
 
@@ -360,7 +360,7 @@ CREATE TABLE `dict_tbl` (
 PRIMARY KEY(`user_id`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1"
+"replication_allocation" = "tag.location.default: 3"
 );
 ```
 
@@ -368,7 +368,7 @@ PROPERTIES (
 
 ```sql
 insert into dit_tbl(user_id)
-select user_id from dwd_tbl group by dwd_tbl;
+select user_id from dwd_tbl group by user_id;
 ```
 
 或者使用如下方式仅将增量数据中的`user_id`导入到字典表
@@ -393,7 +393,7 @@ CREATE TABLE `dws_tbl` (
 PRIMARY KEY(`dim1`,`dim3`,`dim4`,`visit_time`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1",
+"replication_allocation" = "tag.location.default: 3",
 "enable_unique_key_merge_on_write" = "true"
 );
 ```
@@ -409,7 +409,7 @@ from dwd_tbl INNER JOIN dict_tbl on dwd_tbl.user_id = dict_tbl.user_id
 用如下语句进行 uv, pv 查询
 
 ```sql
-select dim1, dim3, dim5, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)) as uv, SUM(pv) as pv
+select dim1, dim3, dim5, BITMAP_UNION_COUNT(dict_tbl.aid) as uv, SUM(pv) as pv
 from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' group by dim1, dim3, dim5;
 ```
 
