@@ -50,7 +50,7 @@ ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
 
 例如: 将mv1的名字改为mv2
 ```sql
-alter Materialized View mv1 rename mv2;
+ALTER MATERIALIZED VIEW mv1 rename mv2;
 ```
 
 ##### refreshMethod
@@ -66,7 +66,7 @@ alter Materialized View mv1 rename mv2;
 
 例如修改mv1的grace_period为3000ms
 ```sql
-alter Materialized View mv1 set("grace_period"="3000");
+ALTER MATERIALIZED VIEW mv1 set("grace_period"="3000");
 ```
 
 ### Keywords
