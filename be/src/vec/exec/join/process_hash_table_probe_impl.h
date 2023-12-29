@@ -278,41 +278,41 @@ Status ProcessHashTableProbe<JoinOpType, Parent>::do_other_join_conjuncts(
         auto new_filter_column = ColumnUInt8::create(row_count);
         auto* __restrict filter_map = new_filter_column->get_data().data();
 
+        if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
+            for (size_t i = 0; i < row_count; ++i) {
+                if (filter_column_ptr[i]) {
+                    filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                    _parent->_last_probe_match = _probe_indexs[i];
+                } else {
+                    filter_map[i] = false;
+                }
+            }
+        } else {
+            for (size_t i = 0; i < row_count; ++i) {
+                if (_build_indexs[i]) {
+                    filter_map[i] = false;
+                    if (filter_column_ptr[i]) {
+                        _parent->_last_probe_match = _probe_indexs[i];
+                    }
+                } else {
+                    filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
+                }
+            }
+        }
+
         if (is_mark_join) {
             auto mark_column =
                     output_block->get_by_position(orig_columns - 1).column->assume_mutable();
             ColumnFilterHelper helper(*mark_column);
-
             for (size_t i = 0; i < row_count; ++i) {
-                filter_map[i] = true;
-                if (has_null_in_build_side &&
-                    (_build_indexs[i] != 0) ^ (JoinOpType == TJoinOp::LEFT_SEMI_JOIN)) {
+                bool mathced = filter_map[i] &&
+                               ((_build_indexs[i] != 0) == (JoinOpType == TJoinOp::LEFT_SEMI_JOIN));
+                if (has_null_in_build_side && !mathced) {
                     helper.insert_null();
                 } else {
-                    helper.insert_value(filter_column_ptr[i]);
+                    helper.insert_value(mathced);
                 }
-            }
-        } else {
-            if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
-                for (size_t i = 0; i < row_count; ++i) {
-                    if (filter_column_ptr[i]) {
-                        filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
-                        _parent->_last_probe_match = _probe_indexs[i];
-                    } else {
-                        filter_map[i] = false;
-                    }
-                }
-            } else {
-                for (size_t i = 0; i < row_count; ++i) {
-                    if (_build_indexs[i]) {
-                        filter_map[i] = false;
-                        if (filter_column_ptr[i]) {
-                            _parent->_last_probe_match = _probe_indexs[i];
-                        }
-                    } else {
-                        filter_map[i] = _parent->_last_probe_match != _probe_indexs[i];
-                    }
-                }
+                filter_map[i] = true;
             }
         }
 
