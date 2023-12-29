@@ -46,10 +46,6 @@ Doris保证了自增列上生成的值具有**表内唯一性**。但需要注�
 
 Doris保证了在自增列上填充的值**在一个分桶内**是严格单调递增的。但需要注意的是，Doris**不能保证**在物理时间上后一次导入的数据在自增列上填充的值比前一次更大，这是因为处于性能考虑，每个BE上都会缓存一部分预先分配的自增列的值，每个BE上缓存的值互不相交。因此，不能根据自增列分配出的值的大小来判断导入时间上的先后顺序。同时，由于BE上缓存的存在，Doris仅能保证自增列上自动填充的值在一定程度上是稠密的，但**不能保证**在一次导入中自动填充的自增列的值是完全连续的。因此可能会出现一次导入中自增列自动填充的值具有一定的跳跃性的现象。
 
-## 使用场景
-
-基于自增列自动分配、表级唯一和稠密的特性，可以利用自增列构建字符串到BIGINT的编码映射，从而加速精确去重和JOIN的计算过程，还可以进一步结合bitmap类型来加速画像场景中的圈选和去重的计算过程。
-
 ## 语法
 
 要使用自增列，需要在建表[CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE)时为对应的列添加`AUTO_INCREMENT`属性。
@@ -327,3 +323,97 @@ mysql> select * from tbl3 order by id;
 +------+---------+-------+------+
 3 rows in set (0.06 sec)
 ```
+
+## 使用场景
+
+### 字典编码
+
+在用户画像场景中使用 bitmap 做人群分析时需要构建用户字典，每个用户对应一个唯一的整数字典值，聚集的字典值可以获得更好的 bitmap 性能。
+
+以离线uv，pv分析场景为例，假设有如下用户行为表存放明细数据：
+
+```sql
+CREATE TABLE `dwd_tbl` (
+    `user_id` varchar(50) NOT NULL,
+    `dim1` varchar(50) NOT NULL,
+    `dim2` varchar(50) NOT NULL,
+    `dim3` varchar(50) NOT NULL,
+    `dim4` varchar(50) NOT NULL,
+    `dim5` varchar(50) NOT NULL,
+    `visit_time` DATE NOT NULL
+) ENGINE=OLAP
+DUPLICATE KEY(`user_id`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+```
+
+利用自增列创建如下字典表
+
+```sql
+CREATE TABLE `dict_tbl` (
+    `user_id` varchar(50) NOT NULL,
+    `aid` BIGINT NOT NULL AUTO_INCREMENT
+) ENGINE=OLAP
+PRIMARY KEY(`user_id`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+```
+
+将存量数据中的`user_id`导入字典表，建立`user_id`到整数值的编码映射
+
+```sql
+insert into dit_tbl(user_id)
+select user_id from dwd_tbl group by dwd_tbl;
+```
+
+或者使用如下方式仅将增量数据中的`user_id`导入到字典表
+
+```sql
+insert into dit_tbl(user_id)
+select dwd_tbl.user_id from dwd_tbl left join dict_tbl
+on dwd_tbl.user_id = dict_tbl.user_id where dwd_tbl.visit_time > '2023-12-10' and dict_tbl.user_id is NULL
+```
+
+假设`dim1`, `dim3`, `dim4`是我们关系的统计维度，建立下表存放聚合结果
+
+```sql
+CREATE TABLE `dws_tbl` (
+    `dim1` varchar(50) NOT NULL,
+    `dim3` varchar(50) NOT NULL,
+    `dim4` varchar(50) NOT NULL,
+    `visit_time` DATE NOT NULL,
+    `user_id_bitmap` BITMAP NOT NULL,
+    `pv` BIGINT NOT NULL 
+) ENGINE=OLAP
+PRIMARY KEY(`dim1`,`dim3`,`dim4`,`visit_time`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+```
+
+将数据聚合运算后存放至聚合结果表
+
+```sql
+insert into dws_tbl
+select dwd_tbl.dim1, dwd_tbl.dim3, dwd_tbl.dim5, dwd_tbl.visit_time, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)), COUNT(1)
+from dwd_tbl INNER JOIN dict_tbl on dwd_tbl.user_id = dict_tbl.user_id
+```
+
+用如下语句进行 uv, pv 查询
+
+```sql
+select dim1, dim3, dim5, visit_time, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)) as uv, SUM(pv) as pv
+from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' group by dim1, dim3, dim5, visit_time;
+```
+
+### 高效分页
+
+在页面展示数据时，往往需要做分页展示，传统的分页使用 SQL 重的 limit offset 语法实现，查询涉及的数据量很大时，这种方法比较低效。可以通过自增列给每行数据一个唯一值，就可以使用 where unique_value > xx limit 100 的方法来实现分页。
+
+
+
