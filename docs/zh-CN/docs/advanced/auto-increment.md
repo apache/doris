@@ -56,7 +56,7 @@ Doris保证自增列上自动生成的值是稠密的，但**不能保证**在�
 1. 创建一个Dupliciate模型表，其中一个key列是自增列
 
   ```sql
-  CREATE TABLE `tbl` (
+  CREATE TABLE `demo`.`tbl` (
         `id` BIGINT NOT NULL AUTO_INCREMENT,
         `value` BIGINT NOT NULL
   ) ENGINE=OLAP
@@ -70,7 +70,7 @@ Doris保证自增列上自动生成的值是稠密的，但**不能保证**在�
 2. 创建一个Dupliciate模型表，其中一个value列是自增列
 
   ```sql
-  CREATE TABLE `tbl` (
+  CREATE TABLE `demo`.`tbl` (
         `uid` BIGINT NOT NULL,
         `name` BIGINT NOT NULL,
         `id` BIGINT NOT NULL AUTO_INCREMENT,
@@ -86,7 +86,7 @@ Doris保证自增列上自动生成的值是稠密的，但**不能保证**在�
 3. 创建一个Unique模型表，其中一个key列是自增列
 
   ```sql
-  CREATE TABLE `tbl` (
+  CREATE TABLE `demo`.`tbl` (
         `id` BIGINT NOT NULL AUTO_INCREMENT,
         `name` varchar(65533) NOT NULL,
         `value` int(11) NOT NULL
@@ -102,7 +102,7 @@ Doris保证自增列上自动生成的值是稠密的，但**不能保证**在�
 4. 创建一个Unique模型表，其中一个value列是自增列
 
   ```sql
-  CREATE TABLE `tbl` (
+  CREATE TABLE `demo`.`tbl` (
         `text` varchar(65533) NOT NULL,
         `id` BIGINT NOT NULL AUTO_INCREMENT,
   ) ENGINE=OLAP
@@ -127,7 +127,7 @@ Doris保证自增列上自动生成的值是稠密的，但**不能保证**在�
 以下表为例：
 
 ```sql
-CREATE TABLE `tbl` (
+CREATE TABLE `demo`.`tbl` (
     `id` BIGINT NOT NULL AUTO_INCREMENT,
     `name` varchar(65533) NOT NULL,
     `value` int(11) NOT NULL
@@ -210,7 +210,7 @@ mysql> select * from tbl order by id;
 
 在对一张包含自增列的merge-on-write Unique表进行部分列更新时，如果自增列是key列，由于部分列更新时用户必须显示指定key列，部分列更新的目标列必须包含自增列。此时的导入行为和普通的部分列更新相同。
 ```sql
-mysql> CREATE TABLE `tbl2` (
+mysql> CREATE TABLE `demo`.`tbl2` (
     ->     `id` BIGINT NOT NULL AUTO_INCREMENT,
     ->     `name` varchar(65533) NOT NULL,
     ->     `value` int(11) NOT NULL DEFAULT "0"
@@ -262,7 +262,7 @@ mysql> select * from tbl2 order by id;
 当自增列是非key列时，如果用户没有指定自增列的值，其值会从表中原有的数据行中进行补齐。如果用户指定了自增列，则该列数据中的null值会被替换为生成出的值，非null值则保持不表，然后以部分列更新的语义插入该表。
 
 ```sql
-mysql> CREATE TABLE `tbl3` (
+mysql> CREATE TABLE `demo`.`tbl3` (
     ->     `id` BIGINT NOT NULL,
     ->     `name` varchar(100) NOT NULL,
     ->     `score` BIGINT NOT NULL,
@@ -334,7 +334,7 @@ mysql> select * from tbl3 order by id;
 以离线uv，pv分析场景为例，假设有如下用户行为表存放明细数据：
 
 ```sql
-CREATE TABLE `dwd_tbl` (
+CREATE TABLE `demo`.`dwd_dup_tbl` (
     `user_id` varchar(50) NOT NULL,
     `dim1` varchar(50) NOT NULL,
     `dim2` varchar(50) NOT NULL,
@@ -353,44 +353,11 @@ PROPERTIES (
 利用自增列创建如下字典表
 
 ```sql
-CREATE TABLE `dict_tbl` (
+CREATE TABLE `demo`.`dictionary_tbl` (
     `user_id` varchar(50) NOT NULL,
     `aid` BIGINT NOT NULL AUTO_INCREMENT
 ) ENGINE=OLAP
-PRIMARY KEY(`user_id`)
-DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
-PROPERTIES (
-"replication_allocation" = "tag.location.default: 3"
-);
-```
-
-将存量数据中的`user_id`导入字典表，建立`user_id`到整数值的编码映射
-
-```sql
-insert into dit_tbl(user_id)
-select user_id from dwd_tbl group by user_id;
-```
-
-或者使用如下方式仅将增量数据中的`user_id`导入到字典表
-
-```sql
-insert into dit_tbl(user_id)
-select dwd_tbl.user_id from dwd_tbl left join dict_tbl
-on dwd_tbl.user_id = dict_tbl.user_id where dwd_tbl.visit_time > '2023-12-10' and dict_tbl.user_id is NULL
-```
-
-假设`dim1`, `dim3`, `dim4`是我们关心的统计维度，建立下表存放聚合结果
-
-```sql
-CREATE TABLE `dws_tbl` (
-    `dim1` varchar(50) NOT NULL,
-    `dim3` varchar(50) NOT NULL,
-    `dim4` varchar(50) NOT NULL,
-    `visit_time` DATE NOT NULL,
-    `user_id_bitmap` BITMAP NOT NULL,
-    `pv` BIGINT NOT NULL 
-) ENGINE=OLAP
-PRIMARY KEY(`dim1`,`dim3`,`dim4`,`visit_time`)
+UNIQUE KEY(`user_id`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 3",
@@ -398,29 +365,93 @@ PROPERTIES (
 );
 ```
 
+将存量数据中的`user_id`导入字典表，建立`user_id`到整数值的编码映射
+
+```sql
+insert into dit_tbl(user_id)
+select user_id from dwd_dup_tbl group by user_id;
+```
+
+或者使用如下方式仅将增量数据中的`user_id`导入到字典表
+
+```sql
+insert into dit_tbl(user_id)
+select dwd_dup_tbl.user_id from dwd_dup_tbl left join dictionary_tbl
+on dwd_dup_tbl.user_id = dictionary_tbl.user_id where dwd_dup_tbl.visit_time > '2023-12-10' and dictionary_tbl.user_id is NULL;
+```
+
+实际场景中也可以使用 flink connector 把数据写入到 doris。
+
+假设`dim1`, `dim3`, `dim5`是我们关心的统计维度，建立如下聚合表存放聚合结果
+
+```sql
+CREATE TABLE `demo`.`dws_agg_tbl` (
+    `dim1` varchar(50) NOT NULL,
+    `dim3` varchar(50) NOT NULL,
+    `dim5` varchar(50) NOT NULL,
+    `user_id_bitmap` BITMAP BITMAP_UNION NOT NULL,
+    `pv` BIGINT NOT NULL 
+) ENGINE=OLAP
+AGGREGATE KEY(`dim1`,`dim3`,`dim5`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 3"
+);
+```
+
 将数据聚合运算后存放至聚合结果表
 
 ```sql
 insert into dws_tbl
-select dwd_tbl.dim1, dwd_tbl.dim3, dwd_tbl.dim5, dwd_tbl.visit_time, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)), COUNT(1)
-from dwd_tbl INNER JOIN dict_tbl on dwd_tbl.user_id = dict_tbl.user_id
+select dwd_dup_tbl.dim1, dwd_dup_tbl.dim3, dwd_dup_tbl.dim5, dwd_dup_tbl.visit_time, BITMAP_UNION(TO_BITMAP(dictionary_tbl.aid)), COUNT(1)
+from dwd_dup_tbl INNER JOIN dictionary_tbl on dwd_dup_tbl.user_id = dictionary_tbl.user_id;
 ```
 
 用如下语句进行 uv, pv 查询
 
 ```sql
-select dim1, dim3, dim5, BITMAP_UNION_COUNT(dict_tbl.aid) as uv, SUM(pv) as pv
-from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' group by dim1, dim3, dim5;
+select dim1, dim3, dim5, user_id_bitmap as uv, pv from dws_agg_tbl;
 ```
 
 ### 高效分页
 
-在页面展示数据时，往往需要做分页展示。传统的分页使用 SQL 中的 limit offset 语法实现，当进行深分页查询时(offset很大时)，即使实际需要需要的数据行很少，但该方法依然会将全部数据读取到内存中进行全量排序后再进行后续处理，这种方法比较低效。可以通过自增列给每行数据一个唯一值，就可以使用 where unique_value > x limit y 的方式通过提下推谓词提前过滤大量数据，从而更高效地实现分页。
-
-例如有如下业务表需要进行分页展示，通过在表中添加一个自增列从而赋予每一行一个唯一标识：
+在页面展示数据时，往往需要做分页展示。传统的分页通常使用 SQL 中的 `limit`, `offset` + `order by` 进行查询。例如有如下业务表需要进行展示：
 
 ```sql
-CREATE TABLE `tbl` (
+CREATE TABLE `demo`.`records_tbl` (
+    `key` int(11) NOT NULL COMMENT "",
+    `name` varchar(26) NOT NULL COMMENT "",
+    `address` varchar(41) NOT NULL COMMENT "",
+    `city` varchar(11) NOT NULL COMMENT "",
+    `nation` varchar(16) NOT NULL COMMENT "",
+    `region` varchar(13) NOT NULL COMMENT "",
+    `phone` varchar(16) NOT NULL COMMENT "",
+    `mktsegment` varchar(11) NOT NULL COMMENT ""
+) DUPLICATE KEY (`key`, `name`)
+DISTRIBUTED BY HASH(`key`) BUCKETS 10
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 3"
+);
+```
+
+假设在分页展示中，每页展示100条数据。那么获取第1页的数据可以使用如下sql进行查询：
+
+```sql
+select * from records_tbl order by key, name limit 100;
+```
+
+获取第2页的数据可以使用如下sql进行查询：
+
+```sql
+select * from records_tbl order by key, name limit 100, offset 100;
+```
+
+然而，当进行深分页查询时(offset很大时)，即使实际需要需要的数据行很少，该方法依然会将全部数据读取到内存中进行全量排序后再进行后续处理，这种方法比较低效。可以通过自增列给每行数据一个唯一值，在查询时就可以通过记录之前页面`unique_value`列的最大值`max_value`，然后使用 `where unique_value > max_value limit rows_per_page` 的方式通过提下推谓词提前过滤大量数据，从而更高效地实现分页。
+
+仍然以上述业务表为例，通过在表中添加一个自增列从而赋予每一行一个唯一标识：
+
+```sql
+CREATE TABLE `demo`.`records_tbl2` (
     `key` int(11) NOT NULL COMMENT "",
     `name` varchar(26) NOT NULL COMMENT "",
     `address` varchar(41) NOT NULL COMMENT "",
@@ -433,29 +464,27 @@ CREATE TABLE `tbl` (
 ) DUPLICATE KEY (`key`, `name`)
 DISTRIBUTED BY HASH(`key`) BUCKETS 10
 PROPERTIES (
-    "replication_num" = "1"
+    "replication_num" = "3"
 );
 ```
 
-假设在分页展示中，每页展示100条数据，使用如下方获取第一页的数据：
+在分页展示中，每页展示100条数据，使用如下方式获取第一页的数据：
 
 ```sql
-select * from tbl order by unique_value limit 100;
+select * from records_tbl2 order by unique_value limit 100;
 ```
 
-记录下返回结果中`unique_value`中的最大值，假设为99，则可用如下方式查询第2页的数据：
+通过程序记录下返回结果中`unique_value`中的最大值，假设为99，则可用如下方式查询第2页的数据：
 
 ```sql
-select * from tbl where unique_value > 99 order by unique_value limit 100;
+select * from records_tbl2 where unique_value > 99 order by unique_value limit 100;
 ```
 
-如果要直接获取第101页的内容，可以使用如下方式
+如果要直接查询一个靠后页面的内容，此时不方便直接获取之前页面数据中`unique_value`的最大值时，例如要直接获取第101页的内容，则可以使用如下方式进行查询
 
 ```sql
 select key, name, address, city, nation, region, phone, mktsegment
-from tbl, (select uniuqe_value as max_value from tbl order by uniuqe_value limit 1 offset 9999) as previous_data
-where tbl.uniuqe_value > previous_data.max_value
+from records_tbl2, (select uniuqe_value as max_value from records_tbl2 order by uniuqe_value limit 1 offset 9999) as previous_data
+where records_tbl2.uniuqe_value > previous_data.max_value
 order by unique_value limit 100;
 ```
-
-
