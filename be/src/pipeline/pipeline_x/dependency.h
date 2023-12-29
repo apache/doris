@@ -56,8 +56,8 @@ static constexpr auto TIME_UNIT_DEPENDENCY_LOG = 30 * 1000L * 1000L * 1000L;
 static_assert(TIME_UNIT_DEPENDENCY_LOG < SLOW_DEPENDENCY_THRESHOLD);
 
 struct BasicSharedState {
-    Dependency* source_dep = nullptr;
-    Dependency* sink_dep = nullptr;
+    DependencySPtr source_dep = nullptr;
+    DependencySPtr sink_dep = nullptr;
 
     virtual Status close(RuntimeState* state) { return Status::OK(); }
     virtual ~BasicSharedState() = default;
