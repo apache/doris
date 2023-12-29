@@ -46,10 +46,6 @@ Doris ensures that values generated on the auto-increment column have **table-wi
 
 Doris guarantees that values filled on the auto-increment column are **strictly monotonically increasing within a tablet**. However, it's important to note that Doris **cannot guarantee** that the value filled on the auto-increment column for data imported at a later physical time will be larger than that of earlier imports. This is becasue each BE caches a portion of pre-allocated auto-increment column values due to performance considerations, and these cached values on different BEs do not intersect. Thus, the order of import times cannot be determined based on the values of auto-increment column. Additionally, due to this caching, Doris can only ensure that automatically filled values on the auto-increment column are to some extent dense, but **cannot guarantee** that the values filled automatically in a single import are completely contiguous. Hence, there might be instances where auto-filled values in an import exhibit certain jumps.
 
-### Usage Scenarios
-
-Based on the automatic assignment, table-level uniqueness, and density of the auto-increment column, we can use auto-increment column to build a mapping from strings to BIGINT to enable speeding up precise deduplication and JOIN calculations. Further, auto-increment column can be combined with bitmap types to accelerate the selection and deduplication computations in user profile analysis.
-
 ## Syntax
 
 To use auto-increment columns, you need to add the `AUTO_INCREMENT` attribute to the corresponding column during table creation ([CREATE-TABLE](../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE)).
@@ -328,4 +324,139 @@ mysql> select * from tbl3 order by id;
 |    3 | Bob     |   300 |  500 |
 +------+---------+-------+------+
 3 rows in set (0.06 sec)
+```
+
+## Usage Scenarios
+
+### Dictionary Encoding
+
+Using bitmaps for audience analysis in user profile requires building a user dictionary where each user corresponds to a unique integer dictionary value. Aggregating these dictionary values can improve the performance of bitmap.
+
+Taking the offline UV and PV analysis scenario as an example, assuming there's a detailed user behavior table:
+
+```sql
+CREATE TABLE `dwd_tbl` (
+    `user_id` varchar(50) NOT NULL,
+    `dim1` varchar(50) NOT NULL,
+    `dim2` varchar(50) NOT NULL,
+    `dim3` varchar(50) NOT NULL,
+    `dim4` varchar(50) NOT NULL,
+    `dim5` varchar(50) NOT NULL,
+    `visit_time` DATE NOT NULL
+) ENGINE=OLAP
+DUPLICATE KEY(`user_id`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+```
+
+Using the auto-incrementa column to create the following dictionary table:
+
+
+```sql
+CREATE TABLE `dict_tbl` (
+    `user_id` varchar(50) NOT NULL,
+    `aid` BIGINT NOT NULL AUTO_INCREMENT
+) ENGINE=OLAP
+PRIMARY KEY(`user_id`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1"
+);
+```
+
+Import the value of `user_id` from existing data into the dictionary table, establishing the mapping of `user_id` to integer values:
+
+```sql
+insert into dit_tbl(user_id)
+select user_id from dwd_tbl group by dwd_tbl;
+```
+
+Or import only the value of `user_id` in incrementa data into the dictionary table alternatively:
+
+
+```sql
+insert into dit_tbl(user_id)
+select dwd_tbl.user_id from dwd_tbl left join dict_tbl
+on dwd_tbl.user_id = dict_tbl.user_id where dwd_tbl.visit_time > '2023-12-10' and dict_tbl.user_id is NULL
+```
+
+Assuming `dim1`, `dim3`, `dim4` represent statistical dimensions of interest to us, create the following table to store aggregated results:
+
+```sql
+CREATE TABLE `dws_tbl` (
+    `dim1` varchar(50) NOT NULL,
+    `dim3` varchar(50) NOT NULL,
+    `dim4` varchar(50) NOT NULL,
+    `visit_time` DATE NOT NULL,
+    `user_id_bitmap` BITMAP NOT NULL,
+    `pv` BIGINT NOT NULL 
+) ENGINE=OLAP
+PRIMARY KEY(`dim1`,`dim3`,`dim4`,`visit_time`)
+DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1",
+"enable_unique_key_merge_on_write" = "true"
+);
+```
+
+Store the result of the data aggregation operations into the aggregation result table:
+
+```sql
+insert into dws_tbl
+select dwd_tbl.dim1, dwd_tbl.dim3, dwd_tbl.dim5, dwd_tbl.visit_time, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)), COUNT(1)
+from dwd_tbl INNER JOIN dict_tbl on dwd_tbl.user_id = dict_tbl.user_id
+```
+
+Perform UV and PV queries using the following statement:
+
+```sql
+select dim1, dim3, dim5, visit_time, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)) as uv, SUM(pv) as pv
+from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' group by dim1, dim3, dim5, visit_time;
+```
+
+### Efficient Pagination
+
+When displaying data on a page, pagination is often necessary. Traditional pagination uses SQL's limit offset syntax. However, when conducting deep pagination queries (with a large offset), even if the actual required data rows are few, this method still reads all data into memory for full sorting before subsequent processing, which is quite inefficient. Using an auto-incrementa column assigns a unique value to each row, allowing the use of where unique_value > x limit y to filter a significant amount of data beforehand, making pagination more efficient.
+
+For instance, consider a business table that requires paginated display, and by adding an auto-incrementa column, each row gets a unique identifier:
+
+```sql
+CREATE TABLE `tbl` (
+    `key` int(11) NOT NULL COMMENT "",
+    `name` varchar(26) NOT NULL COMMENT "",
+    `address` varchar(41) NOT NULL COMMENT "",
+    `city` varchar(11) NOT NULL COMMENT "",
+    `nation` varchar(16) NOT NULL COMMENT "",
+    `region` varchar(13) NOT NULL COMMENT "",
+    `phone` varchar(16) NOT NULL COMMENT "",
+    `mktsegment` varchar(11) NOT NULL COMMENT "",
+    `unique_value` BIGINT NOT NULL AUTO_INCREMENT
+) DUPLICATE KEY (`key`, `name`)
+DISTRIBUTED BY HASH(`key`) BUCKETS 10
+PROPERTIES (
+    "replication_num" = "1",
+);
+```
+
+Assuming each page displays 100 rows, to get the data for the first page:
+
+```sql
+select * from tbl order by unique_value limit 100;
+```
+
+Record the maximum value in the returned results' `unique_value` column, let's assume it's 99. Then, to query for the second page's data:
+
+```sql
+select * from tbl where unique_value > 99 order by unique_value limit 100;
+```
+
+For directly fetching content from the 101st page, we can use the following sql:
+
+```sql
+select key, name, address, city, nation, region, phone, mktsegment
+from tbl, (select uniuqe_value as max_value from tbl order by uniuqe_value limit 1 offset 9999) as previous_data
+where tbl.uniuqe_value > previous_data.max_value
+order by unique_value limit 100;
 ```

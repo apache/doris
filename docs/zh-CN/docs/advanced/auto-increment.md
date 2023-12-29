@@ -378,7 +378,7 @@ select dwd_tbl.user_id from dwd_tbl left join dict_tbl
 on dwd_tbl.user_id = dict_tbl.user_id where dwd_tbl.visit_time > '2023-12-10' and dict_tbl.user_id is NULL
 ```
 
-假设`dim1`, `dim3`, `dim4`是我们关系的统计维度，建立下表存放聚合结果
+假设`dim1`, `dim3`, `dim4`是我们关心的统计维度，建立下表存放聚合结果
 
 ```sql
 CREATE TABLE `dws_tbl` (
@@ -392,7 +392,8 @@ CREATE TABLE `dws_tbl` (
 PRIMARY KEY(`dim1`,`dim3`,`dim4`,`visit_time`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1"
+"replication_allocation" = "tag.location.default: 1",
+"enable_unique_key_merge_on_write" = "true"
 );
 ```
 
@@ -413,7 +414,7 @@ from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' gro
 
 ### 高效分页
 
-在页面展示数据时，往往需要做分页展示。传统的分页使用 SQL 中的 limit offset 语法实现，当进行深分页查询时(offset很大时)，即使实际需要需要的数据行很少，但该方法依然会将全部数据读取到内存中进行全量排序后再进行后续处理，这种方法比较低效。可以通过自增列给每行数据一个唯一值，就可以使用 where unique_value > xx limit 100 的方式提下推谓词提前过滤大量数据，从而更高效地实现分页。
+在页面展示数据时，往往需要做分页展示。传统的分页使用 SQL 中的 limit offset 语法实现，当进行深分页查询时(offset很大时)，即使实际需要需要的数据行很少，但该方法依然会将全部数据读取到内存中进行全量排序后再进行后续处理，这种方法比较低效。可以通过自增列给每行数据一个唯一值，就可以使用 where unique_value > x limit y 的方式通过提下推谓词提前过滤大量数据，从而更高效地实现分页。
 
 例如有如下业务表需要进行分页展示，通过在表中添加一个自增列从而赋予每一行一个唯一标识：
 
