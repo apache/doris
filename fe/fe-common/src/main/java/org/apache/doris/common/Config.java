@@ -2318,6 +2318,18 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static int workload_action_interval_ms = 10000; // 10s
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_policy_num = 25;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_condition_num_in_policy = 5;
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_max_action_num_in_policy = 5; // mainly used to limit set session var action
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static int workload_group_max_num = 15;
+
     @ConfField(description = {"查询be wal_queue 的超时阈值(ms)",
             "the timeout threshold of checking wal_queue on be(ms)"})
     public static int check_wal_queue_timeout_threshold = 180000;   // 3 min

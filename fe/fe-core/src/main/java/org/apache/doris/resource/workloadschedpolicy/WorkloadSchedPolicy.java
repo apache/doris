@@ -87,6 +87,8 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
     private List<WorkloadCondition> workloadConditionList;
     private List<WorkloadAction> workloadActionList;
 
+    private Boolean isFePolicy = null;
+
     // for ut
     public WorkloadSchedPolicy() {
     }
@@ -196,6 +198,21 @@ public class WorkloadSchedPolicy implements Writable, GsonPostProcessable {
 
     public List<WorkloadActionMeta> getActionMetaList() {
         return actionMetaList;
+    }
+
+    // true, current policy can only run in FE;
+    // false, current policy can only run in BE
+    public boolean isFePolicy() {
+        if (isFePolicy == null) {
+            isFePolicy = false;
+            for (WorkloadAction action : workloadActionList) {
+                if (WorkloadSchedPolicyMgr.FE_ACTION_SET.contains(action.getWorkloadActionType())) {
+                    isFePolicy = true;
+                    break;
+                }
+            }
+        }
+        return isFePolicy;
     }
 
     public TopicInfo toTopicInfo() {
