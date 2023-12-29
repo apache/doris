@@ -393,7 +393,7 @@ CREATE TABLE `demo`.`dws_agg_tbl` (
     `dim3` varchar(50) NOT NULL,
     `dim5` varchar(50) NOT NULL,
     `user_id_bitmap` BITMAP BITMAP_UNION NOT NULL,
-    `pv` BIGINT NOT NULL 
+    `pv` BIGINT SUM NOT NULL 
 ) ENGINE=OLAP
 AGGREGATE KEY(`dim1`,`dim3`,`dim5`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 32
