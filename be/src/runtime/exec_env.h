@@ -102,6 +102,7 @@ class StoragePageCache;
 class SegmentLoader;
 class LookupConnectionCache;
 class RowCache;
+class DummyLRUCache;
 class CacheManager;
 class WalManager;
 
@@ -232,6 +233,9 @@ public:
         this->_routine_load_task_executor = r;
     }
     void set_wal_mgr(std::shared_ptr<WalManager> wm) { this->_wal_manager = wm; }
+    void set_dummy_lru_cache(std::shared_ptr<DummyLRUCache> dummy_lru_cache) {
+        this->_dummy_lru_cache = dummy_lru_cache;
+    }
 
 #endif
     stream_load::LoadStreamStubPool* load_stream_stub_pool() {
@@ -261,6 +265,7 @@ public:
     segment_v2::InvertedIndexQueryCache* get_inverted_index_query_cache() {
         return _inverted_index_query_cache;
     }
+    std::shared_ptr<DummyLRUCache> get_dummy_lru_cache() { return _dummy_lru_cache; }
 
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> get_global_block_scheduler() {
         return _global_block_scheduler;
@@ -371,6 +376,7 @@ private:
     CacheManager* _cache_manager = nullptr;
     segment_v2::InvertedIndexSearcherCache* _inverted_index_searcher_cache = nullptr;
     segment_v2::InvertedIndexQueryCache* _inverted_index_query_cache = nullptr;
+    std::shared_ptr<DummyLRUCache> _dummy_lru_cache = nullptr;
 
     // used for query with group cpu hard limit
     std::shared_ptr<doris::pipeline::BlockedTaskScheduler> _global_block_scheduler;

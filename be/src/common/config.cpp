@@ -275,7 +275,8 @@ DEFINE_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "1000000
 
 DEFINE_mInt32(cache_prune_stale_interval, "10");
 // the clean interval of tablet lookup cache
-DEFINE_mInt32(tablet_lookup_cache_clean_interval, "30");
+DEFINE_mInt32(tablet_lookup_cache_stale_sweep_time_sec, "30");
+DEFINE_mInt32(point_query_row_cache_stale_sweep_time_sec, "300");
 DEFINE_mInt32(disk_stat_monitor_interval, "5");
 DEFINE_mInt32(unused_rowset_monitor_interval, "30");
 DEFINE_String(storage_root_path, "${DORIS_HOME}/storage");
@@ -809,6 +810,9 @@ DEFINE_mInt32(external_table_connect_timeout_sec, "30");
 
 // Global bitmap cache capacity for aggregation cache, size in bytes
 DEFINE_Int64(delete_bitmap_agg_cache_capacity, "104857600");
+DEFINE_mInt32(delete_bitmap_agg_cache_stale_sweep_time_sec, "1800");
+
+DEFINE_mInt32(common_obj_lru_cache_stale_sweep_time_sec, "900");
 
 // s3 config
 DEFINE_mInt32(max_remote_storage_count, "10");

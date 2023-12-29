@@ -1074,7 +1074,7 @@ std::shared_ptr<roaring::Roaring> DeleteBitmap::get_agg(const BitmapKey& bmk) co
             &val->bitmap, [this, handle](...) { _agg_cache->repr()->release(handle); });
 }
 
-std::atomic<ShardedLRUCache*> DeleteBitmap::AggCache::s_repr {nullptr};
+std::atomic<DeleteBitmap::AggCachePolicy*> DeleteBitmap::AggCache::s_repr {nullptr};
 
 std::string tablet_state_name(TabletState state) {
     switch (state) {
