@@ -17,15 +17,12 @@
 
 package org.apache.doris.nereids.util;
 
-import com.google.common.collect.BiMap;
-import com.google.common.collect.ImmutableBiMap;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
-import javax.annotation.Nullable;
 
 /**
  * EquivalenceSet
@@ -77,25 +74,16 @@ public class ImmutableEquivalenceSet<T> {
     }
 
     /**
-     * cal equal set for a
+     * cal equal set for a except self
      */
     public Set<T> calEqualSet(T a) {
         T ra = root.get(a);
         return root.keySet().stream()
-                .filter(t -> root.get(t).equals(ra))
+                .filter(t -> root.get(t).equals(ra) && !t.equals(a))
                 .collect(ImmutableSet.toImmutableSet());
     }
 
-    /**
-     * try to convert it to a map, such as a = b c = d.
-     * When meets a = b a = c, return null
-     */
-    public @Nullable BiMap<T, T> tryToMap() {
-        if (root.values().stream().distinct().count() * 2 != root.size()) {
-            return null;
-        }
-        return root.keySet().stream()
-                .filter(t -> !root.get(t).equals(t))
-                .collect(ImmutableBiMap.toImmutableBiMap(t -> t, root::get));
+    public Set<T> getAllItemSet() {
+        return ImmutableSet.copyOf(root.keySet());
     }
 }
