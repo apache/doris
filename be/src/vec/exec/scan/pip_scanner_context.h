@@ -23,7 +23,7 @@
 
 namespace doris::pipeline {
 
-class PipScannerContext : public vectorized::ScannerContext {
+class PipScannerContext final : public vectorized::ScannerContext {
     ENABLE_FACTORY_CREATOR(PipScannerContext);
 
 public:
@@ -225,17 +225,6 @@ public:
     }
 
 protected:
-    PipScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
-                      const TupleDescriptor* output_tuple_desc,
-                      const RowDescriptor* output_row_descriptor,
-                      const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
-                      int64_t max_bytes_in_blocks_queue,
-                      std::shared_ptr<pipeline::ScanDependency> dependency,
-                      std::shared_ptr<pipeline::Dependency> finish_dependency)
-            : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
-                                         limit_, max_bytes_in_blocks_queue, 1, local_state,
-                                         dependency, finish_dependency),
-              _need_colocate_distribute(false) {}
     int _next_queue_to_feed = 0;
     std::vector<std::unique_ptr<std::mutex>> _queue_mutexs;
     std::vector<std::list<vectorized::BlockUPtr>> _blocks_queues;
@@ -281,7 +270,7 @@ protected:
     }
 };
 
-class PipXScannerContext final : public PipScannerContext {
+class PipXScannerContext final : public vectorized::ScannerContext {
     ENABLE_FACTORY_CREATOR(PipXScannerContext);
 
 public:
@@ -292,59 +281,54 @@ public:
                        int64_t max_bytes_in_blocks_queue,
                        std::shared_ptr<pipeline::ScanDependency> dependency,
                        std::shared_ptr<pipeline::Dependency> finish_dependency)
-            : PipScannerContext(state, local_state, output_tuple_desc, output_row_descriptor,
-                                scanners, limit_, max_bytes_in_blocks_queue, dependency,
-                                finish_dependency) {}
+            : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
+                                         limit_, max_bytes_in_blocks_queue, 1, local_state,
+                                         dependency, finish_dependency) {}
     Status get_block_from_queue(RuntimeState* state, vectorized::BlockUPtr* block, bool* eos,
                                 int id, bool wait = false) override {
-        {
-            std::unique_lock l(_transfer_lock);
-            if (state->is_cancelled()) {
-                set_status_on_error(Status::Cancelled("cancelled"), false);
-            }
+        std::unique_lock l(_transfer_lock);
+        if (state->is_cancelled()) {
+            set_status_on_error(Status::Cancelled("cancelled"), false);
+        }
 
-            if (!status().ok()) {
-                return _process_status;
-            }
+        if (!status().ok()) {
+            return _process_status;
         }
 
         std::vector<vectorized::BlockUPtr> merge_blocks;
-        {
-            std::unique_lock<std::mutex> l(_transfer_lock);
-            if (_blocks_queues[id].empty()) {
-                *eos = done();
-                return Status::OK();
-            }
-            if (_process_status.is<ErrorCode::CANCELLED>()) {
-                *eos = true;
-                return Status::OK();
-            }
-            *block = std::move(_blocks_queues[id].front());
-            _blocks_queues[id].pop_front();
+        if (_blocks_queue.empty()) {
+            *eos = done();
+            return Status::OK();
+        }
+        if (_process_status.is<ErrorCode::CANCELLED>()) {
+            *eos = true;
+            return Status::OK();
+        }
+        *block = std::move(_blocks_queue.front());
+        _blocks_queue.pop_front();
 
-            auto rows = (*block)->rows();
-            while (!_blocks_queues[id].empty()) {
-                const auto add_rows = (*_blocks_queues[id].front()).rows();
-                if (rows + add_rows < state->batch_size()) {
-                    rows += add_rows;
-                    merge_blocks.emplace_back(std::move(_blocks_queues[id].front()));
-                    _blocks_queues[id].pop_front();
-                } else {
-                    break;
-                }
-            }
-
-            if (_blocks_queues[id].empty()) {
-                this->reschedule_scanner_ctx();
-                _dependency->block();
+        auto rows = (*block)->rows();
+        while (!_blocks_queue.empty()) {
+            const auto add_rows = (*_blocks_queue.front()).rows();
+            if (rows + add_rows < state->batch_size()) {
+                rows += add_rows;
+                merge_blocks.emplace_back(std::move(_blocks_queue.front()));
+                _blocks_queue.pop_front();
+            } else {
+                break;
             }
         }
 
-        _current_used_bytes -= (*block)->allocated_bytes();
+        if (_blocks_queue.empty()) {
+            this->reschedule_scanner_ctx();
+            _dependency->block();
+        }
+
+        _cur_bytes_in_queue -= (*block)->allocated_bytes();
         if (!merge_blocks.empty()) {
             vectorized::MutableBlock m(block->get());
             for (auto& merge_block : merge_blocks) {
-                _current_used_bytes -= merge_block->allocated_bytes();
+                _cur_bytes_in_queue -= merge_block->allocated_bytes();
                 static_cast<void>(m.merge(*merge_block));
                 return_free_block(std::move(merge_block));
             }
@@ -352,36 +336,6 @@ public:
         }
 
         return Status::OK();
-    }
-
-    void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) override {
-        const int queue_size = _blocks_queues.size();
-        const int block_size = blocks.size();
-        if (block_size == 0) {
-            return;
-        }
-        int64_t local_bytes = 0;
-
-        for (const auto& block : blocks) {
-            auto st = validate_block_schema(block.get());
-            if (!st.ok()) {
-                set_status_on_error(st, false);
-            }
-            local_bytes += block->allocated_bytes();
-        }
-
-        for (int i = 0; i < queue_size && i < block_size; ++i) {
-            int queue = _next_queue_to_feed;
-            {
-                std::lock_guard<std::mutex> l(_transfer_lock);
-                for (int j = i; j < block_size; j += queue_size) {
-                    _blocks_queues[queue].emplace_back(std::move(blocks[j]));
-                }
-                _dependency->set_ready();
-            }
-            _next_queue_to_feed = queue + 1 < queue_size ? queue + 1 : 0;
-        }
-        _current_used_bytes += local_bytes;
     }
 
     void reschedule_scanner_ctx() override {

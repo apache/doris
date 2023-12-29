@@ -259,6 +259,9 @@ void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& 
         _blocks_queue.push_back(std::move(b));
     }
     blocks.clear();
+    if (_dependency) {
+        _dependency->set_ready();
+    }
     _blocks_queue_added_cv.notify_one();
     _queued_blocks_memory_usage->add(_cur_bytes_in_queue - old_bytes_in_queue);
 }
