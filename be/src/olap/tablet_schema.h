@@ -36,6 +36,7 @@
 #include "gutil/stringprintf.h"
 #include "olap/olap_common.h"
 #include "runtime/define_primitive_type.h"
+#include "runtime/descriptors.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_utils/string_utils.h"
@@ -91,6 +92,11 @@ public:
                _type == FieldType::OLAP_FIELD_TYPE_QUANTILE_STATE ||
                _type == FieldType::OLAP_FIELD_TYPE_AGG_STATE;
     }
+    // Such columns are not exist in frontend schema info, so we need to
+    // add them into tablet_schema for later column indexing.
+    static TabletColumn create_materialized_variant_column(const std::string& root,
+                                                           const std::vector<std::string>& paths,
+                                                           int32_t parent_unique_id);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     size_t length() const { return _length; }

@@ -74,7 +74,6 @@ public:
     bool is_child_finished(int child_id) const;
 
     int64_t* valid_element_in_hash_tbl() { return &_valid_element_in_hash_tbl; }
-    int64_t* mem_used() { return &_mem_used; };
 
 private:
     void _finalize_probe(int child_id);
@@ -110,8 +109,6 @@ private:
     //first:column_id, could point to origin column or cast column
     //second:idx mapped to column types
     std::unordered_map<int, int> _build_col_idx;
-    //record memory during running
-    int64_t _mem_used;
     //record insert column id during probe
     std::vector<uint16_t> _probe_column_inserted_id;
 

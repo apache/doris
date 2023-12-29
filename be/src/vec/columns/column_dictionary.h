@@ -207,7 +207,7 @@ public:
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
-        auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
+        auto* res_col = assert_cast<vectorized::ColumnString*>(col_ptr);
         StringRef strings[sel_size];
         size_t length = 0;
         for (size_t i = 0; i != sel_size; ++i) {

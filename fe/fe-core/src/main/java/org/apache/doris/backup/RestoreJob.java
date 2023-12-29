@@ -339,6 +339,28 @@ public class RestoreJob extends AbstractJob {
     }
 
     @Override
+    public synchronized Status updateRepo(Repository repo) {
+        this.repo = repo;
+
+        if (this.state == RestoreJobState.DOWNLOADING) {
+            for (Map.Entry<Long, Long> entry : unfinishedSignatureToId.entrySet()) {
+                long signature = entry.getKey();
+                long beId = entry.getValue();
+                AgentTask task = AgentTaskQueue.getTask(beId, TTaskType.DOWNLOAD, signature);
+                if (task == null || task.getTaskType() != TTaskType.DOWNLOAD) {
+                    continue;
+                }
+                ((DownloadTask) task).updateBrokerProperties(
+                        S3ClientBEProperties.getBeFSProperties(repo.getRemoteFileSystem().getProperties()));
+                AgentTaskQueue.updateTask(beId, TTaskType.DOWNLOAD, signature, task);
+            }
+            LOG.info("finished to update download job properties. {}", this);
+        }
+        LOG.info("finished to update repo of job. {}", this);
+        return Status.OK;
+    }
+
+    @Override
     public void run() {
         if (state == RestoreJobState.FINISHED || state == RestoreJobState.CANCELLED) {
             return;
@@ -1091,6 +1113,7 @@ public class RestoreJob extends AbstractJob {
         long visibleVersion = remotePart.getVisibleVersion();
 
         // tablets
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (MaterializedIndex remoteIdx : remotePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             int schemaHash = remoteTbl.getSchemaHashByIndexId(remoteIdx.getId());
             int remotetabletSize = remoteIdx.getTablets().size();
@@ -1105,7 +1128,7 @@ public class RestoreJob extends AbstractJob {
                 // replicas
                 try {
                     Map<Tag, List<Long>> beIds = Env.getCurrentSystemInfo()
-                            .selectBackendIdsForReplicaCreation(replicaAlloc, null, false, false);
+                            .selectBackendIdsForReplicaCreation(replicaAlloc, nextIndexs, null, false, false);
                     for (Map.Entry<Tag, List<Long>> entry : beIds.entrySet()) {
                         for (Long beId : entry.getValue()) {
                             long newReplicaId = env.getNextId();

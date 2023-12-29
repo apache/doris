@@ -41,9 +41,9 @@
 #include "common/status.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
+#include "util/cpu_info.h"
 
-namespace doris {
-namespace config {
+namespace doris::config {
 
 // Dir of custom config file
 DEFINE_String(custom_config_dir, "${DORIS_HOME}/conf");
@@ -109,10 +109,6 @@ DEFINE_mInt32(hash_table_double_grow_degree, "31");
 DEFINE_mInt32(max_fill_rate, "2");
 
 DEFINE_mInt32(double_resize_threshold, "23");
-// Expand the hash table before inserting data, the maximum expansion size.
-// There are fewer duplicate keys, reducing the number of resize hash tables
-// There are many duplicate keys, and the hash table filled bucket is far less than the hash table build bucket.
-DEFINE_mInt64(hash_table_pre_expanse_max_rows, "65535");
 
 // The maximum low water mark of the system `/proc/meminfo/MemAvailable`, Unit byte, default 1.6G,
 // actual low water mark=min(1.6G, MemTotal * 10%), avoid wasting too much memory on machines
@@ -222,8 +218,6 @@ DEFINE_Int32(be_service_threads, "64");
 // or 3x the number of cores.  This keeps the cores busy without causing excessive
 // thrashing.
 DEFINE_Int32(num_threads_per_core, "3");
-// if true, compresses tuple data in Serialize
-DEFINE_mBool(compress_rowbatches, "true");
 DEFINE_mBool(rowbatch_align_tuple_offset, "false");
 // interval between profile reports; in seconds
 DEFINE_mInt32(status_report_interval, "5");
@@ -235,7 +229,14 @@ DEFINE_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 DEFINE_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
 // number of scanner thread pool size for olap table
 // and the min thread num of remote scanner thread pool
-DEFINE_Int32(doris_scanner_thread_pool_thread_num, "48");
+DEFINE_Int32(doris_scanner_thread_pool_thread_num, "-1");
+DEFINE_Validator(doris_scanner_thread_pool_thread_num, [](const int config) -> bool {
+    if (config == -1) {
+        CpuInfo::init();
+        doris_scanner_thread_pool_thread_num = std::max(48, CpuInfo::num_cores() * 4);
+    }
+    return true;
+});
 DEFINE_Int32(doris_max_remote_scanner_thread_pool_thread_num, "-1");
 // number of olap scanner thread pool queue size
 DEFINE_Int32(doris_scanner_thread_pool_queue_size, "102400");
@@ -431,7 +432,7 @@ DEFINE_mBool(disable_compaction_trace_log, "true");
 DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Compaction priority schedule
-DEFINE_mBool(enable_compaction_priority_scheduling, "false");
+DEFINE_mBool(enable_compaction_priority_scheduling, "true");
 DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "1");
 DEFINE_mDouble(low_priority_tablet_version_num_ratio, "0.7");
 
@@ -475,6 +476,8 @@ DEFINE_Int32(single_replica_load_download_num_workers, "64");
 DEFINE_Int64(load_data_reserve_hours, "4");
 // log error log will be removed after this time
 DEFINE_mInt64(load_error_log_reserve_hours, "48");
+// error log size limit, default 200MB
+DEFINE_mInt64(load_error_log_limit_bytes, "209715200");
 
 DEFINE_Int32(brpc_heavy_work_pool_threads, "-1");
 DEFINE_Int32(brpc_light_work_pool_threads, "-1");
@@ -586,10 +589,14 @@ DEFINE_mInt32(memtable_soft_limit_active_percent, "50");
 // Alignment
 DEFINE_Int32(memory_max_alignment, "16");
 
+// memtable insert memory tracker will multiply input block size with this ratio
+DEFINE_mDouble(memtable_insert_memory_ratio, "1.4");
 // max write buffer size before flush, default 200MB
-DEFINE_mInt64(write_buffer_size, "209715200");
+DEFINE_mInt64(write_buffer_size, "104857600");
 // max buffer size used in memtable for the aggregated table, default 400MB
 DEFINE_mInt64(write_buffer_size_for_agg, "419430400");
+// max parallel flush task per memtable writer
+DEFINE_mInt32(memtable_flush_running_count_limit, "5");
 
 DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
@@ -599,6 +606,10 @@ DEFINE_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 // consumes lagest memory size before we reach the hard limit. The soft limit
 // might avoid all load jobs hang at the same time.
 DEFINE_Int32(load_process_soft_mem_limit_percent, "80");
+
+// If load memory consumption is within load_process_safe_mem_permit_percent,
+// memtable memory limiter will do nothing.
+DEFINE_Int32(load_process_safe_mem_permit_percent, "5");
 
 // result buffer cancelled time (unit: second)
 DEFINE_mInt32(result_buffer_cancelled_interval_time, "300");
@@ -770,6 +781,8 @@ DEFINE_Int64(load_stream_max_buf_size, "20971520"); // 20MB
 DEFINE_Int32(load_stream_messages_in_batch, "128");
 // brpc streaming StreamWait seconds on EAGAIN
 DEFINE_Int32(load_stream_eagain_wait_seconds, "60");
+// max tasks per flush token in load stream
+DEFINE_Int32(load_stream_flush_token_max_tasks, "15");
 
 // max send batch parallelism for OlapTableSink
 // The value set by the user for send_batch_parallelism is not allowed to exceed max_send_batch_parallelism_per_job,
@@ -782,12 +795,6 @@ DEFINE_Validator(max_send_batch_parallelism_per_job,
 DEFINE_Int32(send_batch_thread_pool_thread_num, "64");
 // number of send batch thread pool queue size
 DEFINE_Int32(send_batch_thread_pool_queue_size, "102400");
-// number of download cache thread pool size
-DEFINE_Int32(download_cache_thread_pool_thread_num, "48");
-// number of download cache thread pool queue size
-DEFINE_Int32(download_cache_thread_pool_queue_size, "102400");
-// download cache buffer size
-DEFINE_Int64(download_cache_buffer_size, "10485760");
 
 // Limit the number of segment of a newly created rowset.
 // The newly created rowset may to be compacted after loading,
@@ -841,16 +848,6 @@ DEFINE_String(function_service_protocol, "h2:grpc");
 // use which load balancer to select server to connect
 DEFINE_String(rpc_load_balancer, "rr");
 
-// The maximum buffer/queue size to collect span. After the size is reached, spans are dropped.
-// An export will be triggered when the number of spans in the queue reaches half of the maximum.
-DEFINE_Int32(max_span_queue_size, "2048");
-
-// The maximum batch size of every export spans. It must be smaller or equal to max_queue_size.
-DEFINE_Int32(max_span_export_batch_size, "512");
-
-// The time interval between two consecutive export spans.
-DEFINE_Int32(export_span_schedule_delay_millis, "500");
-
 // a soft limit of string type length, the hard limit is 2GB - 4, but if too long will cause very low performance,
 // so we set a soft limit, default is 1MB
 DEFINE_mInt32(string_type_length_soft_limit_bytes, "1048576");
@@ -862,10 +859,6 @@ DEFINE_mInt32(jsonb_type_length_soft_limit_bytes, "1048576");
 
 DEFINE_Validator(jsonb_type_length_soft_limit_bytes,
                  [](const int config) -> bool { return config > 0 && config <= 2147483643; });
-
-// used for olap scanner to save memory, when the size of unused_object_pool
-// is greater than object_pool_buffer_size, release the object in the unused_object_pool.
-DEFINE_Int32(object_pool_buffer_size, "100");
 
 // Threshold of reading a small file into memory
 DEFINE_mInt32(in_memory_file_size, "1048576"); // 1MB
@@ -879,6 +872,8 @@ DEFINE_mInt32(parquet_rowgroup_max_buffer_mb, "128");
 // Max buffer size for parquet chunk column
 DEFINE_mInt32(parquet_column_max_buffer_mb, "8");
 DEFINE_mDouble(max_amplified_read_ratio, "0.8");
+DEFINE_mInt32(merged_oss_min_io_size, "1048576");
+DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 
 // OrcReader
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
@@ -902,7 +897,7 @@ DEFINE_Int32(concurrency_per_dir, "2");
 // "whole_file_cache": the whole file.
 DEFINE_mString(file_cache_type, "file_block_cache");
 DEFINE_Validator(file_cache_type, [](std::string_view config) -> bool {
-    return config == "" || config == "file_block_cache";
+    return config.empty() || config == "file_block_cache";
 });
 
 DEFINE_Int32(s3_transfer_executor_pool_size, "2");
@@ -937,7 +932,7 @@ DEFINE_String(be_node_role, "mix");
 // Hide the be config page for webserver.
 DEFINE_Bool(hide_webserver_config_page, "false");
 
-DEFINE_Bool(enable_segcompaction, "true");
+DEFINE_Bool(enable_segcompaction, "false");
 
 // Max number of segments allowed in a single segcompaction task.
 DEFINE_Int32(segcompaction_batch_size, "10");
@@ -968,15 +963,13 @@ DEFINE_Bool(enable_debug_points, "false");
 DEFINE_Int32(pipeline_executor_size, "0");
 DEFINE_Bool(enable_workload_group_for_scan, "false");
 DEFINE_mInt64(workload_group_scan_task_wait_timeout_ms, "10000");
-// 128 MB
-DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
 DEFINE_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 DEFINE_mBool(variant_enable_flatten_nested, "false");
-DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "0.95");
+DEFINE_mDouble(variant_ratio_of_defaults_as_sparse_column, "1");
 DEFINE_mInt64(variant_threshold_rows_to_estimate_sparse_column, "1000");
 
 // block file cache
@@ -1013,13 +1006,18 @@ DEFINE_String(inverted_index_query_cache_limit, "10%");
 
 // inverted index
 DEFINE_mDouble(inverted_index_ram_buffer_size, "512");
+// -1 indicates not working.
+// Normally we should not change this, it's useful for testing.
+DEFINE_mInt32(inverted_index_max_buffered_docs, "-1");
 // dict path for chinese analyzer
 DEFINE_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 DEFINE_Int32(inverted_index_read_buffer_size, "4096");
 // tree depth for bkd index
 DEFINE_Int32(max_depth_in_bkd_tree, "32");
 // index compaction
-DEFINE_Bool(inverted_index_compaction_enable, "false");
+DEFINE_mBool(inverted_index_compaction_enable, "false");
+// index by RAM directory
+DEFINE_mBool(inverted_index_ram_dir_enable, "false");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 DEFINE_Int32(num_broadcast_buffer, "32");
 
@@ -1105,18 +1103,23 @@ DEFINE_Int32(grace_shutdown_wait_seconds, "120");
 
 DEFINE_Int16(bitmap_serialize_version, "1");
 
-// group commit insert config
-DEFINE_String(group_commit_replay_wal_dir, "./wal");
+// group commit config
+DEFINE_String(group_commit_wal_path, "");
 DEFINE_Int32(group_commit_replay_wal_retry_num, "10");
 DEFINE_Int32(group_commit_replay_wal_retry_interval_seconds, "5");
-
-// the count of thread to group commit insert
+DEFINE_Int32(group_commit_relay_wal_threads, "10");
+// This config can be set to limit thread number in group commit request fragment thread pool.
 DEFINE_Int32(group_commit_insert_threads, "10");
 DEFINE_Int32(group_commit_memory_rows_for_max_filter_ratio, "10000");
 DEFINE_Bool(wait_internal_group_commit_finish, "false");
+// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
+DEFINE_Int32(group_commit_max_queue_size, "67108864");
+// Max size(bytes) or percentage(%) of wal disk usage, used for disk space back pressure, default 10% of the disk available space.
+// group_commit_wal_max_disk_limit=1024 or group_commit_wal_max_disk_limit=10% can be automatically identified.
+DEFINE_String(group_commit_wal_max_disk_limit, "10%");
 
 DEFINE_mInt32(scan_thread_nice_value, "0");
-DEFINE_mInt32(tablet_schema_cache_recycle_interval, "86400");
+DEFINE_mInt32(tablet_schema_cache_recycle_interval, "3600");
 
 DEFINE_Bool(exit_on_exception, "false");
 // This config controls whether the s3 file writer would flush cache asynchronously
@@ -1131,12 +1134,6 @@ DEFINE_Bool(ignore_always_true_predicate_for_segment, "true");
 // Dir of default timezone files
 DEFINE_String(default_tzfiles_path, "${DORIS_HOME}/zoneinfo");
 
-// Max size(bytes) of group commit queues, used for mem back pressure, defult 64M.
-DEFINE_Int32(group_commit_max_queue_size, "67108864");
-
-// Max size(bytes) of wal disk using, used for disk space back pressure, default 64M.
-DEFINE_Int32(wal_max_disk_size, "67108864");
-
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
 
@@ -1148,6 +1145,10 @@ DEFINE_mInt32(buffered_reader_read_timeout_ms, "20000");
 DEFINE_Bool(enable_snapshot_action, "false");
 
 DEFINE_mInt32(variant_max_merged_tablet_schema_size, "2048");
+
+DEFINE_mBool(enable_column_type_check, "true");
+// 128 MB
+DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 
 // clang-format off
 #ifdef BE_TEST
@@ -1201,7 +1202,7 @@ bool replaceenv(std::string& s) {
     std::size_t pos = 0;
     std::size_t start = 0;
     while ((start = s.find("${", pos)) != std::string::npos) {
-        std::size_t end = s.find("}", start + 2);
+        std::size_t end = s.find('}', start + 2);
         if (end == std::string::npos) {
             return false;
         }
@@ -1239,9 +1240,9 @@ bool strtox(const std::string& valstr, std::vector<T>& retval) {
 }
 
 bool strtox(const std::string& valstr, bool& retval) {
-    if (valstr.compare("true") == 0) {
+    if (valstr == "true") {
         retval = true;
-    } else if (valstr.compare("false") == 0) {
+    } else if (valstr == "false") {
         retval = false;
     } else {
         return false;
@@ -1601,18 +1602,17 @@ std::vector<std::vector<std::string>> get_config_info() {
         std::vector<std::string> _config;
         _config.push_back(it.first);
 
-        _config.push_back(field_it->second.type);
+        _config.emplace_back(field_it->second.type);
         if (0 == strcmp(field_it->second.type, "bool")) {
-            _config.push_back(it.second == "1" ? "true" : "false");
+            _config.emplace_back(it.second == "1" ? "true" : "false");
         } else {
             _config.push_back(it.second);
         }
-        _config.push_back(field_it->second.valmutable ? "true" : "false");
+        _config.emplace_back(field_it->second.valmutable ? "true" : "false");
 
         configs.push_back(_config);
     }
     return configs;
 }
 
-} // namespace config
-} // namespace doris
+} // namespace doris::config

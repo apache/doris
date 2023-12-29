@@ -8,9 +8,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------hashAgg[LOCAL]
 ------------PhysicalProject
 --------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = store_returns.sr_item_sk) and (store_sales.ss_ticket_number = store_returns.sr_ticket_number)) otherCondition=()
-----------------PhysicalDistribute
-------------------PhysicalProject
---------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
+----------------PhysicalProject
+------------------hashJoin[INNER_JOIN] hashCondition=((store_sales.ss_item_sk = item.i_item_sk)) otherCondition=()
+--------------------PhysicalDistribute
 ----------------------hashJoin[INNER_JOIN] hashCondition=((store.s_zip = customer_address.ca_zip) and (store_sales.ss_customer_sk = customer.c_customer_sk)) otherCondition=()
 ------------------------PhysicalDistribute
 --------------------------PhysicalProject
@@ -29,9 +29,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------------PhysicalDistribute
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[customer_address]
-----------------------PhysicalDistribute
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[item]
+--------------------PhysicalDistribute
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[item]
 ----------------PhysicalDistribute
 ------------------PhysicalProject
 --------------------PhysicalOlapScan[store_returns]

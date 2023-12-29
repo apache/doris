@@ -1297,12 +1297,12 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     case TypeIndex::Decimal64:
         return _decode_decimal_column<Decimal64, is_filter>(col_name, data_column, data_type, cvb,
                                                             num_values);
-    case TypeIndex::Decimal128:
-        return _decode_decimal_column<Decimal128, is_filter>(col_name, data_column, data_type, cvb,
-                                                             num_values);
-    case TypeIndex::Decimal128I:
-        return _decode_decimal_column<Decimal128I, is_filter>(col_name, data_column, data_type, cvb,
-                                                              num_values);
+    case TypeIndex::Decimal128V2:
+        return _decode_decimal_column<Decimal128V2, is_filter>(col_name, data_column, data_type,
+                                                               cvb, num_values);
+    case TypeIndex::Decimal128V3:
+        return _decode_decimal_column<Decimal128V3, is_filter>(col_name, data_column, data_type,
+                                                               cvb, num_values);
     case TypeIndex::Date:
         return _decode_time_column<VecDateTimeValue, Int64, orc::LongVectorBatch, is_filter>(
                 col_name, data_column, cvb, num_values);
@@ -1403,15 +1403,20 @@ std::string OrcReader::_get_field_name_lower_case(const orc::Type* orc_type, int
 }
 
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    if (_io_ctx && _io_ctx->should_stop) {
+        *eof = true;
+        *read_rows = 0;
+        return Status::OK();
+    }
     if (_push_down_agg_type == TPushAggOp::type::COUNT) {
         auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
 
         set_remaining_rows(get_remaining_rows() - rows);
-
-        for (auto& col : block->mutate_columns()) {
+        auto mutate_columns = block->mutate_columns();
+        for (auto& col : mutate_columns) {
             col->resize(rows);
         }
-
+        block->set_columns(std::move(mutate_columns));
         *read_rows = rows;
         if (get_remaining_rows() == 0) {
             *eof = true;

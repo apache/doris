@@ -73,6 +73,7 @@
 #include "runtime/task_group/task_group_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"
+#include "runtime/workload_management/workload_query_info.h"
 #include "service/backend_options.h"
 #include "util/debug_util.h"
 #include "util/doris_metrics.h"
@@ -220,6 +221,7 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
     DCHECK(req.runtime_state != nullptr);
 
     if (req.query_statistics) {
+        // use to report 'insert into select'
         TQueryStatistics queryStatistics;
         DCHECK(req.query_statistics->collect_dml_statistics());
         req.query_statistics->to_thrift(&queryStatistics);
@@ -1166,6 +1168,8 @@ void FragmentMgr::cancel_worker() {
             } else {
                 for (const auto& q : _query_ctx_map) {
                     if (q.second->get_fe_process_uuid() == 0) {
+                        // zero means this query is from a older version fe or
+                        // this fe is starting
                         continue;
                     }
 
@@ -1174,7 +1178,16 @@ void FragmentMgr::cancel_worker() {
                         if (q.second->get_fe_process_uuid() == itr->second.info.process_uuid ||
                             itr->second.info.process_uuid == 0) {
                             continue;
+                        } else {
+                            LOG_WARNING("Coordinator of query {} restarted, going to cancel it.",
+                                        print_id(q.second->query_id()));
                         }
+                    } else {
+                        LOG_WARNING(
+                                "Could not find target coordinator {}:{} of query {}, going to "
+                                "cancel it.",
+                                q.second->coord_addr.hostname, q.second->coord_addr.port,
+                                print_id(q.second->query_id()));
                     }
 
                     // Coorninator of this query has already dead.
@@ -1194,7 +1207,7 @@ void FragmentMgr::cancel_worker() {
 
         if (!queries_to_cancel.empty()) {
             LOG(INFO) << "There are " << queries_to_cancel.size()
-                      << " queries need to be cancelled, coordinator dead.";
+                      << " queries need to be cancelled, coordinator dead or restarted.";
         }
 
         for (const auto& qid : queries_to_cancel) {
@@ -1551,6 +1564,25 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TPipelineFrag
                 query_ctx->get_shared_hash_table_controller()->set_builder_and_consumers(
                         local_param.fragment_instance_id, node.node_id);
             }
+        }
+    }
+}
+
+void FragmentMgr::get_runtime_query_info(std::vector<WorkloadQueryInfo>* query_info_list) {
+    {
+        std::lock_guard<std::mutex> lock(_lock);
+        // todo: use monotonic time
+        VecDateTimeValue now = VecDateTimeValue::local_time();
+        for (const auto& q : _query_ctx_map) {
+            WorkloadQueryInfo workload_query_info;
+            workload_query_info.query_id = print_id(q.first);
+            workload_query_info.tquery_id = q.first;
+
+            uint64_t query_time_millisecond = q.second->query_time(now) * 1000;
+            workload_query_info.metric_map.emplace(WorkloadMetricType::QUERY_TIME,
+                                                   std::to_string(query_time_millisecond));
+            // todo, add scan rows, scan bytes
+            query_info_list->push_back(workload_query_info);
         }
     }
 }

@@ -52,10 +52,13 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
 
     std::span<const Slice> slices {data, data_cnt};
     size_t stream_index = 0;
+    bool ok = false;
     for (auto& stream : _streams) {
+        auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
+                                      _bytes_appended, slices);
         DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", {
             if (stream_index >= 2) {
-                return Status::InternalError("stream sink file writer append data failed");
+                st = Status::InternalError("stream sink file writer append data failed");
             } else {
                 stream_index++;
             }
@@ -63,18 +66,27 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
 
         DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", {
             if (stream_index >= 1) {
-                return Status::InternalError("stream sink file writer append data failed");
+                st = Status::InternalError("stream sink file writer append data failed");
             } else {
                 stream_index++;
             }
         });
 
         DBUG_EXECUTE_IF("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", {
-            return Status::InternalError("stream sink file writer append data failed");
+            st = Status::InternalError("stream sink file writer append data failed");
         });
-
-        RETURN_IF_ERROR(stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
-                                            _bytes_appended, slices));
+        ok = ok || st.ok();
+    }
+    if (!ok) {
+        std::stringstream ss;
+        for (auto& stream : _streams) {
+            ss << " " << stream->dst_id();
+        }
+        LOG(WARNING) << "failed to write any replicas, load_id: " << print_id(_load_id)
+                     << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
+                     << ", segment_id: " << _segment_id << ", data_length: " << bytes_req
+                     << ", backends:" << ss.str();
+        return Status::InternalError("failed to write any replicas");
     }
     _bytes_appended += bytes_req;
     return Status::OK();
@@ -84,9 +96,21 @@ Status StreamSinkFileWriter::finalize() {
     VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
+    bool ok = false;
     for (auto& stream : _streams) {
-        RETURN_IF_ERROR(stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
-                                            _bytes_appended, {}, true));
+        auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
+                                      _bytes_appended, {}, true);
+        ok = ok || st.ok();
+    }
+    if (!ok) {
+        std::stringstream ss;
+        for (auto& stream : _streams) {
+            ss << " " << stream->dst_id();
+        }
+        LOG(WARNING) << "failed to finalize any replicas, load_id: " << print_id(_load_id)
+                     << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
+                     << ", segment_id: " << _segment_id << ", backends:" << ss.str();
+        return Status::InternalError("failed to finalize any replicas");
     }
     return Status::OK();
 }

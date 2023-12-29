@@ -32,7 +32,7 @@ suite("test_decimalv3_overflow") {
 	def tblName2 = "test_decimalv3_overflow2"
 	sql "drop table if exists ${tblName2}"
     sql """ CREATE  TABLE ${tblName2} (
-              `c2`  decimalv3(20, 2),
+              `c2`  decimalv3(20, 2)
           ) ENGINE=OLAP
         UNIQUE KEY(`c2`)
         DISTRIBUTED BY HASH(`c2`) BUCKETS 10
@@ -41,9 +41,7 @@ suite("test_decimalv3_overflow") {
         ); """
     sql "insert into ${tblName2} values(705091149953414452.46)"
 
-    // qt_sql1 """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
-
-    sql """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
+    qt_sql1 """ select c2 / 10000 * c1 from ${tblName1}, ${tblName2}; """
 
     //=======================================
     // decimal32

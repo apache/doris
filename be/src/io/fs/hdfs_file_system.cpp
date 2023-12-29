@@ -17,6 +17,7 @@
 
 #include "io/fs/hdfs_file_system.h"
 
+#include <errno.h>
 #include <fcntl.h>
 #include <gen_cpp/PlanNodes_types.h>
 #include <limits.h>
@@ -227,28 +228,20 @@ Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
 Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLE(_fs_handle);
     Path real_path = convert_path(path, _fs_name);
-#ifdef USE_HADOOP_HDFS
-    // HACK: the HDFS native client won't clear the last exception as expected so
-    // `hdfsGetLastExceptionRootCause` might return a staled root cause. Save the
-    // last root cause here and verify after hdfsExists returns a non-zero code.
-    //
-    // See details:
-    //  https://github.com/apache/hadoop/blob/5cda162a804fb0cfc2a5ac0058ab407662c5fb00/
-    //  hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/jni_helper.c#L795
-    char* former_root_cause = hdfsGetLastExceptionRootCause();
-#endif
     int is_exists = hdfsExists(_fs_handle->hdfs_fs, real_path.string().c_str());
 #ifdef USE_HADOOP_HDFS
     // when calling hdfsExists() and return non-zero code,
-    // if root_cause is nullptr, which means the file does not exist.
-    // if root_cause is not nullptr, which means it encounter other error, should return.
+    // if errno is ENOENT, which means the file does not exist.
+    // if errno is not ENOENT, which means it encounter other error, should return.
     // NOTE: not for libhdfs3 since it only runs on MaxOS, don't have to support it.
-    if (is_exists != 0) {
+    //
+    // See details:
+    //  https://github.com/apache/hadoop/blob/5cda162a804fb0cfc2a5ac0058ab407662c5fb00/
+    //  hadoop-hdfs-project/hadoop-hdfs-native-client/src/main/native/libhdfs/hdfs.c#L1923-L1924
+    if (is_exists != 0 && errno != ENOENT) {
         char* root_cause = hdfsGetLastExceptionRootCause();
-        if (root_cause != nullptr && root_cause != former_root_cause) {
-            return Status::IOError("failed to check path existence {}: {}", path.native(),
-                                   root_cause);
-        }
+        return Status::IOError("failed to check path existence {}: {}", path.native(),
+                               (root_cause ? root_cause : "unknown"));
     }
 #endif
     *res = (is_exists == 0);

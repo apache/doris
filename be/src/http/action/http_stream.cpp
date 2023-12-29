@@ -46,6 +46,7 @@
 #include "http/utils.h"
 #include "io/fs/stream_load_pipe.h"
 #include "olap/storage_engine.h"
+#include "olap/wal_manager.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -166,38 +167,8 @@ int HttpStreamAction::on_header(HttpRequest* req) {
 
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
-
-    Status st = Status::OK();
-    std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
-    if (iequal(group_commit_mode, "off_mode")) {
-        group_commit_mode = "";
-    }
-    if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
-        !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
-        st = Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
-        if (iequal(group_commit_mode, "off_mode")) {
-            group_commit_mode = "";
-        }
-    }
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
-    auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
-    auto partitions = !req->header(HTTP_PARTITIONS).empty();
-    if (!temp_partitions && !partitions && !ctx->two_phase_commit &&
-        (!group_commit_mode.empty() || config::wait_internal_group_commit_finish)) {
-        if (config::wait_internal_group_commit_finish) {
-            ctx->group_commit = true;
-        } else {
-            ctx->group_commit = load_size_smaller_than_wal_limit(req);
-            if (!ctx->group_commit) {
-                LOG(WARNING) << "The data size for this http load("
-                             << req->header(HttpHeaders::CONTENT_LENGTH)
-                             << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
-                             << config::wal_max_disk_size * 0.8
-                             << " Bytes). Please set this load to \"group commit\"=false.";
-                st = Status::InternalError("Http load size too large.");
-            }
-        }
-    }
+    Status st = _handle_group_commit(req, ctx);
 
     LOG(INFO) << "new income streaming load request." << ctx->brief()
               << " sql : " << req->header(HTTP_SQL) << ", group_commit=" << ctx->group_commit;
@@ -330,6 +301,7 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
         if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
             request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
         } else {
+            // used for wait_internal_group_commit_finish
             request.__set_group_commit_mode("sync_mode");
         }
     }
@@ -358,6 +330,22 @@ Status HttpStreamAction::_process_put(HttpRequest* http_req,
     ctx->txn_id = ctx->put_result.params.txn_conf.txn_id;
     ctx->label = ctx->put_result.params.import_label;
     ctx->put_result.params.__set_wal_id(ctx->wal_id);
+    if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
+        if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+            size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
+                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
+                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+                content_length *= 3;
+            }
+            RETURN_IF_ERROR(ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(
+                    ctx->id.to_thrift(), content_length));
+        }
+    }
 
     return _exec_env->stream_load_executor()->execute_plan_fragment(ctx);
 }
@@ -376,6 +364,52 @@ void HttpStreamAction::_save_stream_load_record(std::shared_ptr<StreamLoadContex
     } else {
         LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
     }
+}
+
+Status HttpStreamAction::_handle_group_commit(HttpRequest* req,
+                                              std::shared_ptr<StreamLoadContext> ctx) {
+    std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
+    if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
+        !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
+        return Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
+    }
+    if (config::wait_internal_group_commit_finish) {
+        group_commit_mode = "sync_mode";
+    }
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
+        // off_mode and empty
+        ctx->group_commit = false;
+        return Status::OK();
+    }
+
+    auto partial_columns = !req->header(HTTP_PARTIAL_COLUMNS).empty() &&
+                           iequal(req->header(HTTP_PARTIAL_COLUMNS), "true");
+    auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
+    auto partitions = !req->header(HTTP_PARTITIONS).empty();
+    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
+        if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
+            return Status::InternalError("label and group_commit can't be set at the same time");
+        }
+        ctx->group_commit = true;
+        if (iequal(group_commit_mode, "async_mode")) {
+            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
+            if (iequal(group_commit_mode, "sync_mode")) {
+                size_t max_available_size =
+                        ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
+                LOG(INFO) << "When enable group commit, the data size can't be too large or "
+                             "unknown. The data size for this stream load("
+                          << (req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                      ? 0
+                                      : req->header(HttpHeaders::CONTENT_LENGTH))
+                          << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                          << max_available_size
+                          << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
+                             "automatically.";
+                return Status::Error<EXCEEDED_LIMIT>("Http load size too large.");
+            }
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris

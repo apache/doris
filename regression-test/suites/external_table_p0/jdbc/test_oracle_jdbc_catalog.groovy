@@ -31,7 +31,7 @@ suite("test_oracle_jdbc_catalog", "p0,external,oracle,external_docker,external_d
         String test_insert = "TEST_INSERT";
         String test_all_types = "TEST_ALL_TYPES";
         String test_insert_all_types = "test_oracle_insert_all_types";
-        String test_ctas = "test_ctas";
+        String test_ctas = "test_oracle_ctas";
 
         String inDorisTable = "doris_in_tb";
 

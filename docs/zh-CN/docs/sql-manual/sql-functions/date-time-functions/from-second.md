@@ -32,34 +32,19 @@ under the License.
 `DATETIME FROM_MILLISECOND(BIGINT unix_timestamp)`
 `DATETIME FROM_MICROSECOND(BIGINT unix_timestamp)`
 
-将时间戳转化为对应的 DATETIME
-
-传入的是整型，返回的是DATETIME类型
-
+将时间戳转化为对应的 DATETIME，传入的是整型，返回的是DATETIME类型。若`unix_timestamp < 0` 或函数结果大于 `9999-12-31 23:59:59.999999`，则返回`NULL`。
 
 ### example
 
 ```
-mysql> select from_microsecond(0);
-+----------------------------+
-| from_microsecond(0)        |
-+----------------------------+
-| 1970-01-01 08:00:00.000000 |
-+----------------------------+
+mysql> set time_zone='Asia/Shanghai';
 
-mysql> select from_microsecond(12345678);
-+----------------------------+
-| from_microsecond(12345678) |
-+----------------------------+
-| 1970-01-01 08:00:12.345678 |
-+----------------------------+
-
-mysql> select from_millisecond(0);
-+-------------------------+
-| from_millisecond(0)     |
-+-------------------------+
-| 1970-01-01 08:00:00.000 |
-+-------------------------+
+mysql> select from_second(-1);
++---------------------------+
+| from_second(-1)           |
++---------------------------+
+| NULL                      |
++---------------------------+
 
 mysql> select from_millisecond(12345678);
 +----------------------------+
@@ -68,14 +53,21 @@ mysql> select from_millisecond(12345678);
 | 1970-01-01 11:25:45.678    |
 +----------------------------+
 
-mysql> select from_second(21474836470);
-+--------------------------+
-| from_second(21474836470) |
-+--------------------------+
-| 2650-07-06 16:21:10      |
-+--------------------------+
+mysql> select from_microsecond(253402271999999999);
++--------------------------------------+
+| from_microsecond(253402271999999999) |
++--------------------------------------+
+| 9999-12-31 23:59:59.999999           |
++--------------------------------------+
+
+mysql> select from_microsecond(253402272000000000);
++--------------------------------------+
+| from_microsecond(253402272000000000) |
++--------------------------------------+
+| NULL                                 |
++--------------------------------------+
 ```
 
 ### keywords
 
-    FROM_SECOND
+    FROM_SECOND,FROM,SECOND,MILLISECOND,MICROSECOND

@@ -25,7 +25,7 @@ suite("test_date_function_prune") {
     sql """
         CREATE TABLE `dp` (
         `node_name` varchar(100) NULL COMMENT '',
-        `date_time` datetime NULL COMMENT '',
+        `date_time` datetime NULL COMMENT ''
         ) ENGINE=OLAP
         DUPLICATE KEY(`node_name`)
         COMMENT ''

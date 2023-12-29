@@ -80,7 +80,7 @@ public:
 
     VExpr(const TExprNode& node);
     VExpr(const VExpr& vexpr);
-    VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable);
+    VExpr(TypeDescriptor type, bool is_slotref, bool is_nullable);
     // only used for test
     VExpr() = default;
     virtual ~VExpr() = default;

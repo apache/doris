@@ -273,8 +273,8 @@ Status check_migrate_request(StorageEngine& engine, const TStorageMediumMigrateR
     // check local disk capacity
     int64_t tablet_size = tablet->tablet_local_size();
     if ((*dest_store)->reach_capacity_limit(tablet_size)) {
-        return Status::InternalError("reach the capacity limit of path {}, tablet_size={}",
-                                     (*dest_store)->path(), tablet_size);
+        return Status::Error<EXCEEDED_LIMIT>("reach the capacity limit of path {}, tablet_size={}",
+                                             (*dest_store)->path(), tablet_size);
     }
     return Status::OK();
 }

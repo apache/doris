@@ -85,8 +85,8 @@ public class HudiJniScanner extends JniScanner {
     private static final ScheduledExecutorService cleanResolverService = Executors.newScheduledThreadPool(1);
 
     static {
-        int numThreads = Math.max(Runtime.getRuntime().availableProcessors() * 2 + 1, 4);
-        if (numThreads > 32) {
+        int numThreads = Math.max(Runtime.getRuntime().availableProcessors() * 2, 4);
+        if (numThreads > 48) {
             numThreads = Runtime.getRuntime().availableProcessors();
         }
         avroReadPool = Executors.newFixedThreadPool(numThreads,

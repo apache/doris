@@ -32,6 +32,7 @@
 #include <system_error>
 #include <utility>
 
+#include "common/exception.h"
 #include "gutil/macros.h"
 #include "io/fs/err_utils.h"
 #include "io/fs/file_system.h"
@@ -40,6 +41,7 @@
 #include "io/fs/local_file_writer.h"
 #include "runtime/thread_context.h"
 #include "util/async_io.h" // IWYU pragma: keep
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 
 namespace doris {
@@ -57,6 +59,10 @@ LocalFileSystem::~LocalFileSystem() = default;
 Status LocalFileSystem::create_file_impl(const Path& file, FileWriterPtr* writer,
                                          const FileWriterOptions* opts) {
     int fd = ::open(file.c_str(), O_TRUNC | O_WRONLY | O_CREAT | O_CLOEXEC, 0666);
+    DBUG_EXECUTE_IF("LocalFileSystem.create_file_impl.open_file_failed", {
+        ::close(fd);
+        fd = -1;
+    });
     if (-1 == fd) {
         return Status::IOError("failed to open {}: {}", file.native(), errno_to_str());
     }
@@ -170,6 +176,23 @@ Status LocalFileSystem::file_size_impl(const Path& file, int64_t* file_size) con
         return Status::IOError("failed to get file size {}: {}", file.native(), errcode_to_str(ec));
     }
     return Status::OK();
+}
+
+Status LocalFileSystem::directory_size(const Path& dir_path, size_t* dir_size) {
+    *dir_size = 0;
+    if (std::filesystem::exists(dir_path) && std::filesystem::is_directory(dir_path)) {
+        for (const auto& entry : std::filesystem::recursive_directory_iterator(dir_path)) {
+            if (std::filesystem::is_regular_file(entry)) {
+                try {
+                    *dir_size += std::filesystem::file_size(entry);
+                } catch (const std::exception& e) {
+                    LOG(INFO) << "{}", e.what();
+                }
+            }
+        }
+        return Status::OK();
+    }
+    return Status::IOError("faile to get dir size {}", dir_path.native());
 }
 
 Status LocalFileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,

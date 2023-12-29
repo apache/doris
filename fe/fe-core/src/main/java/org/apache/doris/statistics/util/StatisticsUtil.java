@@ -148,7 +148,11 @@ public class StatisticsUtil {
             StmtExecutor stmtExecutor = new StmtExecutor(r.connectContext, sql);
             r.connectContext.setExecutor(stmtExecutor);
             stmtExecutor.execute();
-            return r.connectContext.getState();
+            QueryState state = r.connectContext.getState();
+            if (state.getStateType().equals(QueryState.MysqlStateType.ERR)) {
+                throw new Exception(state.getErrorMessage());
+            }
+            return state;
         }
     }
 
@@ -177,6 +181,7 @@ public class StatisticsUtil {
         sessionVariable.cpuResourceLimit = Config.cpu_resource_limit_per_analyze_task;
         sessionVariable.setEnableInsertStrict(true);
         sessionVariable.enablePageCache = false;
+        sessionVariable.enableProfile = Config.enable_profile_when_analyze;
         sessionVariable.parallelExecInstanceNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.parallelPipelineTaskNum = Config.statistics_sql_parallel_exec_instance_num;
         sessionVariable.setEnableNereidsPlanner(true);
