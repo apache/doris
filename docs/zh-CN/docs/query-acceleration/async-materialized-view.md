@@ -190,7 +190,7 @@ CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
 ALTER MATERIALIZED VIEW mv1 set("grace_period"="3333");
 ```
 
-修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER ASYNC MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)来修改
+修改物化视图的名字，物化视图的刷新方式及物化视图特有的property可通过[ALTER MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Alter/ALTER-ASYNC-MATERIALIZED-VIEW.md)来修改
 
 物化视图本身也是一个 Table，所以 Table 相关的属性，例如副本数，仍通过`ALTER TABLE`相关的语法来修改。
 
