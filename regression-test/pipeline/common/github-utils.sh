@@ -298,7 +298,7 @@ file_changed_ckb() {
     echo "return no need" && return 1
 }
 
-file_changed_perf() {
+file_changed_performance() {
     local all_files
     all_files=$(cat all_files)
     if _only_modified_regression_conf; then echo "return no need" && return 1; fi

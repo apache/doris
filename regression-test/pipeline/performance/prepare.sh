@@ -68,10 +68,10 @@ fi
 source "$(bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'get')"
 if ${skip_pipeline:=false}; then echo "INFO: skip build pipline" && exit 0; else echo "INFO: no skip"; fi
 # shellcheck source=/dev/null
-# _get_pr_changed_files file_changed_perf
+# _get_pr_changed_files file_changed_performance
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/github-utils.sh
 if _get_pr_changed_files "${pull_request_num}"; then
-    if ! file_changed_perf; then
+    if ! file_changed_performance; then
         bash "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/get-or-set-tmp-env.sh 'set' "export skip_pipeline=true"
         exit 0
     fi
