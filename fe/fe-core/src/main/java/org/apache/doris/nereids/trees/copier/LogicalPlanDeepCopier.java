@@ -475,4 +475,5 @@ public class LogicalPlanDeepCopier extends DefaultPlanRewriter<DeepCopierContext
             replaceMap.put(oldOutput.get(i).getExprId(), newOutput.get(i).getExprId());
         }
     }
+
 }

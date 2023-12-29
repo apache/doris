@@ -28,8 +28,12 @@ import org.apache.doris.nereids.rules.analysis.BindSink;
 import org.apache.doris.nereids.rules.analysis.CheckAfterBind;
 import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
+import org.apache.doris.nereids.rules.analysis.CollectJoinConstraint;
+import org.apache.doris.nereids.rules.analysis.CollectSubQueryAlias;
 import org.apache.doris.nereids.rules.analysis.EliminateGroupByConstant;
+import org.apache.doris.nereids.rules.analysis.EliminateLogicalSelectHint;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
+import org.apache.doris.nereids.rules.analysis.LeadingJoin;
 import org.apache.doris.nereids.rules.analysis.NormalizeAggregate;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
 import org.apache.doris.nereids.rules.analysis.ProjectToGlobalAggregate;
@@ -38,6 +42,7 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
+import org.apache.doris.nereids.rules.rewrite.JoinCommute;
 
 import java.util.List;
 import java.util.Objects;
@@ -117,7 +122,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
 
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
+            // we should eliminate hint before "Subquery unnesting".
             topDown(new AnalyzeCTE()),
+            topDown(new EliminateLogicalSelectHint()),
             bottomUp(
                 new BindRelation(customTableResolver),
                 new CheckPolicy(),
@@ -151,6 +158,12 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
+            bottomUp(new JoinCommute()),
+            bottomUp(
+                    new CollectSubQueryAlias(),
+                    new CollectJoinConstraint()
+            ),
+            topDown(new LeadingJoin()),
             bottomUp(new SubqueryToApply())
         );
     }

@@ -24,12 +24,14 @@ import org.apache.doris.qe.ConnectContext;
 
 /**
  * RightSemiJoin -> LeftSemiJoin
+ * RightAntiJoin -> LeftAntiJoin
+ * RightOuterJoin -> LeftOuterJoin
  */
-public class SemiJoinCommute extends OneRewriteRuleFactory {
+public class JoinCommute extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .when(join -> join.getJoinType().isRightSemiOrAntiJoin())
+                .when(join -> join.getJoinType().isRightSemiOrAntiJoin() || join.getJoinType().isRightOuterJoin())
                 .whenNot(join -> ConnectContext.get().getSessionVariable().isDisableJoinReorder())
                 .whenNot(LogicalJoin::hasJoinHint)
                 .whenNot(LogicalJoin::isMarkJoin)
