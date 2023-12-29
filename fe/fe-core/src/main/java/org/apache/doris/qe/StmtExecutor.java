@@ -886,8 +886,14 @@ public class StmtExecutor {
         if (statement instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) statement;
             Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
+            if (optHints == null) {
+                optHints = new HashMap<>();
+            }
             if (optHints != null) {
                 sessionVariable.setIsSingleSetVar(true);
+                if (selectStmt.isFromInsert()) {
+                    optHints.put("enable_page_cache", "false");
+                }
                 for (String key : optHints.keySet()) {
                     VariableMgr.setVar(sessionVariable, new SetVar(key, new StringLiteral(optHints.get(key))));
                 }
