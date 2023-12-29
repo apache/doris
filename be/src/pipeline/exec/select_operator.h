@@ -35,7 +35,7 @@ public:
     OperatorPtr build_operator() override;
 };
 
-class SelectOperator final : public StreamingOperator<SelectOperatorBuilder> {
+class SelectOperator final : public StreamingOperator<vectorized::VSelectNode> {
 public:
     SelectOperator(OperatorBuilderBase* operator_builder, ExecNode* select_node);
 };

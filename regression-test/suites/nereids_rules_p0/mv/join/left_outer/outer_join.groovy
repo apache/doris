@@ -361,4 +361,43 @@ suite("outer_join") {
     order_qt_query7_0_after "${query7_0}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv7_0"""
 
+
+    // self join test
+    def mv8_0 = """
+    select 
+    a.o_orderkey,
+    count(distinct a.o_orderstatus) num1,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate = '2023-12-08' AND b.o_orderdate = '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num2,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate >= '2023-12-01' AND a.o_orderdate <= '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num3,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority in (1,2) AND a.o_orderdate >= '2023-12-08' AND b.o_orderdate <= '2023-12-09' THEN a.o_shippriority-b.o_custkey ELSE 0 END) num4,
+    AVG(a.o_totalprice) num5,
+    MAX(b.o_totalprice) num6,
+    MIN(a.o_totalprice) num7
+    from
+    orders a
+    left outer join orders b
+    on a.o_orderkey = b.o_orderkey
+    and a.o_custkey = b.o_custkey
+    group by a.o_orderkey;
+    """
+    def query8_0 = """
+    select 
+    a.o_orderkey,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate = '2023-12-08' AND b.o_orderdate = '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num2,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority = 1 AND a.o_orderdate >= '2023-12-01' AND a.o_orderdate <= '2023-12-09' THEN a.o_shippriority+b.o_custkey ELSE 0 END) num3,
+    SUM(CASE WHEN a.o_orderstatus = 'o' AND a.o_shippriority in (1,2) AND a.o_orderdate >= '2023-12-08' AND b.o_orderdate <= '2023-12-09' THEN a.o_shippriority-b.o_custkey ELSE 0 END) num4,
+    AVG(a.o_totalprice) num5,
+    MAX(b.o_totalprice) num6,
+    MIN(a.o_totalprice) num7
+    from
+    orders a
+    left outer join orders b
+    on a.o_orderkey = b.o_orderkey
+    and a.o_custkey = b.o_custkey
+    group by a.o_orderkey;
+    """
+    order_qt_query8_0_before "${query8_0}"
+    check_rewrite(mv8_0, query8_0, "mv8_0")
+    order_qt_query8_0_after "${query8_0}"
+    sql """ DROP MATERIALIZED VIEW IF EXISTS mv8_0"""
 }

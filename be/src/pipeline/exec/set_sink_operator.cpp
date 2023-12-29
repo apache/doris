@@ -42,7 +42,7 @@ OperatorPtr SetSinkOperatorBuilder<is_intersect>::build_operator() {
 template <bool is_intersect>
 SetSinkOperator<is_intersect>::SetSinkOperator(
         OperatorBuilderBase* builder, vectorized::VSetOperationNode<is_intersect>* set_node)
-        : StreamingOperator<SetSinkOperatorBuilder<is_intersect>>(builder, set_node) {}
+        : StreamingOperator<vectorized::VSetOperationNode<is_intersect>>(builder, set_node) {}
 
 template class SetSinkOperatorBuilder<true>;
 template class SetSinkOperatorBuilder<false>;
