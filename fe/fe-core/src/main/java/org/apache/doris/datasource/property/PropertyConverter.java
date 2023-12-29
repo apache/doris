@@ -550,7 +550,11 @@ public class PropertyConverter {
         String region = S3Properties.getRegionOfEndpoint(endpoint);
         if (!Strings.isNullOrEmpty(region)) {
             props.put(S3Properties.REGION, region);
-            String s3Endpoint = "s3." + region + ".amazonaws.com";
+            String suffix = ".amazonaws.com";
+            if (endpoint.endsWith(".amazonaws.com.cn")) {
+                suffix = ".amazonaws.com.cn";
+            }
+            String s3Endpoint = "s3." + region + suffix;
             if (isGlueIceberg) {
                 s3Endpoint = "https://" + s3Endpoint;
             }
