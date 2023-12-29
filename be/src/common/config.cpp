@@ -432,7 +432,7 @@ DEFINE_mBool(disable_compaction_trace_log, "true");
 DEFINE_mInt64(pick_rowset_to_compact_interval_sec, "86400");
 
 // Compaction priority schedule
-DEFINE_mBool(enable_compaction_priority_scheduling, "false");
+DEFINE_mBool(enable_compaction_priority_scheduling, "true");
 DEFINE_mInt32(low_priority_compaction_task_num_per_disk, "1");
 DEFINE_mDouble(low_priority_tablet_version_num_ratio, "0.7");
 
