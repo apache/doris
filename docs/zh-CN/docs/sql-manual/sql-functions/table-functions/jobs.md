@@ -48,22 +48,28 @@ mysql> desc function jobs("type"="mv");
 +-------------------+------+------+-------+---------+-------+
 | Id                | TEXT | No   | false | NULL    | NONE  |
 | Name              | TEXT | No   | false | NULL    | NONE  |
+| MvId              | TEXT | No   | false | NULL    | NONE  |
+| MvName            | TEXT | No   | false | NULL    | NONE  |
+| MvDatabaseId      | TEXT | No   | false | NULL    | NONE  |
+| MvDatabaseName    | TEXT | No   | false | NULL    | NONE  |
 | ExecuteType       | TEXT | No   | false | NULL    | NONE  |
 | RecurringStrategy | TEXT | No   | false | NULL    | NONE  |
 | Status            | TEXT | No   | false | NULL    | NONE  |
 | CreateTime        | TEXT | No   | false | NULL    | NONE  |
-| Comment           | TEXT | No   | false | NULL    | NONE  |
 +-------------------+------+------+-------+---------+-------+
-7 rows in set (0.00 sec)
+10 rows in set (0.00 sec)
 ```
 
 * Id：job id.
 * Name：job名称.
+* MvId：物化视图id
+* MvName：物化视图名称
+* MvDatabaseId：物化视图所属db id
+* MvDatabaseName：物化视图所属db名称
 * ExecuteType：执行类型
 * RecurringStrategy：循环策略.
 * Status：job状态.
 * CreateTime：task创建时间.
-* Comment：注释.
 
 ### example
 

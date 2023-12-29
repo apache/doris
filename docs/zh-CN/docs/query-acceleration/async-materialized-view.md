@@ -123,7 +123,7 @@ SHOW PARTITIONS FROM mv1;
 
 刷新名字为`p_20231017_20231018`的分区
 ```
-refresh MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
+REFRESH MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
 ```
 
 物化视图有多种刷新方式，无论哪种方式，都可以随时进行手动刷新，

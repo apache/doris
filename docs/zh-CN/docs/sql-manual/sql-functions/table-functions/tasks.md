@@ -42,7 +42,6 @@ tasks
 
 tasks("type"="mv")表结构：
 ```
-
 mysql> desc function tasks("type"="mv");
 +-----------------------+------+------+-------+---------+-------+
 | Field                 | Type | Null | Key   | Default | Extra |
@@ -51,7 +50,9 @@ mysql> desc function tasks("type"="mv");
 | JobId                 | TEXT | No   | false | NULL    | NONE  |
 | JobName               | TEXT | No   | false | NULL    | NONE  |
 | MvId                  | TEXT | No   | false | NULL    | NONE  |
+| MvName                | TEXT | No   | false | NULL    | NONE  |
 | MvDatabaseId          | TEXT | No   | false | NULL    | NONE  |
+| MvDatabaseName        | TEXT | No   | false | NULL    | NONE  |
 | Status                | TEXT | No   | false | NULL    | NONE  |
 | ErrorMsg              | TEXT | No   | false | NULL    | NONE  |
 | CreateTime            | TEXT | No   | false | NULL    | NONE  |
@@ -64,14 +65,16 @@ mysql> desc function tasks("type"="mv");
 | CompletedPartitions   | TEXT | No   | false | NULL    | NONE  |
 | Progress              | TEXT | No   | false | NULL    | NONE  |
 +-----------------------+------+------+-------+---------+-------+
-16 rows in set (0.00 sec)
+18 rows in set (0.00 sec)
 ```
 
 * TaskId：task id.
 * JobId：job id.
 * JobName：job名称.
-* MvId：task所属物化视图id.
-* MvDatabaseId：task所属物化视图的database id.
+* MvId：物化视图id
+* MvName：物化视图名称
+* MvDatabaseId：物化视图所属db id
+* MvDatabaseName：物化视图所属db名称
 * Status：task状态.
 * ErrorMsg：task失败信息.
 * CreateTime：task创建时间.
