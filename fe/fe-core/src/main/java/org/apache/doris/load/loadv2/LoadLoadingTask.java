@@ -160,7 +160,8 @@ public class LoadLoadingTask extends LoadTask {
         if (leftTimeMs <= 0) {
             throw new LoadException("failed to execute loading task when timeout");
         }
-        int timeoutS = (int) (leftTimeMs / 1000);
+        // 1 second is the minimum granularity of actual execution
+        int timeoutS = Math.max((int) (leftTimeMs / 1000), 1);
         curCoordinator.setTimeout(timeoutS);
 
         try {
