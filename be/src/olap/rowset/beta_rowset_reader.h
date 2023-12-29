@@ -90,7 +90,8 @@ private:
     bool _should_push_down_value_predicates() const;
     bool _is_merge_iterator() const {
         return _read_context->need_ordered_result &&
-               _rowset->rowset_meta()->is_segments_overlapping();
+               _rowset->rowset_meta()->is_segments_overlapping() &&
+               _segment_offsets.size() > 1;
     }
 
     DorisCallOnce<Status> _init_iter_once;
