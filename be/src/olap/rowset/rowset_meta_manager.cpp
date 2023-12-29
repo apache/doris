@@ -91,8 +91,9 @@ Status RowsetMetaManager::save(OlapMeta* meta, TabletUid tablet_uid, const Rowse
     if (rowset_meta_pb.partition_id() <= 0) {
         LOG(WARNING) << "invalid partition id " << rowset_meta_pb.partition_id() << " tablet "
                      << rowset_meta_pb.tablet_id();
-        return Status::InternalError("invalid partition id {}, tablet {}",
-                                     rowset_meta_pb.partition_id(), rowset_meta_pb.tablet_id());
+        // TODO(dx): after fix partition id eq 0 bug, fix it
+        // return Status::InternalError("invaid partition id {} tablet {}",
+        //  rowset_meta_pb.partition_id(), rowset_meta_pb.tablet_id());
     }
     if (enable_binlog) {
         return _save_with_binlog(meta, tablet_uid, rowset_id, rowset_meta_pb);
