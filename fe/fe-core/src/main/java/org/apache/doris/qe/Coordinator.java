@@ -3174,9 +3174,11 @@ public class Coordinator implements CoordInterface {
             return fragmentInstancesMap.values().stream();
         }
 
-        private void attachInstanceProfileToFragmentProfile() {
+        public void attachPipelineProfileToFragmentProfile() {
             profileStream()
                     .forEach(p -> executionProfile.addInstanceProfile(this.profileFragmentId, p));
+            executionProfile.addMultiBeProfileByPipelineX(profileFragmentId, address,
+                    taskProfile);
         }
 
         /**
@@ -3218,7 +3220,7 @@ public class Coordinator implements CoordInterface {
                     loadChannelProfile.update(params.loadChannelProfile);
                 }
                 this.done = params.done;
-                attachInstanceProfileToFragmentProfile();
+                attachPipelineProfileToFragmentProfile();
                 return this.done;
             } else {
                 RuntimeProfile profile = fragmentInstancesMap.get(params.fragment_instance_id);
@@ -3940,8 +3942,12 @@ public class Coordinator implements CoordInterface {
     private void attachInstanceProfileToFragmentProfile() {
         if (enablePipelineEngine) {
             for (PipelineExecContext ctx : pipelineExecContexts.values()) {
-                ctx.profileStream()
-                        .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));
+                if (enablePipelineXEngine) {
+                    ctx.attachPipelineProfileToFragmentProfile();
+                } else {
+                    ctx.profileStream()
+                            .forEach(p -> executionProfile.addInstanceProfile(ctx.profileFragmentId, p));
+                }
             }
         } else {
             for (BackendExecState backendExecState : backendExecStates) {
