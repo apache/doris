@@ -114,7 +114,7 @@ suite("test_index_compaction_with_multi_index_segments", "p0") {
         //TabletId,ReplicaId,BackendId,SchemaHash,Version,LstSuccessVersion,LstFailedVersion,LstFailedTime,LocalDataSize,RemoteDataSize,RowCount,State,LstConsistencyCheckTime,CheckVersion,VersionCount,PathHash,MetaUrl,CompactionStatus
         String[][] tablets = sql """ show tablets from ${tableName}; """
 
-        def replicaNum = get_table_replica_num(tableName)
+        def replicaNum = 1
         logger.info("get table replica num: " + replicaNum)
         // before full compaction, there are 3 rowsets.
         int rowsetCount = 0
