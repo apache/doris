@@ -86,7 +86,7 @@ DEFINE_String(memory_mode, "moderate");
 DEFINE_String(mem_limit, "90%");
 
 // Soft memory limit as a fraction of hard memory limit.
-DEFINE_Double(soft_mem_limit_frac, "0.9");
+DEFINE_Double(soft_mem_limit_frac, "1.0");
 
 // Many modern allocators (for example, tcmalloc) do not do a mremap for
 // realloc, even in case of large enough chunks of memory. Although this allows
@@ -311,7 +311,7 @@ DEFINE_Int64(index_stream_cache_capacity, "10737418240");
 DEFINE_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
-DEFINE_String(storage_page_cache_limit, "20%");
+DEFINE_String(storage_page_cache_limit, "30%");
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DEFINE_Int32(storage_page_cache_shard_size, "256");
