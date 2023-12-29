@@ -30,14 +30,14 @@ under the License.
 
 ### 创建物化视图
 
-准备两张表
+准备两张表和数据
 ```sql
 use tpch;
 
 CREATE TABLE IF NOT EXISTS orders  (
-                                       o_orderkey       integer not null,
-                                       o_custkey        integer not null,
-                                       o_orderstatus    char(1) not null,
+    o_orderkey       integer not null,
+    o_custkey        integer not null,
+    o_orderstatus    char(1) not null,
     o_totalprice     decimalv3(15,2) not null,
     o_orderdate      date not null,
     o_orderpriority  char(15) not null,
@@ -52,16 +52,16 @@ CREATE TABLE IF NOT EXISTS orders  (
     PROPERTIES ("replication_num" = "1");
 
 insert into orders values
-                   (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
-                   (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
-                   (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy');
+   (1, 1, 'ok', 99.5, '2023-10-17', 'a', 'b', 1, 'yy'),
+   (2, 2, 'ok', 109.2, '2023-10-18', 'c','d',2, 'mm'),
+   (3, 3, 'ok', 99.5, '2023-10-19', 'a', 'b', 1, 'yy');
 
 CREATE TABLE IF NOT EXISTS lineitem (
-                                        l_orderkey    integer not null,
-                                        l_partkey     integer not null,
-                                        l_suppkey     integer not null,
-                                        l_linenumber  integer not null,
-                                        l_quantity    decimalv3(15,2) not null,
+    l_orderkey    integer not null,
+    l_partkey     integer not null,
+    l_suppkey     integer not null,
+    l_linenumber  integer not null,
+    l_quantity    decimalv3(15,2) not null,
     l_extendedprice  decimalv3(15,2) not null,
     l_discount    decimalv3(15,2) not null,
     l_tax         decimalv3(15,2) not null,
@@ -80,9 +80,9 @@ CREATE TABLE IF NOT EXISTS lineitem (
     DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
     PROPERTIES ("replication_num" = "1");
 insert into lineitem values
-             (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
-             (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
-             (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
+ (1, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-17', '2023-10-17', '2023-10-17', 'a', 'b', 'yyyyyyyyy'),
+ (2, 2, 3, 4, 5.5, 6.5, 7.5, 8.5, 'o', 'k', '2023-10-18', '2023-10-18', '2023-10-18', 'a', 'b', 'yyyyyyyyy'),
+ (3, 2, 3, 6, 7.5, 8.5, 9.5, 10.5, 'k', 'o', '2023-10-19', '2023-10-19', '2023-10-19', 'c', 'd', 'xxxxxxxxx');
 ```
 创建物化视图
 ```
