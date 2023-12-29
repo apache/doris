@@ -1161,6 +1161,9 @@ DEFINE_mInt64(local_exchange_buffer_mem_limit, "134217728");
 // Default 300s, if its value <= 0, then log is disabled
 DEFINE_mInt64(enable_debug_log_timeout_secs, "0");
 
+// Tolerance for the number of partition id 0 in rowset, default 0
+DEFINE_Int32(ignore_invalid_partition_id_rowset_num, "0");
+
 // clang-format off
 #ifdef BE_TEST
 // test s3
