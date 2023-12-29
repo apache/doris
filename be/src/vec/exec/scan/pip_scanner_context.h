@@ -277,7 +277,7 @@ public:
     PipXScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
                        const TupleDescriptor* output_tuple_desc,
                        const RowDescriptor* output_row_descriptor,
-                       const std::list<vectorized::VScannerSPtr>& scanners, int64_t limit_,
+                       const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
                        int64_t max_bytes_in_blocks_queue,
                        std::shared_ptr<pipeline::ScanDependency> dependency)
             : vectorized::ScannerContext(state, output_tuple_desc, output_row_descriptor, scanners,
