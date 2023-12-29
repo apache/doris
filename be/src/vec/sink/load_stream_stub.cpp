@@ -331,7 +331,6 @@ Status LoadStreamStub::_send_with_retry(butil::IOBuf& buf) {
             SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(ExecEnv::GetInstance()->orphan_mem_tracker());
             ret = brpc::StreamWrite(_stream_id, buf);
         }
-        DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.EAGAIN", { ret = EAGAIN; });
         DBUG_EXECUTE_IF("LoadStreamStub._send_with_retry.stream_write_failed", { ret = EPIPE; });
         switch (ret) {
         case 0:

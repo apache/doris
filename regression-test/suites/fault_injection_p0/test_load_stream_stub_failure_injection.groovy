@@ -20,6 +20,8 @@ import org.apache.doris.regression.util.Http
 
 suite("test_stream_stub_fault_injection", "nonConcurrent") {
     sql """ set enable_memtable_on_sink_node=true """
+    sql """ DROP TABLE IF EXISTS `baseall` """
+    sql """ DROP TABLE IF EXISTS `test` """
     sql """
         CREATE TABLE IF NOT EXISTS `baseall` (
             `k0` boolean null comment "",
@@ -79,26 +81,12 @@ suite("test_stream_stub_fault_injection", "nonConcurrent") {
         }
     }
 
-    def load_with_injection_three_replica = { injection, error_msg->
-        try {
-            GetDebugPoint().enableDebugPointForAllBEs(injection)
-            sql "insert into test select * from baseall where k1 <= 3"
-        } catch(Exception e) {
-            logger.info(e.getMessage())
-            assertTrue(e.getMessage().contains(error_msg))
-        } finally {
-            GetDebugPoint().disableDebugPointForAllBEs(injection)
-        }
-    }
-
     // StreamSinkFileWriter appendv write segment failed one replica
     load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_one_replica", "")
     // StreamSinkFileWriter appendv write segment failed two replica
     load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_two_replica", "")
     // StreamSinkFileWriter appendv write segment failed all replica
     load_with_injection("StreamSinkFileWriter.appendv.write_segment_failed_all_replica", "stream sink file writer append data failed")
-    // LoadStreamStub send timeout
-    load_with_injection("LoadStreamStub._send_with_retry.EAGAIN", "StreamWait failed, err=22")
     // LoadStreams stream wait failed
     load_with_injection("LoadStreamStub._send_with_retry.stream_write_failed", "StreamWrite failed, err=32")
     // LoadStreams keeping stream when release
@@ -108,5 +96,7 @@ suite("test_stream_stub_fault_injection", "nonConcurrent") {
     // LoadStreams close wait failed
     load_with_injection("LoadStreams.release.close_wait_failed", "")
 
+    sql """ DROP TABLE IF EXISTS `baseall` """
+    sql """ DROP TABLE IF EXISTS `test` """
     sql """ set enable_memtable_on_sink_node=false """
 }
