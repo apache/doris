@@ -19,8 +19,8 @@ package org.apache.doris.job.common;
 
 public enum TaskStatus {
     PENDING,
-    CANCEL,
+    CANCELED,
     RUNNING,
     SUCCESS,
-    FAILD;
+    FAILED;
 }

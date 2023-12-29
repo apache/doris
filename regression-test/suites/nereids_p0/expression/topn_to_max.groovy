@@ -35,7 +35,7 @@ suite("test_topn_to_max") {
     from test_topn_to_max
     group by k1;
     '''
-    assertTrue(res.toString().contains("max"))
+    assertTrue(res.toString().contains("max"), res.toString() + " should contain max")
 
     order_qt_sql '''
     select topn(k2, 1)
@@ -45,5 +45,5 @@ suite("test_topn_to_max") {
     explain rewritten plan select topn(k2, 1)
     from test_topn_to_max;
     '''
-    assertTrue(res.toString().contains("max"))
+    assertTrue(res.toString().contains("max"), res.toString() + " should contain max")
 }

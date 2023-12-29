@@ -17,11 +17,6 @@
 
 #pragma once
 
-#include <gen_cpp/Types_types.h>
-#include <gen_cpp/internal_service.pb.h>
-#include <gen_cpp/types.pb.h>
-#include <stdint.h>
-
 #include <atomic>
 #include <memory>
 #include <mutex>
@@ -32,16 +27,12 @@
 #include "brpc/stream.h"
 #include "butil/iobuf.h"
 #include "common/status.h"
+#include "io/fs/file_reader_writer_fwd.h"
 #include "olap/delta_writer_context.h"
 #include "olap/memtable.h"
 #include "olap/olap_common.h"
-#include "olap/rowset/beta_rowset_writer.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_writer.h"
-#include "olap/rowset_builder.h"
-#include "olap/tablet.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
+#include "olap/rowset/rowset_fwd.h"
+#include "olap/tablet_fwd.h"
 #include "util/spinlock.h"
 #include "util/uid_util.h"
 
@@ -53,6 +44,9 @@ class SlotDescriptor;
 class OlapTableSchemaParam;
 class RowsetWriter;
 class RuntimeProfile;
+struct SegmentStatistics;
+using SegmentStatisticsSharedPtr = std::shared_ptr<SegmentStatistics>;
+class BaseRowsetBuilder;
 
 namespace vectorized {
 class Block;
@@ -67,22 +61,20 @@ public:
 
     Status init();
 
-    Status append_data(uint32_t segid, butil::IOBuf buf);
+    Status append_data(uint32_t segid, uint64_t offset, butil::IOBuf buf);
 
     Status close_segment(uint32_t segid);
 
-    Status add_segment(uint32_t segid, const SegmentStatistics& stat);
+    Status add_segment(uint32_t segid, const SegmentStatistics& stat, TabletSchemaSPtr flush_chema);
 
     // wait for all memtables to be flushed.
     Status close();
-
-    int64_t tablet_id() { return _req.tablet_id; }
 
 private:
     bool _is_init = false;
     bool _is_canceled = false;
     WriteRequest _req;
-    RowsetBuilder _rowset_builder;
+    std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
     std::shared_ptr<RowsetWriter> _rowset_writer;
     std::mutex _lock;
 

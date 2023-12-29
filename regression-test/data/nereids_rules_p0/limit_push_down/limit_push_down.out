@@ -2,279 +2,185 @@
 -- !limit_project --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------PhysicalOlapScan[t1]
 
 -- !limit_offset_project --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------PhysicalOlapScan[t1]
 
 -- !limit_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !limit_semi_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !right_semi_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !left_anti_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[LEFT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !right_anti_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[RIGHT_ANTI_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !full_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !left_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !right_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t1] apply RFs: RF0
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------PhysicalOlapScan[t1] apply RFs: RF0
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t2]
 
 -- !cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t1]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t2]
 
 -- !limit_offset_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
+----PhysicalLimit[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
+
+-- !limit_distinct --
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[t1]
+
+-- !limit_offset_agg --
+PhysicalResultSink
+--PhysicalTopN[MERGE_SORT]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[t1]
+
+-- !limit_distinct --
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+------hashAgg[LOCAL]
+--------NestedLoopJoin[CROSS_JOIN]
+----------PhysicalLimit[LOCAL]
+------------hashAgg[LOCAL]
 --------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t2]
 
 -- !limit_distinct --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------hashAgg[LOCAL]
+--------NestedLoopJoin[CROSS_JOIN]
+----------PhysicalLimit[LOCAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
+
+-- !limit_distinct --
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+------hashAgg[LOCAL]
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalLimit[LOCAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
+
+-- !limit_distinct --
+PhysicalResultSink
+--PhysicalLimit[GLOBAL]
+----PhysicalLimit[LOCAL]
+------hashAgg[LOCAL]
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalLimit[LOCAL]
+------------hashAgg[LOCAL]
+--------------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
 
 -- !limit_offset_agg --
 PhysicalResultSink
 --PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[t1]
-
--- !limit_distinct --
-PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------NestedLoopJoin[CROSS_JOIN]
---------------PhysicalLimit[LOCAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-
--- !limit_distinct --
-PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------NestedLoopJoin[CROSS_JOIN]
---------------PhysicalLimit[LOCAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-
--- !limit_distinct --
-PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------PhysicalLimit[LOCAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-
--- !limit_distinct --
-PhysicalResultSink
---PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------PhysicalLimit[LOCAL]
-----------------hashAgg[LOCAL]
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
---------------PhysicalDistribute
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
-
--- !limit_offset_agg --
-PhysicalResultSink
---PhysicalTopN[MERGE_SORT]
-----PhysicalDistribute
-------PhysicalTopN[LOCAL_SORT]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[t1]
+----PhysicalTopN[LOCAL_SORT]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[t1]
 
 -- !limit_set_operation --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalOlapScan[t1]
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalOlapScan[t2]
 
 -- !limit_offset_set_operation --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalIntersect
-----------PhysicalDistribute
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-----------PhysicalDistribute
-------------PhysicalProject
---------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------PhysicalIntersect
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !limit_window --
 PhysicalResultSink
@@ -282,10 +188,9 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------PhysicalWindow
 --------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalDistribute
-------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalPartitionTopN
-----------------PhysicalOlapScan[t1]
+----------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalPartitionTopN
+--------------PhysicalOlapScan[t1]
 
 -- !limit_offset_window --
 PhysicalResultSink
@@ -293,82 +198,61 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------PhysicalWindow
 --------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalDistribute
-------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalPartitionTopN
-----------------PhysicalOlapScan[t1]
+----------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalPartitionTopN
+--------------PhysicalOlapScan[t1]
 
 -- !limit_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------filter((t1.id = 1))
-------------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------filter((t1.id = 1))
+--------PhysicalOlapScan[t1]
 
 -- !limit_offset_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------filter((t1.id = 1))
-------------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------filter((t1.id = 1))
+--------PhysicalOlapScan[t1]
 
 -- !limit_project_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------filter((t1.id > 100))
-------------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------filter((t1.id > 100))
+--------PhysicalOlapScan[t1]
 
 -- !limit_join_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-------------PhysicalProject
---------------filter((t1.id > 100))
-----------------PhysicalOlapScan[t1] apply RFs: RF0
-------------PhysicalDistribute
---------------PhysicalProject
-----------------filter((t2.id > 100))
-------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------filter((t1.id > 100))
+----------PhysicalOlapScan[t1] apply RFs: RF0
+--------filter((t2.id > 100))
+----------PhysicalOlapScan[t2]
 
 -- !limit_subquery --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------PhysicalOlapScan[t1]
 
 -- !limit_subquery_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------filter((t1.id > 100))
-------------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------filter((t1.id > 100))
+--------PhysicalOlapScan[t1]
 
 -- !limit_subquery_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !limit_subquery_window --
 PhysicalResultSink
@@ -376,740 +260,472 @@ PhysicalResultSink
 ----PhysicalLimit[LOCAL]
 ------PhysicalWindow
 --------PhysicalQuickSort[MERGE_SORT]
-----------PhysicalDistribute
-------------PhysicalQuickSort[LOCAL_SORT]
---------------PhysicalPartitionTopN
-----------------PhysicalOlapScan[t1]
+----------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalPartitionTopN
+--------------PhysicalOlapScan[t1]
 
 -- !limit_nested_subquery --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------PhysicalOlapScan[t1]
 
 -- !limit_union_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((t1.id > 100))
---------------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((t2.id > 100))
---------------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------filter((t1.id > 100))
+------------------PhysicalOlapScan[t1]
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------filter((t2.id > 100))
+------------------PhysicalOlapScan[t2]
 
 -- !limit_union_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalLimit[LOCAL]
-------------------hashAgg[GLOBAL]
---------------------PhysicalDistribute
-----------------------hashAgg[LOCAL]
-------------------------PhysicalProject
---------------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[t1]
-----------------------------PhysicalDistribute
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute
+----PhysicalLimit[LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------------PhysicalOlapScan[t1]
+--------------------PhysicalOlapScan[t2]
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
 ------------------PhysicalLimit[LOCAL]
 --------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=()
---------------------------PhysicalLimit[LOCAL]
-----------------------------hashAgg[LOCAL]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[t3]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[t4]
+----------------------PhysicalOlapScan[t3]
+------------------PhysicalOlapScan[t4]
 
 -- !limit_union_window --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[GLOBAL]
-----------hashAgg[LOCAL]
-------------PhysicalUnion
---------------PhysicalLimit[LOCAL]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute
---------------------hashAgg[LOCAL]
-----------------------PhysicalWindow
-------------------------PhysicalQuickSort[MERGE_SORT]
---------------------------PhysicalDistribute
-----------------------------PhysicalQuickSort[LOCAL_SORT]
-------------------------------PhysicalOlapScan[t1]
---------------PhysicalLimit[LOCAL]
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute
---------------------hashAgg[LOCAL]
-----------------------PhysicalWindow
-------------------------PhysicalQuickSort[MERGE_SORT]
---------------------------PhysicalDistribute
-----------------------------PhysicalQuickSort[LOCAL_SORT]
-------------------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalWindow
+--------------------PhysicalQuickSort[MERGE_SORT]
+----------------------PhysicalQuickSort[LOCAL_SORT]
+------------------------PhysicalOlapScan[t1]
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[GLOBAL]
+----------------hashAgg[LOCAL]
+------------------PhysicalWindow
+--------------------PhysicalQuickSort[MERGE_SORT]
+----------------------PhysicalQuickSort[LOCAL_SORT]
+------------------------PhysicalOlapScan[t2]
 
 -- !limit_subquery_join_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-------------PhysicalProject
---------------filter((t1.id > 100))
-----------------PhysicalOlapScan[t1] apply RFs: RF0
-------------PhysicalDistribute
---------------PhysicalProject
-----------------filter((t2.id > 100))
-------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------filter((t1.id > 100))
+----------PhysicalOlapScan[t1] apply RFs: RF0
+--------filter((t2.id > 100))
+----------PhysicalOlapScan[t2]
 
 -- !limit_subquery_join_window --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalWindow
-----------PhysicalQuickSort[LOCAL_SORT]
-------------PhysicalPartitionTopN
---------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------PhysicalWindow
+--------PhysicalQuickSort[LOCAL_SORT]
+----------PhysicalPartitionTopN
+------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t2]
 
 -- !limit_subquery_union_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((t1.id > 100))
---------------------------PhysicalOlapScan[t1]
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------filter((t2.id > 100))
---------------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------filter((t1.id > 100))
+------------------PhysicalOlapScan[t1]
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------filter((t2.id > 100))
+------------------PhysicalOlapScan[t2]
 
 -- !limit_subquery_union_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[GLOBAL]
-----------PhysicalDistribute
-------------hashAgg[LOCAL]
---------------PhysicalUnion
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[t1]
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[t2]
-----------------PhysicalDistribute
-------------------PhysicalLimit[LOCAL]
---------------------hashAgg[LOCAL]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=() build RFs:RF1 id->[id]
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[t3] apply RFs: RF1
---------------------------PhysicalDistribute
-----------------------------PhysicalProject
-------------------------------PhysicalOlapScan[t4]
+----PhysicalLimit[LOCAL]
+------hashAgg[GLOBAL]
+--------hashAgg[LOCAL]
+----------PhysicalUnion
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------------PhysicalOlapScan[t1]
+------------------PhysicalOlapScan[t2]
+------------PhysicalLimit[LOCAL]
+--------------hashAgg[LOCAL]
+----------------hashJoin[INNER_JOIN] hashCondition=((t3.id = t4.id)) otherCondition=() build RFs:RF1 id->[id]
+------------------PhysicalOlapScan[t3] apply RFs: RF1
+------------------PhysicalOlapScan[t4]
 
 -- !limit_subquery_union_window --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalWindow
+----PhysicalLimit[LOCAL]
+------PhysicalWindow
+--------PhysicalPartitionTopN
 ----------PhysicalPartitionTopN
-------------PhysicalDistribute
---------------PhysicalPartitionTopN
-----------------hashAgg[GLOBAL]
-------------------PhysicalDistribute
---------------------hashAgg[LOCAL]
-----------------------PhysicalUnion
-------------------------PhysicalDistribute
---------------------------PhysicalOlapScan[t1]
-------------------------PhysicalDistribute
---------------------------PhysicalOlapScan[t2]
+------------hashAgg[GLOBAL]
+--------------hashAgg[LOCAL]
+----------------PhysicalUnion
+------------------PhysicalOlapScan[t1]
+------------------PhysicalOlapScan[t2]
 
 -- !limit_correlated_subquery --
 PhysicalResultSink
---PhysicalDistribute
-----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.id = t1.id)) otherCondition=()
---------PhysicalProject
-----------PhysicalOlapScan[t1]
---------PhysicalDistribute
-----------PhysicalProject
-------------PhysicalOlapScan[t2]
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.id = t1.id)) otherCondition=()
+----PhysicalOlapScan[t1]
+----PhysicalOlapScan[t2]
 
 -- !limit_correlated_subquery_join --
 PhysicalResultSink
---PhysicalDistribute
-----PhysicalProject
-------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.id = t1.id)) otherCondition=()
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
---------PhysicalDistribute
-----------PhysicalProject
-------------PhysicalOlapScan[t3]
+--hashJoin[LEFT_SEMI_JOIN] hashCondition=((t3.id = t1.id)) otherCondition=()
+----hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------PhysicalOlapScan[t1]
+------PhysicalOlapScan[t2]
+----PhysicalOlapScan[t3]
 
 -- !limit_correlated_subquery_window --
 PhysicalResultSink
---PhysicalDistribute
-----PhysicalWindow
-------PhysicalQuickSort[LOCAL_SORT]
---------PhysicalProject
-----------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.id = t1.id)) otherCondition=()
-------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+--PhysicalWindow
+----PhysicalQuickSort[LOCAL_SORT]
+------hashJoin[LEFT_SEMI_JOIN] hashCondition=((t2.id = t1.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !limit_cte_query --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject
-------filter((t1.id < 10))
---------PhysicalOlapScan[t1]
+----filter((t1.id < 10))
+------PhysicalOlapScan[t1]
 --PhysicalResultSink
 ----PhysicalLimit[GLOBAL]
-------PhysicalDistribute
---------PhysicalLimit[LOCAL]
-----------PhysicalDistribute
-------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------PhysicalLimit[LOCAL]
+--------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !limit_cte_query_join --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject
-------filter((t1.id < 10))
---------PhysicalOlapScan[t1]
+----filter((t1.id < 10))
+------PhysicalOlapScan[t1]
 --PhysicalCteAnchor ( cteId=CTEId#1 )
 ----PhysicalCteProducer ( cteId=CTEId#1 )
-------PhysicalProject
---------filter((t2.id < 10))
-----------PhysicalOlapScan[t2]
+------filter((t2.id < 10))
+--------PhysicalOlapScan[t2]
 ----PhysicalResultSink
 ------PhysicalLimit[GLOBAL]
---------PhysicalDistribute
-----------PhysicalLimit[LOCAL]
-------------PhysicalProject
---------------hashJoin[FULL_OUTER_JOIN] hashCondition=((cte1.id = cte2.id)) otherCondition=()
-----------------PhysicalDistribute
-------------------PhysicalCteConsumer ( cteId=CTEId#0 )
-----------------PhysicalDistribute
-------------------PhysicalCteConsumer ( cteId=CTEId#1 )
+--------PhysicalLimit[LOCAL]
+----------hashJoin[FULL_OUTER_JOIN] hashCondition=((cte1.id = cte2.id)) otherCondition=()
+------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalCteConsumer ( cteId=CTEId#1 )
 
 -- !limit_cte_query_window --
 PhysicalCteAnchor ( cteId=CTEId#0 )
 --PhysicalCteProducer ( cteId=CTEId#0 )
-----PhysicalProject
-------filter((t1.id < 10))
---------PhysicalOlapScan[t1]
+----filter((t1.id < 10))
+------PhysicalOlapScan[t1]
 --PhysicalResultSink
 ----PhysicalLimit[GLOBAL]
 ------PhysicalLimit[LOCAL]
 --------PhysicalWindow
 ----------PhysicalQuickSort[MERGE_SORT]
-------------PhysicalDistribute
---------------PhysicalQuickSort[LOCAL_SORT]
-----------------PhysicalPartitionTopN
-------------------PhysicalDistribute
---------------------PhysicalCteConsumer ( cteId=CTEId#0 )
+------------PhysicalQuickSort[LOCAL_SORT]
+--------------PhysicalPartitionTopN
+----------------PhysicalCteConsumer ( cteId=CTEId#0 )
 
 -- !limit_project_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------filter((t1.id > 100))
-------------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------filter((t1.id > 100))
+--------PhysicalOlapScan[t1]
 
 -- !limit_join_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-------------PhysicalProject
---------------filter((t1.id > 100))
-----------------PhysicalOlapScan[t1] apply RFs: RF0
-------------PhysicalDistribute
---------------PhysicalProject
-----------------filter((t2.id > 100))
-------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+--------filter((t1.id > 100))
+----------PhysicalOlapScan[t1] apply RFs: RF0
+--------filter((t2.id > 100))
+----------PhysicalOlapScan[t2]
 
 -- !limit_subquery --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------PhysicalOlapScan[t1]
 
 -- !limit_subquery_filter --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------filter((t1.id > 100))
-------------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------filter((t1.id > 100))
+--------PhysicalOlapScan[t1]
 
 -- !limit_subquery_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------PhysicalProject
---------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------hashJoin[INNER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------PhysicalOlapScan[t1]
+--------PhysicalOlapScan[t2]
 
 -- !limit_subquery_window --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
 ----PhysicalLimit[LOCAL]
-------PhysicalProject
---------PhysicalWindow
-----------PhysicalQuickSort[MERGE_SORT]
-------------PhysicalDistribute
---------------PhysicalQuickSort[LOCAL_SORT]
-----------------PhysicalPartitionTopN
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
+------PhysicalWindow
+--------PhysicalQuickSort[MERGE_SORT]
+----------PhysicalQuickSort[LOCAL_SORT]
+------------PhysicalPartitionTopN
+--------------PhysicalOlapScan[t1]
 
 -- !limit_nested_subquery --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------PhysicalOlapScan[t1]
 
 -- !limit_subquery_order_by --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------PhysicalOlapScan[t1]
 
 -- !limit_subquery_order_by_offset --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------PhysicalOlapScan[t1]
 
 -- !limit_subquery_distinct --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------hashAgg[LOCAL]
-----------PhysicalProject
-------------PhysicalOlapScan[t1]
+----PhysicalLimit[LOCAL]
+------hashAgg[LOCAL]
+--------PhysicalOlapScan[t1]
 
 -- !limit_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------PhysicalOlapScan[t1]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t2]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t1]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t2]
 
 -- !limit_multiple_left_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+----PhysicalLimit[LOCAL]
+------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------PhysicalLimit[LOCAL]
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalLimit[LOCAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t3]
 
 -- !limit_multiple_right_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1] apply RFs: RF1
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+----PhysicalLimit[LOCAL]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF1 id->[id]
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t1] apply RFs: RF1
+----------PhysicalOlapScan[t2]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t3]
 
 -- !limit_multiple_full_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-------------PhysicalDistribute
---------------PhysicalProject
-----------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----PhysicalLimit[LOCAL]
+------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t3]
 
 -- !limit_multiple_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
 ----------NestedLoopJoin[CROSS_JOIN]
 ------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------NestedLoopJoin[CROSS_JOIN]
-------------------PhysicalLimit[LOCAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute
---------------------PhysicalLimit[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t1]
+------------PhysicalLimit[LOCAL]
+--------------PhysicalOlapScan[t2]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t3]
 
 -- !limit_left_outer_join_right_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1] apply RFs: RF0
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+----PhysicalLimit[LOCAL]
+------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t1] apply RFs: RF0
+----------PhysicalOlapScan[t2]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t3]
 
 -- !limit_left_outer_join_full_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-------------PhysicalDistribute
---------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalProject
---------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----PhysicalLimit[LOCAL]
+------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t3]
 
 -- !limit_left_outer_join_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
 ------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalLimit[LOCAL]
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t3]
 
 -- !limit_right_outer_join_full_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-------------PhysicalDistribute
---------------PhysicalProject
-----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t3]
+----PhysicalLimit[LOCAL]
+------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------PhysicalOlapScan[t1]
+----------PhysicalOlapScan[t2]
+--------PhysicalOlapScan[t3]
 
 -- !limit_right_outer_join_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
+------------PhysicalOlapScan[t1] apply RFs: RF0
 ------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=() build RFs:RF0 id->[id]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1] apply RFs: RF0
-------------------PhysicalDistribute
---------------------PhysicalLimit[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+--------------PhysicalOlapScan[t2]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t3]
 
 -- !limit_full_outer_join_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t1]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t2]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t3]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t3]
 
 -- !limit_left_outer_join_right_outer_join_full_outer_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t4.id)) otherCondition=()
-------------PhysicalDistribute
---------------PhysicalProject
-----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[t1]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute
---------------PhysicalProject
-----------------PhysicalOlapScan[t4]
+----PhysicalLimit[LOCAL]
+------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t4.id)) otherCondition=()
+--------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+----------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+------------PhysicalOlapScan[t1]
+------------PhysicalOlapScan[t2]
+----------PhysicalOlapScan[t3]
+--------PhysicalOlapScan[t4]
 
 -- !limit_left_outer_join_right_outer_join_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
+------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------PhysicalOlapScan[t1] apply RFs: RF0
+--------------PhysicalOlapScan[t2]
 ------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=() build RFs:RF0 id->[id]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[t1] apply RFs: RF0
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute
---------------------PhysicalLimit[LOCAL]
-----------------------PhysicalProject
-------------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t4]
+--------------PhysicalOlapScan[t3]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t4]
 
 -- !limit_left_outer_join_full_outer_join_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------------PhysicalProject
---------------------------PhysicalOlapScan[t1]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t4]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t3]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t4]
 
 -- !limit_right_outer_join_full_outer_join_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalLimit[LOCAL]
---------------PhysicalProject
-----------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[t1]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[t2]
-------------------PhysicalDistribute
---------------------PhysicalProject
-----------------------PhysicalOlapScan[t3]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalProject
-------------------PhysicalOlapScan[t4]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+--------------PhysicalOlapScan[t1]
+--------------PhysicalOlapScan[t2]
+------------PhysicalOlapScan[t3]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t4]
 
 -- !limit_left_outer_join_right_outer_join_full_outer_join_cross_join --
 PhysicalResultSink
 --PhysicalLimit[GLOBAL]
-----PhysicalDistribute
-------PhysicalLimit[LOCAL]
---------PhysicalProject
-----------NestedLoopJoin[CROSS_JOIN]
-------------PhysicalLimit[LOCAL]
---------------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t4.id)) otherCondition=()
-----------------PhysicalDistribute
-------------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
---------------------PhysicalDistribute
-----------------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
-------------------------PhysicalOlapScan[t1]
-------------------------PhysicalDistribute
---------------------------PhysicalOlapScan[t2]
---------------------PhysicalDistribute
-----------------------PhysicalOlapScan[t3]
-----------------PhysicalDistribute
-------------------PhysicalOlapScan[t4]
-------------PhysicalDistribute
---------------PhysicalLimit[LOCAL]
-----------------PhysicalOlapScan[t4]
+----PhysicalLimit[LOCAL]
+------NestedLoopJoin[CROSS_JOIN]
+--------PhysicalLimit[LOCAL]
+----------hashJoin[FULL_OUTER_JOIN] hashCondition=((t1.id = t4.id)) otherCondition=()
+------------hashJoin[RIGHT_OUTER_JOIN] hashCondition=((t1.id = t3.id)) otherCondition=()
+--------------hashJoin[LEFT_OUTER_JOIN] hashCondition=((t1.id = t2.id)) otherCondition=()
+----------------PhysicalOlapScan[t1]
+----------------PhysicalOlapScan[t2]
+--------------PhysicalOlapScan[t3]
+------------PhysicalOlapScan[t4]
+--------PhysicalLimit[LOCAL]
+----------PhysicalOlapScan[t4]
 

@@ -11,12 +11,15 @@ PhysicalResultSink
 ----------------PhysicalProject
 ------------------hashJoin[LEFT_ANTI_JOIN] hashCondition=((cs1.cs_order_number = cr1.cr_order_number)) otherCondition=()
 --------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_call_center_sk = call_center.cc_call_center_sk)) otherCondition=() build RFs:RF3 cc_call_center_sk->[cs_call_center_sk]
-----------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((cs1.cs_order_number = cs2.cs_order_number)) otherCondition=(( not (cs_warehouse_sk = cs_warehouse_sk))) build RFs:RF2 cs_order_number->[cs_order_number]
+----------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((cs1.cs_order_number = cs2.cs_order_number)) otherCondition=(( not (cs_warehouse_sk = cs_warehouse_sk))) build RFs:RF2 cs_order_number->[cs_order_number]
+------------------------PhysicalDistribute
+--------------------------PhysicalProject
+----------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF2
 ------------------------PhysicalDistribute
 --------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_addr_sk = customer_address.ca_address_sk)) otherCondition=() build RFs:RF1 ca_address_sk->[cs_ship_addr_sk]
 ----------------------------hashJoin[INNER_JOIN] hashCondition=((cs1.cs_ship_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF0 d_date_sk->[cs_ship_date_sk]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF2 RF3
+--------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0 RF1 RF3
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
 ----------------------------------filter((date_dim.d_date <= '2002-05-31') and (date_dim.d_date >= '2002-04-01'))
@@ -25,9 +28,6 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------filter((customer_address.ca_state = 'WV'))
 ----------------------------------PhysicalOlapScan[customer_address]
-------------------------PhysicalDistribute
---------------------------PhysicalProject
-----------------------------PhysicalOlapScan[catalog_sales]
 ----------------------PhysicalDistribute
 ------------------------PhysicalProject
 --------------------------filter(cc_county IN ('Barrow County', 'Daviess County', 'Luce County', 'Richland County', 'Ziebach County'))

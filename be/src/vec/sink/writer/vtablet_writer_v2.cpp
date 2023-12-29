@@ -42,6 +42,7 @@
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
+#include "util/debug_points.h"
 #include "util/defer_op.h"
 #include "util/doris_metrics.h"
 #include "util/threadpool.h"
@@ -136,9 +137,8 @@ Status VTabletWriterV2::_init_row_distribution() {
     return _row_distribution.open(_output_row_desc);
 }
 
-Status VTabletWriterV2::init_properties(ObjectPool* pool, bool group_commit) {
+Status VTabletWriterV2::init_properties(ObjectPool* pool) {
     _pool = pool;
-    _group_commit = group_commit;
     return Status::OK();
 }
 
@@ -188,9 +188,7 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     DCHECK(_num_local_sink > 0) << "num local sink should be greator than 0";
     _is_high_priority =
             (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
-
-    // profile must add to state's object pool
-    _profile = state->obj_pool()->add(new RuntimeProfile("VTabletWriterV2"));
+    DBUG_EXECUTE_IF("VTabletWriterV2._init.is_high_priority", { _is_high_priority = true; });
     _mem_tracker =
             std::make_shared<MemTracker>("VTabletWriterV2:" + std::to_string(state->load_job_id()));
     SCOPED_TIMER(_profile->total_time_counter());
@@ -504,6 +502,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             for (const auto& [_, streams] : _streams_for_node) {
                 streams->release();
             }
+            _streams_for_node.clear();
         });
 
         {
@@ -536,14 +535,35 @@ Status VTabletWriterV2::close(Status exec_status) {
                     TTabletCommitInfo commit_info;
                     commit_info.tabletId = tablet_id;
                     commit_info.backendId = node_id;
+                    _missing_tablets.erase(tablet_id);
                     tablet_commit_infos.emplace_back(std::move(commit_info));
                 }
             }
         }
+        if (!_missing_tablets.empty()) {
+            std::stringstream ss("pre-commit check failed, ");
+            ss << "missing " << _missing_tablets.size() << " tablets:";
+            int print_limit = 3;
+            for (auto tablet_id : _missing_tablets | std::ranges::views::take(print_limit)) {
+                ss << " (tablet_id=" << tablet_id;
+                auto backends = _location->find_tablet(tablet_id)->node_ids;
+                ss << ", backend_id=[";
+                bool first = true;
+                for (auto& backend_id : backends) {
+                    (first ? ss : ss << ',') << backend_id;
+                    first = false;
+                }
+                ss << "])";
+            }
+            if (_missing_tablets.size() > print_limit) {
+                ss << ", ...";
+            }
+            LOG(INFO) << ss.str() << ", load_id=" << print_id(_load_id);
+            return Status::InternalError(ss.str());
+        }
         _state->tablet_commit_infos().insert(_state->tablet_commit_infos().end(),
                                              std::make_move_iterator(tablet_commit_infos.begin()),
                                              std::make_move_iterator(tablet_commit_infos.end()));
-        _streams_for_node.clear();
 
         // _number_input_rows don't contain num_rows_load_filtered and num_rows_load_unselected in scan node
         int64_t num_rows_load_total = _number_input_rows + _state->num_rows_load_filtered() +
@@ -571,6 +591,7 @@ Status VTabletWriterV2::_close_load(const Streams& streams) {
     for (auto [tablet_id, tablet] : _tablets_for_node[node_id]) {
         if (_tablet_finder->partition_ids().contains(tablet.partition_id())) {
             tablets_to_commit.push_back(tablet);
+            _missing_tablets.insert(tablet_id);
         }
     }
     for (const auto& stream : streams) {

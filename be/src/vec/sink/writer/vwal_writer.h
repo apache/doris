@@ -56,6 +56,7 @@
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
+#include "olap/wal_manager.h"
 #include "olap/wal_writer.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/exec_env.h"
@@ -82,26 +83,22 @@ namespace vectorized {
 
 class VWalWriter {
 public:
-    VWalWriter(int64_t db_id, int64_t tb_id, int64_t wal_id, RuntimeState* state,
-               TupleDescriptor* output_tuple_desc);
+    VWalWriter(int64_t tb_id, int64_t wal_id, const std::string& import_label,
+               WalManager* wal_manager, std::vector<TSlotDescriptor>& slot_desc,
+               int be_exe_version);
     ~VWalWriter();
     Status init();
-    Status write_wal(OlapTableBlockConvertor* block_convertor, OlapTabletFinder* tablet_finder,
-                     vectorized::Block* block, RuntimeState* state, int64_t num_rows,
-                     int64_t filtered_rows);
-    Status append_block(vectorized::Block* input_block, int64_t num_rows, int64_t filter_rows,
-                        vectorized::Block* block, OlapTableBlockConvertor* block_convertor,
-                        OlapTabletFinder* tablet_finder);
+    Status write_wal(vectorized::Block* block);
     Status close();
 
 private:
-    int64_t _db_id;
     int64_t _tb_id;
     int64_t _wal_id;
     uint32_t _version = 0;
     std::string _label;
-    RuntimeState* _state = nullptr;
-    TupleDescriptor* _output_tuple_desc = nullptr;
+    WalManager* _wal_manager;
+    std::vector<TSlotDescriptor>& _slot_descs;
+    int _be_exe_version = 0;
     std::shared_ptr<WalWriter> _wal_writer;
 };
 } // namespace vectorized

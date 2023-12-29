@@ -31,6 +31,7 @@
 #include <memory>
 #include <mutex>
 #include <ostream>
+#include <regex>
 #include <set>
 #include <shared_mutex>
 #include <system_error>
@@ -199,14 +200,13 @@ Status EngineCloneTask::_do_clone() {
         auto local_data_path = fmt::format("{}/{}", tablet->tablet_path(), CLONE_PREFIX);
         bool allow_incremental_clone = false;
 
-        int64_t specified_version = _clone_req.committed_version;
+        int64_t specified_version = _clone_req.version;
         if (tablet->enable_unique_key_merge_on_write()) {
             int64_t min_pending_ver =
                     StorageEngine::instance()->get_pending_publish_min_version(tablet->tablet_id());
             if (min_pending_ver - 1 < specified_version) {
                 LOG(INFO) << "use min pending publish version for clone, min_pending_ver: "
-                          << min_pending_ver
-                          << " committed_version: " << _clone_req.committed_version;
+                          << min_pending_ver << " visible_version: " << _clone_req.version;
                 specified_version = min_pending_ver - 1;
             }
         }
@@ -225,7 +225,7 @@ Status EngineCloneTask::_do_clone() {
         LOG(INFO) << "clone to existed tablet. missed_versions_size=" << missed_versions.size()
                   << ", allow_incremental_clone=" << allow_incremental_clone
                   << ", signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
-                  << ", committed_version=" << _clone_req.committed_version
+                  << ", visible_version=" << _clone_req.version
                   << ", replica_id=" << _clone_req.replica_id;
 
         // try to download missing version from src backend.
@@ -239,7 +239,7 @@ Status EngineCloneTask::_do_clone() {
     } else {
         LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
                   << "signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
-                  << ", committed_version=" << _clone_req.committed_version
+                  << ", visible_version=" << _clone_req.version
                   << ", req replica=" << _clone_req.replica_id;
         // create a new tablet in this be
         // Get local disk from olap
@@ -294,8 +294,7 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
     tablet_info.__set_replica_id(_clone_req.replica_id);
     tablet_info.__set_schema_hash(_clone_req.schema_hash);
     RETURN_IF_ERROR(StorageEngine::instance()->tablet_manager()->report_tablet_info(&tablet_info));
-    if (_clone_req.__isset.committed_version &&
-        tablet_info.version < _clone_req.committed_version) {
+    if (_clone_req.__isset.version && tablet_info.version < _clone_req.version) {
         // if it is a new tablet and clone failed, then remove the tablet
         // if it is incremental clone, then must not drop the tablet
         if (is_new_tablet) {
@@ -306,13 +305,13 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
                          << ", replica_id:" << _clone_req.replica_id
                          << ", schema_hash:" << _clone_req.schema_hash
                          << ", signature:" << _signature << ", version:" << tablet_info.version
-                         << ", expected_version: " << _clone_req.committed_version;
+                         << ", expected_version: " << _clone_req.version;
             WARN_IF_ERROR(StorageEngine::instance()->tablet_manager()->drop_tablet(
                                   _clone_req.tablet_id, _clone_req.replica_id, false),
                           "drop stale cloned table failed");
         }
         return Status::InternalError("unexpected version. tablet version: {}, expected version: {}",
-                                     tablet_info.version, _clone_req.committed_version);
+                                     tablet_info.version, _clone_req.version);
     }
     LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
               << ", schema_hash:" << _clone_req.schema_hash << ", signature:" << _signature
@@ -392,7 +391,7 @@ Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
         status = _download_files(&data_dir, remote_url_prefix, local_data_path);
         if (!status.ok()) [[unlikely]] {
             LOG_WARNING("failed to download snapshot from remote BE")
-                    .tag("url", remote_url_prefix)
+                    .tag("url", _mask_token(remote_url_prefix))
                     .error(status);
             continue; // Try another BE
         }
@@ -413,7 +412,7 @@ Status EngineCloneTask::_make_snapshot(const std::string& ip, int port, TTableId
     request.__set_tablet_id(tablet_id);
     request.__set_schema_hash(schema_hash);
     request.__set_preferred_snapshot_version(g_Types_constants.TPREFER_SNAPSHOT_REQ_VERSION);
-    request.__set_version(_clone_req.committed_version);
+    request.__set_version(_clone_req.version);
     request.__set_is_copy_binlog(true);
     // TODO: missing version composed of singleton delta.
     // if not, this place should be rewrote.
@@ -517,7 +516,9 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
                 HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, get_file_size_cb));
         // check disk capacity
         if (data_dir->reach_capacity_limit(file_size)) {
-            return Status::InternalError("Disk reach capacity limit");
+            return Status::Error<EXCEEDED_LIMIT>(
+                    "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                    file_size);
         }
 
         total_file_size += file_size;
@@ -528,11 +529,11 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 
         std::string local_file_path = local_path + "/" + file_name;
 
-        LOG(INFO) << "clone begin to download file from: " << remote_file_url
+        LOG(INFO) << "clone begin to download file from: " << _mask_token(remote_file_url)
                   << " to: " << local_file_path << ". size(B): " << file_size
                   << ", timeout(s): " << estimate_timeout;
 
-        auto download_cb = [&remote_file_url, estimate_timeout, &local_file_path,
+        auto download_cb = [this, &remote_file_url, estimate_timeout, &local_file_path,
                             file_size](HttpClient* client) {
             RETURN_IF_ERROR(client->init(remote_file_url));
             client->set_timeout_ms(estimate_timeout * 1000);
@@ -548,7 +549,8 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
             }
             if (local_file_size != file_size) {
                 LOG(WARNING) << "download file length error"
-                             << ", remote_path=" << remote_file_url << ", file_size=" << file_size
+                             << ", remote_path=" << _mask_token(remote_file_url)
+                             << ", file_size=" << file_size
                              << ", local_file_size=" << local_file_size;
                 return Status::InternalError("downloaded file size is not equal");
             }
@@ -577,8 +579,8 @@ Status EngineCloneTask::_download_files(DataDir* data_dir, const std::string& re
 /// This method will do the following things:
 /// 1. Linke all files from CLONE dir to tablet dir if file does not exist in tablet dir
 /// 2. Call _finish_xx_clone() to revise the tablet meta.
-Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_dir,
-                                      int64_t committed_version, bool is_incremental_clone) {
+Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_dir, int64_t version,
+                                      bool is_incremental_clone) {
     Defer remove_clone_dir {[&]() { std::filesystem::remove_all(clone_dir); }};
 
     // check clone dir existed
@@ -700,13 +702,12 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
     std::lock_guard cumulative_compaction_lock(tablet->get_cumulative_compaction_lock());
     std::lock_guard cold_compaction_lock(tablet->get_cold_compaction_lock());
     std::lock_guard build_inverted_index_lock(tablet->get_build_inverted_index_lock());
-    tablet->set_clone_occurred(true);
     std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
     std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
     std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
     if (is_incremental_clone) {
-        status = _finish_incremental_clone(tablet, cloned_tablet_meta, committed_version);
+        status = _finish_incremental_clone(tablet, cloned_tablet_meta, version);
     } else {
         status = _finish_full_clone(tablet, cloned_tablet_meta);
     }
@@ -725,17 +726,17 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
 /// 2. Revise the local tablet meta to add all incremental cloned rowset's meta.
 Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   const TabletMetaSharedPtr& cloned_tablet_meta,
-                                                  int64_t committed_version) {
+                                                  int64_t version) {
     LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->tablet_id()
-              << ", committed_version=" << committed_version
+              << ", visible_version=" << version
               << ", cloned_tablet_replica_id=" << cloned_tablet_meta->replica_id();
 
     /// Get missing versions again from local tablet.
     /// We got it before outside the lock, so it has to be got again.
     std::vector<Version> missed_versions;
-    tablet->calc_missed_versions_unlocked(committed_version, &missed_versions);
+    tablet->calc_missed_versions_unlocked(version, &missed_versions);
     VLOG_NOTICE << "get missed versions again when finish incremental clone. "
-                << "tablet=" << tablet->tablet_id() << ", clone version=" << committed_version
+                << "tablet=" << tablet->tablet_id() << ", clone version=" << version
                 << ", missed_versions_size=" << missed_versions.size();
 
     // check missing versions exist in clone src
@@ -827,6 +828,11 @@ Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
     }
     return tablet->revise_tablet_meta(to_add, to_delete, false);
     // TODO(plat1ko): write cooldown meta to remote if this replica is cooldown replica
+}
+
+std::string EngineCloneTask::_mask_token(const std::string& str) {
+    std::regex pattern("token=[\\w|-]+");
+    return regex_replace(str, pattern, "token=******");
 }
 
 } // namespace doris

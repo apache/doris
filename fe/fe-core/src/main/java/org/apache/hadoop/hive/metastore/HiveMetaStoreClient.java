@@ -1722,8 +1722,11 @@ public class HiveMetaStoreClient implements IMetaStoreClient, AutoCloseable {
 
   @Override
   public Database getDatabase(String catalogName, String databaseName) throws TException {
-    Database d = client.get_database(prependCatalogToDbName(catalogName, databaseName, conf));
-    return deepCopy(filterHook.filterDatabase(d));
+    if (hiveVersion == HiveVersion.V1_0 || hiveVersion == HiveVersion.V2_0 || hiveVersion == HiveVersion.V2_3) {
+      return deepCopy(client.get_database(databaseName));
+    } else {
+      return deepCopy(client.get_database(prependCatalogToDbName(catalogName, databaseName, conf)));
+    }
   }
 
   @Override

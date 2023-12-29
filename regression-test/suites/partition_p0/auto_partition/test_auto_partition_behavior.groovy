@@ -20,7 +20,8 @@ suite("test_auto_partition_behavior") {
     sql "drop table if exists unique_table"
     sql """
         CREATE TABLE `unique_table` (
-            `str` varchar not null
+            `str` varchar not null,
+            `dummy` int
         ) ENGINE=OLAP
         UNIQUE KEY(`str`)
         COMMENT 'OLAP'
@@ -34,15 +35,15 @@ suite("test_auto_partition_behavior") {
         );
         """
     // special characters
-    sql """ insert into unique_table values (" "), ("  "), ("Xxx"), ("xxX"), (" ! "), (" !  ") """
-    qt_sql1 """ select *,length(str) from unique_table order by `str` """
+    sql """ insert into unique_table values (" ", 1), ("  ", 1), ("Xxx", 1), ("xxX", 1), (" ! ", 1), (" !  ", 1) """
+    qt_sql1 """ select str,length(str) from unique_table order by `str` """
     def result = sql "show partitions from unique_table"
     assertEquals(result.size(), 6)
-    sql """ insert into unique_table values (" "), ("  "), ("Xxx"), ("xxX"), (" ! "), (" !  ") """
-    qt_sql2 """ select *,length(str) from unique_table order by `str` """
+    sql """ insert into unique_table values (" ", 1), ("  ", 1), ("Xxx", 1), ("xxX", 1), (" ! ", 1), (" !  ", 1) """
+    qt_sql2 """ select str,length(str) from unique_table order by `str` """
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 6)
-    sql """ insert into unique_table values ("-"), ("--"), ("- -"), (" - ") """
+    sql """ insert into unique_table values ("-", 1), ("--", 1), ("- -", 1), (" - ", 1) """
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 10)
     // add partition
@@ -58,13 +59,13 @@ suite("test_auto_partition_behavior") {
     sql """ alter table unique_table drop partition ${partition1_name} """ // partition ' '
     result = sql "show partitions from unique_table"
     assertEquals(result.size(), 9)
-    qt_sql3 """ select *,length(str) from unique_table order by `str` """
+    qt_sql3 """ select str,length(str) from unique_table order by `str` """
     // modify value 
     sql """ update unique_table set str = "modified" where str in (" ", "  ") """ // only "  "
-    qt_sql4 """ select *,length(str) from unique_table where str = '  ' order by `str` """ // modified
+    qt_sql4 """ select str,length(str) from unique_table where str = '  ' order by `str` """ // modified
     qt_sql5 """ select count() from unique_table where str = 'modified' """
     // crop
-    qt_sql6 """ select * from unique_table where ((str > ' ! ' || str = 'modified') && str != 'Xxx') order by str """
+    qt_sql6 """ select str from unique_table where ((str > ' ! ' || str = 'modified') && str != 'Xxx') order by str """
 
 
     /// duplicate key table
@@ -152,4 +153,43 @@ suite("test_auto_partition_behavior") {
     sql """ insert into agg_dt6 values ('2020-12-12', '2020-12-12'), ('2020-12-12', '2020-12-12 12:12:12.123456'), ('2020-12-12', '20121212'), (20131212, 20131212) """
     result = sql "show partitions from agg_dt6"
     assertEquals(result.size(), 5)
+
+    /// insert overwrite
+    sql "drop table if exists `rewrite`"
+    sql """
+        CREATE TABLE `rewrite` (
+            `str` varchar not null
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`str`)
+        COMMENT 'OLAP'
+        AUTO PARTITION BY LIST (`str`)
+        (
+            PARTITION `p1` values in (("Xxx"), ("Yyy"))
+        )
+        DISTRIBUTED BY HASH(`str`) BUCKETS 10
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1"
+        );
+        """
+    sql """ insert into rewrite values ("Xxx"); """
+    // legacy planner
+    sql " set experimental_enable_nereids_planner=false "
+    try {
+        sql """ insert overwrite table rewrite partition(p1) values ("XXX") """
+        fail()
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
+    }
+    sql """ insert overwrite table rewrite partition(p1) values ("Yyy") """
+    qt_sql_overwrite1 """ select * from rewrite """ // Yyy
+    // nereids planner
+    sql " set experimental_enable_nereids_planner=true "
+    try {
+        sql """ insert overwrite table rewrite partition(p1) values ("") """
+        fail()
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Insert has filtered data in strict mode"))
+    }
+    sql """ insert overwrite table rewrite partition(p1) values ("Xxx") """
+    qt_sql_overwrite2 """ select * from rewrite """ // Xxx
 }

@@ -494,12 +494,12 @@ Decimal64 ColumnDecimal<Decimal64>::get_scale_multiplier() const {
 }
 
 template <>
-Decimal128 ColumnDecimal<Decimal128>::get_scale_multiplier() const {
+Decimal128V2 ColumnDecimal<Decimal128V2>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
 }
 
 template <>
-Decimal128I ColumnDecimal<Decimal128I>::get_scale_multiplier() const {
+Decimal128V3 ColumnDecimal<Decimal128V3>::get_scale_multiplier() const {
     return common::exp10_i128(scale);
 }
 
@@ -515,9 +515,21 @@ ColumnPtr ColumnDecimal<T>::index(const IColumn& indexes, size_t limit) const {
     return select_index_impl(*this, indexes, limit);
 }
 
+template <typename T>
+void ColumnDecimal<T>::replace_column_null_data(const uint8_t* __restrict null_map) {
+    auto s = size();
+    size_t null_count = s - simd::count_zero_num((const int8_t*)null_map, s);
+    if (0 == null_count) {
+        return;
+    }
+    for (size_t i = 0; i < s; ++i) {
+        data[i] = null_map[i] ? T() : data[i];
+    }
+}
+
 template class ColumnDecimal<Decimal32>;
 template class ColumnDecimal<Decimal64>;
-template class ColumnDecimal<Decimal128>;
-template class ColumnDecimal<Decimal128I>;
+template class ColumnDecimal<Decimal128V2>;
+template class ColumnDecimal<Decimal128V3>;
 template class ColumnDecimal<Decimal256>;
 } // namespace doris::vectorized

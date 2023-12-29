@@ -41,8 +41,8 @@ public class JdbcAnalysisTask extends BaseAnalysisTask {
             + "COUNT(1) AS row_count, "
             + "NDV(`${colName}`) AS ndv, "
             + "SUM(CASE WHEN `${colName}` IS NULL THEN 1 ELSE 0 END) AS null_count, "
-            + "MIN(`${colName}`) AS min, "
-            + "MAX(`${colName}`) AS max, "
+            + "SUBSTRING(CAST(MIN(`${colName}`) AS STRING), 1, 1024) AS min, "
+            + "SUBSTRING(CAST(MAX(`${colName}`) AS STRING), 1, 1024) AS max, "
             + "${dataSizeFunction} AS data_size, "
             + "NOW() "
             + "FROM `${catalogName}`.`${dbName}`.`${tblName}`";

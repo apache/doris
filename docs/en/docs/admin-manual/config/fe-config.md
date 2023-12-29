@@ -587,6 +587,16 @@ Is it possible to configure dynamically: true
 
 Whether it is a configuration item unique to the Master FE node: true
 
+### `abort_txn_after_lost_heartbeat_time_second`
+
+Abort transaction time after lost heartbeat. The default value is 300, which means transactions of be will be aborted after lost heartbeat 300s.
+
+Default: 300(s)
+
+Is it possible to configure dynamically: true
+
+Whether it is a configuration item unique to the Master FE node: true
+
 #### `enable_access_file_without_broker`
 
 Default：false
@@ -1143,7 +1153,7 @@ Max bytes a broker scanner can process in one broker load job. Commonly, each Ba
 
 #### `default_load_parallelism`
 
-Default: 1
+Default: 8
 
 IsMutable：true
 
@@ -1359,7 +1369,7 @@ Default：false
 
 IsMutable：true
 
-MasterOnly：false
+MasterOnly：true
 
 Enable memtable on sink node for stream load by default.
 When HTTP header `memtable_on_sink_node` is not set.

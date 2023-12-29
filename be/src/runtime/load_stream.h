@@ -17,9 +17,8 @@
 
 #pragma once
 
+#include <bthread/mutex.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <runtime/load_stream_writer.h>
-#include <stdint.h>
 
 #include <condition_variable>
 #include <memory>
@@ -31,9 +30,14 @@
 #include "butil/iobuf.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
+#include "runtime/load_stream_writer.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
+
+class LoadStreamMgr;
+class ThreadPoolToken;
+class OlapTableSchemaParam;
 
 // origin_segid(index) -> new_segid(value in vector)
 using SegIdMapping = std::vector<uint32_t>;
@@ -47,7 +51,7 @@ public:
     Status append_data(const PStreamHeader& header, butil::IOBuf* data);
     Status add_segment(const PStreamHeader& header, butil::IOBuf* data);
     Status close();
-    int64_t id() { return _id; }
+    int64_t id() const { return _id; }
 
     friend std::ostream& operator<<(std::ostream& ostr, const TabletStream& tablet_stream);
 
@@ -65,6 +69,7 @@ private:
     RuntimeProfile::Counter* _append_data_timer = nullptr;
     RuntimeProfile::Counter* _add_segment_timer = nullptr;
     RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    LoadStreamMgr* _load_stream_mgr = nullptr;
 };
 
 using TabletStreamSharedPtr = std::shared_ptr<TabletStream>;
@@ -103,7 +108,7 @@ using StreamId = brpc::StreamId;
 class LoadStream : public brpc::StreamInputHandler {
 public:
     LoadStream(PUniqueId load_id, LoadStreamMgr* load_stream_mgr, bool enable_profile);
-    ~LoadStream();
+    ~LoadStream() override;
 
     Status init(const POpenLoadStreamRequest* request);
 

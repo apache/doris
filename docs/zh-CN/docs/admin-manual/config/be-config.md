@@ -646,7 +646,7 @@ BaseCompaction:546859:
 
 * 类型：bool
 * 描述：在导入时进行 segment compaction 来减少 segment 数量, 以避免出现写入时的 -238 错误
-* 默认值：true
+* 默认值：false
 
 #### `segcompaction_batch_size`
 
@@ -753,6 +753,11 @@ BaseCompaction:546859:
 
 * 描述: load错误日志将在此时间后删除
 * 默认值: 48（h）
+
+#### `load_error_log_limit_bytes`
+
+* Description: load错误日志大小超过此值将被截断
+* 默认值: 209715200 (byte)
 
 #### `load_process_max_memory_limit_percent`
 
@@ -999,12 +1004,6 @@ BaseCompaction:546859:
 
 * 描述：memtable主动下刷时刷新内存统计的周期（毫秒）
 * 默认值：100
-
-#### `download_cache_buffer_size`
-
-* 类型: int64
-* 描述: 下载缓存时用于接收数据的buffer的大小。
-* 默认值: 10485760
 
 #### `zone_map_row_num_threshold`
 
@@ -1534,3 +1533,16 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: BE 是否开启使用java-jni，开启后允许 c++ 与 java 之间的相互调用。目前已经支持hudi、java-udf、jdbc、max-compute、paimon、preload、avro
 * 默认值: true
+
+#### `group_commit_wal_path`
+
+* 描述:  group commit 存放 WAL 文件的目录，请参考 [Group Commit](../../data-operate/import/import-way/group-commit-manual.md)
+* 默认值: 默认在用户配置的`storage_root_path`的各个目录下创建一个名为`wal`的目录。配置示例：
+  ```
+  group_commit_wal_path=/data1/storage/wal;/data2/storage/wal;/data3/storage/wal
+  ```
+
+#### `group_commit_memory_rows_for_max_filter_ratio`
+
+* 描述:  当 group commit 导入的总行数不高于该值，`max_filter_ratio` 正常工作，否则不工作，请参考 [Group Commit](../../data-operate/import/import-way/group-commit-manual.md)
+* 默认值: 10000

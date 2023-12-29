@@ -34,9 +34,9 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 
-public class StatisticsUtilTest {
+class StatisticsUtilTest {
     @Test
-    public void testConvertToDouble() {
+    void testConvertToDouble() {
         try {
             //test DATE
             double date1 = StatisticsUtil.convertToDouble(Type.DATE, "1990-01-01");
@@ -80,7 +80,7 @@ public class StatisticsUtilTest {
     }
 
     @Test
-    public void testInAnalyzeTime1() {
+    void testInAnalyzeTime1() {
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -99,7 +99,7 @@ public class StatisticsUtilTest {
     }
 
     @Test
-    public void testInAnalyzeTime2() {
+    void testInAnalyzeTime2() {
         new MockUp<StatisticsUtil>() {
 
             @Mock
@@ -119,7 +119,7 @@ public class StatisticsUtilTest {
 
 
     @Test
-    public void testEncodeValue() throws Exception {
+    void testEncodeValue() throws Exception {
         Assertions.assertEquals("NULL", StatisticsUtil.encodeValue(null, 0));
 
         ResultRow row = new ResultRow(null);
@@ -144,10 +144,10 @@ public class StatisticsUtilTest {
     }
 
     @Test
-    public void testEscape() {
+    void testEscape() {
         // \'"
         String origin = "\\'\"";
         // \\''""
-        Assertions.assertEquals("\\\\''\"\"", StatisticsUtil.escapeSQL(origin));
+        Assertions.assertEquals("\\\\''\"", StatisticsUtil.escapeSQL(origin));
     }
 }

@@ -32,7 +32,7 @@ class SimplifyComparisonPredicateSqlTest extends TestWithFeService implements Me
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS `log_items_test` (\n"
                         + "            a DATETIME(0) NOT NULL,\n"

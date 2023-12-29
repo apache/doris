@@ -57,7 +57,7 @@ protected:
     template <typename DependencyType, typename Derived>
     friend class JoinBuildSinkLocalState;
 
-    TJoinOp::type _join_op;
+    const TJoinOp::type _join_op;
     vectorized::JoinOpVariants _join_op_variants;
 
     const bool _have_other_join_conjunct;

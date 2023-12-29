@@ -19,8 +19,6 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/olap_file.pb.h>
-#include <stddef.h>
-#include <stdint.h>
 
 #include <algorithm>
 #include <atomic>
@@ -43,7 +41,6 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_creator.h"
-#include "segcompaction.h"
 #include "segment_v2/segment.h"
 #include "util/spinlock.h"
 
@@ -59,26 +56,25 @@ class SegmentWriter;
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
 
-class BetaRowsetWriter : public RowsetWriter {
-    friend class SegcompactionWorker;
-
+class BaseBetaRowsetWriter : public RowsetWriter {
 public:
-    BetaRowsetWriter();
+    BaseBetaRowsetWriter();
 
-    ~BetaRowsetWriter() override;
+    ~BaseBetaRowsetWriter() override;
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_block(const vectorized::Block* block) override;
 
+    // Declare these interface in `BaseBetaRowsetWriter`
     // add rowset by create hard link
     Status add_rowset(RowsetSharedPtr rowset) override;
-
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
     Status create_file_writer(uint32_t segment_id, io::FileWriterPtr& writer) override;
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
+                       TabletSchemaSPtr flush_schema) override;
 
     Status flush() override;
 
@@ -113,14 +109,6 @@ public:
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
 
-    Status flush_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
-            KeyBoundsPB& key_bounds);
-
-    bool is_doing_segcompaction() const override { return _is_doing_segcompaction; }
-
-    Status wait_flying_segcompaction() override;
-
     void set_segment_start_id(int32_t start_id) override {
         _segment_creator.set_segment_start_id(start_id);
         _segment_start_id = start_id;
@@ -141,36 +129,20 @@ public:
     const RowsetWriterContext& context() const override { return _context; }
 
 private:
-    Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
-    Status _check_segment_number_limit();
-    Status _generate_delete_bitmap(int32_t segment_id);
+    virtual Status _generate_delete_bitmap(int32_t segment_id) = 0;
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
-
-    // segment compaction
-    Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
-    Status _segcompaction_if_necessary();
-    Status _segcompaction_rename_last_segments();
-    Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
-    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
-    bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
-
-    bool _check_and_set_is_doing_segcompaction();
-
-    void _build_rowset_meta_with_spec_field(RowsetMetaSharedPtr rowset_meta,
-                                            const RowsetMetaSharedPtr& spec_rowset_meta);
-    bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
-    void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
-    Status _rename_compacted_segments(int64_t begin, int64_t end);
-    Status _rename_compacted_segment_plain(uint64_t seg_id);
-    Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
 
     void update_rowset_schema(TabletSchemaSPtr flush_schema);
     // build a tmp rowset for load segment to calc delete_bitmap
     // for this segment
+protected:
+    Status _create_file_writer(std::string path, io::FileWriterPtr& file_writer);
+    virtual Status _close_file_writers();
+    virtual Status _check_segment_number_limit();
+    virtual int64_t _num_seg() const;
+    // build a tmp rowset for load segment to calc delete_bitmap for this segment
     RowsetSharedPtr _build_tmp();
 
-protected:
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
@@ -178,9 +150,6 @@ protected:
     roaring::Roaring _segment_set;     // bitmap set to record flushed segment id
     std::mutex _segment_set_mutex;     // mutex for _segment_set
     int32_t _segment_start_id;         // basic write start from 0, partial update may be different
-    std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
-                                              // already been segment compacted
-    std::atomic<int32_t> _num_segcompacted;   // index for segment compaction
 
     mutable SpinLock _lock; // protect following vectors.
     // record rows number of every segment already written, using for rowid
@@ -203,15 +172,6 @@ protected:
     bool _already_built = false;
 
     SegmentCreator _segment_creator;
-    SegcompactionWorker _segcompaction_worker;
-
-    // ensure only one inflight segcompaction task for each rowset
-    std::atomic<bool> _is_doing_segcompaction;
-    // enforce compare-and-swap on _is_doing_segcompaction
-    std::mutex _is_doing_segcompaction_lock;
-    std::condition_variable _segcompacting_cond;
-
-    std::atomic<int> _segcompaction_status;
 
     fmt::memory_buffer vlog_buffer;
 
@@ -219,6 +179,61 @@ protected:
 
     int64_t _delete_bitmap_ns = 0;
     int64_t _segment_writer_ns = 0;
+};
+
+class SegcompactionWorker;
+
+// `StorageEngine` mixin for `BaseBetaRowsetWriter`
+class BetaRowsetWriter : public BaseBetaRowsetWriter {
+public:
+    BetaRowsetWriter(StorageEngine& engine);
+
+    ~BetaRowsetWriter() override;
+
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
+                       TabletSchemaSPtr flush_schema) override;
+
+    Status flush_segment_writer_for_segcompaction(
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
+            KeyBoundsPB& key_bounds);
+
+private:
+    Status _generate_delete_bitmap(int32_t segment_id) override;
+
+    // segment compaction
+    friend class SegcompactionWorker;
+    Status _close_file_writers() override;
+    Status _check_segment_number_limit() override;
+    int64_t _num_seg() const override;
+    Status _wait_flying_segcompaction();
+    Status _create_segment_writer_for_segcompaction(
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, int64_t begin, int64_t end);
+    Status _segcompaction_if_necessary();
+    Status _segcompaction_rename_last_segments();
+    Status _load_noncompacted_segment(segment_v2::SegmentSharedPtr& segment, int32_t segment_id);
+    Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr& segments);
+    bool _is_segcompacted() const { return _num_segcompacted > 0; }
+    bool _check_and_set_is_doing_segcompaction();
+    Status _rename_compacted_segments(int64_t begin, int64_t end);
+    Status _rename_compacted_segment_plain(uint64_t seg_id);
+    Status _rename_compacted_indices(int64_t begin, int64_t end, uint64_t seg_id);
+    void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
+
+    StorageEngine& _engine;
+
+    std::atomic<int32_t> _segcompacted_point {0}; // segemnts before this point have
+                                                  // already been segment compacted
+    std::atomic<int32_t> _num_segcompacted {0};   // index for segment compaction
+
+    std::shared_ptr<SegcompactionWorker> _segcompaction_worker;
+
+    // ensure only one inflight segcompaction task for each rowset
+    std::atomic<bool> _is_doing_segcompaction {false};
+    // enforce condition variable on _is_doing_segcompaction
+    std::mutex _is_doing_segcompaction_lock;
+    std::condition_variable _segcompacting_cond;
+
+    std::atomic<int> _segcompaction_status {ErrorCode::OK};
 };
 
 } // namespace doris

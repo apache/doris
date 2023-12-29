@@ -122,13 +122,10 @@ public:
         return Status::OK();
     }
 
-    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat) override;
+    Status add_segment(uint32_t segment_id, const SegmentStatistics& segstat,
+                       TabletSchemaSPtr flush_schema) override;
 
     int32_t allocate_segment_id() override { return _segment_creator.allocate_segment_id(); };
-
-    bool is_doing_segcompaction() const override { return false; }
-
-    Status wait_flying_segcompaction() override { return Status::OK(); }
 
     int64_t delete_bitmap_ns() override { return _delete_bitmap_ns; }
 

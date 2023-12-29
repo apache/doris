@@ -27,7 +27,7 @@
 #include <ostream>
 #include <string>
 
-#include "cloud/config.h"
+// IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
 #include "exprs/function_filter.h"
@@ -62,8 +62,10 @@ BlockReader::~BlockReader() {
 
 Status BlockReader::next_block_with_aggregation(Block* block, bool* eof) {
     auto res = (this->*_next_block_func)(block, eof);
-    if (!res.ok() && !res.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
-        static_cast<Tablet*>(_tablet.get())->report_error(res);
+    if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
+        if (!res.ok()) [[unlikely]] {
+            static_cast<Tablet*>(_tablet.get())->report_error(res);
+        }
     }
     return res;
 }
@@ -230,11 +232,10 @@ Status BlockReader::init(const ReaderParams& read_params) {
     }
 
     auto status = _init_collect_iter(read_params);
-    if (!status.ok()) {
-        if (!status.is<ErrorCode::END_OF_FILE>() && !config::cloud_mode) [[unlikely]] {
+    if (!status.ok()) [[unlikely]] {
+        if constexpr (std::is_same_v<ExecEnv::Engine, StorageEngine>) {
             static_cast<Tablet*>(_tablet.get())->report_error(status);
         }
-
         return status;
     }
 
@@ -336,6 +337,7 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     _agg_data_counters.push_back(_last_agg_data_counter);
     _last_agg_data_counter = 0;
     _update_agg_data(target_columns);
+    block->set_columns(std::move(target_columns));
 
     _merged_rows += merged_row;
     return Status::OK();
@@ -409,17 +411,20 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 }
             }
         }
-
+        auto target_columns_size = target_columns.size();
         ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
                                                          std::make_shared<DataTypeUInt8>(),
                                                          "__DORIS_COMPACTION_FILTER__"};
+        block->set_columns(std::move(target_columns));
         block->insert(column_with_type_and_name);
-        RETURN_IF_ERROR(Block::filter_block(block, target_columns.size(), target_columns.size()));
+        RETURN_IF_ERROR(Block::filter_block(block, target_columns_size, target_columns_size));
         _stats.rows_del_filtered += target_block_row - block->rows();
         DCHECK(block->try_get_by_name("__DORIS_COMPACTION_FILTER__") == nullptr);
         if (UNLIKELY(_reader_context.record_rowids)) {
             DCHECK_EQ(_block_row_locations.size(), block->rows() + delete_count);
         }
+    } else {
+        block->set_columns(std::move(target_columns));
     }
     return Status::OK();
 }

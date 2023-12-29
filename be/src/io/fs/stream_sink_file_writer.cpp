@@ -21,6 +21,7 @@
 
 #include "olap/olap_common.h"
 #include "olap/rowset/beta_rowset_writer.h"
+#include "util/debug_points.h"
 #include "util/uid_util.h"
 #include "vec/sink/load_stream_stub.h"
 
@@ -44,17 +45,30 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
     for (int i = 0; i < data_cnt; i++) {
         bytes_req += data[i].get_size();
     }
-    _bytes_appended += bytes_req;
 
     VLOG_DEBUG << "writer appendv, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id
                << ", data_length: " << bytes_req;
 
     std::span<const Slice> slices {data, data_cnt};
+    bool ok = false;
     for (auto& stream : _streams) {
-        RETURN_IF_ERROR(
-                stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id, slices));
+        auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
+                                      _bytes_appended, slices);
+        ok = ok || st.ok();
     }
+    if (!ok) {
+        std::stringstream ss;
+        for (auto& stream : _streams) {
+            ss << " " << stream->dst_id();
+        }
+        LOG(WARNING) << "failed to write any replicas, load_id: " << print_id(_load_id)
+                     << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
+                     << ", segment_id: " << _segment_id << ", data_length: " << bytes_req
+                     << ", backends:" << ss.str();
+        return Status::InternalError("failed to write any replicas");
+    }
+    _bytes_appended += bytes_req;
     return Status::OK();
 }
 
@@ -62,9 +76,21 @@ Status StreamSinkFileWriter::finalize() {
     VLOG_DEBUG << "writer finalize, load_id: " << print_id(_load_id) << ", index_id: " << _index_id
                << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id;
     // TODO(zhengyu): update get_inverted_index_file_size into stat
+    bool ok = false;
     for (auto& stream : _streams) {
-        RETURN_IF_ERROR(
-                stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id, {}, true));
+        auto st = stream->append_data(_partition_id, _index_id, _tablet_id, _segment_id,
+                                      _bytes_appended, {}, true);
+        ok = ok || st.ok();
+    }
+    if (!ok) {
+        std::stringstream ss;
+        for (auto& stream : _streams) {
+            ss << " " << stream->dst_id();
+        }
+        LOG(WARNING) << "failed to finalize any replicas, load_id: " << print_id(_load_id)
+                     << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
+                     << ", segment_id: " << _segment_id << ", backends:" << ss.str();
+        return Status::InternalError("failed to finalize any replicas");
     }
     return Status::OK();
 }

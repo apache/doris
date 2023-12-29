@@ -24,20 +24,12 @@ suite("query45") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=false'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
-
-    qt_ds_shape_45 '''
-    explain shape plan
-
-
-
-
-select  ca_zip, ca_city, sum(ws_sales_price)
+    sql 'set enable_runtime_filter_prune=false'
+    def ds = """select  ca_zip, ca_city, sum(ws_sales_price)
  from web_sales, customer, customer_address, date_dim, item
  where ws_bill_customer_sk = c_customer_sk
  	and c_current_addr_sk = ca_address_sk 
@@ -53,7 +45,9 @@ select  ca_zip, ca_city, sum(ws_sales_price)
  	and d_qoy = 2 and d_year = 2000
  group by ca_zip, ca_city
  order by ca_zip, ca_city
- limit 100;
-
-    '''
+ limit 100"""
+    qt_ds_shape_45 """
+    explain shape plan
+    ${ds}
+    """
 }

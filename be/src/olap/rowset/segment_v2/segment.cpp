@@ -61,10 +61,12 @@
 #include "util/slice.h" // Slice
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
+#include "vec/core/field.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_object.h"
+#include "vec/json/path_in_data.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -148,7 +150,8 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
             AndBlockColumnPredicate and_predicate;
             auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
             and_predicate.add_column_predicate(single_predicate);
-            if (can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
+            if (_column_readers.count(uid) >= 1 &&
+                can_apply_predicate_safely(runtime_predicate->column_id(), runtime_predicate.get(),
                                            *schema, read_options.io_ctx.reader_type) &&
                 !_column_readers.at(uid)->match_condition(&and_predicate)) {
                 // any condition not satisfied, return.
@@ -332,17 +335,18 @@ Status Segment::_load_index_impl() {
 
 // Return the storage datatype of related column to field.
 // Return nullptr meaning no such storage infomation for this column
-vectorized::DataTypePtr Segment::get_data_type_of(const Field& field, bool ignore_children) const {
+vectorized::DataTypePtr Segment::get_data_type_of(vectorized::PathInData path, bool is_nullable,
+                                                  bool ignore_children) const {
     // Path has higher priority
-    if (!field.path().empty()) {
-        auto node = _sub_column_tree.find_leaf(field.path());
+    if (!path.empty()) {
+        auto node = _sub_column_tree.find_leaf(path);
         if (node) {
             if (ignore_children || node->children.empty()) {
                 return node->data.file_column_type;
             }
         }
         // it contains children or column missing in storage, so treat it as variant
-        return field.is_nullable()
+        return is_nullable
                        ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeObject>())
                        : std::make_shared<vectorized::DataTypeObject>();
     }
@@ -445,7 +449,8 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         // Alter table operation should read the whole variant column, since it does not aware of
         // subcolumns of variant during processing rewriting rowsets.
         // This is slow, since it needs to read all sub columns and merge them into a single column
-        RETURN_IF_ERROR(HierarchicalDataReader::create(iter, node, root, output_as_raw_json));
+        RETURN_IF_ERROR(HierarchicalDataReader::create(iter, tablet_column.path_info(), node, root,
+                                                       output_as_raw_json));
         return Status::OK();
     }
 
@@ -475,7 +480,8 @@ Status Segment::new_column_iterator_with_path(const TabletColumn& tablet_column,
         iter->reset(it);
     } else if (node != nullptr && !node->children.empty()) {
         // Create reader with hirachical data
-        RETURN_IF_ERROR(HierarchicalDataReader::create(iter, node, root));
+        RETURN_IF_ERROR(
+                HierarchicalDataReader::create(iter, tablet_column.path_info(), node, root));
     } else {
         // If file only exist column `v.a` and `v` but target path is `v.b`, read only read and parse root column
         if (root == nullptr) {
@@ -518,6 +524,16 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column,
     ColumnIterator* it;
     RETURN_IF_ERROR(_column_readers.at(tablet_column.unique_id())->new_iterator(&it));
     iter->reset(it);
+
+    if (config::enable_column_type_check &&
+        tablet_column.type() != _column_readers.at(tablet_column.unique_id())->get_meta_type()) {
+        LOG(WARNING) << "different type between schema and column reader,"
+                     << " column schema name: " << tablet_column.name()
+                     << " column schema type: " << int(tablet_column.type())
+                     << " column reader meta type"
+                     << int(_column_readers.at(tablet_column.unique_id())->get_meta_type());
+        return Status::InternalError("different type between schema and column reader");
+    }
     return Status::OK();
 }
 
@@ -684,7 +700,8 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
 
 bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
                                      bool ignore_children) const {
-    auto file_column_type = get_data_type_of(*schema.column(cid), ignore_children);
+    auto file_column_type = get_data_type_of(schema.column(cid)->path(),
+                                             schema.column(cid)->is_nullable(), ignore_children);
     auto expected_type = Schema::get_data_type_ptr(*schema.column(cid));
 #ifndef NDEBUG
     if (file_column_type && !file_column_type->equals(*expected_type)) {
@@ -696,6 +713,59 @@ bool Segment::same_with_storage_type(int32_t cid, const Schema& schema,
     bool same =
             (!file_column_type) || (file_column_type && file_column_type->equals(*expected_type));
     return same;
+}
+
+Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
+                                       uint32_t row_id, vectorized::MutableColumnPtr& result,
+                                       OlapReaderStatistics& stats,
+                                       std::unique_ptr<ColumnIterator>& iterator_hint) {
+    StorageReadOptions storage_read_opt;
+    storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+    segment_v2::ColumnIteratorOptions opt {
+            .use_page_cache = !config::disable_storage_page_cache,
+            .file_reader = file_reader().get(),
+            .stats = &stats,
+            .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY},
+    };
+    std::vector<segment_v2::rowid_t> single_row_loc {row_id};
+    if (!slot->column_paths().empty()) {
+        vectorized::PathInData path(schema.column_by_uid(slot->col_unique_id()).name_lower_case(),
+                                    slot->column_paths());
+        auto storage_type = get_data_type_of(path, slot->is_nullable(), false);
+        vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
+        DCHECK(storage_type != nullptr);
+        TabletColumn column = TabletColumn::create_materialized_variant_column(
+                schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
+                slot->col_unique_id());
+        if (iterator_hint == nullptr) {
+            RETURN_IF_ERROR(new_column_iterator(column, &iterator_hint, &storage_read_opt));
+            RETURN_IF_ERROR(iterator_hint->init(opt));
+        }
+        RETURN_IF_ERROR(
+                iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
+        // iterator_hint.reset(nullptr);
+        // Get it's inner field, for JSONB case
+        vectorized::Field field = remove_nullable(storage_type)->get_default();
+        file_storage_column->get(0, field);
+        result->insert(field);
+    } else {
+        int index = (slot->col_unique_id() >= 0) ? schema.field_index(slot->col_unique_id())
+                                                 : schema.field_index(slot->col_name());
+        if (index < 0) {
+            std::stringstream ss;
+            ss << "field name is invalid. field=" << slot->col_name()
+               << ", field_name_to_index=" << schema.get_all_field_names();
+            return Status::InternalError(ss.str());
+        }
+        storage_read_opt.io_ctx.reader_type = ReaderType::READER_QUERY;
+        if (iterator_hint == nullptr) {
+            RETURN_IF_ERROR(
+                    new_column_iterator(schema.column(index), &iterator_hint, &storage_read_opt));
+            RETURN_IF_ERROR(iterator_hint->init(opt));
+        }
+        RETURN_IF_ERROR(iterator_hint->read_by_rowids(single_row_loc.data(), 1, result));
+    }
+    return Status::OK();
 }
 
 } // namespace segment_v2

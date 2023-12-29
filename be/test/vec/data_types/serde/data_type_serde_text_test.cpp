@@ -564,9 +564,9 @@ TEST(TextSerde, ComplexTypeSerdeTextTest) {
                          "{\"hello "
                          "world\":0.2222222,\"hello2\":null,null:1111.1,\"null\":null,\"null\":"
                          "null,\"null\":0.1}"},
-                        {"{\" ,.amory\":111.2343, \"\"\"\":112, \"dggs\":13.14, "
+                        {"{\" ,.amory\":111.2343, \"\":112, \"dggs\":13.14, "
                          "null:12.2222222, \"\":null}",
-                         "{\"\"\"\":null, null:12.44}", "{}", "{}", "\\N", "{}", "\\N",
+                         "{\"\":null, null:12.44}", "{}", "{}", "\\N", "{}", "\\N",
                          "{null:null, \"null\":null}",
                          "{\"hello world\":0.2222222, \"hello2\":null, null:1111.1, "
                          "\"null\":null, \"null\":null, "

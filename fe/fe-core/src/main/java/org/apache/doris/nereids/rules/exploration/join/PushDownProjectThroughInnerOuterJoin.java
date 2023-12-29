@@ -136,8 +136,8 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
             return null;
         }
         // we could not push nullable side project
-        if ((join.getJoinType().isLeftOuterJoin() && rightContains)
-                || (join.getJoinType().isRightOuterJoin() && leftContains)) {
+        if (((join.getJoinType().isLeftOuterJoin() || join.getJoinType().isFullOuterJoin()) && rightContains)
+                || ((join.getJoinType().isRightOuterJoin() || join.getJoinType().isFullOuterJoin()) && leftContains)) {
             return null;
         }
 

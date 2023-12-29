@@ -66,7 +66,7 @@ public:
     HierarchicalDataReader(const vectorized::PathInData& path, bool output_as_raw_json = false)
             : _path(path), _output_as_raw_json(output_as_raw_json) {}
 
-    static Status create(std::unique_ptr<ColumnIterator>* reader,
+    static Status create(std::unique_ptr<ColumnIterator>* reader, vectorized::PathInData path,
                          const SubcolumnColumnReaders::Node* target_node,
                          const SubcolumnColumnReaders::Node* root, bool output_as_raw_json = false);
 
@@ -143,8 +143,9 @@ private:
 
         RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
             vectorized::MutableColumnPtr column = node.data.column->get_ptr();
-            bool add = container_variant.add_sub_column(node.path.pop_front(), std::move(column),
-                                                        node.data.type);
+            bool add = container_variant.add_sub_column(
+                    node.path.copy_pop_nfront(_path.get_parts().size()), std::move(column),
+                    node.data.type);
             if (!add) {
                 return Status::InternalError("Duplicated {}, type {}", node.path.get_path(),
                                              node.data.type->get_name());
@@ -228,7 +229,7 @@ public:
 private:
     Status extract_to(vectorized::MutableColumnPtr& dst, size_t nrows);
 
-    const TabletColumn& _col;
+    TabletColumn _col;
     // may shared among different column iterators
     std::unique_ptr<StreamReader> _root_reader;
 };

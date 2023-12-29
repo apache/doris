@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ArrayType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.thrift.TExprNode;
@@ -52,6 +51,9 @@ public class ArrayLiteral extends LiteralExpr {
         Type itemType = Type.NULL;
         boolean containsNull = true;
         for (LiteralExpr expr : exprs) {
+            if (!ArrayType.ARRAY.supportSubType(expr.getType())) {
+                throw new AnalysisException("Invalid item type in Array, not support " + expr.getType());
+            }
             if (itemType == Type.NULL) {
                 itemType = expr.getType();
             } else {
@@ -134,14 +136,14 @@ public class ArrayLiteral extends LiteralExpr {
     public String getStringValueInFe() {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> {
-            // we should use type to decide we output array is suitable for json format
-            if (!(v instanceof NullLiteral) && v.getType().isScalarType()
-                    && (Type.getNumericTypes().contains((ScalarType) v.getActualScalarType(v.getType()))
-                    || v.getType() == Type.BOOLEAN)) {
-                list.add(v.getStringValueInFe());
+            String stringLiteral;
+            if (v instanceof NullLiteral) {
+                stringLiteral = "null";
             } else {
-                list.add(v.getStringValueForArray());
+                stringLiteral = getStringLiteralForComplexType(v);
             }
+            // we should use type to decide we output array is suitable for json format
+            list.add(stringLiteral);
         });
         return "[" + StringUtils.join(list, ", ") + "]";
     }

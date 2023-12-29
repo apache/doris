@@ -141,6 +141,7 @@ public class TableStatsMeta implements Writable {
                 colStatsMeta.updatedTime = updatedTime;
                 colStatsMeta.analysisType = analyzedJob.analysisType;
                 colStatsMeta.analysisMethod = analyzedJob.analysisMethod;
+                colStatsMeta.jobType = analyzedJob.jobType;
             }
         }
         jobType = analyzedJob.jobType;
@@ -148,7 +149,7 @@ public class TableStatsMeta implements Writable {
             if (tableIf instanceof OlapTable) {
                 rowCount = tableIf.getRowCount();
             }
-            if (analyzedJob.colToPartitions.keySet()
+            if (!analyzedJob.emptyJob && analyzedJob.colToPartitions.keySet()
                     .containsAll(tableIf.getBaseSchema().stream()
                             .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                             .map(Column::getName).collect(Collectors.toSet()))) {

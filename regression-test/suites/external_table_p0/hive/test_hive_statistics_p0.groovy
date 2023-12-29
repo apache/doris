@@ -188,7 +188,33 @@ suite("test_hive_statistics_p0", "all_types,p0,external,hive,external_docker,ext
             assertEquals("FUNDAMENTALS" , result[0][9])
             assertEquals("MANUAL" , result[0][10])
             assertEquals("0" , result[0][11])
+
+
+            sql """analyze table stats_test3 with sync"""
+            result = sql """show column stats stats_test3(id);"""
+            assertEquals(1, result.size())
+            assertEquals("id", result[0][0])
+            assertEquals("0.0", result[0][1])
+            assertEquals("0.0", result[0][2])
+            assertEquals("0.0", result[0][3])
+            assertEquals("0.0", result[0][4])
+            assertEquals("0.0", result[0][5])
+            assertEquals("N/A", result[0][6])
+            assertEquals("N/A", result[0][7])
+
+            result = sql """show column stats stats_test3(value);"""
+            assertEquals(1, result.size())
+            assertEquals("value", result[0][0])
+            assertEquals("0.0", result[0][1])
+            assertEquals("0.0", result[0][2])
+            assertEquals("0.0", result[0][3])
+            assertEquals("0.0", result[0][4])
+            assertEquals("0.0", result[0][5])
+            assertEquals("N/A", result[0][6])
+            assertEquals("N/A", result[0][7])
+
             sql """drop catalog if exists ${catalog_name}"""
+
         } finally {
         }
     }

@@ -13,7 +13,7 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 --------------------PhysicalOlapScan[web_sales] apply RFs: RF0
 ----------------PhysicalDistribute
 ------------------PhysicalProject
---------------------PhysicalOlapScan[catalog_sales]
+--------------------PhysicalOlapScan[catalog_sales] apply RFs: RF0
 --------------PhysicalDistribute
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[date_dim]

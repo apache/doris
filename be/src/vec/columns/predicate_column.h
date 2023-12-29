@@ -146,6 +146,7 @@ public:
 
     [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void insert_string_value(const char* data_ptr, size_t length) {
@@ -340,6 +341,7 @@ public:
 
     [[noreturn]] Field operator[](size_t n) const override {
         LOG(FATAL) << "operator[] not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void get(size_t n, Field& res) const override {
@@ -348,22 +350,27 @@ public:
 
     [[noreturn]] UInt64 get64(size_t n) const override {
         LOG(FATAL) << "get field not supported in PredicateColumnTyped";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Float64 get_float64(size_t n) const override {
         LOG(FATAL) << "get field not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] UInt64 get_uint(size_t n) const override {
         LOG(FATAL) << "get field not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] bool get_bool(size_t n) const override {
         LOG(FATAL) << "get field not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] Int64 get_int(size_t n) const override {
         LOG(FATAL) << "get field not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void replicate(const uint32_t* indexs, size_t target_size, IColumn& column) const override {
@@ -374,15 +381,18 @@ public:
     [[noreturn]] StringRef serialize_value_into_arena(size_t n, Arena& arena,
                                                       char const*& begin) const override {
         LOG(FATAL) << "serialize_value_into_arena not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] const char* deserialize_and_insert_from_arena(const char* pos) override {
         LOG(FATAL) << "deserialize_and_insert_from_arena not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     bool is_fixed_and_contiguous() const override { return true; }
@@ -390,23 +400,28 @@ public:
 
     [[noreturn]] StringRef get_raw_data() const override {
         LOG(FATAL) << "get_raw_data not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] bool structure_equals(const IColumn& rhs) const override {
         LOG(FATAL) << "structure_equals not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] size_t filter(const IColumn::Filter&) override {
         LOG(FATAL) << "filter not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     Container& get_data() { return data; }
@@ -415,11 +430,13 @@ public:
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         LOG(FATAL) << "replicate not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
         LOG(FATAL) << "scatter not supported in PredicateColumnType";
+        __builtin_unreachable();
     }
 
     void append_data_by_selector(MutableColumnPtr& res,

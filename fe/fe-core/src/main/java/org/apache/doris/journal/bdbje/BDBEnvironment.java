@@ -40,6 +40,7 @@ import com.sleepycat.je.rep.NetworkRestore;
 import com.sleepycat.je.rep.NetworkRestoreConfig;
 import com.sleepycat.je.rep.NoConsistencyRequiredPolicy;
 import com.sleepycat.je.rep.NodeType;
+import com.sleepycat.je.rep.RepInternal;
 import com.sleepycat.je.rep.ReplicatedEnvironment;
 import com.sleepycat.je.rep.ReplicationConfig;
 import com.sleepycat.je.rep.RollbackException;
@@ -458,6 +459,25 @@ public class BDBEnvironment {
         }
         // default value is SIMPLE_MAJORITY
         return Durability.ReplicaAckPolicy.SIMPLE_MAJORITY;
+    }
+
+    public String getNotReadyReason() {
+        if (replicatedEnvironment == null) {
+            LOG.warn("replicatedEnvironment is null");
+            return "replicatedEnvironment is null";
+        }
+        try {
+            if (replicatedEnvironment.getInvalidatingException() != null) {
+                return replicatedEnvironment.getInvalidatingException().getMessage();
+            }
+
+            if (RepInternal.getNonNullRepImpl(replicatedEnvironment).getDiskLimitViolation() != null) {
+                return RepInternal.getNonNullRepImpl(replicatedEnvironment).getDiskLimitViolation();
+            }
+        } catch (Exception e) {
+            LOG.warn("getNotReadyReason exception:", e);
+        }
+        return "";
     }
 
 }

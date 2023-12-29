@@ -67,8 +67,12 @@ public:
     virtual Status open(RuntimeState* state) { return Status::OK(); }
 
     Status get_block(RuntimeState* state, Block* block, bool* eos);
+    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
+
+    // Try to stop scanner, and all running readers.
+    virtual void try_stop() { _should_stop = true; };
 
     virtual std::string get_name() { return ""; }
 
@@ -85,6 +89,8 @@ protected:
 
     // Filter the output block finally.
     Status _filter_output_block(Block* block);
+
+    Status _do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
 
     // Not virtual, all child will call this method explictly
     Status prepare(RuntimeState* state, const VExprContextSPtrs& conjuncts);
@@ -169,6 +175,7 @@ protected:
     RuntimeProfile* _profile = nullptr;
 
     const TupleDescriptor* _output_tuple_desc = nullptr;
+    const RowDescriptor* _output_row_descriptor = nullptr;
 
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.
@@ -186,6 +193,8 @@ protected:
     // Cloned from _conjuncts of scan node.
     // It includes predicate in SQL and runtime filters.
     VExprContextSPtrs _conjuncts;
+    VExprContextSPtrs _projections;
+    vectorized::Block _origin_block;
 
     VExprContextSPtrs _common_expr_ctxs_push_down;
     // Late arriving runtime filters will update _conjuncts.
@@ -219,8 +228,11 @@ protected:
 
     ScannerCounter _counter;
     int64_t _per_scanner_timer = 0;
+
+    bool _should_stop = false;
 };
 
 using VScannerSPtr = std::shared_ptr<VScanner>;
+using VScannerWPtr = std::weak_ptr<VScanner>;
 
 } // namespace doris::vectorized

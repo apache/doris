@@ -71,7 +71,7 @@ class PushDownLimitTest extends TestWithFeService implements MemoPatternMatchSup
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
 
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
 
         createTable("CREATE TABLE `t1` (\n"
                 + "  `k1` int(11) NULL,\n"

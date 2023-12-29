@@ -23,9 +23,9 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.analyzer.Scope;
-import org.apache.doris.nereids.analyzer.UnboundOlapTableSink;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
@@ -67,8 +67,8 @@ import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.util.Lists;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -211,11 +211,19 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public Analyzer newAnalyzer() {
-        return new Analyzer(this);
+        return newAnalyzer(false);
+    }
+
+    public Analyzer newAnalyzer(boolean analyzeView) {
+        return new Analyzer(this, analyzeView);
+    }
+
+    public Analyzer newAnalyzer(boolean analyzeView, Optional<CustomTableResolver> customTableResolver) {
+        return new Analyzer(this, analyzeView, customTableResolver);
     }
 
     public Analyzer newAnalyzer(Optional<CustomTableResolver> customTableResolver) {
-        return new Analyzer(this, customTableResolver);
+        return newAnalyzer(false, customTableResolver);
     }
 
     @Override
@@ -318,7 +326,9 @@ public class CascadesContext implements ScheduleContext {
     }
 
     public List<MaterializationContext> getMaterializationContexts() {
-        return materializationContexts;
+        return materializationContexts.stream()
+                .filter(MaterializationContext::isAvailable)
+                .collect(Collectors.toList());
     }
 
     public void addMaterializationContext(MaterializationContext materializationContext) {
@@ -403,12 +413,12 @@ public class CascadesContext implements ScheduleContext {
                 tableNames.addAll(extractTableNamesFromOneRowRelation((UnboundOneRowRelation) p));
             } else {
                 Set<LogicalPlan> logicalPlans = p.collect(
-                        n -> (n instanceof UnboundRelation || n instanceof UnboundOlapTableSink));
+                        n -> (n instanceof UnboundRelation || n instanceof UnboundTableSink));
                 for (LogicalPlan plan : logicalPlans) {
                     if (plan instanceof UnboundRelation) {
                         tableNames.add(((UnboundRelation) plan).getNameParts());
-                    } else if (plan instanceof UnboundOlapTableSink) {
-                        tableNames.add(((UnboundOlapTableSink<?>) plan).getNameParts());
+                    } else if (plan instanceof UnboundTableSink) {
+                        tableNames.add(((UnboundTableSink<?>) plan).getNameParts());
                     } else {
                         throw new AnalysisException("get tables from plan failed. meet unknown type node " + plan);
                     }
@@ -485,9 +495,6 @@ public class CascadesContext implements ScheduleContext {
             case 2: { // db.table
                 String ctlName = getConnectContext().getEnv().getCurrentCatalog().getName();
                 String dbName = nameParts.get(0);
-                if (!dbName.equals(getConnectContext().getDatabase())) {
-                    dbName = getConnectContext().getClusterName() + ":" + dbName;
-                }
                 return getTable(ctlName, dbName, nameParts.get(1), getConnectContext().getEnv());
             }
             case 3: { // catalog.db.table

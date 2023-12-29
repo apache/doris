@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
@@ -37,17 +38,20 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mtmv.MTMVUtil;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -68,7 +72,7 @@ public class PartitionsProcDir implements ProcDirInterface {
             .add("State").add("PartitionKey").add("Range").add("DistributionKey")
             .add("Buckets").add("ReplicationNum").add("StorageMedium").add("CooldownTime").add("RemoteStoragePolicy")
             .add("LastConsistencyCheckTime").add("DataSize").add("IsInMemory").add("ReplicaAllocation")
-            .add("IsMutable")
+            .add("IsMutable").add("SyncWithBaseTables").add("UnsyncTables")
             .build();
 
     private Database db;
@@ -81,7 +85,8 @@ public class PartitionsProcDir implements ProcDirInterface {
         this.isTempPartition = isTempPartition;
     }
 
-    public boolean filter(String columnName, Comparable element, Map<String, Expr> filterMap) throws AnalysisException {
+    public static boolean filter(String columnName, Comparable element, Map<String, Expr> filterMap)
+            throws AnalysisException {
         if (filterMap == null) {
             return true;
         }
@@ -142,7 +147,7 @@ public class PartitionsProcDir implements ProcDirInterface {
         return true;
     }
 
-    public boolean like(String str, String expr) {
+    public static boolean like(String str, String expr) {
         expr = expr.toLowerCase();
         expr = expr.replace(".", "\\.");
         expr = expr.replace("?", ".");
@@ -302,6 +307,20 @@ public class PartitionsProcDir implements ProcDirInterface {
                 partitionInfo.add(tblPartitionInfo.getReplicaAllocation(partitionId).toCreateStmt());
 
                 partitionInfo.add(tblPartitionInfo.getIsMutable(partitionId));
+                if (olapTable instanceof MTMV) {
+                    try {
+                        List<String> partitionUnSyncTables = MTMVUtil
+                                .getPartitionUnSyncTables((MTMV) olapTable, partitionId);
+                        partitionInfo.add(CollectionUtils.isEmpty(partitionUnSyncTables));
+                        partitionInfo.add(partitionUnSyncTables.toString());
+                    } catch (AnalysisException e) {
+                        partitionInfo.add(false);
+                        partitionInfo.add(e.getMessage());
+                    }
+                } else {
+                    partitionInfo.add(true);
+                    partitionInfo.add(FeConstants.null_string);
+                }
 
                 partitionInfos.add(partitionInfo);
             }

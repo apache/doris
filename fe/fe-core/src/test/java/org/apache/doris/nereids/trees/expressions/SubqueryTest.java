@@ -25,7 +25,7 @@ public class SubqueryTest extends AnalyzeCheckTestBase {
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         String t0 = "create table t0("
                 + "id int, \n"
                 + "k1 int, \n"

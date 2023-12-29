@@ -162,6 +162,8 @@ struct TQueryIngestBinlogResult {
 
 enum TTopicInfoType {
     WORKLOAD_GROUP
+    MOVE_QUERY_TO_GROUP
+    WORKLOAD_SCHED_POLICY
 }
 
 struct TWorkloadGroupInfo {
@@ -175,8 +177,55 @@ struct TWorkloadGroupInfo {
   8: optional bool enable_cpu_hard_limit
 }
 
+struct TWorkloadMoveQueryToGroupAction {
+    1: optional Types.TUniqueId query_id
+    2: optional i64 workload_group_id
+}
+
+enum TWorkloadMetricType {
+    QUERY_TIME
+    SCAN_ROWS
+    SCAN_BYTES
+}
+
+enum TCompareOperator {
+    EQUAL
+    GREATER
+    GREATER_EQUAL
+    LESS
+    LESS_EQUAL
+}
+
+struct TWorkloadCondition {
+    1: optional TWorkloadMetricType metric_name
+    2: optional TCompareOperator op
+    3: optional string value
+}
+
+enum TWorkloadActionType {
+    MOVE_QUERY_TO_GROUP
+    CANCEL_QUERY
+}
+
+struct TWorkloadAction {
+    1: optional TWorkloadActionType action
+    2: optional string action_args
+}
+
+struct TWorkloadSchedPolicy {
+    1: optional i64 id
+    2: optional string name
+    3: optional i32 version
+    4: optional i32 priority
+    5: optional bool enabled
+    6: optional list<TWorkloadCondition> condition_list
+    7: optional list<TWorkloadAction> action_list
+}
+
 struct TopicInfo {
     1: optional TWorkloadGroupInfo workload_group_info
+    2: optional TWorkloadMoveQueryToGroupAction move_action
+    3: optional TWorkloadSchedPolicy workload_sched_policy
 }
 
 struct TPublishTopicRequest {

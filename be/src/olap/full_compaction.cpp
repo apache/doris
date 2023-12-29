@@ -51,28 +51,18 @@ Status FullCompaction::prepare_compact() {
         return Status::Error<INVALID_ARGUMENT, false>("Full compaction init failed");
     }
 
-    std::unique_lock full_lock(_tablet->get_full_compaction_lock());
     std::unique_lock base_lock(_tablet->get_base_compaction_lock());
     std::unique_lock cumu_lock(_tablet->get_cumulative_compaction_lock());
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-    _tablet->set_clone_occurred(false);
 
     return Status::OK();
 }
 
 Status FullCompaction::execute_compact_impl() {
-    std::unique_lock full_lock(_tablet->get_full_compaction_lock());
     std::unique_lock base_lock(_tablet->get_base_compaction_lock());
     std::unique_lock cumu_lock(_tablet->get_cumulative_compaction_lock());
-
-    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
-    // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED, false>("get_clone_occurred failed");
-    }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
 
@@ -117,8 +107,12 @@ Status FullCompaction::modify_rowsets(const Merger::Statistics* stats) {
                 _full_compaction_update_delete_bitmap(_output_rowset, _output_rs_writer.get()));
     }
     std::vector<RowsetSharedPtr> output_rowsets(1, _output_rowset);
-    RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
-    _tablet->save_meta();
+    {
+        std::lock_guard<std::mutex> rowset_update_wlock(_tablet->get_rowset_update_lock());
+        std::lock_guard<std::shared_mutex> meta_wlock(_tablet->get_header_lock());
+        RETURN_IF_ERROR(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
+        _tablet->save_meta();
+    }
     return Status::OK();
 }
 

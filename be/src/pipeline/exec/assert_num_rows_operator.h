@@ -57,6 +57,10 @@ public:
 
     [[nodiscard]] bool is_source() const override { return false; }
 
+    DataDistribution required_data_distribution() const override {
+        return {ExchangeType::PASSTHROUGH};
+    }
+
 private:
     friend class AssertNumRowsLocalState;
 

@@ -48,8 +48,6 @@ template <typename T>
 class ColumnDecimal;
 template <typename T>
 class ColumnVector;
-template <typename T>
-struct Decimal;
 } // namespace vectorized
 } // namespace doris
 

@@ -43,6 +43,7 @@ import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.external.FederationBackendPolicy;
+import org.apache.doris.planner.external.FileScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.spi.Split;
 import org.apache.doris.statistics.StatisticalType;
@@ -711,7 +712,19 @@ public abstract class ScanNode extends PlanNode {
     // 1. is key search
     // 2. session variable not enable_shared_scan
     public boolean shouldDisableSharedScan(ConnectContext context) {
-        return isKeySearch() || !context.getSessionVariable().getEnableSharedScan();
+        return isKeySearch() || context == null
+                || !context.getSessionVariable().getEnableSharedScan()
+                || !context.getSessionVariable().getEnablePipelineEngine()
+                || context.getSessionVariable().getEnablePipelineXEngine()
+                || this instanceof FileScanNode
+                || getShouldColoScan();
+    }
+
+    public boolean ignoreStorageDataDistribution(ConnectContext context) {
+        return !isKeySearch() && context != null
+                && context.getSessionVariable().isIgnoreStorageDataDistribution()
+                && context.getSessionVariable().getEnablePipelineXEngine()
+                && !fragment.isHasNullAwareLeftAntiJoin();
     }
 
     public boolean haveLimitAndConjunts() {

@@ -38,5 +38,8 @@ public class AvroProperties {
     protected static final String FS_S3A_SECRET_KEY = "fs.s3a.secret.key";
     protected static final String FS_S3A_ENDPOINT = "fs.s3a.endpoint";
     protected static final String FS_S3A_REGION = "fs.s3a.region";
+    protected static final String SPLIT_START_OFFSET = "split_start_offset";
+    protected static final String SPLIT_SIZE = "split_size";
+    protected static final String SPLIT_FILE_SIZE = "split_file_size";
 
 }

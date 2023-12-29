@@ -372,13 +372,15 @@ suite("test_datetimev1_common", "nonConcurrent") {
         """)
     }
 
+    sql """set delete_without_partition=true; """
+    sql "sync"
     run_delete_test(table_dup, "`date_value1` < '2013-01-05 00:00:00'")
     run_delete_test(table_uniq, "`date_value1` > '2012-06-02'")
     run_delete_test(table_agg, "`date_key1` = '2013-01-05'")
     run_delete_test(table_agg, "`date_key1` = '2010-01-05 17:58:59'")
     run_delete_test(table_dist, "`date_value1` ='2012-06-02'")
     run_delete_test(table_part, "`date_value1` > '2012-06-02'")
-
+    sql """set delete_without_partition=false; """
     sql """
         admin set frontend config("enable_date_conversion" = "true");
     """

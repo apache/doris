@@ -366,6 +366,12 @@ UNIQUE KEY(k1, k2)
 
     `"function_column.sequence_type" = 'Date'`
 
+* `enable_unique_key_merge_on_write`
+
+    <version since="1.2" type="inline"> unique表是否使用merge on write实现。</version>
+
+    该属性在 2.1 版本之前默认关闭，从 2.1 版本开始默认开启。
+
 * `light_schema_change`
 
     <version since="1.2" type="inline"> 是否使用light schema change优化。</version>

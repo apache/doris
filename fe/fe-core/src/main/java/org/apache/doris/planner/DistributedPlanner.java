@@ -125,7 +125,7 @@ public class DistributedPlanner {
         boolean needRepartition = false;
         boolean needMerge = false;
         if (isFragmentPartitioned(inputFragment)) {
-            if (targetTable.isPartitioned()) {
+            if (targetTable.isPartitionDistributed()) {
                 if (stmt.getDataPartition().getType() == TPartitionType.RANDOM) {
                     return inputFragment;
                 }
@@ -138,7 +138,7 @@ public class DistributedPlanner {
                 needMerge = true;
             }
         } else {
-            if (targetTable.isPartitioned()) {
+            if (targetTable.isPartitionDistributed()) {
                 if (isRepart != null && isRepart) {
                     needRepartition = true;
                 } else {
@@ -1308,6 +1308,7 @@ public class DistributedPlanner {
             exchNode.setLimit(limit);
         }
         exchNode.setMergeInfo(node.getSortInfo());
+        node.setMergeByExchange();
         exchNode.setOffset(offset);
 
         // Child nodes should not process the offset. If there is a limit,

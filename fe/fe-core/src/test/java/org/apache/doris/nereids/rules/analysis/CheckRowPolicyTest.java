@@ -43,7 +43,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.util.PlanRewriter;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -58,7 +57,7 @@ import java.util.List;
 public class CheckRowPolicyTest extends TestWithFeService {
 
     private static String dbName = "check_row_policy";
-    private static String fullDbName = "default_cluster:" + dbName;
+    private static String fullDbName = "" + dbName;
     private static String tableName = "table1";
     private static String userName = "user1";
     private static String policyName = "policy1";
@@ -93,7 +92,7 @@ public class CheckRowPolicyTest extends TestWithFeService {
         Env.getCurrentEnv().getAuth().createUser(createUserStmt);
         List<AccessPrivilegeWithCols> privileges = Lists.newArrayList(new AccessPrivilegeWithCols(AccessPrivilege.ADMIN_PRIV));
         TablePattern tablePattern = new TablePattern("*", "*", "*");
-        tablePattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
+        tablePattern.analyze();
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
         Analyzer analyzer = new Analyzer(connectContext.getEnv(), connectContext);
         grantStmt.analyze(analyzer);

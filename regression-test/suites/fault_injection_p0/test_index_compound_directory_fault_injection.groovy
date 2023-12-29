@@ -116,7 +116,29 @@ suite("test_index_compound_directory_failure_injection", "nonConcurrent") {
         } finally {
             GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._set_writer_close_status_error")
         }
-        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"    
+        qt_sql "select COUNT() from ${testTable_dup} where request match 'images'"
+        try {
+            def test_index_compound_directory = "test_index_compound_directory1"
+            sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
+            create_httplogs_dup_table.call(test_index_compound_directory)
+            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
+            load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
+            qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'images'"
+            try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._mock_append_data_error_in_fsindexoutput_flushBuffer")
+        }
+        try {
+            def test_index_compound_directory = "test_index_compound_directory2"
+            sql "DROP TABLE IF EXISTS ${test_index_compound_directory}"
+            create_httplogs_dup_table.call(test_index_compound_directory)
+            GetDebugPoint().enableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+            load_httplogs_data.call(test_index_compound_directory, test_index_compound_directory, 'true', 'json', 'documents-1000.json')
+            qt_sql "select COUNT() from ${test_index_compound_directory} where request match 'images'"
+            try_sql("DROP TABLE IF EXISTS ${test_index_compound_directory}")
+        } finally {
+            GetDebugPoint().disableDebugPointForAllBEs("DorisCompoundDirectory::FSIndexOutput._status_error_in_fsindexoutput_flushBuffer")
+        }
     } finally {
         //try_sql("DROP TABLE IF EXISTS ${testTable}")
     }

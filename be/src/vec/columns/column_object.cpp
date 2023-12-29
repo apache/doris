@@ -65,6 +65,12 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/get_least_supertype.h"
 
+#ifdef __AVX2__
+#include "util/jsonb_parser_simd.h"
+#else
+#include "util/jsonb_parser.h"
+#endif
+
 namespace doris::vectorized {
 namespace {
 
@@ -639,11 +645,12 @@ void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
 }
 
 void ColumnObject::insert_from(const IColumn& src, size_t n) {
-    const auto& src_v = assert_cast<const ColumnObject&>(src);
+    const auto* src_v = check_and_get_column<ColumnObject>(src);
     // optimize when src and this column are scalar variant, since try_insert is inefficiency
-    if (src_v.is_scalar_variant() && is_scalar_variant() &&
-        src_v.get_root_type()->equals(*get_root_type()) && src_v.is_finalized() && is_finalized()) {
-        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v.get_root(), n);
+    if (src_v != nullptr && src_v->is_scalar_variant() && is_scalar_variant() &&
+        src_v->get_root_type()->equals(*get_root_type()) && src_v->is_finalized() &&
+        is_finalized()) {
+        assert_cast<ColumnNullable&>(*get_root()).insert_from(*src_v->get_root(), n);
         ++num_rows;
         return;
     }
@@ -1155,8 +1162,14 @@ void ColumnObject::merge_sparse_to_root_column() {
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         root.Accept(writer);
         bool res = parser.parse(buffer.GetString(), buffer.GetSize());
-        CHECK(res) << "buffer:" << std::string(buffer.GetString(), buffer.GetSize())
-                   << ", row_num:" << i;
+        if (!res) {
+            throw Exception(ErrorCode::INVALID_ARGUMENT,
+                            "parse json failed, doc: {}"
+                            ", row_num:{}"
+                            ", error:{}",
+                            std::string(buffer.GetString(), buffer.GetSize()), i,
+                            JsonbErrMsg::getErrMsg(parser.getErrorCode()));
+        }
         result_column_ptr->insert_data(parser.getWriter().getOutput()->getBuffer(),
                                        parser.getWriter().getOutput()->getSize());
         result_column_nullable->get_null_map_data().push_back(0);
@@ -1430,8 +1443,18 @@ void ColumnObject::insert_indices_from(const IColumn& src, const uint32_t* indic
 }
 
 void ColumnObject::update_hash_with_value(size_t n, SipHash& hash) const {
-    for_each_imutable_subcolumn(
-            [&](const auto& subcolumn) { return subcolumn.update_hash_with_value(n, hash); });
+    if (!is_finalized()) {
+        // finalize has no side effect and can be safely used in const functions
+        const_cast<ColumnObject*>(this)->finalize();
+    }
+    for_each_imutable_subcolumn([&](const auto& subcolumn) {
+        if (n >= subcolumn.size()) {
+            LOG(FATAL) << n << " greater than column size " << subcolumn.size()
+                       << " sub_column_info:" << subcolumn.dump_structure()
+                       << " total lines of this column " << num_rows;
+        }
+        return subcolumn.update_hash_with_value(n, hash);
+    });
 }
 
 void ColumnObject::for_each_imutable_subcolumn(ImutableColumnCallback callback) const {

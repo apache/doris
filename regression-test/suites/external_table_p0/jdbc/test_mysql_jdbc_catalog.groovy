@@ -57,8 +57,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
         String ex_tb21 = "test_key_word";
         String test_insert = "test_insert";
         String test_insert2 = "test_insert2";
-        String test_insert_all_types = "test_insert_all_types";
-        String test_ctas = "test_ctas";
+        String test_insert_all_types = "test_mysql_insert_all_types";
+        String test_ctas = "test_mysql_ctas";
         String auto_default_t = "auto_default_t";
         String dt = "dt";
         String dt_null = "dt_null";
@@ -172,6 +172,8 @@ suite("test_mysql_jdbc_catalog", "p0,external,mysql,external_docker,external_doc
             order_qt_dt """select * from ${dt}; """
             order_qt_dt_null """select * from ${dt_null} order by 1; """
             order_qt_test_dz """select * from ${test_zd} order by 1; """
+            order_qt_test_filter_not """select * from ${ex_tb13} where name not like '%张三0%' order by 1; """
+            order_qt_test_filter_not_old_plan """select /*+ SET_VAR(enable_nereids_planner=false) */ * from ${ex_tb13} where name not like '%张三0%' order by 1; """
 
             // test insert
             String uuid1 = UUID.randomUUID().toString();

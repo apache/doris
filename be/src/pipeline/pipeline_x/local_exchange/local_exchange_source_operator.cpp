@@ -22,11 +22,11 @@
 namespace doris::pipeline {
 
 void LocalExchangeSourceDependency::block() {
-    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->running_sink_operators == 0) {
+    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->_running_sink_operators == 0) {
         return;
     }
     std::unique_lock<std::mutex> lc(((LocalExchangeSharedState*)_shared_state.get())->le_lock);
-    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->running_sink_operators == 0) {
+    if (((LocalExchangeSharedState*)_shared_state.get())->exchanger->_running_sink_operators == 0) {
         return;
     }
     Dependency::block();
@@ -37,16 +37,28 @@ Status LocalExchangeSourceLocalState::init(RuntimeState* state, LocalStateInfo& 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     _channel_id = info.task_idx;
-    _shared_state->set_dep_by_channel_id(_dependency, _channel_id);
+    _shared_state->set_dep_by_channel_id(info.dependency, _channel_id);
+    _shared_state->mem_trackers[_channel_id] = _mem_tracker.get();
     _exchanger = _shared_state->exchanger.get();
     DCHECK(_exchanger != nullptr);
     _get_block_failed_counter =
             ADD_COUNTER_WITH_LEVEL(profile(), "GetBlockFailedTime", TUnit::UNIT, 1);
-    if (_exchanger->get_type() == ExchangeType::SHUFFLE) {
+    if (_exchanger->get_type() == ExchangeType::HASH_SHUFFLE ||
+        _exchanger->get_type() == ExchangeType::BUCKET_HASH_SHUFFLE) {
         _copy_data_timer = ADD_TIMER(profile(), "CopyDataTime");
     }
 
     return Status::OK();
+}
+
+std::string LocalExchangeSourceLocalState::debug_string(int indentation_level) const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer,
+                   "{}, _channel_id: {}, _num_partitions: {}, _num_senders: {}, _num_sources: {}",
+                   Base::debug_string(indentation_level), _channel_id, _exchanger->_num_partitions,
+                   _exchanger->_num_senders, _exchanger->_num_sources,
+                   _exchanger->_running_sink_operators);
+    return fmt::to_string(debug_string_buffer);
 }
 
 Status LocalExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,

@@ -26,7 +26,6 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
@@ -279,7 +278,7 @@ public class LoadManager implements Writable {
     public void cancelLoadJob(CancelLoadStmt stmt) throws DdlException, AnalysisException {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(stmt.getDbName());
         // List of load jobs waiting to be cancelled
-        List<LoadJob> uncompletedLoadJob = Lists.newArrayList();
+        List<LoadJob> unfinishedLoadJob;
         readLock();
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(db.getId());
@@ -294,15 +293,15 @@ public class LoadManager implements Writable {
                 throw new DdlException("Load job does not exist");
             }
             // check state here
-            uncompletedLoadJob =
+            unfinishedLoadJob =
                     matchLoadJobs.stream().filter(entity -> !entity.isTxnDone()).collect(Collectors.toList());
-            if (uncompletedLoadJob.isEmpty()) {
+            if (unfinishedLoadJob.isEmpty()) {
                 throw new DdlException("There is no uncompleted job");
             }
         } finally {
             readUnlock();
         }
-        for (LoadJob loadJob : uncompletedLoadJob) {
+        for (LoadJob loadJob : unfinishedLoadJob) {
             try {
                 loadJob.cancelJob(new FailMsg(FailMsg.CancelType.USER_CANCEL, "user cancel"));
             } catch (DdlException e) {
@@ -421,6 +420,9 @@ public class LoadManager implements Writable {
                     list.remove(job);
                     if (job instanceof SparkLoadJob) {
                         ((SparkLoadJob) job).clearSparkLauncherLog();
+                    }
+                    if (job instanceof BulkLoadJob) {
+                        ((BulkLoadJob) job).recycleProgress();
                     }
                     if (list.isEmpty()) {
                         map.remove(job.getLabel());
@@ -621,7 +623,7 @@ public class LoadManager implements Writable {
      * Get load job info.
      **/
     public void getLoadJobInfo(Load.JobInfo info) throws DdlException {
-        String fullDbName = ClusterNamespace.getFullName(info.clusterName, info.dbName);
+        String fullDbName = info.dbName;
         info.dbName = fullDbName;
         Database database = checkDb(info.dbName);
         readLock();
@@ -746,6 +748,9 @@ public class LoadManager implements Writable {
                             if (!job.isCompleted()) {
                                 continue;
                             }
+                            if (job instanceof BulkLoadJob) {
+                                ((BulkLoadJob) job).recycleProgress();
+                            }
                             innerIter.remove();
                             idToLoadJob.remove(job.getId());
                             ++counter;
@@ -766,6 +771,9 @@ public class LoadManager implements Writable {
                         if (!job.isCompleted()) {
                             continue;
                         }
+                        if (job instanceof BulkLoadJob) {
+                            ((BulkLoadJob) job).recycleProgress();
+                        }
                         iter.remove();
                         idToLoadJob.remove(job.getId());
                         ++counter;
@@ -778,22 +786,16 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
-        LOG.info("clean {} labels on db {} with label '{}' in load mgr.", counter, dbId, label);
-
         // 2. Remove from DatabaseTransactionMgr
         try {
-            Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label);
+            Env.getCurrentGlobalTransactionMgr().cleanLabel(dbId, label, isReplay);
         } catch (AnalysisException e) {
             // just ignore, because we don't want to throw any exception here.
             LOG.warn("Exception:", e);
         }
 
-        // 3. Log
-        if (!isReplay) {
-            CleanLabelOperationLog log = new CleanLabelOperationLog(dbId, label);
-            Env.getCurrentEnv().getEditLog().logCleanLabel(log);
-        }
-        LOG.info("finished to clean label on db {} with label {}. is replay: {}", dbId, label, isReplay);
+        LOG.info("finished to clean {} labels on db {} with label '{}' in load mgr. is replay: {}",
+                counter, dbId, label, isReplay);
     }
 
     private void readLock() {

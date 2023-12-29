@@ -254,32 +254,22 @@ suite("test_delete") {
     sql "drop table if exists dwd_pay"
     sql """
     CREATE TABLE `dwd_pay` (
-  `tenant_id` int(11) DEFAULT NULL COMMENT '租户ID',
-  `pay_time` datetime DEFAULT NULL COMMENT '付款时间',
-)  ENGINE=OLAP
-DUPLICATE KEY(`tenant_id`)
-COMMENT "付款明细"
-PARTITION BY RANGE(`pay_time` ) (
-PARTITION p202012 VALUES LESS THAN ('2021-01-01 00:00:00')
-)
-DISTRIBUTED BY HASH(`tenant_id`) BUCKETS auto
-PROPERTIES
-(
-    "dynamic_partition.enable" = "true",
-    "dynamic_partition.time_unit" = "MONTH",
-    "dynamic_partition.end" = "2",
-    "dynamic_partition.prefix" = "p",
-    "dynamic_partition.start_day_of_month" = "1",
-    "dynamic_partition.create_history_partition" = "true",
-    "dynamic_partition.history_partition_num" = "120",
-    "dynamic_partition.buckets"="1",
-    "estimate_partition_size" = "1G",
-    "storage_type" = "COLUMN",
-    "replication_num" = "1"
-);
+    `tenant_id` int(11) DEFAULT NULL COMMENT '租户ID',
+    `pay_time` datetime DEFAULT NULL COMMENT '付款时间'
+    )  ENGINE=OLAP
+    DUPLICATE KEY(`tenant_id`)
+    COMMENT "付款明细"
+    PARTITION BY RANGE(`pay_time` ) (
+    PARTITION p202012 VALUES LESS THAN ('2021-01-01 00:00:00')
+    )
+    DISTRIBUTED BY HASH(`tenant_id`) BUCKETS auto
+    PROPERTIES
+    (
+        "replication_num" = "1"
+    );
     """
 
-    sql "delete from dwd_pay partitions(p202310) where pay_time = '20231002';"
+    sql "delete from dwd_pay partitions(p202012) where pay_time = '20231002';"
 
     sql """
     ADMIN SET FRONTEND CONFIG ('disable_decimalv2' = 'false');
@@ -318,7 +308,7 @@ PROPERTIES
             col_10 datetime,
             col_11 boolean,
             col_12 decimalv2(10,3),
-            col_8 string,
+            col_8 string
         ) ENGINE=OLAP
         duplicate KEY(`col_1`, col_2, col_3, col_4, col_5, col_6, col_7,  col_9, col_10, col_11, col_12)
         COMMENT 'OLAP'

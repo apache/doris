@@ -41,12 +41,11 @@ bool ExchangeSourceOperator::is_pending_finish() const {
 }
 
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
-        : PipelineXLocalState<>(state, parent), num_rows_skipped(0), is_ready(false) {}
+        : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
 
 std::string ExchangeLocalState::debug_string(int indentation_level) const {
     fmt::memory_buffer debug_string_buffer;
-    fmt::format_to(debug_string_buffer, "{}",
-                   PipelineXLocalState<>::debug_string(indentation_level));
+    fmt::format_to(debug_string_buffer, "{}", Base::debug_string(indentation_level));
     fmt::format_to(debug_string_buffer, ", Queues: (");
     const auto& queues = stream_recvr->sender_queues();
     for (size_t i = 0; i < queues.size(); i++) {
@@ -68,15 +67,15 @@ std::string ExchangeSourceOperatorX::debug_string(int indentation_level) const {
 }
 
 Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
-    RETURN_IF_ERROR(PipelineXLocalState<>::init(state, info));
+    RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
     auto& p = _parent->cast<ExchangeSourceOperatorX>();
     stream_recvr = state->exec_env()->vstream_mgr()->create_recvr(
             state, p.input_row_desc(), state->fragment_instance_id(), p.node_id(), p.num_senders(),
             profile(), p.is_merging(), p.sub_plan_query_statistics_recvr());
-    source_dependency = AndDependency::create_shared(_parent->operator_id(), _parent->node_id(),
-                                                     state->get_query_ctx());
+    stream_recvr->create_mem_limit_dependency(p.operator_id(), p.node_id(), state->get_query_ctx());
+    auto* source_dependency = _dependency;
     const auto& queues = stream_recvr->sender_queues();
     deps.resize(queues.size());
     metrics.resize(queues.size());
@@ -88,9 +87,10 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     }
     static const std::string timer_name =
             "WaitForDependency[" + source_dependency->name() + "]Time";
-    _wait_for_dependency_timer = ADD_TIMER(_runtime_profile, timer_name);
+    _wait_for_dependency_timer = ADD_TIMER_WITH_LEVEL(_runtime_profile, timer_name, 1);
     for (size_t i = 0; i < queues.size(); i++) {
-        metrics[i] = ADD_CHILD_TIMER(_runtime_profile, fmt::format("WaitForData{}", i), timer_name);
+        metrics[i] = ADD_CHILD_TIMER_WITH_LEVEL(_runtime_profile, fmt::format("WaitForData{}", i),
+                                                timer_name, 1);
     }
     RETURN_IF_ERROR(_parent->cast<ExchangeSourceOperatorX>()._vsort_exec_exprs.clone(
             state, vsort_exec_exprs));
@@ -100,7 +100,7 @@ Status ExchangeLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 Status ExchangeLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
-    RETURN_IF_ERROR(PipelineXLocalState<>::open(state));
+    RETURN_IF_ERROR(Base::open(state));
     return Status::OK();
 }
 
@@ -110,11 +110,9 @@ ExchangeSourceOperatorX::ExchangeSourceOperatorX(ObjectPool* pool, const TPlanNo
         : OperatorX<ExchangeLocalState>(pool, tnode, operator_id, descs),
           _num_senders(num_senders),
           _is_merging(tnode.exchange_node.__isset.sort_info),
-          _is_hash_partition(
-                  tnode.exchange_node.__isset.partition_type &&
-                  (tnode.exchange_node.partition_type == TPartitionType::HASH_PARTITIONED ||
-                   tnode.exchange_node.partition_type ==
-                           TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED)),
+          _partition_type(tnode.exchange_node.__isset.partition_type
+                                  ? tnode.exchange_node.partition_type
+                                  : TPartitionType::UNPARTITIONED),
           _input_row_desc(descs, tnode.exchange_node.input_row_tuples,
                           std::vector<bool>(tnode.nullable_tuples.begin(),
                                             tnode.nullable_tuples.begin() +
@@ -214,7 +212,7 @@ Status ExchangeLocalState::close(RuntimeState* state) {
     if (_parent->cast<ExchangeSourceOperatorX>()._is_merging) {
         vsort_exec_exprs.close(state);
     }
-    return PipelineXLocalState<>::close(state);
+    return Base::close(state);
 }
 
 Status ExchangeSourceOperatorX::close(RuntimeState* state) {

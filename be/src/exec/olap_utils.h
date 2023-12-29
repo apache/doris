@@ -169,6 +169,8 @@ enum class MatchType {
     MATCH_ELEMENT_GT = 5,
     MATCH_ELEMENT_LE = 6,
     MATCH_ELEMENT_GE = 7,
+    MATCH_PHRASE_PREFIX = 8,
+    MATCH_REGEXP = 9,
 };
 
 inline MatchType to_match_type(TExprOpcode::type type) {
@@ -181,6 +183,12 @@ inline MatchType to_match_type(TExprOpcode::type type) {
         break;
     case TExprOpcode::type::MATCH_PHRASE:
         return MatchType::MATCH_PHRASE;
+        break;
+    case TExprOpcode::type::MATCH_PHRASE_PREFIX:
+        return MatchType::MATCH_PHRASE_PREFIX;
+        break;
+    case TExprOpcode::type::MATCH_REGEXP:
+        return MatchType::MATCH_REGEXP;
         break;
     case TExprOpcode::type::MATCH_ELEMENT_EQ:
         return MatchType::MATCH_ELEMENT_EQ;
@@ -211,6 +219,10 @@ inline MatchType to_match_type(const std::string& condition_op) {
         return MatchType::MATCH_ALL;
     } else if (condition_op.compare("match_phrase") == 0) {
         return MatchType::MATCH_PHRASE;
+    } else if (condition_op.compare("match_phrase_prefix") == 0) {
+        return MatchType::MATCH_PHRASE_PREFIX;
+    } else if (condition_op.compare("match_regexp") == 0) {
+        return MatchType::MATCH_REGEXP;
     } else if (condition_op.compare("match_element_eq") == 0) {
         return MatchType::MATCH_ELEMENT_EQ;
     } else if (condition_op.compare("match_element_lt") == 0) {
@@ -228,6 +240,8 @@ inline MatchType to_match_type(const std::string& condition_op) {
 inline bool is_match_condition(const std::string& op) {
     if (0 == strcasecmp(op.c_str(), "match_any") || 0 == strcasecmp(op.c_str(), "match_all") ||
         0 == strcasecmp(op.c_str(), "match_phrase") ||
+        0 == strcasecmp(op.c_str(), "match_phrase_prefix") ||
+        0 == strcasecmp(op.c_str(), "match_regexp") ||
         0 == strcasecmp(op.c_str(), "match_element_eq") ||
         0 == strcasecmp(op.c_str(), "match_element_lt") ||
         0 == strcasecmp(op.c_str(), "match_element_gt") ||
@@ -240,7 +254,8 @@ inline bool is_match_condition(const std::string& op) {
 
 inline bool is_match_operator(const TExprOpcode::type& op_type) {
     return TExprOpcode::MATCH_ANY == op_type || TExprOpcode::MATCH_ALL == op_type ||
-           TExprOpcode::MATCH_PHRASE == op_type || TExprOpcode::MATCH_ELEMENT_EQ == op_type ||
+           TExprOpcode::MATCH_PHRASE == op_type || TExprOpcode::MATCH_PHRASE_PREFIX == op_type ||
+           TExprOpcode::MATCH_REGEXP == op_type || TExprOpcode::MATCH_ELEMENT_EQ == op_type ||
            TExprOpcode::MATCH_ELEMENT_LT == op_type || TExprOpcode::MATCH_ELEMENT_GT == op_type ||
            TExprOpcode::MATCH_ELEMENT_LE == op_type || TExprOpcode::MATCH_ELEMENT_GE == op_type;
 }

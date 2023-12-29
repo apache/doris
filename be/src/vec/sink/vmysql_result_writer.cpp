@@ -112,17 +112,17 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         return status;
     }
 
+    DCHECK(_output_vexpr_ctxs.empty() != true);
+
     // Exec vectorized expr here to speed up, block.rows() == 0 means expr exec
     // failed, just return the error status
     Block block;
     RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_output_vexpr_ctxs,
                                                                        input_block, &block));
-
     // convert one batch
     auto result = std::make_unique<TFetchDataResult>();
     auto num_rows = block.rows();
     result->result_batch.rows.resize(num_rows);
-
     uint64_t bytes_sent = 0;
     {
         SCOPED_TIMER(_convert_tuple_timer);
@@ -138,34 +138,50 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             DataTypeSerDeSPtr serde;
         };
 
+        const size_t num_cols = _output_vexpr_ctxs.size();
         std::vector<Arguments> arguments;
-        for (int i = 0; i < _output_vexpr_ctxs.size(); ++i) {
-            const auto& [column_ptr, col_const] = unpack_if_const(block.get_by_position(i).column);
-            int scale = _output_vexpr_ctxs[i]->root()->type().scale;
+        arguments.reserve(num_cols);
+
+        for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+            const auto& [column_ptr, col_const] =
+                    unpack_if_const(block.get_by_position(col_idx).column);
+            int scale = _output_vexpr_ctxs[col_idx]->root()->type().scale;
             // decimalv2 scale and precision is hard code, so we should get real scale and precision
             // from expr
             DataTypeSerDeSPtr serde;
-            if (_output_vexpr_ctxs[i]->root()->type().is_decimal_v2_type()) {
-                if (_output_vexpr_ctxs[i]->root()->is_nullable()) {
+            if (_output_vexpr_ctxs[col_idx]->root()->type().is_decimal_v2_type()) {
+                if (_output_vexpr_ctxs[col_idx]->root()->is_nullable()) {
                     auto nested_serde =
-                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128>>(scale,
-                                                                                           27);
+                            std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(scale,
+                                                                                             27);
                     serde = std::make_shared<DataTypeNullableSerDe>(nested_serde);
                 } else {
-                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128>>(scale,
-                                                                                           27);
+                    serde = std::make_shared<DataTypeDecimalSerDe<vectorized::Decimal128V2>>(scale,
+                                                                                             27);
                 }
             } else {
-                serde = block.get_by_position(i).type->get_serde();
+                serde = block.get_by_position(col_idx).type->get_serde();
             }
             serde->set_return_object_as_string(output_object_data());
             arguments.emplace_back(column_ptr.get(), col_const, serde);
         }
 
-        for (size_t row_idx = 0; row_idx != num_rows; ++row_idx) {
-            for (int i = 0; i < _output_vexpr_ctxs.size(); ++i) {
-                RETURN_IF_ERROR(arguments[i].serde->write_column_to_mysql(
-                        *(arguments[i].column), row_buffer, row_idx, arguments[i].is_const));
+        for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+            const auto& argument = arguments[col_idx];
+            // const column will only have 1 row, see unpack_if_const
+            if (argument.column->size() < num_rows && !argument.is_const) {
+                return Status::InternalError(
+                        "Required row size is out of range, need {} rows, column {} has {} "
+                        "rows in fact.",
+                        num_rows, argument.column->get_name(), argument.column->size());
+            }
+        }
+
+        for (size_t row_idx = 0; row_idx < num_rows; ++row_idx) {
+            for (size_t col_idx = 0; col_idx < num_cols; ++col_idx) {
+                RETURN_IF_ERROR(arguments[col_idx].serde->write_column_to_mysql(
+                        *(arguments[col_idx].column), row_buffer, row_idx,
+                        arguments[col_idx].is_const));
             }
 
             // copy MysqlRowBuffer to Thrift

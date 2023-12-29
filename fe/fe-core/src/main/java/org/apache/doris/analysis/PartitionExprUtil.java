@@ -120,8 +120,8 @@ public class PartitionExprUtil {
         Map<String, AddPartitionClause> result = Maps.newHashMap();
         ArrayList<Expr> partitionExprs = partitionInfo.getPartitionExprs();
         PartitionType partitionType = partitionInfo.getType();
-        List<Column> partiitonColumn = partitionInfo.getPartitionColumns();
-        Type partitionColumnType = partiitonColumn.get(0).getType();
+        List<Column> partitionColumn = partitionInfo.getPartitionColumns();
+        boolean hasStringType = partitionColumn.stream().anyMatch(column -> column.getType().isStringType());
         FunctionIntervalInfo intervalInfo = getFunctionIntervalInfo(partitionExprs, partitionType);
         Set<String> filterPartitionValues = new HashSet<String>();
 
@@ -141,6 +141,7 @@ public class PartitionExprUtil {
             filterPartitionValues.add(filterStr);
             if (partitionType == PartitionType.RANGE) {
                 String beginTime = curPartitionValues.get(0); // have check range type size must be 1
+                Type partitionColumnType = partitionColumn.get(0).getType();
                 DateLiteral beginDateTime = new DateLiteral(beginTime, partitionColumnType);
                 partitionName += String.format(DATETIME_NAME_FORMATTER,
                         beginDateTime.getYear(), beginDateTime.getMonth(), beginDateTime.getDay(),
@@ -157,9 +158,9 @@ public class PartitionExprUtil {
                 partitionKeyDesc = PartitionKeyDesc.createIn(
                         listValues);
                 partitionName += getFormatPartitionValue(filterStr);
-                if (partitionColumnType.isStringType()) {
+                if (hasStringType) {
                     if (partitionName.length() > 50) {
-                        partitionName = partitionName.substring(40) + Objects.hash(partitionName)
+                        partitionName = partitionName.substring(0, 30) + Math.abs(Objects.hash(partitionName))
                                 + "_" + System.currentTimeMillis();
                     }
                 }

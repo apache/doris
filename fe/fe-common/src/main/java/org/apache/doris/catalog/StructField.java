@@ -23,7 +23,6 @@ import org.apache.doris.thrift.TTypeNode;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 
 public class StructField {
     @SerializedName(value = "name")
@@ -97,7 +96,7 @@ public class StructField {
         if (type != null) {
             sb.append(":").append(typeSql);
         }
-        if (StringUtils.isNotBlank(comment)) {
+        if (!Strings.isNullOrEmpty(comment)) {
             sb.append(String.format(" COMMENT '%s'", comment));
         }
         return sb.toString();
@@ -117,7 +116,7 @@ public class StructField {
             typeStr = typeStr.substring(lpad);
             sb.append(":").append(typeStr);
         }
-        if (StringUtils.isNotBlank(comment)) {
+        if (!Strings.isNullOrEmpty(comment)) {
             sb.append(String.format(" COMMENT '%s'", comment));
         }
         return sb.toString();
@@ -165,7 +164,7 @@ public class StructField {
         if (type != null) {
             sb.append(":").append(type);
         }
-        if (StringUtils.isNotBlank(comment)) {
+        if (!Strings.isNullOrEmpty(comment)) {
             sb.append(String.format(" COMMENT '%s'", comment));
         }
         return sb.toString();

@@ -106,7 +106,7 @@ public class ModifyBackendTest {
         //partition create failed, because there is no BE with "default" tag
         ExceptionChecker.expectThrowsWithMsg(DdlException.class, "replication num should be less than the number of available backends. replication num is 3, available backend num is 1",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt3));
-        Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
+        Database db = Env.getCurrentInternalCatalog().getDbNullable("test");
 
         createStr = "create table test.tbl4(\n" + "k1 date, k2 int\n" + ") partition by range(k1)()\n"
                 + "distributed by hash(k1)\n" + "buckets 3 properties(\n"

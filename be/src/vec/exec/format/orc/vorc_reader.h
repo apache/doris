@@ -65,7 +65,7 @@ template <typename T>
 class ColumnVector;
 template <typename T>
 class DataTypeDecimal;
-template <typename T>
+template <DecimalNativeTypeConcept T>
 struct Decimal;
 } // namespace vectorized
 } // namespace doris
