@@ -2618,8 +2618,7 @@ public class ShowExecutor {
 
     private void handleShowAnalyze() {
         ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
-        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager()
-                .showAnalysisJob(showStmt);
+        List<AnalysisInfo> results = Env.getCurrentEnv().getAnalysisManager().showAnalysisJob(showStmt);
         List<List<String>> resultRows = Lists.newArrayList();
         DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
         for (AnalysisInfo analysisInfo : results) {
@@ -2645,14 +2644,7 @@ public class ShowExecutor {
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.lastExecTimeInMs),
                         ZoneId.systemDefault())));
                 row.add(analysisInfo.state.toString());
-                try {
-                    row.add(showStmt.isAuto()
-                            ? analysisInfo.progress
-                            : Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
-                } catch (Exception e) {
-                    row.add("N/A");
-                    LOG.warn("Failed to get progress for job: {}", analysisInfo, e);
-                }
+                row.add(Env.getCurrentEnv().getAnalysisManager().getJobProgress(analysisInfo.jobId));
                 row.add(analysisInfo.scheduleType.toString());
                 LocalDateTime startTime =
                         LocalDateTime.ofInstant(Instant.ofEpochMilli(analysisInfo.startTime),
