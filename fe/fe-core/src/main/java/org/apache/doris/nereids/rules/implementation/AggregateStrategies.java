@@ -415,11 +415,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     if (argument instanceof SlotReference) {
                         return true;
                     }
-                    if (argument instanceof Cast) {
-                        return argument.child(0) instanceof SlotReference
-                                && argument.getDataType().isNumericType()
-                                && argument.child(0).getDataType().isNumericType();
-                    }
                     return false;
                 });
         if (!onlyContainsSlotOrNumericCastSlot) {
@@ -441,11 +436,6 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .allMatch(argument -> {
                     if (argument instanceof SlotReference) {
                         return true;
-                    }
-                    if (argument instanceof Cast) {
-                        return argument.child(0) instanceof SlotReference
-                                && argument.getDataType().isNumericType()
-                                && argument.child(0).getDataType().isNumericType();
                     }
                     return false;
                 });

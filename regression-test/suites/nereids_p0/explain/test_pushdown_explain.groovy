@@ -70,16 +70,20 @@ suite("test_pushdown_explain") {
     sql """ 
         CREATE TABLE `table_unique` (
             `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
-            `username` VARCHAR(50) NOT NULL COMMENT '\"用户昵称\"'
+            `username` VARCHAR(50) NOT NULL COMMENT '\"用户昵称\"',
+            `val` VARCHAR(50) NULL
         ) ENGINE=OLAP
         UNIQUE KEY(`user_id`, `username`)
         COMMENT 'OLAP'
         DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
         PROPERTIES (
-        "replication_allocation" = "tag.location.default: 1"
+        "replication_allocation" = "tag.location.default: 1",
+        "disable_auto_compaction" = "false"
         );
     """
-
+    sql """ 
+        insert into table_unique values(1,"asd","cc"),(2,"qwe","vvx"),(3,"ffsd","mnm"),(4,"qdf","ll"),(5,"cvfv","vff");
+    """
     sql "set enable_pushdown_minmax_on_unique = true;"
     explain {
         sql("select min(user_id) from table_unique;")
@@ -115,4 +119,77 @@ suite("test_pushdown_explain") {
         sql("select max(username) from table_unique;")
         contains "pushAggOp=NONE"
     }
+
+    qt_select_1 "select min(user_id) from table_unique;"
+    qt_select_2 "select max(user_id) from table_unique;"
+    qt_select_3 "select min(username) from table_unique;"
+    qt_select_4 "select max(username) from table_unique;"
+    qt_select_5 "select min(val) from table_unique;"
+    qt_select_6 "select max(val) from table_unique;"
+    sql """
+        update table_unique set val = "zzz" where user_id = 1;
+    """
+
+    qt_select_7 "select min(user_id) from table_unique;"
+    qt_select_8 "select max(user_id) from table_unique;"
+    qt_select_9 "select min(username) from table_unique;"
+    qt_select_10 "select max(username) from table_unique;"
+    qt_select_11 "select min(val) from table_unique;"
+    qt_select_12 "select max(val) from table_unique;"
+
+    sql """
+        delete from table_unique where user_id = 2;
+    """
+
+    qt_select_13 "select min(user_id) from table_unique;"
+    qt_select_14 "select max(user_id) from table_unique;"
+    qt_select_15 "select min(username) from table_unique;"
+    qt_select_16 "select max(username) from table_unique;"
+    qt_select_17 "select min(val) from table_unique;"
+    qt_select_18 "select max(val) from table_unique;"
+
+
+    sql "DROP TABLE IF EXISTS table_agg"
+    sql """ 
+        CREATE TABLE `table_agg` (
+            `user_id` LARGEINT NOT NULL COMMENT '\"用户id\"',
+            `username` VARCHAR(50) NOT NULL COMMENT '\"用户昵称\"',
+            `val` VARCHAR(50) max NULL 
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`user_id`, `username`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """ 
+        insert into table_agg values(1,"asd","cc"),(2,"qwe","vvx"),(3,"ffsd","mnm"),(4,"qdf","ll"),(5,"cvfv","vff");
+    """
+
+    explain {
+        sql("select min(user_id) from table_agg;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select max(user_id) from table_agg;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select min(username) from table_agg;")
+        contains "pushAggOp=MINMAX"
+    }
+    explain {
+        sql("select max(username) from table_agg;")
+        contains "pushAggOp=MINMAX"
+    }
+
+    qt_select_19 "select min(user_id) from table_agg;"
+    qt_select_20 "select max(user_id) from table_agg;"
+    qt_select_21 "select min(username) from table_agg;"
+    qt_select_22 "select max(username) from table_agg;"
+    qt_select_23 "select min(val) from table_agg;"
+    qt_select_24 "select max(val) from table_agg;"
 }
