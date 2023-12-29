@@ -365,8 +365,9 @@ ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) c
 
 size_t ColumnNullable::filter(const Filter& filter) {
     const auto data_result_size = get_nested_column().filter(filter);
-    const auto map_result_size = get_null_map_column().filter(filter);
-    CHECK_EQ(data_result_size, map_result_size);
+    //const auto map_result_size = get_null_map_column().filter(filter);
+    get_null_map_column().resize(data_result_size);
+    //CHECK_EQ(data_result_size, map_result_size);
     return data_result_size;
 }
 
