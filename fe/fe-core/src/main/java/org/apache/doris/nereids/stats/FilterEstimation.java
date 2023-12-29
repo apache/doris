@@ -221,8 +221,6 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
         double val = statsForRight.maxValue;
         if (val > statsForLeft.maxValue || val < statsForLeft.minValue) {
             selectivity = 0.0;
-        } else if (statsForRight.isUnKnown) {
-            selectivity = 0.0;
         } else {
             selectivity = StatsMathUtil.minNonNaN(1.0, 1.0 / ndv);
         }
@@ -581,9 +579,10 @@ public class FilterEstimation extends ExpressionVisitor<Statistics, EstimationCo
                     "col stats not found. slot=%s in %s",
                     like.left().toSql(), like.toSql());
             ColumnStatisticBuilder colBuilder = new ColumnStatisticBuilder(origin);
-            double selectivity = origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY;
+            double selectivity = StatsMathUtil.divide(DEFAULT_LIKE_COMPARISON_SELECTIVITY, origin.ndv);
             double notNullSel = getNotNullSelectivity(origin, selectivity);
-            colBuilder.setNdv(selectivity).setCount(notNullSel * context.statistics.getRowCount()).setNumNulls(0);
+            colBuilder.setNdv(origin.ndv * DEFAULT_LIKE_COMPARISON_SELECTIVITY)
+                    .setCount(notNullSel * context.statistics.getRowCount()).setNumNulls(0);
             statsBuilder.putColumnStatistics(like.left(), colBuilder.build());
             context.addKeyIfSlot(like.left());
         }
