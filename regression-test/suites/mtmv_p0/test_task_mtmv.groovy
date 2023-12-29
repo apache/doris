@@ -49,13 +49,14 @@ suite("test_task_mtmv") {
     def taskIdArr = sql """ select TaskId from tasks('type'='mv') where MvName = '${mvName}';"""
     def taskId = taskIdArr.get(0).get(0);
     logger.info("taskId: " + taskId.toString())
-    sql """
-            cancel MATERIALIZED VIEW TASK ${taskId} on ${mvName};
-        """
-    try {
-        sql """drop materialized view if exists ${mvName};"""
-    } catch (Exception e) {
-        log.info("cancel error msg: " + e.getMessage())
-        assertTrue(e.getMessage().contains("no running task"));
-    }
+     try {
+        sql """
+                cancel MATERIALIZED VIEW TASK ${taskId} on ${mvName};
+            """
+        } catch (Exception e) {
+           log.info("cancel error msg: " + e.getMessage())
+           assertTrue(e.getMessage().contains("no running task"));
+        }
+    sql """drop materialized view if exists ${mvName};"""
+
 }
