@@ -184,11 +184,11 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                                                 }
                                                 Expression childExpr = filter.getConjuncts().iterator().next()
                                                         .children().get(0);
-                                                    if (childExpr instanceof SlotReference) {
-                                                        return ((SlotReference) childExpr).getColumn().get()
-                                                                .isDeleteSignColumn();
-                                                    }
-                                                    return false;
+                                                if (childExpr instanceof SlotReference) {
+                                                    return ((SlotReference) childExpr).getColumn().get()
+                                                            .isDeleteSignColumn();
+                                                }
+                                                return false;
                                             }))
                         )
                         .when(agg -> enablePushDownMinMaxOnUnique())
