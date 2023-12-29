@@ -403,7 +403,7 @@ PROPERTIES (
 
 ```sql
 insert into dws_tbl
-select dwd_dup_tbl.dim1, dwd_dup_tbl.dim3, dwd_dup_tbl.dim5, dwd_dup_tbl.visit_time, BITMAP_UNION(TO_BITMAP(dictionary_tbl.aid)), COUNT(1)
+select dwd_dup_tbl.dim1, dwd_dup_tbl.dim3, dwd_dup_tbl.dim5, BITMAP_UNION(TO_BITMAP(dictionary_tbl.aid)), COUNT(1)
 from dwd_dup_tbl INNER JOIN dictionary_tbl on dwd_dup_tbl.user_id = dictionary_tbl.user_id;
 ```
 
