@@ -24,20 +24,13 @@ suite("query39") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set exec_mem_limit=21G'
     sql 'set be_number_for_test=3'
-sql 'set enable_runtime_filter_prune=true'
-    sql 'set parallel_pipeline_task_num=8'
+    sql 'set parallel_fragment_exec_instance_num=8; '
+    sql 'set parallel_pipeline_task_num=8; '
     sql 'set forbid_unknown_col_stats=true'
-    sql 'set broadcast_row_count_limit = 30000000'
     sql 'set enable_nereids_timeout = false'
-    sql 'SET enable_pipeline_engine = true'
+    sql 'set enable_runtime_filter_prune=true'
 
-    qt_ds_shape_39 '''
-    explain shape plan
-
-
-
-
-with inv as
+    def ds = """with inv as
 (select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
        ,stdev,mean, case mean when 0 then null else stdev/mean end cov
  from(select w_warehouse_name,w_warehouse_sk,i_item_sk,d_moy
@@ -60,8 +53,9 @@ where inv1.i_item_sk = inv2.i_item_sk
   and inv1.d_moy=1
   and inv2.d_moy=1+1
 order by inv1.w_warehouse_sk,inv1.i_item_sk,inv1.d_moy,inv1.mean,inv1.cov
-        ,inv2.d_moy,inv2.mean, inv2.cov
-;
-
-    '''
+        ,inv2.d_moy,inv2.mean, inv2.cov"""
+    qt_ds_shape_39 """
+    explain shape plan
+    ${ds}
+    """
 }

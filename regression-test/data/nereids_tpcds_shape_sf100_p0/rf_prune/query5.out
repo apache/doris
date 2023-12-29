@@ -24,7 +24,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[store_returns]
+------------------------------------------PhysicalOlapScan[store_returns] apply RFs: RF0
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
@@ -46,7 +46,7 @@ PhysicalResultSink
 ------------------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[catalog_returns]
+------------------------------------------PhysicalOlapScan[catalog_returns] apply RFs: RF1
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))
@@ -72,7 +72,7 @@ PhysicalResultSink
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF3
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[web_returns]
+----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF4
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------filter((date_dim.d_date <= '2000-09-02') and (date_dim.d_date >= '2000-08-19'))

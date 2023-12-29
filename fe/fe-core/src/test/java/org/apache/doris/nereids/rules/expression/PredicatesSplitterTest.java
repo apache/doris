@@ -24,6 +24,7 @@ import org.apache.doris.nereids.rules.exploration.mv.Predicates.SplitPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -47,7 +48,7 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
                 "c = d or a = 10");
         assetEquals("a = b and c + d = e and a > 7 and 10 > d",
                 "a = b",
-                "a > 7 and 10 > d",
+                "10 > d and a > 7",
                 "c + d = e");
         assetEquals("a = b and c + d = e or a > 7 and 10 > d",
                 "",
@@ -68,21 +69,21 @@ public class PredicatesSplitterTest extends ExpressionRewriteTestHelper {
             Expression equalExpression = replaceUnboundSlot(PARSER.parseExpression(expectedEqualExpr), mem);
             Assertions.assertEquals(equalExpression, splitPredicate.getEqualPredicate());
         } else {
-            Assertions.assertNull(splitPredicate.getEqualPredicate());
+            Assertions.assertEquals(splitPredicate.getEqualPredicate(), BooleanLiteral.TRUE);
         }
 
         if (!StringUtils.isEmpty(expectedRangeExpr)) {
             Expression rangeExpression = replaceUnboundSlot(PARSER.parseExpression(expectedRangeExpr), mem);
             Assertions.assertEquals(rangeExpression, splitPredicate.getRangePredicate());
         } else {
-            Assertions.assertNull(splitPredicate.getRangePredicate());
+            Assertions.assertEquals(splitPredicate.getRangePredicate(), BooleanLiteral.TRUE);
         }
 
         if (!StringUtils.isEmpty(expectedResidualExpr)) {
             Expression residualExpression = replaceUnboundSlot(PARSER.parseExpression(expectedResidualExpr), mem);
             Assertions.assertEquals(residualExpression, splitPredicate.getResidualPredicate());
         } else {
-            Assertions.assertNull(splitPredicate.getResidualPredicate());
+            Assertions.assertEquals(splitPredicate.getResidualPredicate(), BooleanLiteral.TRUE);
         }
     }
 

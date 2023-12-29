@@ -57,11 +57,6 @@ public class AuditLogHelper {
                 .setWorkloadGroup(ctx.getWorkloadGroupName())
                 .setFuzzyVariables(!printFuzzyVariables ? "" : ctx.getSessionVariable().printFuzzyVariables());
 
-        // when doric fe is booting, current catalog may not be set
-        if (ctx.getCurrentCatalog() != null) {
-            ctx.getAuditEventBuilder().setCatalog(ctx.getCurrentCatalog().getName());
-        }
-
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
             MetricRepo.USER_COUNTER_QUERY_ALL.getOrAdd(ctx.getQualifiedUser()).increase(1L);
@@ -86,7 +81,11 @@ public class AuditLogHelper {
                 ctx.getQueryDetail().setEventTime(endTime);
                 ctx.getQueryDetail().setEndTime(endTime);
                 ctx.getQueryDetail().setLatency(elapseMs);
-                ctx.getQueryDetail().setState(QueryDetail.QueryMemState.FINISHED);
+                if (ctx.isKilled()) {
+                    ctx.getQueryDetail().setState(QueryDetail.QueryMemState.CANCELLED);
+                } else {
+                    ctx.getQueryDetail().setState(QueryDetail.QueryMemState.FINISHED);
+                }
                 QueryDetailQueue.addOrUpdateQueryDetail(ctx.getQueryDetail());
                 ctx.setQueryDetail(null);
             }
@@ -113,6 +112,11 @@ public class AuditLogHelper {
         if (!Env.getCurrentEnv().isMaster()) {
             if (ctx.executor.isForwardToMaster()) {
                 ctx.getAuditEventBuilder().setState(ctx.executor.getProxyStatus());
+                int proxyStatusCode = ctx.executor.getProxyStatusCode();
+                if (proxyStatusCode != 0) {
+                    ctx.getAuditEventBuilder().setErrorCode(proxyStatusCode);
+                    ctx.getAuditEventBuilder().setErrorMessage(ctx.executor.getProxyErrMsg());
+                }
             }
         }
         Env.getCurrentAuditEventProcessor().handleAuditEvent(ctx.getAuditEventBuilder().build());

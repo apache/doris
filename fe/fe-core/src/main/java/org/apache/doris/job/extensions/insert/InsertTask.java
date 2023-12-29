@@ -25,42 +25,35 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
-import org.apache.doris.load.loadv2.LoadJob;
+import org.apache.doris.load.FailMsg;
+import org.apache.doris.load.loadv2.LoadStatistic;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.InsertIntoTableCommand;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
-import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TUniqueId;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
 import lombok.Getter;
 import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
+import org.apache.commons.lang3.StringUtils;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-/**
- * todo implement this later
- */
 @Log4j2
 public class InsertTask extends AbstractTask {
 
     public static final ImmutableList<Column> SCHEMA = ImmutableList.of(
             new Column("TaskId", ScalarType.createStringType()),
+            new Column("JobId", ScalarType.createStringType()),
             new Column("Label", ScalarType.createStringType()),
             new Column("Status", ScalarType.createStringType()),
-            new Column("EtlInfo", ScalarType.createStringType()),
-            new Column("TaskInfo", ScalarType.createStringType()),
             new Column("ErrorMsg", ScalarType.createStringType()),
             new Column("CreateTimeMs", ScalarType.createStringType()),
             new Column("FinishTimeMs", ScalarType.createStringType()),
@@ -79,28 +72,69 @@ public class InsertTask extends AbstractTask {
     }
 
     private String labelName;
-
     private InsertIntoTableCommand command;
-
     private StmtExecutor stmtExecutor;
-
     private ConnectContext ctx;
-
     private String sql;
-
     private String currentDb;
-
     private UserIdentity userIdentity;
-
+    private LoadStatistic loadStatistic;
     private AtomicBoolean isCanceled = new AtomicBoolean(false);
-
     private AtomicBoolean isFinished = new AtomicBoolean(false);
+    private static final String LABEL_SPLITTER = "_";
 
+    private FailMsg failMsg;
+    @Getter
+    private String trackingUrl;
 
     @Getter
     @Setter
-    private LoadJob loadJob;
+    private InsertJob jobInfo;
+    private TaskType taskType = TaskType.PENDING;
+    private MergeType mergeType = MergeType.APPEND;
 
+    /**
+     * task merge type
+     */
+    enum MergeType {
+        MERGE,
+        APPEND,
+        DELETE
+    }
+
+    /**
+     * task type
+     */
+    enum TaskType {
+        UNKNOWN, // this is only for ISSUE #2354
+        PENDING,
+        LOADING,
+        FINISHED,
+        FAILED,
+        CANCELLED
+    }
+
+    public InsertTask(InsertIntoTableCommand insertInto,
+                      ConnectContext ctx, StmtExecutor executor, LoadStatistic statistic) {
+        this(insertInto.getLabelName().get(), insertInto, ctx, executor, statistic);
+    }
+
+    public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
+        this.labelName = labelName;
+        this.sql = sql;
+        this.currentDb = currentDb;
+        this.userIdentity = userIdentity;
+    }
+
+    public InsertTask(String labelName, InsertIntoTableCommand insertInto,
+                       ConnectContext ctx, StmtExecutor executor, LoadStatistic statistic) {
+        this.labelName = labelName;
+        this.command = insertInto;
+        this.userIdentity = ctx.getCurrentUserIdentity();
+        this.ctx = ctx;
+        this.stmtExecutor = executor;
+        this.loadStatistic = statistic;
+    }
 
     @Override
     public void before() throws JobException {
@@ -109,20 +143,23 @@ public class InsertTask extends AbstractTask {
         }
         ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
-        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setQualifiedUser(userIdentity.getQualifiedUser());
         ctx.setCurrentUserIdentity(userIdentity);
         ctx.getState().reset();
         ctx.setThreadLocalInfo();
-        ctx.setDatabase(currentDb);
+        if (StringUtils.isNotEmpty(currentDb)) {
+            ctx.setDatabase(currentDb);
+        }
         TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
         ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
         stmtExecutor = new StmtExecutor(ctx, (String) null);
         ctx.setQueryId(queryId);
-        NereidsParser parser = new NereidsParser();
-        this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
-        this.command.setLabelName(Optional.of(getJobId() + "_" + getTaskId()));
-        this.command.setJobId(getTaskId());
+        if (StringUtils.isNotEmpty(sql)) {
+            NereidsParser parser = new NereidsParser();
+            this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
+            this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+            this.command.setJobId(getTaskId());
+        }
 
         super.before();
 
@@ -133,14 +170,6 @@ public class InsertTask extends AbstractTask {
         return new TUniqueId(taskId.getMostSignificantBits(), taskId.getLeastSignificantBits());
     }
 
-    public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
-        this.labelName = labelName;
-        this.sql = sql;
-        this.currentDb = currentDb;
-        this.userIdentity = userIdentity;
-
-    }
-
     @Override
     public void run() throws JobException {
         try {
@@ -148,7 +177,7 @@ public class InsertTask extends AbstractTask {
                 log.info("task has been canceled, task id is {}", getTaskId());
                 return;
             }
-            command.run(ctx, stmtExecutor);
+            command.runWithUpdateInfo(ctx, stmtExecutor, loadStatistic);
         } catch (Exception e) {
             log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
                     getTaskId(), sql, e);
@@ -181,105 +210,47 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public List<String> getShowInfo() {
-        if (null == loadJob) {
-            return getPendingTaskShowInfo();
-        }
-        List<String> jobInfo = Lists.newArrayList();
-        // jobId
-        jobInfo.add(String.valueOf(loadJob.getId()));
-        // label
-        jobInfo.add(loadJob.getLabel());
-        // state
-        jobInfo.add(loadJob.getState().name());
-
-        // etl info
-        if (loadJob.getLoadingStatus().getCounters().isEmpty()) {
-            jobInfo.add(FeConstants.null_string);
-        } else {
-            jobInfo.add(Joiner.on("; ").withKeyValueSeparator("=").join(loadJob.getLoadingStatus().getCounters()));
-        }
-
-        // task info
-        jobInfo.add("cluster:" + loadJob.getResourceName() + "; timeout(s):" + loadJob.getTimeout()
-                + "; max_filter_ratio:" + loadJob.getMaxFilterRatio() + "; priority:" + loadJob.getPriority());
-        // error msg
-        if (loadJob.getFailMsg() == null) {
-            jobInfo.add(FeConstants.null_string);
-        } else {
-            jobInfo.add("type:" + loadJob.getFailMsg().getCancelType() + "; msg:" + loadJob.getFailMsg().getMsg());
-        }
-
-        // create time
-        jobInfo.add(TimeUtils.longToTimeString(loadJob.getCreateTimestamp()));
-
-        // load end time
-        jobInfo.add(TimeUtils.longToTimeString(loadJob.getFinishTimestamp()));
-        // tracking url
-        jobInfo.add(loadJob.getLoadingStatus().getTrackingUrl());
-        jobInfo.add(loadJob.getLoadStatistic().toJson());
-        // user
-        jobInfo.add(loadJob.getUserInfo().getQualifiedUser());
-        return jobInfo;
-    }
-
-    @Override
     public TRow getTvfInfo() {
         TRow trow = new TRow();
-        if (loadJob == null) {
-            return trow;
+        if (jobInfo == null) {
+            // if task not start, load job is null,return pending task show info
+            return getPendingTaskTVFInfo();
         }
-
-        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(loadJob.getId())));
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLabel()));
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getState().name()));
-        // etl info
-        String etlInfo = FeConstants.null_string;
-        if (!loadJob.getLoadingStatus().getCounters().isEmpty()) {
-            etlInfo = Joiner.on("; ").withKeyValueSeparator("=").join(loadJob.getLoadingStatus().getCounters());
-        }
-        trow.addToColumnValue(new TCell().setStringVal(etlInfo));
-
-        // task info
-        String taskInfo = "cluster:" + loadJob.getResourceName() + "; timeout(s):" + loadJob.getTimeout()
-                + "; max_filter_ratio:" + loadJob.getMaxFilterRatio() + "; priority:" + loadJob.getPriority();
-        trow.addToColumnValue(new TCell().setStringVal(taskInfo));
-
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(jobInfo.getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(labelName));
+        trow.addToColumnValue(new TCell().setStringVal(jobInfo.getJobStatus().name()));
         // err msg
         String errMsg = FeConstants.null_string;
-        if (loadJob.getFailMsg() != null) {
-            errMsg = "type:" + loadJob.getFailMsg().getCancelType() + "; msg:" + loadJob.getFailMsg().getMsg();
+        if (failMsg != null) {
+            errMsg = "type:" + failMsg.getCancelType() + "; msg:" + failMsg.getMsg();
         }
         trow.addToColumnValue(new TCell().setStringVal(errMsg));
-
         // create time
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(loadJob.getCreateTimestamp())));
-
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(jobInfo.getCreateTimeMs())));
         // load end time
-        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(loadJob.getFinishTimestamp())));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(jobInfo.getFinishTimeMs())));
         // tracking url
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadingStatus().getTrackingUrl()));
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getLoadStatistic().toJson()));
-        trow.addToColumnValue(new TCell().setStringVal(loadJob.getUserInfo().getQualifiedUser()));
+        trow.addToColumnValue(new TCell().setStringVal(trackingUrl));
+        trow.addToColumnValue(new TCell().setStringVal(loadStatistic.toJson()));
+        trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
         return trow;
     }
 
     // if task not start, load job is null,return pending task show info
-    private List<String> getPendingTaskShowInfo() {
-        List<String> datas = new ArrayList<>();
-
-        datas.add(String.valueOf(getTaskId()));
-        datas.add(getJobId() + "_" + getTaskId());
-        datas.add(getStatus().name());
-        datas.add(FeConstants.null_string);
-        datas.add(FeConstants.null_string);
-        datas.add(FeConstants.null_string);
-        datas.add(TimeUtils.longToTimeString(getCreateTimeMs()));
-        datas.add(FeConstants.null_string);
-        datas.add(FeConstants.null_string);
-        datas.add(FeConstants.null_string);
-        datas.add(userIdentity.getQualifiedUser());
-        return datas;
+    private TRow getPendingTaskTVFInfo() {
+        TRow trow = new TRow();
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getTaskId())));
+        trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
+        trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(TimeUtils.longToTimeString(getCreateTimeMs())));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(FeConstants.null_string));
+        trow.addToColumnValue(new TCell().setStringVal(userIdentity.getQualifiedUser()));
+        return trow;
     }
 
 }

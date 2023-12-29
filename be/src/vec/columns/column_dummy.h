@@ -48,6 +48,7 @@ public:
 
     [[noreturn]] Field operator[](size_t) const override {
         LOG(FATAL) << "Cannot get value from " << get_name();
+        __builtin_unreachable();
     }
 
     void get(size_t, Field&) const override {

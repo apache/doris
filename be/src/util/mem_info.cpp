@@ -24,6 +24,7 @@
 #include <sys/sysctl.h>
 #endif
 
+#include <bvar/bvar.h>
 #include <fmt/format.h>
 #include <gen_cpp/Metrics_types.h>
 #include <gen_cpp/segment_v2.pb.h>
@@ -53,6 +54,12 @@
 
 namespace doris {
 
+bvar::PassiveStatus<int64_t> g_sys_mem_avail(
+        "meminfo_sys_mem_avail", [](void*) { return MemInfo::sys_mem_available(); }, nullptr);
+bvar::PassiveStatus<int64_t> g_proc_mem_no_allocator_cache(
+        "meminfo_proc_mem_no_allocator_cache",
+        [](void*) { return MemInfo::proc_mem_no_allocator_cache(); }, nullptr);
+
 bool MemInfo::_s_initialized = false;
 int64_t MemInfo::_s_physical_mem = -1;
 int64_t MemInfo::_s_mem_limit = -1;
@@ -73,6 +80,9 @@ int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
 int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
 int64_t MemInfo::_s_process_minor_gc_size = -1;
 int64_t MemInfo::_s_process_full_gc_size = -1;
+std::mutex MemInfo::je_purge_dirty_pages_lock;
+std::condition_variable MemInfo::je_purge_dirty_pages_cv;
+std::atomic<bool> MemInfo::je_purge_dirty_pages_notify {false};
 
 void MemInfo::refresh_allocator_mem() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
@@ -122,7 +132,7 @@ bool MemInfo::process_minor_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        je_purge_all_arena_dirty_pages();
+        notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -132,7 +142,7 @@ bool MemInfo::process_minor_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_stale(profile.get());
-    je_purge_all_arena_dirty_pages();
+    notify_je_purge_dirty_pages();
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
     }
@@ -173,7 +183,7 @@ bool MemInfo::process_full_gc() {
     std::string pre_sys_mem_available = MemInfo::sys_mem_available_str();
 
     Defer defer {[&]() {
-        je_purge_all_arena_dirty_pages();
+        notify_je_purge_dirty_pages();
         std::stringstream ss;
         profile->pretty_print(&ss);
         LOG(INFO) << fmt::format(
@@ -183,7 +193,7 @@ bool MemInfo::process_full_gc() {
     }};
 
     freed_mem += CacheManager::instance()->for_each_cache_prune_all(profile.get());
-    je_purge_all_arena_dirty_pages();
+    notify_je_purge_dirty_pages();
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
@@ -460,6 +470,20 @@ void MemInfo::init() {
         _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark * 2;
     }
 
+    std::ifstream sys_transparent_hugepage("/sys/kernel/mm/transparent_hugepage/enabled",
+                                           std::ios::in);
+    std::string hugepage_enable;
+    // If file not exist, getline returns an empty string.
+    getline(sys_transparent_hugepage, hugepage_enable);
+    if (sys_transparent_hugepage.is_open()) sys_transparent_hugepage.close();
+    if (hugepage_enable == "[always] madvise never") {
+        std::cout << "[WARNING!] /sys/kernel/mm/transparent_hugepage/enabled: " << hugepage_enable
+                  << ", Doris not recommend turning on THP, which may cause the BE process to use "
+                     "more memory and cannot be freed in time. Turn off THP: `echo madvise | sudo "
+                     "tee /sys/kernel/mm/transparent_hugepage/enabled`"
+                  << std::endl;
+    }
+
     // Expect vm overcommit memory value to be 1, system will no longer throw bad_alloc, memory alloc are always accepted,
     // memory limit check is handed over to Doris Allocator, make sure throw exception position is controllable,
     // otherwise bad_alloc can be thrown anywhere and it will be difficult to achieve exception safety.
@@ -467,8 +491,8 @@ void MemInfo::init() {
     std::string vm_overcommit;
     getline(sys_vm, vm_overcommit);
     if (sys_vm.is_open()) sys_vm.close();
-    if (std::stoi(vm_overcommit) == 2) {
-        std::cout << "/proc/sys/vm/overcommit_memory: " << vm_overcommit
+    if (!vm_overcommit.empty() && std::stoi(vm_overcommit) == 2) {
+        std::cout << "[WARNING!] /proc/sys/vm/overcommit_memory: " << vm_overcommit
                   << ", expect is 1, memory limit check is handed over to Doris Allocator, "
                      "otherwise BE may crash even with remaining memory"
                   << std::endl;

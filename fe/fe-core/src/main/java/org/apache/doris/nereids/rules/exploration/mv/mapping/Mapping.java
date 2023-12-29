@@ -136,4 +136,12 @@ public abstract class Mapping {
             return Objects.hash(exprId);
         }
     }
+
+    /** Chain fold tow mapping, such as this mapping is {[a -> b]}, the target mapping is
+     *  {[b -> c]} after chain fold, this result will be {[a -> c]}, if the value side in this mapping
+     *  can get the key in the target mapping, will lose the mapping
+     */
+    protected Mapping chainedFold(Mapping target) {
+        return null;
+    }
 }

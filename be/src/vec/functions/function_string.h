@@ -1745,6 +1745,7 @@ public:
         const auto& [right_column, right_const] =
                 unpack_if_const(block.get_by_position(arguments[1]).column);
 
+        DataTypePtr right_column_type = block.get_by_position(arguments[1]).type;
         DataTypePtr src_column_type = block.get_by_position(arguments[0]).type;
         auto dest_column_ptr = ColumnArray::create(make_nullable(src_column_type)->create_column(),
                                                    ColumnArray::ColumnOffsets::create());
@@ -1760,27 +1761,42 @@ public:
         dest_nested_column = dest_nullable_col->get_nested_column_ptr();
         dest_nested_null_map = &dest_nullable_col->get_null_map_column().get_data();
 
-        if (auto col_left = check_and_get_column<ColumnString>(src_column.get())) {
-            if (auto col_right = check_and_get_column<ColumnString>(right_column.get())) {
-                if (right_const) {
-                    _execute_constant(*col_left, col_right->get_data_at(0), *dest_nested_column,
-                                      dest_offsets, dest_nested_null_map);
-                } else {
-                    _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets,
-                                    dest_nested_null_map);
-                }
-
-                block.replace_by_position(result, std::move(dest_column_ptr));
-                return Status::OK();
-            }
+        auto col_left = check_and_get_column<ColumnString>(src_column.get());
+        if (!col_left) {
+            return Status::InternalError("Left operator of function {} can not be {}", get_name(),
+                                         src_column_type->get_name());
         }
-        return Status::RuntimeError("unimplements function {}", get_name());
+
+        auto col_right = check_and_get_column<ColumnString>(right_column.get());
+        if (!col_right) {
+            return Status::InternalError("Right operator of function {} can not be {}", get_name(),
+                                         right_column_type->get_name());
+        }
+
+        // split_by_string(ColumnString, "xxx")
+        if (right_const) {
+            _execute_constant_delimiter(*col_left, col_right->get_data_at(0), *dest_nested_column,
+                                        dest_offsets, dest_nested_null_map);
+        } else if (left_const) {
+            // split_by_string("xxx", ColumnString)
+            _execute_constant_src_string(col_left->get_data_at(0), *col_right, *dest_nested_column,
+                                         dest_offsets, dest_nested_null_map);
+        } else {
+            // split_by_string(ColumnString, ColumnString)
+            _execute_vector(*col_left, *col_right, *dest_nested_column, dest_offsets,
+                            dest_nested_null_map);
+        }
+
+        block.replace_by_position(result, std::move(dest_column_ptr));
+
+        return Status::OK();
     }
 
 private:
-    void _execute_constant(const ColumnString& src_column_string, const StringRef& delimiter_ref,
-                           IColumn& dest_nested_column, ColumnArray::Offsets64& dest_offsets,
-                           NullMapType* dest_nested_null_map) const {
+    void _execute_constant_delimiter(const ColumnString& src_column_string,
+                                     const StringRef& delimiter_ref, IColumn& dest_nested_column,
+                                     ColumnArray::Offsets64& dest_offsets,
+                                     NullMapType* dest_nested_null_map) const {
         ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
         ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
         ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
@@ -1865,6 +1881,58 @@ private:
                 dest_offsets.push_back(dest_pos);
                 continue;
             }
+            if (delimiter_ref.size == 0) {
+                for (size_t str_pos = 0; str_pos < str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    str_pos++;
+                    const size_t new_size = old_size + 1;
+                    column_string_chars.resize(new_size);
+                    memcpy(column_string_chars.data() + old_size, str_ref.data + str_offset, 1);
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos++;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            } else {
+                for (size_t str_pos = 0; str_pos <= str_ref.size;) {
+                    const size_t str_offset = str_pos;
+                    const size_t old_size = column_string_chars.size();
+                    const size_t split_part_size = split_str(str_pos, str_ref, delimiter_ref);
+                    str_pos += delimiter_ref.size;
+                    const size_t new_size = old_size + split_part_size;
+                    column_string_chars.resize(new_size);
+                    if (split_part_size > 0) {
+                        memcpy_small_allow_read_write_overflow15(
+                                column_string_chars.data() + old_size, str_ref.data + str_offset,
+                                split_part_size);
+                    }
+                    (*dest_nested_null_map).push_back(false);
+                    string_pos += split_part_size;
+                    dest_pos++;
+                    column_string_offsets.push_back(string_pos);
+                }
+            }
+            dest_offsets.push_back(dest_pos);
+        }
+    }
+
+    void _execute_constant_src_string(const StringRef& str_ref, const ColumnString& delimiter_col,
+                                      IColumn& dest_nested_column,
+                                      ColumnArray::Offsets64& dest_offsets,
+                                      NullMapType* dest_nested_null_map) const {
+        ColumnString& dest_column_string = reinterpret_cast<ColumnString&>(dest_nested_column);
+        ColumnString::Chars& column_string_chars = dest_column_string.get_chars();
+        ColumnString::Offsets& column_string_offsets = dest_column_string.get_offsets();
+        column_string_chars.reserve(0);
+
+        ColumnArray::Offset64 string_pos = 0;
+        ColumnArray::Offset64 dest_pos = 0;
+        const ColumnArray::Offset64 delimiter_offsets_size = delimiter_col.get_offsets().size();
+
+        for (size_t i = 0; i < delimiter_offsets_size; ++i) {
+            const StringRef delimiter_ref = delimiter_col.get_data_at(i);
+
             if (delimiter_ref.size == 0) {
                 for (size_t str_pos = 0; str_pos < str_ref.size;) {
                     const size_t str_offset = str_pos;
@@ -2343,12 +2411,12 @@ struct MoneyFormatInt128Impl {
 
 struct MoneyFormatDecimalImpl {
     static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)};
+        return {std::make_shared<DataTypeDecimal<Decimal128V2>>(27, 9)};
     }
 
     static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
                         size_t input_rows_count) {
-        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128>>(*col_ptr)) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128V2>>(*col_ptr)) {
             for (size_t i = 0; i < input_rows_count; i++) {
                 DecimalV2Value value = DecimalV2Value(decimalv2_column->get_element(i));
 
@@ -2399,12 +2467,12 @@ struct MoneyFormatDecimalImpl {
                 result_column->insert_data(str.data, str.size);
             }
         } else if (auto* decimal128_column =
-                           check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
+                           check_and_get_column<ColumnDecimal<Decimal128V3>>(*col_ptr)) {
             const UInt32 scale = decimal128_column->get_scale();
             const auto multiplier =
                     scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
             for (size_t i = 0; i < input_rows_count; i++) {
-                Decimal128I frac_part = decimal128_column->get_fractional_part(i);
+                Decimal128V3 frac_part = decimal128_column->get_fractional_part(i);
                 if (scale > 2) {
                     int delta = ((frac_part % multiplier) << 1) > multiplier;
                     frac_part = frac_part / multiplier + delta;

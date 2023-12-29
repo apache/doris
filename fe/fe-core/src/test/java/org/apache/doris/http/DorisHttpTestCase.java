@@ -93,7 +93,6 @@ public abstract class DorisHttpTestCase {
 
     private static HttpServer httpServer;
 
-    public static final String CLUSTER_NAME = "default_cluster";
     public static final String DB_NAME = "testDb";
     public static final String TABLE_NAME = "testTbl";
 
@@ -215,7 +214,7 @@ public abstract class DorisHttpTestCase {
             Auth auth = new Auth();
             AccessControllerManager accessManager = new AccessControllerManager(auth);
             //EasyMock.expect(catalog.getAuth()).andReturn(paloAuth).anyTimes();
-            Database db = new Database(testDbId, "default_cluster:testDb");
+            Database db = new Database(testDbId, "testDb");
             OlapTable table = newTable(TABLE_NAME);
             db.createTable(table);
             OlapTable table1 = newTable(TABLE_NAME + 1);
@@ -230,11 +229,11 @@ public abstract class DorisHttpTestCase {
                     minTimes = 0;
                     result = db;
 
-                    internalCatalog.getDbNullable("default_cluster:" + DB_NAME);
+                    internalCatalog.getDbNullable("" + DB_NAME);
                     minTimes = 0;
                     result = db;
 
-                    internalCatalog.getDbNullable("default_cluster:emptyDb");
+                    internalCatalog.getDbNullable("emptyDb");
                     minTimes = 0;
                     result = null;
 
@@ -244,7 +243,7 @@ public abstract class DorisHttpTestCase {
 
                     internalCatalog.getDbNames();
                     minTimes = 0;
-                    result = Lists.newArrayList("default_cluster:testDb");
+                    result = Lists.newArrayList("testDb");
                 }
             };
 

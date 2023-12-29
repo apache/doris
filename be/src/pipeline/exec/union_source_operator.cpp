@@ -169,14 +169,14 @@ Status UnionSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     SCOPED_TIMER(local_state.exec_time_counter());
     if (local_state._need_read_for_const_expr) {
         if (has_more_const(state)) {
-            static_cast<void>(get_next_const(state, block));
+            RETURN_IF_ERROR(get_next_const(state, block));
         }
         local_state._need_read_for_const_expr = has_more_const(state);
     } else {
         std::unique_ptr<vectorized::Block> output_block = vectorized::Block::create_unique();
         int child_idx = 0;
-        static_cast<void>(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
-                                                                                     &child_idx));
+        RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
+                                                                                   &child_idx));
         if (!output_block) {
             return Status::OK();
         }

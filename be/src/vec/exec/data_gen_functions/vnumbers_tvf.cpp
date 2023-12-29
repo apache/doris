@@ -61,7 +61,11 @@ Status VNumbersTVF::get_next(RuntimeState* state, vectorized::Block* block, bool
         }
         auto* column_res = assert_cast<ColumnInt64*>(columns[i].get()); //BIGINT
         int64_t end_value = std::min((int64_t)(_next_number + batch_size), _total_numbers);
-        column_res->insert_range_of_integer(_next_number, end_value);
+        if (_use_const) {
+            column_res->insert_raw_integers(_const_value, end_value - _next_number);
+        } else {
+            column_res->insert_range_of_integer(_next_number, end_value);
+        }
         if (end_value == _total_numbers) {
             *eos = true;
         } else {
@@ -86,6 +90,8 @@ Status VNumbersTVF::set_scan_ranges(const std::vector<TScanRangeParams>& scan_ra
     // Currently we do not support multi-threads numbers function, so there is no need to
     // use more than one scan_range_param.
     DCHECK(scan_range_params.size() == 1);
+    _use_const = scan_range_params[0].scan_range.data_gen_scan_range.numbers_params.useConst;
+    _const_value = scan_range_params[0].scan_range.data_gen_scan_range.numbers_params.constValue;
     _total_numbers =
             scan_range_params[0].scan_range.data_gen_scan_range.numbers_params.totalNumbers;
     return Status::OK();

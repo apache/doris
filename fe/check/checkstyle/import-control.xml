@@ -23,6 +23,9 @@ under the License.
         "https://checkstyle.org/dtds/import_control_1_4.dtd">
 
 <import-control pkg="org.apache.doris" strategyOnMismatch="allowed">
+    <disallow pkg="avro.shaded.com.google.common.base.Preconditions" />
+    <disallow pkg="avro.shaded.com.google.common.collect.ImmutableList" />
+    <disallow pkg="cfjd.com.google.common.collect.ImmutableList" />
     <disallow pkg="com.clearspring.analytics.util" />
     <disallow pkg="com.alibaba.google" />
     <disallow pkg="org.apache.hadoop.util.Lists" />

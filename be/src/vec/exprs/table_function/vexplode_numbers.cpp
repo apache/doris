@@ -76,22 +76,20 @@ Status VExplodeNumbersTableFunction::process_init(Block* block, RuntimeState* st
     return Status::OK();
 }
 
-Status VExplodeNumbersTableFunction::process_row(size_t row_idx) {
-    RETURN_IF_ERROR(TableFunction::process_row(row_idx));
+void VExplodeNumbersTableFunction::process_row(size_t row_idx) {
+    TableFunction::process_row(row_idx);
     if (_is_const) {
-        return Status::OK();
+        return;
     }
 
     StringRef value = _value_column->get_data_at(row_idx);
     if (value.data != nullptr) {
         _cur_size = std::max(0, *reinterpret_cast<const int*>(value.data));
     }
-    return Status::OK();
 }
 
-Status VExplodeNumbersTableFunction::process_close() {
+void VExplodeNumbersTableFunction::process_close() {
     _value_column = nullptr;
-    return Status::OK();
 }
 
 void VExplodeNumbersTableFunction::get_value(MutableColumnPtr& column) {

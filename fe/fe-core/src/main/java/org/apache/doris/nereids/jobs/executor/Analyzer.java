@@ -43,7 +43,7 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
-import org.apache.doris.nereids.rules.rewrite.JoinCommute;
+import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 
 import java.util.List;
 import java.util.Objects;
@@ -56,6 +56,7 @@ import java.util.Optional;
 public class Analyzer extends AbstractBatchJobExecutor {
 
     public static final List<RewriteJob> DEFAULT_ANALYZE_JOBS = buildAnalyzeJobs(Optional.empty());
+    public static final List<RewriteJob> DEFAULT_ANALYZE_VIEW_JOBS = buildAnalyzeViewJobs(Optional.empty());
 
     private final List<RewriteJob> jobs;
 
@@ -64,13 +65,37 @@ public class Analyzer extends AbstractBatchJobExecutor {
      * @param cascadesContext planner context for execute job
      */
     public Analyzer(CascadesContext cascadesContext) {
-        this(cascadesContext, Optional.empty());
+        this(cascadesContext, false);
     }
 
-    public Analyzer(CascadesContext cascadesContext, Optional<CustomTableResolver> customTableResolver) {
+    public Analyzer(CascadesContext cascadesContext, boolean analyzeView) {
+        this(cascadesContext, analyzeView, Optional.empty());
+    }
+
+    /**
+     * constructor of Analyzer. For view, we only do bind relation since other analyze step will do by outer Analyzer.
+     *
+     * @param cascadesContext current context for analyzer
+     * @param analyzeView analyze view or user sql. If true, analyzer is used for view.
+     * @param customTableResolver custom resolver for outer catalog.
+     */
+    public Analyzer(CascadesContext cascadesContext, boolean analyzeView,
+            Optional<CustomTableResolver> customTableResolver) {
         super(cascadesContext);
         Objects.requireNonNull(customTableResolver, "customTableResolver cannot be null");
-        this.jobs = !customTableResolver.isPresent() ? DEFAULT_ANALYZE_JOBS : buildAnalyzeJobs(customTableResolver);
+        if (analyzeView) {
+            if (customTableResolver.isPresent()) {
+                this.jobs = buildAnalyzeViewJobs(customTableResolver);
+            } else {
+                this.jobs = DEFAULT_ANALYZE_VIEW_JOBS;
+            }
+        } else {
+            if (customTableResolver.isPresent()) {
+                this.jobs = buildAnalyzeJobs(customTableResolver);
+            } else {
+                this.jobs = DEFAULT_ANALYZE_JOBS;
+            }
+        }
     }
 
     @Override
@@ -85,6 +110,18 @@ public class Analyzer extends AbstractBatchJobExecutor {
         execute();
     }
 
+    private static List<RewriteJob> buildAnalyzeViewJobs(Optional<CustomTableResolver> customTableResolver) {
+        return jobs(
+                topDown(new AnalyzeCTE()),
+                topDown(new EliminateLogicalSelectHint()),
+                bottomUp(
+                        new BindRelation(customTableResolver),
+                        new CheckPolicy(),
+                        new UserAuthentication()
+                )
+        );
+    }
+
     private static List<RewriteJob> buildAnalyzeJobs(Optional<CustomTableResolver> customTableResolver) {
         return jobs(
             // we should eliminate hint before "Subquery unnesting".
@@ -93,9 +130,9 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(
                 new BindRelation(customTableResolver),
                 new CheckPolicy(),
-                new UserAuthentication(),
-                new BindExpression()
+                new UserAuthentication()
             ),
+            bottomUp(new BindExpression()),
             topDown(new BindSink()),
             bottomUp(new CheckAfterBind()),
             bottomUp(
@@ -124,7 +161,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
             bottomUp(new CheckAnalysis()),
             topDown(new EliminateGroupByConstant()),
             topDown(new NormalizeAggregate()),
-            bottomUp(new JoinCommute()),
+            bottomUp(new SemiJoinCommute()),
             bottomUp(
                     new CollectSubQueryAlias(),
                     new CollectJoinConstraint()

@@ -71,3 +71,52 @@
 55	1.22zxy
 56	1.22ZXY
 
+-- !q11 --
+nation=cn/city=beijing
+nation=cn/city=shanghai
+nation=jp/city=tokyo
+nation=rus/city=moscow
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q12 --
+nation=cn/city=beijing
+
+-- !q13 --
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q14 --
+nation=rus/city=moscow
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q16 --
+nation=cn/city=beijing
+nation=cn/city=shanghai
+nation=jp/city=tokyo
+
+-- !q17 --
+nation=jp/city=tokyo
+nation=rus/city=moscow
+nation=us/city=chicago
+
+-- !q18 --
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q19 --
+nation=rus/city=moscow
+nation=jp/city=tokyo
+nation=cn/city=shanghai
+
+-- !q20 --
+nation=cn/city=beijing
+nation=cn/city=shanghai
+nation=jp/city=tokyo
+nation=rus/city=moscow
+nation=us/city=chicago
+nation=us/city=washington
+
+-- !q21 --
+

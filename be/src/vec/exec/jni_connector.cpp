@@ -44,25 +44,25 @@ class RuntimeProfile;
 
 namespace doris::vectorized {
 
-#define FOR_FIXED_LENGTH_TYPES(M)                                     \
-    M(TypeIndex::Int8, ColumnVector<Int8>, Int8)                      \
-    M(TypeIndex::UInt8, ColumnVector<UInt8>, UInt8)                   \
-    M(TypeIndex::Int16, ColumnVector<Int16>, Int16)                   \
-    M(TypeIndex::UInt16, ColumnVector<UInt16>, UInt16)                \
-    M(TypeIndex::Int32, ColumnVector<Int32>, Int32)                   \
-    M(TypeIndex::UInt32, ColumnVector<UInt32>, UInt32)                \
-    M(TypeIndex::Int64, ColumnVector<Int64>, Int64)                   \
-    M(TypeIndex::UInt64, ColumnVector<UInt64>, UInt64)                \
-    M(TypeIndex::Int128, ColumnVector<Int128>, Int128)                \
-    M(TypeIndex::Float32, ColumnVector<Float32>, Float32)             \
-    M(TypeIndex::Float64, ColumnVector<Float64>, Float64)             \
-    M(TypeIndex::Decimal128, ColumnDecimal<Decimal<Int128>>, Int128)  \
-    M(TypeIndex::Decimal128I, ColumnDecimal<Decimal<Int128>>, Int128) \
-    M(TypeIndex::Decimal32, ColumnDecimal<Decimal<Int32>>, Int32)     \
-    M(TypeIndex::Decimal64, ColumnDecimal<Decimal<Int64>>, Int64)     \
-    M(TypeIndex::Date, ColumnVector<Int64>, Int64)                    \
-    M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)                \
-    M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)                \
+#define FOR_FIXED_LENGTH_TYPES(M)                                      \
+    M(TypeIndex::Int8, ColumnVector<Int8>, Int8)                       \
+    M(TypeIndex::UInt8, ColumnVector<UInt8>, UInt8)                    \
+    M(TypeIndex::Int16, ColumnVector<Int16>, Int16)                    \
+    M(TypeIndex::UInt16, ColumnVector<UInt16>, UInt16)                 \
+    M(TypeIndex::Int32, ColumnVector<Int32>, Int32)                    \
+    M(TypeIndex::UInt32, ColumnVector<UInt32>, UInt32)                 \
+    M(TypeIndex::Int64, ColumnVector<Int64>, Int64)                    \
+    M(TypeIndex::UInt64, ColumnVector<UInt64>, UInt64)                 \
+    M(TypeIndex::Int128, ColumnVector<Int128>, Int128)                 \
+    M(TypeIndex::Float32, ColumnVector<Float32>, Float32)              \
+    M(TypeIndex::Float64, ColumnVector<Float64>, Float64)              \
+    M(TypeIndex::Decimal128V2, ColumnDecimal<Decimal<Int128>>, Int128) \
+    M(TypeIndex::Decimal128V3, ColumnDecimal<Decimal<Int128>>, Int128) \
+    M(TypeIndex::Decimal32, ColumnDecimal<Decimal<Int32>>, Int32)      \
+    M(TypeIndex::Decimal64, ColumnDecimal<Decimal<Int64>>, Int64)      \
+    M(TypeIndex::Date, ColumnVector<Int64>, Int64)                     \
+    M(TypeIndex::DateV2, ColumnVector<UInt32>, UInt32)                 \
+    M(TypeIndex::DateTime, ColumnVector<Int64>, Int64)                 \
     M(TypeIndex::DateTimeV2, ColumnVector<UInt64>, UInt64)
 
 JniConnector::~JniConnector() {

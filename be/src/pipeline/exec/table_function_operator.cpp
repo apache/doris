@@ -33,12 +33,11 @@ OPERATOR_CODE_GENERATOR(TableFunctionOperator, StatefulOperator)
 
 Status TableFunctionOperator::prepare(doris::RuntimeState* state) {
     // just for speed up, the way is dangerous
-    _child_block.reset(_node->get_child_block());
+    _child_block = _node->get_child_block();
     return StatefulOperator::prepare(state);
 }
 
 Status TableFunctionOperator::close(doris::RuntimeState* state) {
-    _child_block.release();
     return StatefulOperator::close(state);
 }
 
@@ -116,7 +115,7 @@ int TableFunctionLocalState::_find_last_fn_eos_idx() const {
 bool TableFunctionLocalState::_roll_table_functions(int last_eos_idx) {
     int i = last_eos_idx - 1;
     for (; i >= 0; --i) {
-        static_cast<void>(_fns[i]->forward());
+        _fns[i]->forward();
         if (!_fns[i]->eos()) {
             break;
         }
@@ -128,7 +127,7 @@ bool TableFunctionLocalState::_roll_table_functions(int last_eos_idx) {
     }
 
     for (int j = i + 1; j < _parent->cast<TableFunctionOperatorX>()._fn_num; ++j) {
-        static_cast<void>(_fns[j]->reset());
+        _fns[j]->reset();
     }
 
     return true;
@@ -172,7 +171,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
             if (idx == 0 || skip_child_row) {
                 _copy_output_slots(columns);
                 // all table functions' results are exhausted, process next child row.
-                RETURN_IF_ERROR(process_next_child_row());
+                process_next_child_row();
                 if (_cur_child_offset == -1) {
                     break;
                 }
@@ -197,7 +196,7 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
                     _fns[i]->get_value(columns[i + p._child_slots.size()]);
                 }
                 _current_row_insert_times++;
-                static_cast<void>(_fns[p._fn_num - 1]->forward());
+                _fns[p._fn_num - 1]->forward();
             }
         }
     }
@@ -219,27 +218,25 @@ Status TableFunctionLocalState::get_expanded_block(RuntimeState* state,
     return Status::OK();
 }
 
-Status TableFunctionLocalState::process_next_child_row() {
+void TableFunctionLocalState::process_next_child_row() {
     _cur_child_offset++;
 
     if (_cur_child_offset >= _child_block->rows()) {
         // release block use count.
         for (vectorized::TableFunction* fn : _fns) {
-            RETURN_IF_ERROR(fn->process_close());
+            fn->process_close();
         }
 
         _child_block->clear_column_data(_parent->cast<TableFunctionOperatorX>()
                                                 ._child_x->row_desc()
                                                 .num_materialized_slots());
         _cur_child_offset = -1;
-        return Status::OK();
+        return;
     }
 
     for (vectorized::TableFunction* fn : _fns) {
-        RETURN_IF_ERROR(fn->process_row(_cur_child_offset));
+        fn->process_row(_cur_child_offset);
     }
-
-    return Status::OK();
 }
 
 TableFunctionOperatorX::TableFunctionOperatorX(ObjectPool* pool, const TPlanNode& tnode,
@@ -290,7 +287,7 @@ Status TableFunctionOperatorX::init(const TPlanNode& tnode, RuntimeState* state)
 Status TableFunctionOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
 
-    for (auto fn : _fns) {
+    for (auto* fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_vfn_ctxs, state, _row_descriptor));

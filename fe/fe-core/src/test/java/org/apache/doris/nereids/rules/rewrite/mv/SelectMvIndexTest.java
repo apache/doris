@@ -166,7 +166,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
         String query1 = "select name from " + EMPS_TABLE_NAME + " where " + EMPS_TABLE_NAME + ".deptno > 0;";
         createMv(createMVSql);
         ConnectContext.get().getState().setNereids(true);
-        Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException("default_cluster:db1")
+        Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException("db1")
                         .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta()
                         .forEach((id, meta) -> {
                             if (meta.getWhereClause() != null) {
@@ -175,7 +175,7 @@ class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements MemoP
                         });
         testMv(query1, EMPS_MV_NAME);
         ConnectContext.get().getState().setNereids(false);
-        Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException("default_cluster:db1")
+        Env.getCurrentEnv().getCurrentCatalog().getDbOrAnalysisException("db1")
                 .getOlapTableOrDdlException(EMPS_TABLE_NAME).getIndexIdToMeta()
                 .forEach((id, meta) -> {
                     if (meta.getWhereClause() != null) {

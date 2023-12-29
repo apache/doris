@@ -20,7 +20,6 @@
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/internal_service.pb.h>
 #include <gen_cpp/types.pb.h>
-#include <stdint.h>
 
 #include <atomic>
 #include <memory>
@@ -34,7 +33,6 @@
 #include "olap/memtable_writer.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/rowset.h"
-#include "olap/rowset_builder.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
@@ -56,14 +54,15 @@ namespace vectorized {
 class Block;
 } // namespace vectorized
 
+class BaseRowsetBuilder;
+
 // Writer for a particular (load, index, tablet).
 // This class is NOT thread-safe, external synchronization is required.
-class DeltaWriter {
+class BaseDeltaWriter {
 public:
-    static Status open(WriteRequest* req, DeltaWriter** writer, RuntimeProfile* profile,
-                       const UniqueId& load_id = TUniqueId());
+    BaseDeltaWriter(WriteRequest* req, RuntimeProfile* profile, const UniqueId& load_id);
 
-    ~DeltaWriter();
+    virtual ~BaseDeltaWriter();
 
     Status init();
 
@@ -79,15 +78,6 @@ public:
     Status build_rowset();
     Status submit_calc_delete_bitmap_task();
     Status wait_calc_delete_bitmap();
-    Status commit_txn(const PSlaveTabletNodes& slave_tablet_nodes, const bool write_single_replica);
-
-    bool check_slave_replicas_done(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
-                                           success_slave_tablet_node_ids);
-
-    void add_finished_slave_replicas(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
-                                             success_slave_tablet_node_ids);
-
-    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
 
     // abandon current memtable and wait for all pending-flushing memtables to be destructed.
     // mem_consumption() should be 0 after this function returns.
@@ -109,34 +99,56 @@ public:
 
     int64_t num_rows_filtered() const;
 
-    // For UT
-    DeleteBitmapPtr get_delete_bitmap() { return _rowset_builder.get_delete_bitmap(); }
-
-private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, RuntimeProfile* profile,
-                const UniqueId& load_id);
-
-    void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
-
-    void _init_profile(RuntimeProfile* profile);
+protected:
+    virtual void _init_profile(RuntimeProfile* profile);
 
     bool _is_init = false;
     bool _is_cancelled = false;
     WriteRequest _req;
-    RowsetBuilder _rowset_builder;
+    std::unique_ptr<BaseRowsetBuilder> _rowset_builder;
     std::shared_ptr<MemTableWriter> _memtable_writer;
 
     std::mutex _lock;
 
+    // total rows num written by DeltaWriter
+    std::atomic<int64_t> _total_received_rows = 0;
+
+    RuntimeProfile* _profile = nullptr;
+    RuntimeProfile::Counter* _close_wait_timer = nullptr;
+    RuntimeProfile::Counter* _wait_flush_limit_timer = nullptr;
+
+    MonotonicStopWatch _lock_watch;
+};
+
+// `StorageEngine` mixin for `BaseDeltaWriter`
+class DeltaWriter final : public BaseDeltaWriter {
+public:
+    DeltaWriter(StorageEngine& engine, WriteRequest* req, RuntimeProfile* profile,
+                const UniqueId& load_id);
+
+    ~DeltaWriter() override;
+
+    Status commit_txn(const PSlaveTabletNodes& slave_tablet_nodes);
+
+    bool check_slave_replicas_done(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
+                                           success_slave_tablet_node_ids);
+
+    void add_finished_slave_replicas(google::protobuf::Map<int64_t, PSuccessSlaveTabletNodeIds>*
+                                             success_slave_tablet_node_ids);
+
+    void finish_slave_tablet_pull_rowset(int64_t node_id, bool is_succeed);
+
+private:
+    void _init_profile(RuntimeProfile* profile) override;
+
+    void _request_slave_tablet_pull_rowset(PNodeInfo node_info);
+
+    StorageEngine& _engine;
     std::unordered_set<int64_t> _unfinished_slave_node;
     PSuccessSlaveTabletNodeIds _success_slave_node_ids;
     std::shared_mutex _slave_node_lock;
 
-    RuntimeProfile* _profile = nullptr;
-    RuntimeProfile::Counter* _close_wait_timer = nullptr;
     RuntimeProfile::Counter* _commit_txn_timer = nullptr;
-
-    MonotonicStopWatch _lock_watch;
 };
 
 } // namespace doris

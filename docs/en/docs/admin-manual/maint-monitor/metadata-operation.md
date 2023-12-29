@@ -124,7 +124,7 @@ Single node FE is the most basic deployment mode. A complete Doris cluster requi
 		* begin to generate new image: image.xxxx
 		*  start save image to /path/to/doris-meta/image/image.ckpt. is ckpt: true
 		*  finished save image /path/to/doris-meta/image/image.ckpt in xxx ms. checksum is xxxx
-		*  push image.xxx to other nodes. totally xx nodes, push successed xx nodes
+		*  push image.xxx to other nodes. totally xx nodes, push succeeded xx nodes
 		* QE service start
 		* thrift server started
 
@@ -380,7 +380,7 @@ The deployment recommendation of FE is described in the Installation and [Deploy
 
 4. The size of the `bdb/` directory is very large, reaching several Gs or more.
 
-	The BDB directory will remain large for some time after eliminating the error that the new image cannot be generated. Maybe it's because Master FE failed to push image. You can search `push image.XXXX to other nodes. totally XX nodes, push successed YY nodes` in the fe. log of Master FE. If YY is smaller than xx, then some FEs are not pushed successfully. You can see the specific error `Exception when pushing image file.url = xxx` in the fe. log.
+	The BDB directory will remain large for some time after eliminating the error that the new image cannot be generated. Maybe it's because Master FE failed to push image. You can search `push image.XXXX to other nodes. totally XX nodes, push succeeded YY nodes` in the fe. log of Master FE. If YY is smaller than xx, then some FEs are not pushed successfully. You can see the specific error `Exception when pushing image file.url = xxx` in the fe. log.
 
 	At the same time, you can add the configuration in the FE configuration file: `edit_log_roll_num = xxxx`. This parameter sets the number of metadata journals and makes an image once. The default is 50000. This number can be reduced appropriately to make images more frequent, thus speeding up the deletion of old journals.
 

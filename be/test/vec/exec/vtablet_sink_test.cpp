@@ -14,8 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-#include "vec/sink/vtablet_sink.h"
-
 #include <brpc/closure_guard.h>
 #include <brpc/server.h>
 #include <gen_cpp/DataSinks_types.h>
@@ -48,6 +46,7 @@
 #include "util/threadpool.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
+#include "vec/sink/volap_table_sink.h"
 
 namespace google {
 namespace protobuf {
@@ -426,7 +425,7 @@ public:
         service->_output_set = &output_set;
 
         std::vector<TExpr> exprs;
-        VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
+        VOlapTableSink sink(&obj_pool, row_desc, exprs);
         ASSERT_TRUE(st.ok());
 
         // init
@@ -497,7 +496,7 @@ public:
 private:
     ExecEnv* _env = nullptr;
     brpc::Server* _server = nullptr;
-    std::string wal_dir = "./wal_test";
+    std::string wal_dir = std::string(getenv("DORIS_HOME")) + "/wal_test";
 };
 
 TEST_F(VOlapTableSinkTest, normal) {
@@ -567,7 +566,7 @@ TEST_F(VOlapTableSinkTest, convert) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -694,7 +693,7 @@ TEST_F(VOlapTableSinkTest, add_block_failed) {
     exprs[2].nodes[0].slot_ref.slot_id = 2;
     exprs[2].nodes[0].slot_ref.tuple_id = 1;
 
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // set output tuple_id
@@ -789,7 +788,7 @@ TEST_F(VOlapTableSinkTest, decimal) {
     service->_output_set = &output_set;
 
     std::vector<TExpr> exprs;
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, false);
+    VOlapTableSink sink(&obj_pool, row_desc, exprs);
     ASSERT_TRUE(st.ok());
 
     // init
@@ -846,266 +845,5 @@ TEST_F(VOlapTableSinkTest, decimal) {
     ASSERT_TRUE(output_set.count("(13, 123.120000000)") > 0);
 }
 
-TEST_F(VOlapTableSinkTest, group_commit) {
-    // start brpc service first
-    _server = new brpc::Server();
-    auto service = new VTestInternalService();
-    ASSERT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
-    brpc::ServerOptions options;
-    {
-        debug::ScopedLeakCheckDisabler disable_lsan;
-        _server->Start(4356, &options);
-    }
-
-    TUniqueId fragment_id;
-    TQueryOptions query_options;
-    query_options.batch_size = 1;
-    query_options.be_exec_version = 0;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
-    state.init_mem_trackers(TUniqueId());
-
-    ObjectPool obj_pool;
-    TDescriptorTable tdesc_tbl;
-    auto t_data_sink = get_data_sink(&tdesc_tbl);
-
-    // crate desc_tabl
-    DescriptorTbl* desc_tbl = nullptr;
-    auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
-    state._desc_tbl = desc_tbl;
-    state._wal_id = 789;
-    state._import_label = "test";
-
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    LOG(INFO) << "tuple_desc=" << tuple_desc->debug_string();
-
-    RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    service->_row_desc = &row_desc;
-    std::set<std::string> output_set;
-    service->_output_set = &output_set;
-
-    std::vector<TExpr> exprs;
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, true);
-
-    // init
-    st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
-    // prepare
-    st = sink.prepare(&state);
-    ASSERT_TRUE(st.ok());
-    // open
-    st = sink.open(&state);
-    ASSERT_TRUE(st.ok());
-
-    int slot_count = tuple_desc->slots().size();
-    std::vector<vectorized::MutableColumnPtr> columns(slot_count);
-    for (int i = 0; i < slot_count; i++) {
-        columns[i] = tuple_desc->slots()[i]->get_empty_mutable_column();
-    }
-
-    int col_idx = 0;
-    auto* column_ptr = columns[col_idx++].get();
-    auto column_vector_int = column_ptr;
-    int int_val = 12;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-    int_val = 13;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-    int_val = 14;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-
-    column_ptr = columns[col_idx++].get();
-    auto column_vector_bigint = column_ptr;
-    int64_t int64_val = 9;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-    int64_val = 25;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-    int64_val = 50;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-
-    column_ptr = columns[col_idx++].get();
-    auto column_vector_str = column_ptr;
-    column_vector_str->insert_data("abc", 3);
-    column_vector_str->insert_data("abcd", 4);
-    column_vector_str->insert_data("1234567890", 10);
-
-    vectorized::Block block;
-    col_idx = 0;
-    for (const auto slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[col_idx++]),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
-    }
-    vectorized::Block org_block(block);
-
-    // send
-    st = sink.send(&state, &block);
-    ASSERT_TRUE(st.ok());
-    // close
-    st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
-            << st.to_string();
-
-    // each node has a eof
-    ASSERT_EQ(2, service->_eof_counters);
-    ASSERT_EQ(2 * 3, service->_row_counters);
-
-    // 2node * 2
-    ASSERT_EQ(0, state.num_rows_load_filtered());
-
-    std::string wal_path = wal_dir + "/" + std::to_string(t_data_sink.olap_table_sink.db_id) + "/" +
-                           std::to_string(t_data_sink.olap_table_sink.table_id) + "/" +
-                           std::to_string(t_data_sink.olap_table_sink.txn_id) + "_" +
-                           state.import_label();
-    doris::PBlock pblock;
-    auto wal_reader = WalReader(wal_path);
-    st = wal_reader.init();
-    ASSERT_TRUE(st.ok());
-    uint32_t version;
-    std::string col_ids;
-    st = wal_reader.read_header(version, col_ids);
-    ASSERT_TRUE(st.ok());
-    st = wal_reader.read_block(pblock);
-    ASSERT_TRUE(st.ok());
-    vectorized::Block wal_block;
-    ASSERT_TRUE(wal_block.deserialize(pblock).ok());
-    ASSERT_TRUE(st.ok() || st.is<ErrorCode::END_OF_FILE>());
-    ASSERT_EQ(org_block.rows(), wal_block.rows());
-    for (int i = 0; i < org_block.rows(); i++) {
-        std::string srcRow = org_block.dump_one_line(i, org_block.columns());
-        std::string walRow = wal_block.dump_one_line(i, org_block.columns());
-        ASSERT_TRUE(std::strcmp(srcRow.c_str(), walRow.c_str()) == 0);
-    }
-}
-
-TEST_F(VOlapTableSinkTest, group_commit_with_filter_row) {
-    // start brpc service first
-    _server = new brpc::Server();
-    auto service = new VTestInternalService();
-    ASSERT_EQ(_server->AddService(service, brpc::SERVER_OWNS_SERVICE), 0);
-    brpc::ServerOptions options;
-    {
-        debug::ScopedLeakCheckDisabler disable_lsan;
-        _server->Start(4356, &options);
-    }
-
-    TUniqueId fragment_id;
-    TQueryOptions query_options;
-    query_options.batch_size = 1;
-    query_options.be_exec_version = 0;
-    RuntimeState state(fragment_id, query_options, TQueryGlobals(), _env);
-    state.init_mem_trackers(TUniqueId());
-
-    ObjectPool obj_pool;
-    TDescriptorTable tdesc_tbl;
-    auto t_data_sink = get_data_sink(&tdesc_tbl);
-
-    // crate desc_tabl
-    DescriptorTbl* desc_tbl = nullptr;
-    auto st = DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
-    ASSERT_TRUE(st.ok());
-    state._desc_tbl = desc_tbl;
-    state._wal_id = 789;
-    state._import_label = "test";
-
-    TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
-    LOG(INFO) << "tuple_desc=" << tuple_desc->debug_string();
-
-    RowDescriptor row_desc(*desc_tbl, {0}, {false});
-    service->_row_desc = &row_desc;
-    std::set<std::string> output_set;
-    service->_output_set = &output_set;
-
-    std::vector<TExpr> exprs;
-    VOlapTableSink sink(&obj_pool, row_desc, exprs, true);
-
-    // init
-    st = sink.init(t_data_sink);
-    ASSERT_TRUE(st.ok());
-    // prepare
-    st = sink.prepare(&state);
-    ASSERT_TRUE(st.ok());
-    // open
-    st = sink.open(&state);
-    ASSERT_TRUE(st.ok());
-
-    int slot_count = tuple_desc->slots().size();
-    std::vector<vectorized::MutableColumnPtr> columns(slot_count);
-    for (int i = 0; i < slot_count; i++) {
-        columns[i] = tuple_desc->slots()[i]->get_empty_mutable_column();
-    }
-
-    int col_idx = 0;
-    auto* column_ptr = columns[col_idx++].get();
-    auto column_vector_int = column_ptr;
-    int int_val = 12;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-    int_val = 13;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-    int_val = 14;
-    column_vector_int->insert_data((const char*)&int_val, 0);
-
-    column_ptr = columns[col_idx++].get();
-    auto column_vector_bigint = column_ptr;
-    int64_t int64_val = 9;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-    int64_val = 25;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-    int64_val = 50;
-    column_vector_bigint->insert_data((const char*)&int64_val, 0);
-
-    column_ptr = columns[col_idx++].get();
-    auto column_vector_str = column_ptr;
-    column_vector_str->insert_data("abc", 3);
-    column_vector_str->insert_data("abcd", 4);
-    column_vector_str->insert_data("abcde1234567890", 15);
-
-    vectorized::Block block;
-    col_idx = 0;
-    for (const auto slot_desc : tuple_desc->slots()) {
-        block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[col_idx++]),
-                                                       slot_desc->get_data_type_ptr(),
-                                                       slot_desc->col_name()));
-    }
-    vectorized::Block org_block(block);
-
-    // send
-    st = sink.send(&state, &block);
-    ASSERT_TRUE(st.ok());
-    // close
-    st = sink.close(&state, Status::OK());
-    ASSERT_TRUE(st.ok() || st.to_string() == "Internal error: wait close failed. ")
-            << st.to_string();
-
-    // each node has a eof
-    ASSERT_EQ(2, service->_eof_counters);
-    ASSERT_EQ(2 * 2, service->_row_counters);
-
-    // 2node * 2
-    ASSERT_EQ(1, state.num_rows_load_filtered());
-
-    std::string wal_path = wal_dir + "/" + std::to_string(t_data_sink.olap_table_sink.db_id) + "/" +
-                           std::to_string(t_data_sink.olap_table_sink.table_id) + "/" +
-                           std::to_string(t_data_sink.olap_table_sink.txn_id) + "_" +
-                           state.import_label();
-    doris::PBlock pblock;
-    auto wal_reader = WalReader(wal_path);
-    st = wal_reader.init();
-    ASSERT_TRUE(st.ok());
-    uint32_t version;
-    std::string col_ids;
-    st = wal_reader.read_header(version, col_ids);
-    ASSERT_TRUE(st.ok());
-    st = wal_reader.read_block(pblock);
-    ASSERT_TRUE(st.ok());
-    vectorized::Block wal_block;
-    ASSERT_TRUE(wal_block.deserialize(pblock).ok());
-    ASSERT_TRUE(st.ok() || st.is<ErrorCode::END_OF_FILE>());
-    ASSERT_EQ(org_block.rows() - 1, wal_block.rows());
-    for (int i = 0; i < wal_block.rows(); i++) {
-        std::string srcRow = org_block.dump_one_line(i, org_block.columns());
-        std::string walRow = wal_block.dump_one_line(i, org_block.columns());
-        ASSERT_TRUE(std::strcmp(srcRow.c_str(), walRow.c_str()) == 0);
-    }
-}
 } // namespace vectorized
 } // namespace doris

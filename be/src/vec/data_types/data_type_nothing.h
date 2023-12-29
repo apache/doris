@@ -78,10 +78,12 @@ public:
 
     [[noreturn]] Field get_default() const override {
         LOG(FATAL) << "Method get_default() is not implemented for data type " << get_name();
+        __builtin_unreachable();
     }
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for Nothing";
+        __builtin_unreachable();
     }
 
     void insert_default_into(IColumn&) const override {

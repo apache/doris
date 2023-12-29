@@ -91,8 +91,6 @@ public class ExpressionUtilsTest extends TestWithFeService {
                 + "PROPERTIES (\n"
                 + "  \"replication_num\" = \"1\"\n"
                 + ")");
-        connectContext.getSessionVariable().enableNereidsTimeout = false;
-
     }
 
     @Test
@@ -158,7 +156,7 @@ public class ExpressionUtilsTest extends TestWithFeService {
     }
 
     @Test
-    public void testShuttleExpressionWithLineage1() {
+    public void shuttleExpressionWithLineageTest1() {
         PlanChecker.from(connectContext)
                 .checkExplain("SELECT (o.c1_abs + ps.c2_abs) as add_alias, l.L_LINENUMBER, o.O_ORDERSTATUS "
                                 + "FROM "

@@ -158,6 +158,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_ENABLE_DUPLICATE_WITHOUT_KEYS_BY_DEFAULT =
             "enable_duplicate_without_keys_by_default";
     public static final String PROPERTIES_GRACE_PERIOD = "grace_period";
+    public static final String PROPERTIES_EXCLUDED_TRIGGER_TABLES = "excluded_trigger_tables";
+    public static final String PROPERTIES_REFRESH_PARTITION_NUM = "refresh_partition_num";
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
     // which can avoid the merging cost in read stage, and accelerate the aggregation
@@ -171,7 +173,8 @@ public class PropertyAnalyzer {
     private static final double MIN_FPP = 0.0001;
 
     public static final String PROPERTIES_GROUP_COMMIT_INTERVAL_MS = "group_commit_interval_ms";
-    public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE = 10000;
+    public static final int PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE
+            = Config.group_commit_interval_ms_default_value;
 
     // compaction policy
     public static final String SIZE_BASED_COMPACTION_POLICY = "size_based";
@@ -1066,6 +1069,7 @@ public class PropertyAnalyzer {
         allocationVal = allocationVal.replaceAll(" ", "");
         String[] locations = allocationVal.split(",");
         int totalReplicaNum = 0;
+        Map<Tag, Integer> nextIndexs = Maps.newHashMap();
         for (String location : locations) {
             String[] parts = location.split(":");
             if (parts.length != 2) {
@@ -1089,7 +1093,7 @@ public class PropertyAnalyzer {
                 try {
                     SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
                     systemInfoService.selectBackendIdsForReplicaCreation(
-                            replicaAlloc, null, false, true);
+                            replicaAlloc, nextIndexs, null, false, true);
                 } catch (DdlException ddlException) {
                     throw new AnalysisException(ddlException.getMessage());
                 }
@@ -1171,7 +1175,7 @@ public class PropertyAnalyzer {
             try {
                 groupCommitIntervalMs = Integer.parseInt(groupIntervalCommitMsStr);
             } catch (Exception e) {
-                throw new AnalysisException("schema version format error");
+                throw new AnalysisException("parse group_commit_interval_ms format error");
             }
 
             properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
@@ -1280,4 +1284,13 @@ public class PropertyAnalyzer {
         return properties;
     }
 
+    // Since we can't change the default value of the property `enable_unique_key_merge_on_write`
+    // due to backward compatibility, we just explicitly set the value of this property to `true` if
+    // the user doesn't specify the property in `CreateTableStmt`/`CreateTableInfo`
+    public static Map<String, String> enableUniqueKeyMergeOnWriteIfNotExists(Map<String, String> properties) {
+        if (properties != null && properties.get(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE) == null) {
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        }
+        return properties;
+    }
 }

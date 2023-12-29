@@ -41,7 +41,7 @@ import java.util.Set;
 public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
     public static final PushDownFilterThroughJoin INSTANCE = new PushDownFilterThroughJoin();
 
-    private static final ImmutableList<JoinType> COULD_PUSH_THROUGH_LEFT = ImmutableList.of(
+    public static final ImmutableList<JoinType> COULD_PUSH_THROUGH_LEFT = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.LEFT_SEMI_JOIN,
@@ -50,7 +50,7 @@ public class PushDownFilterThroughJoin extends OneRewriteRuleFactory {
             JoinType.CROSS_JOIN
     );
 
-    private static final ImmutableList<JoinType> COULD_PUSH_THROUGH_RIGHT = ImmutableList.of(
+    public static final ImmutableList<JoinType> COULD_PUSH_THROUGH_RIGHT = ImmutableList.of(
             JoinType.INNER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
             JoinType.RIGHT_SEMI_JOIN,

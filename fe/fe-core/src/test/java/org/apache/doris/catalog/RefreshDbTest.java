@@ -127,7 +127,7 @@ public class RefreshDbTest extends TestWithFeService {
         user1.analyze();
         ConnectContext user1Ctx = createCtx(user1, "127.0.0.1");
         ExceptionChecker.expectThrowsWithMsg(AnalysisException.class,
-                "Access denied for user 'user1' to database 'default_cluster:db1'",
+                "Access denied for user 'user1' to database 'db1'",
                 () -> parseAndAnalyzeStmt("refresh database test1.db1", user1Ctx));
         ConnectContext.remove();
 

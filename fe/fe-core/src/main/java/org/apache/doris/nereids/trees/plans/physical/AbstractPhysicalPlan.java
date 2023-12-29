@@ -122,8 +122,12 @@ public abstract class AbstractPhysicalPlan extends AbstractPlan implements Physi
                 ctx.getRuntimeFilterBySrcAndType(src, type, builderNode);
         Preconditions.checkState(scanSlot != null, "scan slot is null");
         if (filter != null) {
+            this.addAppliedRuntimeFilter(filter);
             filter.addTargetSlot(scanSlot);
             filter.addTargetExpression(scanSlot);
+            ctx.addJoinToTargetMap(builderNode, scanSlot.getExprId());
+            ctx.setTargetExprIdToFilter(scanSlot.getExprId(), filter);
+            ctx.setTargetsOnScanNode(aliasTransferMap.get(probeExpr).first, scanSlot);
         } else {
             filter = new RuntimeFilter(generator.getNextId(),
                     src, ImmutableList.of(scanSlot), type, exprOrder, builderNode, buildSideNdv);

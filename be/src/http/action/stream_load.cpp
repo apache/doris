@@ -32,6 +32,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 #include <time.h>
 
+#include <algorithm>
 #include <future>
 #include <map>
 #include <sstream>
@@ -187,30 +188,14 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     url_decode(req->param(HTTP_DB_KEY), &ctx->db);
     url_decode(req->param(HTTP_TABLE_KEY), &ctx->table);
     ctx->label = req->header(HTTP_LABEL_KEY);
-    Status st = Status::OK();
-    if (iequal(req->header(HTTP_GROUP_COMMIT), "true") ||
-        config::wait_internal_group_commit_finish) {
-        if (iequal(req->header(HTTP_GROUP_COMMIT), "true") && !ctx->label.empty()) {
-            st = Status::InternalError("label and group_commit can't be set at the same time");
-        }
-        ctx->group_commit = load_size_smaller_than_wal_limit(req);
-        if (!ctx->group_commit) {
-            LOG(WARNING) << "The data size for this stream load("
-                         << std::stol(req->header(HttpHeaders::CONTENT_LENGTH))
-                         << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
-                         << config::wal_max_disk_size * 0.8
-                         << " Bytes). Please set this load to \"group commit\"=false.";
-            st = Status::InternalError("Stream load size too large.");
-        }
-    }
+    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
+    Status st = _handle_group_commit(req, ctx);
     if (!ctx->group_commit && ctx->label.empty()) {
         ctx->label = generate_uuid_string();
     }
 
-    ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true";
-
     LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
-              << ", tbl=" << ctx->table;
+              << ", tbl=" << ctx->table << ", group_commit=" << ctx->group_commit;
 
     if (st.ok()) {
         st = _on_header(req, ctx);
@@ -307,6 +292,18 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
         if (http_req->header(HttpHeaders::TRANSFER_ENCODING).find(CHUNK) != std::string::npos) {
             ctx->is_chunked_transfer = true;
         }
+    }
+    if (UNLIKELY((http_req->header(HttpHeaders::CONTENT_LENGTH).empty() &&
+                  !ctx->is_chunked_transfer))) {
+        LOG(WARNING) << "content_length is empty and transfer-encoding!=chunked, please set "
+                        "content_length or transfer-encoding=chunked";
+        return Status::InternalError(
+                "content_length is empty and transfer-encoding!=chunked, please set content_length "
+                "or transfer-encoding=chunked");
+    } else if (UNLIKELY(!http_req->header(HttpHeaders::CONTENT_LENGTH).empty() &&
+                        ctx->is_chunked_transfer)) {
+        LOG(WARNING) << "please do not set both content_length and transfer-encoding";
+        return Status::InternalError("please do not set both content_length and transfer-encoding");
     }
 
     if (!http_req->header(HTTP_TIMEOUT).empty()) {
@@ -609,7 +606,14 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
         bool value = iequal(http_req->header(HTTP_MEMTABLE_ON_SINKNODE), "true");
         request.__set_memtable_on_sink_node(value);
     }
-    request.__set_group_commit(ctx->group_commit);
+    if (ctx->group_commit) {
+        if (!http_req->header(HTTP_GROUP_COMMIT).empty()) {
+            request.__set_group_commit_mode(http_req->header(HTTP_GROUP_COMMIT));
+        } else {
+            // used for wait_internal_group_commit_finish
+            request.__set_group_commit_mode("sync_mode");
+        }
+    }
 
 #ifndef BE_TEST
     // plan this load
@@ -628,6 +632,22 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
     if (!plan_status.ok()) {
         LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
+    }
+    if (http_req->header(HTTP_GROUP_COMMIT) == "async_mode") {
+        if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+            size_t content_length = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+            if (ctx->format == TFileFormatType::FORMAT_CSV_GZ ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZO ||
+                ctx->format == TFileFormatType::FORMAT_CSV_BZ2 ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4FRAME ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZOP ||
+                ctx->format == TFileFormatType::FORMAT_CSV_LZ4BLOCK ||
+                ctx->format == TFileFormatType::FORMAT_CSV_SNAPPYBLOCK) {
+                content_length *= 3;
+            }
+            RETURN_IF_ERROR(ExecEnv::GetInstance()->group_commit_mgr()->update_load_info(
+                    ctx->id.to_thrift(), content_length));
+        }
     }
 
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
@@ -670,6 +690,52 @@ void StreamLoadAction::_save_stream_load_record(std::shared_ptr<StreamLoadContex
     } else {
         LOG(WARNING) << "put stream_load_record rocksdb failed. stream_load_recorder is null.";
     }
+}
+
+Status StreamLoadAction::_handle_group_commit(HttpRequest* req,
+                                              std::shared_ptr<StreamLoadContext> ctx) {
+    std::string group_commit_mode = req->header(HTTP_GROUP_COMMIT);
+    if (!group_commit_mode.empty() && !iequal(group_commit_mode, "sync_mode") &&
+        !iequal(group_commit_mode, "async_mode") && !iequal(group_commit_mode, "off_mode")) {
+        return Status::InternalError("group_commit can only be [async_mode, sync_mode, off_mode]");
+    }
+    if (config::wait_internal_group_commit_finish) {
+        group_commit_mode = "sync_mode";
+    }
+    if (group_commit_mode.empty() || iequal(group_commit_mode, "off_mode")) {
+        // off_mode and empty
+        ctx->group_commit = false;
+        return Status::OK();
+    }
+
+    auto partial_columns = !req->header(HTTP_PARTIAL_COLUMNS).empty() &&
+                           iequal(req->header(HTTP_PARTIAL_COLUMNS), "true");
+    auto temp_partitions = !req->header(HTTP_TEMP_PARTITIONS).empty();
+    auto partitions = !req->header(HTTP_PARTITIONS).empty();
+    if (!partial_columns && !partitions && !temp_partitions && !ctx->two_phase_commit) {
+        if (!config::wait_internal_group_commit_finish && !ctx->label.empty()) {
+            return Status::InternalError("label and group_commit can't be set at the same time");
+        }
+        ctx->group_commit = true;
+        if (iequal(group_commit_mode, "async_mode")) {
+            group_commit_mode = load_size_smaller_than_wal_limit(req) ? "async_mode" : "sync_mode";
+            if (iequal(group_commit_mode, "sync_mode")) {
+                size_t max_available_size =
+                        ExecEnv::GetInstance()->wal_mgr()->get_max_available_size();
+                LOG(INFO) << "When enable group commit, the data size can't be too large or "
+                             "unknown. The data size for this stream load("
+                          << (req->header(HttpHeaders::CONTENT_LENGTH).empty()
+                                      ? 0
+                                      : req->header(HttpHeaders::CONTENT_LENGTH))
+                          << " Bytes) exceeds the WAL (Write-Ahead Log) limit ("
+                          << max_available_size
+                          << " Bytes). So we set this load to \"group commit\"=sync_mode\" "
+                             "automatically.";
+                return Status::Error<EXCEEDED_LIMIT>("Stream load size too large.");
+            }
+        }
+    }
+    return Status::OK();
 }
 
 } // namespace doris

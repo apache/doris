@@ -79,7 +79,8 @@ public class GroupCommitPlanner {
     private TExecPlanFragmentParamsList paramsList;
     private ByteString execPlanFragmentParamsBytes;
 
-    public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId)
+    public GroupCommitPlanner(Database db, OlapTable table, List<String> targetColumnNames, TUniqueId queryId,
+            String groupCommit)
             throws UserException, TException {
         this.db = db;
         this.table = table;
@@ -97,11 +98,12 @@ public class GroupCommitPlanner {
         }
         streamLoadPutRequest
                 .setDb(db.getFullName())
-                .setMaxFilterRatio(1)
+                .setMaxFilterRatio(ConnectContext.get().getSessionVariable().enableInsertStrict ? 0 : 1)
                 .setTbl(table.getName())
                 .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(queryId)
-                .setGroupCommit(true).setTrimDoubleQuotes(true);
+                .setTrimDoubleQuotes(true).setGroupCommitMode(groupCommit)
+                .setStrictMode(ConnectContext.get().getSessionVariable().enableInsertStrict);
         StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(streamLoadPutRequest);
         StreamLoadPlanner planner = new StreamLoadPlanner(db, table, streamLoadTask);
         // Will using load id as query id in fragment
@@ -210,6 +212,8 @@ public class GroupCommitPlanner {
         if (selectStmt.getValueList() != null) {
             for (List<Expr> row : selectStmt.getValueList().getRows()) {
                 InternalService.PDataRow data = StmtExecutor.getRowStringValue(row);
+                LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                        .collect(Collectors.joining(",")));
                 rows.add(data);
             }
         } else {
@@ -222,6 +226,8 @@ public class GroupCommitPlanner {
                 }
             }
             InternalService.PDataRow data = StmtExecutor.getRowStringValue(exprList);
+            LOG.debug("add row: [{}]", data.getColList().stream().map(c -> c.getValue())
+                    .collect(Collectors.joining(",")));
             rows.add(data);
         }
         return rows;

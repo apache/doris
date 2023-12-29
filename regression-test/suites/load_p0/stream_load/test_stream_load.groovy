@@ -1487,5 +1487,164 @@ suite("test_stream_load", "p0") {
     }
     sql "sync"
     order_qt_temporary_partitions "SELECT * FROM ${tableName18} TEMPORARY PARTITION(test) order by k1"
+
+    // test length of input is too long than schema.
+    def tableName19 = "test_input_long_than_schema"
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName19} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName19} (
+                `c1` varchar(48) NULL,
+                `c2` varchar(48) NULL,
+                `c3` varchar(48) NULL,
+                `c4` varchar(48) NULL,
+                `c5` varchar(48) NULL,
+                `c6` varchar(48) NULL,
+                `c7` varchar(48) NULL,
+                `c8` varchar(48) NULL,
+                `c9` varchar(48) NULL,
+                `c10` varchar(48) NULL,
+                `c11` varchar(48) NULL,
+                `c12` varchar(48) NULL,
+                `c13` varchar(48) NULL,
+                `c14` varchar(48) NULL,
+                `c15` varchar(48) NULL,
+                `c16` varchar(48) NULL,
+                `c17` varchar(48) NULL,
+                `c18` varchar(48) NULL,
+                `c19` varchar(48) NULL,
+                `c20` varchar(48) NULL,
+                `c21` varchar(48) NULL,
+                `c22` varchar(48) NULL,
+                `c23` varchar(48) NULL,
+                `c24` varchar(48) NULL,
+                `c25` varchar(48) NULL,
+                `c26` varchar(48) NULL,
+                `c27` varchar(48) NULL,
+                `c28` varchar(48) NULL,
+                `c29` varchar(48) NULL,
+                `c30` varchar(48) NULL,
+                `c31` varchar(48) NULL,
+                `c32` varchar(48) NULL,
+                `c33` varchar(48) NULL,
+                `c34` varchar(48) NULL,
+                `c35` varchar(48) NULL,
+                `c36` varchar(48) NULL,
+                `c37` varchar(48) NULL,
+                `c38` varchar(48) NULL,
+                `c39` varchar(48) NULL,
+                `c40` varchar(48) NULL,
+                `c41` varchar(48) NULL,
+                `c42` varchar(48) NULL,
+                `c43` varchar(48) NULL,
+                `c44` varchar(48) NULL,
+                `c45` varchar(48) NULL,
+                `c46` varchar(48) NULL,
+                `c47` varchar(48) NULL,
+                `c48` varchar(48) NULL,
+                `c49` varchar(48) NULL,
+                `c50` varchar(48) NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`c1`)
+            COMMENT 'OLAP'
+            DISTRIBUTED BY HASH(`c1`) BUCKETS AUTO
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "false"
+            );
+        """
+
+        streamLoad {
+            table "${tableName19}"
+            set 'column_separator', ','
+            file 'test_input_long_than_schema.csv'
+
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("fail", json.Status.toLowerCase())
+                assertTrue(json.Message.contains("[DATA_QUALITY_ERROR]too many filtered rows"))
+                assertEquals(100, json.NumberTotalRows)
+                assertEquals(100, json.NumberFilteredRows)
+                assertEquals(0, json.NumberUnselectedRows)
+            }
+        }
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName19} FORCE"""
+    }
+
+   def sql_result = sql """ select Host, HttpPort from backends() where alive = true limit 1; """
+  
+   log.info(sql_result[0][0].toString())
+   log.info(sql_result[0][1].toString())
+   log.info(sql_result[0].size.toString())
+
+   def beHost=sql_result[0][0]
+   def beHttpPort=sql_result[0][1]
+   log.info("${beHost}".toString())
+   log.info("${beHttpPort}".toString());
+
+    //test be : chunked transfer + Content Length
+    try {
+       sql """ DROP TABLE IF EXISTS ${tableName16} """
+       sql """
+           CREATE TABLE IF NOT EXISTS ${tableName16} (
+               `k1` bigint(20) NULL DEFAULT "1",
+               `k2` bigint(20) NULL ,
+               `v1` tinyint(4) NULL,
+               `v2` tinyint(4) NULL,
+               `v3` tinyint(4) NULL,
+               `v4` DATETIME NULL
+           ) ENGINE=OLAP
+           DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+           PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+       """
+   
+       def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:0  -H Transfer-Encoding:chunked -H columns:k1,k2,v1,v2,v3 -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
+       log.info("test chunked transfer command: ${command}")
+       def process = command.execute()
+       code = process.waitFor()
+       out = process.text
+       log.info("test chunked transfer result: ${out}".toString())
+       def json = parseJson(out)
+       assertEquals("fail", json.Status.toLowerCase())
+       assertTrue(json.Message.contains("[INTERNAL_ERROR]please do not set both content_length and transfer-encoding"))
+    } finally {
+       sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
+    }
+
+
+    //test be : no chunked transfer + no Content Length
+    try {
+        sql """ DROP TABLE IF EXISTS ${tableName16} """
+        sql """
+            CREATE TABLE IF NOT EXISTS ${tableName16} (
+                `k1` bigint(20) NULL DEFAULT "1",
+                `k2` bigint(20) NULL ,
+                `v1` tinyint(4) NULL,
+                `v2` tinyint(4) NULL,
+                `v3` tinyint(4) NULL,
+                `v4` DATETIME NULL
+            ) ENGINE=OLAP
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 3
+            PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+        """
+
+        def command = "curl --location-trusted -u ${context.config.feHttpUser}:${context.config.feHttpPassword} -H column_separator:| -H ${db}:${tableName16} -H Content-Length:  -H Transfer-Encoding: -T ${context.dataPath}/test_chunked_transfer.csv http://${beHost}:${beHttpPort}/api/${db}/${tableName16}/_stream_load"
+        log.info("test chunked transfer command: ${command}")
+        def process = command.execute()
+        code = process.waitFor()
+        out = process.text
+        log.info("test chunked transfer result: ${out}".toString())
+        def json = parseJson(out)
+        assertEquals("fail", json.Status.toLowerCase())
+        assertTrue(json.Message.contains("[INTERNAL_ERROR]content_length is empty and transfer-encoding!=chunked, please set content_length or transfer-encoding=chunked"))
+    } finally {
+        sql """ DROP TABLE IF EXISTS ${tableName16} FORCE"""
+    }
+
 }
 

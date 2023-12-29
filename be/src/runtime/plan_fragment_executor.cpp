@@ -60,7 +60,6 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 #include "vec/core/block.h"
-#include "vec/core/future_block.h"
 #include "vec/exec/scan/new_es_scan_node.h"
 #include "vec/exec/scan/new_file_scan_node.h"
 #include "vec/exec/scan/new_jdbc_scan_node.h"
@@ -118,7 +117,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
 
     const TPlanFragmentExecParams& params = request.params;
-    _group_commit = params.group_commit;
     LOG_INFO("PlanFragmentExecutor::prepare")
             .tag("query_id", print_id(_query_ctx->query_id()))
             .tag("instance_id", print_id(params.fragment_instance_id))
@@ -130,6 +128,7 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state =
             RuntimeState::create_unique(params, request.query_options, query_globals, _exec_env);
     _runtime_state->set_query_ctx(_query_ctx.get());
+    _runtime_state->set_task_execution_context(shared_from_this());
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
@@ -217,15 +216,15 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     _runtime_state->set_load_stream_per_node(request.load_stream_per_node);
     _runtime_state->set_total_load_streams(request.total_load_streams);
     _runtime_state->set_num_local_sink(request.num_local_sink);
-
+    RuntimeProfile* sink_profile = nullptr;
     // set up sink, if required
     if (request.fragment.__isset.output_sink) {
-        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(DataSink::create_data_sink(
-                obj_pool(), request.fragment.output_sink, request.fragment.output_exprs, params,
-                row_desc(), runtime_state(), &_sink, *_desc_tbl));
+        RETURN_IF_ERROR_OR_CATCH_EXCEPTION(
+                DataSink::create_data_sink(_runtime_state->obj_pool(), request.fragment.output_sink,
+                                           request.fragment.output_exprs, params, row_desc(),
+                                           runtime_state(), &_sink, *_desc_tbl));
         RETURN_IF_ERROR_OR_CATCH_EXCEPTION(_sink->prepare(runtime_state()));
-
-        RuntimeProfile* sink_profile = _sink->profile();
+        sink_profile = _sink->profile();
         if (sink_profile != nullptr) {
             profile()->add_child(sink_profile, true, nullptr);
         }
@@ -240,7 +239,11 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request) {
     }
 
     // set up profile counters
-    profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    if (sink_profile != nullptr) {
+        sink_profile->add_child(_plan->runtime_profile(), true, nullptr);
+    } else {
+        profile()->add_child(_plan->runtime_profile(), true, nullptr);
+    }
     profile()->add_info_string("DorisBeVersion", version::doris_build_short_hash());
     _rows_produced_counter = ADD_COUNTER(profile(), "RowsProduced", TUnit::UNIT);
     _blocks_produced_counter = ADD_COUNTER(profile(), "BlocksProduced", TUnit::UNIT);
@@ -320,30 +323,15 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
         }
         RETURN_IF_ERROR(_sink->open(runtime_state()));
         _opened = true;
-        std::unique_ptr<doris::vectorized::Block> block =
-                _group_commit ? doris::vectorized::FutureBlock::create_unique()
-                              : doris::vectorized::Block::create_unique();
+        std::unique_ptr<doris::vectorized::Block> block = doris::vectorized::Block::create_unique();
         bool eos = false;
 
         auto st = Status::OK();
-        auto handle_group_commit = [&]() {
-            if (UNLIKELY(_group_commit && !st.ok() && block != nullptr)) {
-                auto* future_block = dynamic_cast<vectorized::FutureBlock*>(block.get());
-                std::unique_lock<std::mutex> l(*(future_block->lock));
-                if (!future_block->is_handled()) {
-                    future_block->set_result(st, 0, 0);
-                    future_block->cv->notify_all();
-                }
-            }
-        };
 
         while (!eos) {
             RETURN_IF_CANCELLED(_runtime_state);
             st = get_vectorized_internal(block.get(), &eos);
-            if (UNLIKELY(!st.ok())) {
-                handle_group_commit();
-                return st;
-            }
+            RETURN_IF_ERROR(st);
 
             // Collect this plan and sub plan statistics, and send to parent plan.
             if (_collect_query_statistics_with_every_batch) {
@@ -352,7 +340,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
 
             if (!eos || block->rows() > 0) {
                 st = _sink->send(runtime_state(), block.get());
-                handle_group_commit();
                 if (st.is<END_OF_FILE>()) {
                     break;
                 }

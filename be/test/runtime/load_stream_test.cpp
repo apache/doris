@@ -142,6 +142,7 @@ void construct_schema(OlapTableSchemaParam* schema) {
 static void create_tablet_request(int64_t tablet_id, int32_t schema_hash,
                                   TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
+    request->partition_id = 30001;
     request->__set_version(1);
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 6;
@@ -513,8 +514,8 @@ public:
     }
 
     void write_one_tablet(MockSinkClient& client, UniqueId load_id, uint32_t sender_id,
-                          int64_t index_id, int64_t tablet_id, uint32_t segid, std::string& data,
-                          bool segment_eos) {
+                          int64_t index_id, int64_t tablet_id, uint32_t segid, uint64_t offset,
+                          std::string& data, bool segment_eos) {
         // append data
         butil::IOBuf append_buf;
         PStreamHeader header;
@@ -527,6 +528,7 @@ public:
         header.set_segment_eos(segment_eos);
         header.set_src_id(sender_id);
         header.set_partition_id(NORMAL_PARTITION_ID);
+        header.set_offset(offset);
         size_t hdr_len = header.ByteSizeLong();
         append_buf.append((char*)&hdr_len, sizeof(size_t));
         append_buf.append(header.SerializeAsString());
@@ -539,27 +541,27 @@ public:
 
     void write_normal(MockSinkClient& client) {
         write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID,
-                         NORMAL_TABLET_ID, 0, NORMAL_STRING, true);
+                         NORMAL_TABLET_ID, 0, 0, NORMAL_STRING, true);
     }
 
     void write_abnormal_load(MockSinkClient& client) {
         write_one_tablet(client, ABNORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID,
-                         NORMAL_TABLET_ID, 0, ABNORMAL_STRING, true);
+                         NORMAL_TABLET_ID, 0, 0, ABNORMAL_STRING, true);
     }
 
     void write_abnormal_index(MockSinkClient& client) {
         write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, ABNORMAL_INDEX_ID,
-                         NORMAL_TABLET_ID, 0, ABNORMAL_STRING, true);
+                         NORMAL_TABLET_ID, 0, 0, ABNORMAL_STRING, true);
     }
 
     void write_abnormal_sender(MockSinkClient& client) {
         write_one_tablet(client, NORMAL_LOAD_ID, ABNORMAL_SENDER_ID, NORMAL_INDEX_ID,
-                         NORMAL_TABLET_ID, 0, ABNORMAL_STRING, true);
+                         NORMAL_TABLET_ID, 0, 0, ABNORMAL_STRING, true);
     }
 
     void write_abnormal_tablet(MockSinkClient& client) {
         write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID,
-                         ABNORMAL_TABLET_ID, 0, ABNORMAL_STRING, true);
+                         ABNORMAL_TABLET_ID, 0, 0, ABNORMAL_STRING, true);
     }
 
     void wait_for_ack(int32_t num) {
@@ -570,7 +572,7 @@ public:
     }
 
     void wait_for_close() {
-        for (int i = 0; i < 1000 && _load_stream_mgr->get_load_stream_num() != 0; i++) {
+        for (int i = 0; i < 3000 && _load_stream_mgr->get_load_stream_num() != 0; i++) {
             bthread_usleep(1000);
         }
     }
@@ -710,7 +712,7 @@ TEST_F(LoadStreamMgrTest, one_client_abnormal_load) {
     EXPECT_EQ(g_response_stat.num, 2);
     EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
     EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
-    EXPECT_EQ(g_response_stat.success_tablet_ids[0], NORMAL_TABLET_ID);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids[0], NORMAL_TABLET_ID);
 
     // server will close stream on CLOSE_LOAD
     wait_for_close();
@@ -820,7 +822,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0_zero_b
     PStreamHeader header;
     std::string data;
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
-                     data, true);
+                     0, data, true);
 
     EXPECT_EQ(g_response_stat.num, 0);
     // CLOSE_LOAD
@@ -849,6 +851,46 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0_zero_b
     EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
 }
 
+TEST_F(LoadStreamMgrTest, close_load_before_recv_eos) {
+    MockSinkClient client;
+    auto st = client.connect_stream();
+    EXPECT_TRUE(st.ok());
+
+    reset_response_stat();
+
+    // append data
+    butil::IOBuf append_buf;
+    PStreamHeader header;
+    std::string data = "file1 hello world 123 !@#$%^&*()_+";
+    write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
+                     data.length(), data, false);
+
+    EXPECT_EQ(g_response_stat.num, 0);
+    // CLOSE_LOAD before EOS
+    close_load(client);
+    wait_for_ack(1);
+    EXPECT_EQ(g_response_stat.num, 1);
+    EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
+    // server will close stream on CLOSE_LOAD
+    wait_for_close();
+    EXPECT_EQ(_load_stream_mgr->get_load_stream_num(), 0);
+
+    // then the late EOS, will not be handled
+    write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
+                     data.length(), data, true);
+
+    // duplicated close, will not be handled
+    close_load(client);
+    wait_for_ack(2);
+    EXPECT_EQ(g_response_stat.num, 1);
+    EXPECT_EQ(g_response_stat.success_tablet_ids.size(), 0);
+    EXPECT_EQ(g_response_stat.failed_tablet_ids.size(), 1);
+
+    auto written_data = read_data(NORMAL_TXN_ID, NORMAL_PARTITION_ID, NORMAL_TABLET_ID, 0);
+    EXPECT_EQ(written_data, "");
+}
+
 TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0) {
     MockSinkClient client;
     auto st = client.connect_stream();
@@ -861,9 +903,9 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment0) {
     PStreamHeader header;
     std::string data = "file1 hello world 123 !@#$%^&*()_+";
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
-                     data, false);
+                     0, data, false);
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
-                     data, true);
+                     data.length(), data, true);
 
     EXPECT_EQ(g_response_stat.num, 0);
     // CLOSE_LOAD
@@ -907,7 +949,7 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment_without
     PStreamHeader header;
     std::string data = "file1 hello world 123 !@#$%^&*()_+";
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
-                     data, false);
+                     0, data, false);
 
     EXPECT_EQ(g_response_stat.num, 0);
     // CLOSE_LOAD
@@ -948,9 +990,9 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_single_segment1) {
     PStreamHeader header;
     std::string data = "file1 hello world 123 !@#$%^&*()_+";
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 1,
-                     data, false);
+                     0, data, false);
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 1,
-                     data, true);
+                     data.length(), data, true);
 
     EXPECT_EQ(g_response_stat.num, 0);
     // CLOSE_LOAD
@@ -991,13 +1033,13 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_one_tablet_two_segment) {
     PStreamHeader header;
     std::string data1 = "file1 hello world 123 !@#$%^&*()_+1";
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
-                     data1, false);
+                     0, data1, false);
     std::string empty;
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 0,
-                     empty, true);
+                     data1.length(), empty, true);
     std::string data2 = "file1 hello world 123 !@#$%^&*()_+2";
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID, NORMAL_TABLET_ID, 1,
-                     data2, true);
+                     0, data2, true);
 
     EXPECT_EQ(g_response_stat.num, 0);
     // CLOSE_LOAD
@@ -1044,12 +1086,12 @@ TEST_F(LoadStreamMgrTest, one_client_one_index_three_tablet) {
     PStreamHeader header;
     std::string data1 = "file1 hello world 123 !@#$%^&*()_+1";
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID,
-                     NORMAL_TABLET_ID + 0, 0, data1, true);
+                     NORMAL_TABLET_ID + 0, 0, 0, data1, true);
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID,
-                     NORMAL_TABLET_ID + 1, 0, data1, true);
+                     NORMAL_TABLET_ID + 1, 0, 0, data1, true);
     std::string data2 = "file1 hello world 123 !@#$%^&*()_+2";
     write_one_tablet(client, NORMAL_LOAD_ID, NORMAL_SENDER_ID, NORMAL_INDEX_ID,
-                     NORMAL_TABLET_ID + 2, 0, data2, true);
+                     NORMAL_TABLET_ID + 2, 0, 0, data2, true);
 
     EXPECT_EQ(g_response_stat.num, 0);
     // CLOSE_LOAD
@@ -1113,7 +1155,7 @@ TEST_F(LoadStreamMgrTest, two_client_one_index_one_tablet_three_segment) {
             std::string data1 =
                     "sender_id=" + std::to_string(i) + ",segid=" + std::to_string(segid);
             write_one_tablet(clients[i], NORMAL_LOAD_ID, NORMAL_SENDER_ID + i, NORMAL_INDEX_ID,
-                             NORMAL_TABLET_ID, segid, data1, true);
+                             NORMAL_TABLET_ID, segid, 0, data1, true);
             segment_data[i * 3 + segid] = data1;
             LOG(INFO) << "segment_data[" << i * 3 + segid << "]" << data1;
         }
@@ -1186,7 +1228,7 @@ TEST_F(LoadStreamMgrTest, two_client_one_close_before_the_other_open) {
     for (int32_t segid = 2; segid >= 0; segid--) {
         int i = 0;
         write_one_tablet(clients[i], NORMAL_LOAD_ID, NORMAL_SENDER_ID + i, NORMAL_INDEX_ID,
-                         NORMAL_TABLET_ID, segid, segment_data[i * 3 + segid], true);
+                         NORMAL_TABLET_ID, segid, 0, segment_data[i * 3 + segid], true);
     }
 
     EXPECT_EQ(g_response_stat.num, 0);
@@ -1205,7 +1247,7 @@ TEST_F(LoadStreamMgrTest, two_client_one_close_before_the_other_open) {
     for (int32_t segid = 2; segid >= 0; segid--) {
         int i = 1;
         write_one_tablet(clients[i], NORMAL_LOAD_ID, NORMAL_SENDER_ID + i, NORMAL_INDEX_ID,
-                         NORMAL_TABLET_ID, segid, segment_data[i * 3 + segid], true);
+                         NORMAL_TABLET_ID, segid, 0, segment_data[i * 3 + segid], true);
     }
 
     close_load(clients[1], 1);

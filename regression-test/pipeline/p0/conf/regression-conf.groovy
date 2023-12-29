@@ -58,7 +58,7 @@ excludeGroups = ""
 excludeSuites = "test_profile,test_spark_load,test_refresh_mtmv,test_bitmap_filter,test_information_schema_external"
 
 // this directories will not be executed
-excludeDirectories = "workload_manager_p1,fault_injection_p0"
+excludeDirectories = "workload_manager_p1,fault_injection_p0,nereids_rules_p0/subquery"
 
 customConf1 = "test_custom_conf_value"
 
@@ -85,6 +85,7 @@ mariadb_10_port=3326
 enableHiveTest=false
 hms_port=7141
 hiveServerPort=10000
+hive_pg_port=5432
 
 // kafka test config
 // to enable kafka test, you need firstly to start kafka container

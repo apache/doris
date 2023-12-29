@@ -702,6 +702,7 @@ enum TMetadataType {
   JOBS,
   TASKS,
   QUERIES,
+  WORKLOAD_SCHED_POLICY
 }
 
 enum TIcebergQueryType {

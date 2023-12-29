@@ -70,7 +70,6 @@ Status SingleReplicaCompaction::prepare_compact() {
 
     // 1. pick rowsets to compact
     RETURN_IF_ERROR(pick_rowsets_to_compact());
-    _tablet->set_clone_occurred(false);
     if (_input_rowsets.size() == 1) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>("_input_rowsets.size() is 1");
     }
@@ -103,13 +102,6 @@ Status SingleReplicaCompaction::execute_compact_impl() {
     if (!lock_base.owns_lock()) {
         return Status::Error<TRY_LOCK_FAILED, false>(
                 "another base compaction is running. tablet={}", _tablet->tablet_id());
-    }
-
-    // Clone task may happen after compaction task is submitted to thread pool, and rowsets picked
-    // for compaction may change. In this case, current compaction task should not be executed.
-    if (_tablet->get_clone_occurred()) {
-        _tablet->set_clone_occurred(false);
-        return Status::Error<BE_CLONE_OCCURRED, false>("get_clone_occurred failed");
     }
 
     SCOPED_ATTACH_TASK(_mem_tracker);
@@ -437,7 +429,9 @@ Status SingleReplicaCompaction::_download_files(DataDir* data_dir,
                 HttpClient::execute_with_retry(DOWNLOAD_FILE_MAX_RETRY, 1, get_file_size_cb));
         // check disk capacity
         if (data_dir->reach_capacity_limit(file_size)) {
-            return Status::InternalError("Disk reach capacity limit");
+            return Status::Error<EXCEEDED_LIMIT>(
+                    "reach the capacity limit of path {}, file_size={}", data_dir->path(),
+                    file_size);
         }
 
         total_file_size += file_size;
@@ -525,8 +519,7 @@ Status SingleReplicaCompaction::_finish_clone(const string& clone_dir,
                 LOG(WARNING) << "version not found in cloned tablet meta when do single compaction";
                 return Status::InternalError("version not found in cloned tablet meta");
             }
-            res = RowsetFactory::create_rowset(_tablet->tablet_schema(), _tablet->tablet_path(),
-                                               output_rs_meta, &_output_rowset);
+            res = _tablet->create_rowset(output_rs_meta, &_output_rowset);
             if (!res.ok()) {
                 LOG(WARNING) << "fail to init rowset. version=" << output_version;
                 return res;

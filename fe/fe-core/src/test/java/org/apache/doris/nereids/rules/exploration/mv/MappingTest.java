@@ -64,7 +64,7 @@ public class MappingTest extends TestWithFeService {
                 + ")");
         createTable("CREATE TABLE IF NOT EXISTS customer (\n"
                 + "  C_CUSTKEY     INTEGER NOT NULL,\n"
-                + "  C_NAME        VARCHAR(25) NOT NULL,\n"
+                + "  C_NAME        VARCHAR(25) NOT NULL\n"
                 + ")\n"
                 + "DUPLICATE KEY(C_CUSTKEY, C_NAME)\n"
                 + "DISTRIBUTED BY HASH(C_CUSTKEY) BUCKETS 3\n"
@@ -288,7 +288,7 @@ public class MappingTest extends TestWithFeService {
         SlotMapping slotMapping = SlotMapping.generate(relationMapping);
         Assertions.assertNotNull(slotMapping);
         BiMap<ExprId, ExprId> generatedSlotMapping = HashBiMap.create();
-        slotMapping.getSlotBiMap().forEach((key, value) ->
+        slotMapping.getRelationSlotMap().forEach((key, value) ->
                 generatedSlotMapping.put(key.getExprId(), value.getExprId())
         );
         Assertions.assertEquals(generatedSlotMapping, expectSlotMapping);

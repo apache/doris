@@ -154,6 +154,7 @@ public class LoadingTaskPlanner {
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             slotDesc.setIsNullable(col.isAllowNull());
+            slotDesc.setAutoInc(col.isAutoInc());
             SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
             scanSlotDesc.setIsMaterialized(true);
             scanSlotDesc.setColumn(col);

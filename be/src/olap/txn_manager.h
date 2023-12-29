@@ -85,7 +85,6 @@ public:
         delete[] _txn_mutex;
         delete[] _txn_tablet_delta_writer_map;
         delete[] _txn_tablet_delta_writer_map_locks;
-        delete _tablet_version_cache;
     }
 
     // add a txn to manager
@@ -239,7 +238,7 @@ private:
     std::shared_mutex* _txn_mutex = nullptr;
 
     txn_tablet_delta_writer_map_t* _txn_tablet_delta_writer_map = nullptr;
-    ShardedLRUCache* _tablet_version_cache = nullptr;
+    std::unique_ptr<Cache> _tablet_version_cache;
     std::shared_mutex* _txn_tablet_delta_writer_map_locks = nullptr;
     DISALLOW_COPY_AND_ASSIGN(TxnManager);
 }; // TxnManager

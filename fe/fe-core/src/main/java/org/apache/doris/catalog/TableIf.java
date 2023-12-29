@@ -22,6 +22,7 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -160,8 +161,53 @@ public interface TableIf {
 
     void write(DataOutput out) throws IOException;
 
+    // Don't use it outside due to its thread-unsafe, use get specific constraints instead.
     default Map<String, Constraint> getConstraintsMap() {
-        throw new RuntimeException(String.format("Not implemented constraint for table %s", this));
+        throw new RuntimeException(String.format("Not implemented constraint for table %s. "
+                + "And the function can't be called outside, consider get specific function "
+                + "like getForeignKeyConstraints/getPrimaryKeyConstraints/getUniqueConstraints.", this));
+    }
+
+    default Set<ForeignKeyConstraint> getForeignKeyConstraints() {
+        readLock();
+        try {
+            return getConstraintsMap().values().stream()
+                    .filter(ForeignKeyConstraint.class::isInstance)
+                    .map(ForeignKeyConstraint.class::cast)
+                    .collect(ImmutableSet.toImmutableSet());
+        } catch (Exception ignored) {
+            return ImmutableSet.of();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    default Set<PrimaryKeyConstraint> getPrimaryKeyConstraints() {
+        readLock();
+        try {
+            return getConstraintsMap().values().stream()
+                    .filter(PrimaryKeyConstraint.class::isInstance)
+                    .map(PrimaryKeyConstraint.class::cast)
+                    .collect(ImmutableSet.toImmutableSet());
+        } catch (Exception ignored) {
+            return ImmutableSet.of();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    default Set<UniqueConstraint> getUniqueConstraints() {
+        readLock();
+        try {
+            return getConstraintsMap().values().stream()
+                    .filter(UniqueConstraint.class::isInstance)
+                    .map(UniqueConstraint.class::cast)
+                    .collect(ImmutableSet.toImmutableSet());
+        } catch (Exception ignored) {
+            return ImmutableSet.of();
+        } finally {
+            readUnlock();
+        }
     }
 
     // Note this function is not thread safe
@@ -373,6 +419,18 @@ public interface TableIf {
 
     default Partition getPartition(String name) {
         return null;
+    }
+
+    default List<String> getFullQualifiers() {
+        return ImmutableList.of(getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getName());
+    }
+
+    default String getNameWithFullQualifiers() {
+        return String.format("%s.%s.%s", getDatabase().getCatalog().getName(),
+                ClusterNamespace.getNameFromFullName(getDatabase().getFullName()),
+                getName());
     }
 
     default boolean isManagedTable() {

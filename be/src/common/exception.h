@@ -38,6 +38,7 @@ class Exception : public std::exception {
 public:
     Exception() : _code(ErrorCode::OK) {}
     Exception(int code, const std::string_view& msg);
+    Exception(const Status& status) : Exception(status.code(), status.msg()) {}
     // add nested exception as first param, or the template may could not find
     // the correct method for ...args
     Exception(const Exception& nested, int code, const std::string_view& msg);

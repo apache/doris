@@ -264,7 +264,7 @@ suite("add_drop_partition") {
     }
 
     sql """
-    sql * from ${tableName}
+    select * from ${tableName}
     """
 
     sql """

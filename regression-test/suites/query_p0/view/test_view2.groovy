@@ -72,6 +72,11 @@ suite("test_view2") {
     sql """sync"""
 
     sql """ DROP VIEW IF EXISTS rt_view;"""
+    sql """ DROP VIEW IF EXISTS tv;"""
+
+    sql """
+    create view tv (node comment "col node") as select node_name from tableA;
+    """
 
     sql """
     CREATE VIEW rt_view AS

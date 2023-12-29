@@ -72,7 +72,7 @@ enum class TypeIndex {
     Enum16 = 18,
     Decimal32 = 19,
     Decimal64 = 20,
-    Decimal128 = 21,
+    Decimal128V2 = 21,
     UUID = 22,
     Array = 23,
     Tuple = 24,
@@ -89,7 +89,7 @@ enum class TypeIndex {
     TimeV2 = 35,
     FixedLengthObject = 36,
     JSONB = 37,
-    Decimal128I = 38,
+    Decimal128V3 = 38,
     Map = 39,
     Struct = 40,
     VARIANT = 41,
@@ -495,38 +495,38 @@ static constexpr int max_decimal_string_length() {
            + 1;          // Add a space for negative sign
 }
 
+template <typename T>
+concept DecimalNativeTypeConcept = std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
+                                   std::is_same_v<T, Int128> || std::is_same_v<T, wide::Int256>;
+
 /// Own FieldType for Decimal.
 /// It is only a "storage" for decimal. To perform operations, you also have to provide a scale (number of digits after point).
-template <typename T>
+template <DecimalNativeTypeConcept T>
 struct Decimal {
-    static_assert(std::is_same_v<T, Int32> || std::is_same_v<T, Int64> ||
-                  std::is_same_v<T, Int128>);
     using NativeType = T;
+
+    static constexpr bool IsInt256 = std::is_same_v<T, wide::Int256>;
 
     Decimal() = default;
     Decimal(Decimal<T>&&) = default;
     Decimal(const Decimal<T>&) = default;
 
-#define DECLARE_NUMERIC_CTOR(TYPE) \
-    Decimal(const TYPE& value_) : value(value_) {}
+    explicit(IsInt256) Decimal(Int32 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Int64 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Int128 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(wide::Int256 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(UInt64 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(UInt32 value) noexcept : value(value) {}
+    explicit(IsInt256) Decimal(Float32 value) noexcept : value(type_round(value)) {}
+    explicit(IsInt256) Decimal(Float64 value) noexcept : value(type_round(value)) {}
 
-    DECLARE_NUMERIC_CTOR(wide::Int256)
-    DECLARE_NUMERIC_CTOR(Int128)
-    DECLARE_NUMERIC_CTOR(Int32)
-    DECLARE_NUMERIC_CTOR(Int64)
-    DECLARE_NUMERIC_CTOR(UInt32)
-    DECLARE_NUMERIC_CTOR(UInt64)
-
-#undef DECLARE_NUMERIC_CTOR
-    Decimal(const Float32& value_) : value(value_) {
-        if constexpr (std::is_integral<T>::value) {
-            value = round(value_);
+    /// If T is integral, the given value will be rounded to integer.
+    template <std::floating_point U>
+    static constexpr U type_round(U value) noexcept {
+        if constexpr (wide::IntegralConcept<T>()) {
+            return round(value);
         }
-    }
-    Decimal(const Float64& value_) : value(value_) {
-        if constexpr (std::is_integral<T>::value) {
-            value = round(value_);
-        }
+        return value;
     }
 
     static Decimal double_to_decimal(double value_) {
@@ -541,7 +541,11 @@ struct Decimal {
 
     template <typename U>
     Decimal(const Decimal<U>& x) {
-        value = x;
+        if constexpr (IsInt256) {
+            value = x.value;
+        } else {
+            value = x;
+        }
     }
 
     constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
@@ -549,12 +553,20 @@ struct Decimal {
 
     operator T() const { return value; }
 
-    operator wide::Int256() const {
+    operator wide::Int256() const
+        requires(!IsInt256)
+    {
         wide::Int256 result;
         wide::Int256::_impl::wide_integer_from_builtin(result, value);
         return result;
     }
 
+    operator Int128() const
+        requires(IsInt256)
+    {
+        return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64);
+    }
+
     const Decimal<T>& operator++() {
         value++;
         return *this;
@@ -585,7 +597,13 @@ struct Decimal {
         return *this;
     }
 
-    auto operator<=>(const Decimal<T>& x) const { return value <=> x.value; }
+    auto operator<=>(const Decimal<T>& x) const
+        requires(!Decimal<T>::IsInt256)
+    {
+        return value <=> x.value;
+    }
+
+    auto operator==(const Decimal<T>& x) const { return value == x.value; }
 
     static constexpr int max_string_length() { return max_decimal_string_length<T>(); }
 
@@ -606,11 +624,37 @@ struct Decimal {
     T value;
 };
 
-struct Decimal128I : public Decimal<Int128> {
-    Decimal128I() = default;
+template <typename T>
+inline Decimal<T> operator-(const Decimal<T>& x) {
+    return Decimal<T>(-x.value);
+}
+
+template <typename T>
+inline Decimal<T> operator+(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value + y.value);
+}
+template <typename T>
+inline Decimal<T> operator-(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value - y.value);
+}
+template <typename T>
+inline Decimal<T> operator*(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value * y.value);
+}
+template <typename T>
+inline Decimal<T> operator/(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value / y.value);
+}
+template <typename T>
+inline Decimal<T> operator%(const Decimal<T>& x, const Decimal<T>& y) {
+    return Decimal<T>(x.value % y.value);
+}
+
+struct Decimal128V3 : public Decimal<Int128> {
+    Decimal128V3() = default;
 
 #define DECLARE_NUMERIC_CTOR(TYPE) \
-    Decimal128I(const TYPE& value_) : Decimal<Int128>(value_) {}
+    Decimal128V3(const TYPE& value_) : Decimal<Int128>(value_) {}
 
     DECLARE_NUMERIC_CTOR(wide::Int256)
     DECLARE_NUMERIC_CTOR(Int128)
@@ -623,128 +667,15 @@ struct Decimal128I : public Decimal<Int128> {
 #undef DECLARE_NUMERIC_CTOR
 
     template <typename U>
-    Decimal128I(const Decimal<U>& x) {
+    Decimal128V3(const Decimal<U>& x) {
         value = x;
     }
 };
 
-template <>
-struct Decimal<wide::Int256> {
-    using T = wide::Int256;
-    using NativeType = wide::Int256;
-
-    Decimal() = default;
-    Decimal(Decimal<T>&&) = default;
-    Decimal(const Decimal<T>&) = default;
-
-#define DECLARE_NUMERIC_CTOR(TYPE) \
-    explicit Decimal(const TYPE& value_) : value(value_) {}
-
-    DECLARE_NUMERIC_CTOR(wide::Int256)
-    DECLARE_NUMERIC_CTOR(Int128)
-    DECLARE_NUMERIC_CTOR(Int32)
-    DECLARE_NUMERIC_CTOR(Int64)
-    DECLARE_NUMERIC_CTOR(UInt32)
-    DECLARE_NUMERIC_CTOR(UInt64)
-    DECLARE_NUMERIC_CTOR(Float32)
-    DECLARE_NUMERIC_CTOR(Float64)
-
-#undef DECLARE_NUMERIC_CTOR
-
-    static Decimal double_to_decimal(double value_) {
-        DecimalV2Value decimal_value;
-        decimal_value.assign_from_double(value_);
-        return Decimal(binary_cast<DecimalV2Value, T>(decimal_value));
-    }
-
-    template <typename U>
-    explicit Decimal(const Decimal<U>& x) {
-        value = x.value;
-    }
-
-    constexpr Decimal<T>& operator=(Decimal<T>&&) = default;
-    constexpr Decimal<T>& operator=(const Decimal<T>&) = default;
-
-    operator T() const { return value; }
-
-    operator Int128() const { return (Int128)value.items[0] + ((Int128)(value.items[1]) << 64); }
-
-    const Decimal<T>& operator++() {
-        value++;
-        return *this;
-    }
-    const Decimal<T>& operator--() {
-        value--;
-        return *this;
-    }
-
-    const Decimal<T>& operator+=(const T& x) {
-        value += x;
-        return *this;
-    }
-    const Decimal<T>& operator-=(const T& x) {
-        value -= x;
-        return *this;
-    }
-    const Decimal<T>& operator*=(const T& x) {
-        value *= x;
-        return *this;
-    }
-    const Decimal<T>& operator/=(const T& x) {
-        value /= x;
-        return *this;
-    }
-    const Decimal<T>& operator%=(const T& x) {
-        value %= x;
-        return *this;
-    }
-
-    static constexpr int max_string_length() { return max_decimal_string_length<T>(); }
-
-    std::string to_string(UInt32 scale) const { return decimal_to_string(value, scale); }
-
-    /**
-     * Got the string representation of a decimal.
-     * @param dst Store the result, should be pre-allocated.
-     * @param scale Decimal's scale.
-     * @param scale_multiplier Decimal's scale multiplier.
-     * @return The length of string.
-     */
-    __attribute__((always_inline)) size_t to_string(char* dst, UInt32 scale,
-                                                    const T& scale_multiplier) const {
-        return decimal_to_string(value, dst, scale, scale_multiplier);
-    }
-
-    T value;
-};
-
 using Decimal32 = Decimal<Int32>;
 using Decimal64 = Decimal<Int64>;
-using Decimal128 = Decimal<Int128>;
+using Decimal128V2 = Decimal<Int128>;
 using Decimal256 = Decimal<wide::Int256>;
-template <typename T>
-inline Decimal<T> operator-(const Decimal<T>& x) {
-    return -x.value;
-}
-
-inline Decimal256 operator+(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value + y.value);
-}
-inline Decimal256 operator-(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value - y.value);
-}
-inline Decimal256 operator*(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value * y.value);
-}
-inline Decimal256 operator/(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value / y.value);
-}
-inline Decimal256 operator%(const Decimal256& x, const Decimal256& y) {
-    return Decimal256(x.value % y.value);
-}
-inline Decimal256 operator-(const Decimal256& x) {
-    return Decimal256(-x.value);
-}
 
 inline bool operator<(const Decimal256& x, const Decimal256& y) {
     return x.value < y.value;
@@ -758,12 +689,6 @@ inline bool operator<=(const Decimal256& x, const Decimal256& y) {
 inline bool operator>=(const Decimal256& x, const Decimal256& y) {
     return x.value >= y.value;
 }
-inline bool operator==(const Decimal256& x, const Decimal256& y) {
-    return x.value == y.value;
-}
-inline bool operator!=(const Decimal256& x, const Decimal256& y) {
-    return x.value != y.value;
-}
 
 template <>
 struct TypeName<Decimal32> {
@@ -774,12 +699,12 @@ struct TypeName<Decimal64> {
     static const char* get() { return "Decimal64"; }
 };
 template <>
-struct TypeName<Decimal128> {
-    static const char* get() { return "Decimal128"; }
+struct TypeName<Decimal128V2> {
+    static const char* get() { return "Decimal128V2"; }
 };
 template <>
-struct TypeName<Decimal128I> {
-    static const char* get() { return "Decimal128I"; }
+struct TypeName<Decimal128V3> {
+    static const char* get() { return "Decimal128V3"; }
 };
 
 template <>
@@ -796,12 +721,12 @@ struct TypeId<Decimal64> {
     static constexpr const TypeIndex value = TypeIndex::Decimal64;
 };
 template <>
-struct TypeId<Decimal128> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal128;
+struct TypeId<Decimal128V2> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128V2;
 };
 template <>
-struct TypeId<Decimal128I> {
-    static constexpr const TypeIndex value = TypeIndex::Decimal128I;
+struct TypeId<Decimal128V3> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128V3;
 };
 template <>
 struct TypeId<Decimal256> {
@@ -815,21 +740,21 @@ inline constexpr bool IsDecimalNumber<Decimal32> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal64> = true;
 template <>
-inline constexpr bool IsDecimalNumber<Decimal128> = true;
+inline constexpr bool IsDecimalNumber<Decimal128V2> = true;
 template <>
-inline constexpr bool IsDecimalNumber<Decimal128I> = true;
+inline constexpr bool IsDecimalNumber<Decimal128V3> = true;
 template <>
 inline constexpr bool IsDecimalNumber<Decimal256> = true;
 
 template <typename T>
-constexpr bool IsDecimal128 = false;
+constexpr bool IsDecimal128V2 = false;
 template <>
-inline constexpr bool IsDecimal128<Decimal128> = true;
+inline constexpr bool IsDecimal128V2<Decimal128V2> = true;
 
 template <typename T>
-constexpr bool IsDecimal128I = false;
+constexpr bool IsDecimal128V3 = false;
 template <>
-inline constexpr bool IsDecimal128I<Decimal128I> = true;
+inline constexpr bool IsDecimal128V3<Decimal128V3> = true;
 
 template <typename T>
 constexpr bool IsDecimal256 = false;
@@ -837,14 +762,14 @@ template <>
 inline constexpr bool IsDecimal256<Decimal256> = true;
 
 template <typename T>
-constexpr bool IsDecimalV2 = IsDecimal128<T> && !IsDecimal128I<T>;
+constexpr bool IsDecimalV2 = IsDecimal128V2<T> && !IsDecimal128V3<T>;
 
 template <typename T, typename U>
-using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128,
-                                          std::conditional_t<IsDecimalNumber<T>, Decimal128I, U>>;
+using DisposeDecimal = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
+                                          std::conditional_t<IsDecimalNumber<T>, Decimal128V3, U>>;
 
 template <typename T, typename U>
-using DisposeDecimal256 = std::conditional_t<IsDecimalV2<T>, Decimal128,
+using DisposeDecimal256 = std::conditional_t<IsDecimalV2<T>, Decimal128V2,
                                              std::conditional_t<IsDecimalNumber<T>, Decimal256, U>>;
 
 template <typename T>
@@ -867,11 +792,11 @@ struct NativeType<Decimal64> {
     using Type = Int64;
 };
 template <>
-struct NativeType<Decimal128> {
+struct NativeType<Decimal128V2> {
     using Type = Int128;
 };
 template <>
-struct NativeType<Decimal128I> {
+struct NativeType<Decimal128V3> {
     using Type = Int128;
 };
 template <>
@@ -935,10 +860,10 @@ inline const char* getTypeName(TypeIndex idx) {
         return TypeName<Decimal32>::get();
     case TypeIndex::Decimal64:
         return TypeName<Decimal64>::get();
-    case TypeIndex::Decimal128:
-        return TypeName<Decimal128>::get();
-    case TypeIndex::Decimal128I:
-        return TypeName<Decimal128I>::get();
+    case TypeIndex::Decimal128V2:
+        return TypeName<Decimal128V2>::get();
+    case TypeIndex::Decimal128V3:
+        return TypeName<Decimal128V3>::get();
     case TypeIndex::Decimal256:
         return TypeName<Decimal256>::get();
     case TypeIndex::UUID:
@@ -994,8 +919,8 @@ struct std::hash<doris::vectorized::Decimal<T>> {
 };
 
 template <>
-struct std::hash<doris::vectorized::Decimal128> {
-    size_t operator()(const doris::vectorized::Decimal128& x) const {
+struct std::hash<doris::vectorized::Decimal128V2> {
+    size_t operator()(const doris::vectorized::Decimal128V2& x) const {
         return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
                std::hash<doris::vectorized::Int64>()(
                        x.value & std::numeric_limits<doris::vectorized::UInt64>::max());
@@ -1003,8 +928,8 @@ struct std::hash<doris::vectorized::Decimal128> {
 };
 
 template <>
-struct std::hash<doris::vectorized::Decimal128I> {
-    size_t operator()(const doris::vectorized::Decimal128I& x) const {
+struct std::hash<doris::vectorized::Decimal128V3> {
+    size_t operator()(const doris::vectorized::Decimal128V3& x) const {
         return std::hash<doris::vectorized::Int64>()(x.value >> 64) ^
                std::hash<doris::vectorized::Int64>()(
                        x.value & std::numeric_limits<doris::vectorized::UInt64>::max());

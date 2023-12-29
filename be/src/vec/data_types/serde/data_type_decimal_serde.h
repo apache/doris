@@ -55,10 +55,10 @@ public:
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal64>>) {
             return TYPE_DECIMAL64;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128I>>) {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V3>>) {
             return TYPE_DECIMAL128I;
         }
-        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128>>) {
+        if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal128V2>>) {
             return TYPE_DECIMALV2;
         }
         if constexpr (std::is_same_v<TypeId<T>, TypeId<Decimal256>>) {
@@ -130,7 +130,7 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
     auto ptype = result.mutable_type();
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         ptype->set_id(PGenericType::DECIMAL128);
-    } else if constexpr (std::is_same_v<T, Decimal128I>) {
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
         ptype->set_id(PGenericType::DECIMAL128I);
     } else if constexpr (std::is_same_v<T, Decimal256>) {
         ptype->set_id(PGenericType::DECIMAL256);
@@ -152,9 +152,8 @@ Status DataTypeDecimalSerDe<T>::write_column_to_pb(const IColumn& column, PValue
 // TODO: decimal256
 template <typename T>
 Status DataTypeDecimalSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
-    if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal128I> ||
-                  std::is_same_v<T, Decimal256> || std::is_same_v<T, Decimal<Int16>> ||
-                  std::is_same_v<T, Decimal<Int32>>) {
+    if constexpr (std::is_same_v<T, Decimal<Int128>> || std::is_same_v<T, Decimal128V3> ||
+                  std::is_same_v<T, Decimal256> || std::is_same_v<T, Decimal<Int32>>) {
         column.resize(arg.bytes_value_size());
         auto& data = reinterpret_cast<ColumnDecimal<T>&>(column).get_data();
         for (int i = 0; i < arg.bytes_value_size(); ++i) {
@@ -174,12 +173,12 @@ void DataTypeDecimalSerDe<T>::write_one_cell_to_jsonb(const IColumn& column, Jso
     result.writeKey(col_id);
     // TODO: decimal256
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
-        Decimal128::NativeType val =
-                *reinterpret_cast<const Decimal128::NativeType*>(data_ref.data);
+        Decimal128V2::NativeType val =
+                *reinterpret_cast<const Decimal128V2::NativeType*>(data_ref.data);
         result.writeInt128(val);
-    } else if constexpr (std::is_same_v<T, Decimal128I>) {
-        Decimal128I::NativeType val =
-                *reinterpret_cast<const Decimal128I::NativeType*>(data_ref.data);
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
+        Decimal128V3::NativeType val =
+                *reinterpret_cast<const Decimal128V3::NativeType*>(data_ref.data);
         result.writeInt128(val);
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         Decimal32::NativeType val = *reinterpret_cast<const Decimal32::NativeType*>(data_ref.data);
@@ -200,7 +199,7 @@ void DataTypeDecimalSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     // TODO: decimal256
     if constexpr (std::is_same_v<T, Decimal<Int128>>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
-    } else if constexpr (std::is_same_v<T, Decimal128I>) {
+    } else if constexpr (std::is_same_v<T, Decimal128V3>) {
         col.insert_value(static_cast<const JsonbInt128Val*>(arg)->val());
     } else if constexpr (std::is_same_v<T, Decimal<Int32>>) {
         col.insert_value(static_cast<const JsonbInt32Val*>(arg)->val());

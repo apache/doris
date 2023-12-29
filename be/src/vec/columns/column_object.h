@@ -279,9 +279,13 @@ public:
     const Subcolumn* get_subcolumn(const PathInData& key) const;
 
     /** More efficient methods of manipulation */
-    [[noreturn]] IColumn& get_data() { LOG(FATAL) << "Not implemented method get_data()"; }
+    [[noreturn]] IColumn& get_data() {
+        LOG(FATAL) << "Not implemented method get_data()";
+        __builtin_unreachable();
+    }
     [[noreturn]] const IColumn& get_data() const {
         LOG(FATAL) << "Not implemented method get_data()";
+        __builtin_unreachable();
     }
 
     // return null if not found

@@ -90,6 +90,11 @@ public:
 
 private:
     std::unique_ptr<orc::ColumnVectorBatch> _create_row_batch(size_t sz);
+    // The size of subtypes of a complex type may be different from
+    // the size of the complex type itself,
+    // so we need to resize the subtype of a complex type
+    Status _resize_row_batch(const DataTypePtr& type, const IColumn& column,
+                             orc::ColumnVectorBatch* orc_col_batch);
 
     doris::io::FileWriter* _file_writer = nullptr;
     std::unique_ptr<orc::OutputStream> _output_stream;

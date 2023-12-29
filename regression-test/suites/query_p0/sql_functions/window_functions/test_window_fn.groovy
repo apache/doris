@@ -383,10 +383,9 @@ suite("test_window_fn", "arrow_flight_sql") {
         "storage_format" = "V2"
         );
         """
-    test {
-        sql """SELECT SUM(MAX(c1) OVER (PARTITION BY c2, c3)) FROM  test_window_in_agg;"""
-        exception "errCode = 2, detailMessage = AGGREGATE clause must not contain analytic expressions"
-    }
+    sql """set enable_nereids_planner=true;"""
+    sql """SELECT SUM(MAX(c1) OVER (PARTITION BY c2, c3)) FROM  test_window_in_agg;"""
+
     sql "DROP TABLE IF EXISTS test_window_in_agg;"
 }
 

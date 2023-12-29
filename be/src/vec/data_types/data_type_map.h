@@ -80,6 +80,7 @@ public:
 
     [[noreturn]] Field get_field(const TExprNode& node) const override {
         LOG(FATAL) << "Unimplemented get_field for map";
+        __builtin_unreachable();
     }
 
     bool equals(const IDataType& rhs) const override;

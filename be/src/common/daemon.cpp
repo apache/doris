@@ -352,6 +352,21 @@ void Daemon::block_spill_gc_thread() {
     }
 }
 
+void Daemon::je_purge_dirty_pages_thread() const {
+    do {
+        std::unique_lock<std::mutex> l(doris::MemInfo::je_purge_dirty_pages_lock);
+        while (_stop_background_threads_latch.count() != 0 &&
+               !doris::MemInfo::je_purge_dirty_pages_notify.load(std::memory_order_relaxed)) {
+            doris::MemInfo::je_purge_dirty_pages_cv.wait_for(l, std::chrono::seconds(1));
+        }
+        if (_stop_background_threads_latch.count() == 0) {
+            break;
+        }
+        doris::MemInfo::je_purge_all_arena_dirty_pages();
+        doris::MemInfo::je_purge_dirty_pages_notify.store(false, std::memory_order_relaxed);
+    } while (true);
+}
+
 void Daemon::start() {
     Status st;
     st = Thread::create(
@@ -381,6 +396,9 @@ void Daemon::start() {
     st = Thread::create(
             "Daemon", "block_spill_gc_thread", [this]() { this->block_spill_gc_thread(); },
             &_threads.emplace_back());
+    st = Thread::create(
+            "Daemon", "je_purge_dirty_pages_thread",
+            [this]() { this->je_purge_dirty_pages_thread(); }, &_threads.emplace_back());
     CHECK(st.ok()) << st;
 }
 

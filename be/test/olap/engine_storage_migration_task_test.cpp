@@ -102,6 +102,7 @@ static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t s
                                                     TCreateTabletReq* request) {
     request->tablet_id = tablet_id;
     request->__set_version(1);
+    request->partition_id = 10001;
     request->tablet_schema.schema_hash = schema_hash;
     request->tablet_schema.short_key_column_count = 2;
     request->tablet_schema.keys_type = TKeysType::UNIQUE_KEYS;
@@ -196,17 +197,15 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     write_req.is_high_priority = false;
     write_req.table_schema_param = &param;
 
-    DeltaWriter* delta_writer = nullptr;
-
     profile = std::make_unique<RuntimeProfile>("LoadChannels");
-    static_cast<void>(DeltaWriter::open(&write_req, &delta_writer, profile.get()));
-    EXPECT_NE(delta_writer, nullptr);
+    auto delta_writer =
+            std::make_unique<DeltaWriter>(*k_engine, &write_req, profile.get(), TUniqueId {});
 
     res = delta_writer->close();
     EXPECT_EQ(Status::OK(), res);
     res = delta_writer->build_rowset();
     EXPECT_EQ(Status::OK(), res);
-    res = delta_writer->commit_txn(PSlaveTabletNodes(), false);
+    res = delta_writer->commit_txn(PSlaveTabletNodes());
     EXPECT_EQ(Status::OK(), res);
 
     // publish version success
@@ -276,7 +275,6 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
 
     res = k_engine->tablet_manager()->drop_tablet(request.tablet_id, request.replica_id, false);
     EXPECT_EQ(Status::OK(), res);
-    delete delta_writer;
 }
 
 } // namespace doris

@@ -332,6 +332,10 @@ private:
     // mark the build hash table whether it needs to store null value
     std::vector<bool> _store_null_in_hash_table;
 
+    // In right anti join, if the probe side is not nullable and the build side is nullable,
+    // we need to convert the probe column to nullable.
+    std::vector<ColumnPtr> _temp_probe_nullable_columns;
+
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
 
@@ -447,6 +451,7 @@ private:
 
     std::vector<IRuntimeFilter*> _runtime_filters;
     std::atomic_bool _probe_open_finish = false;
+    std::vector<int> _build_col_ids;
 };
 } // namespace vectorized
 } // namespace doris

@@ -85,8 +85,8 @@ public:
                 void (*deleter)(const CacheKey& key, void* value)) {
         if (_enabled) {
             const std::string& encoded_key = key.key;
-            auto handle = _cache->insert(encoded_key, (void*)value, sizeof(T), deleter,
-                                         CachePriority::NORMAL, 1);
+            auto handle = _cache->insert(encoded_key, (void*)value, 1, deleter,
+                                         CachePriority::NORMAL, sizeof(T));
             *cache_handle = CacheHandle {_cache.get(), handle};
         } else {
             cache_handle = nullptr;

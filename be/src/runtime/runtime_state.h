@@ -39,6 +39,7 @@
 #include "common/factory_creator.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
+#include "runtime/task_execution_context.h"
 #include "util/debug_util.h"
 #include "util/runtime_profile.h"
 
@@ -47,6 +48,7 @@ namespace doris {
 namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
+class PipelineXFragmentContext;
 } // namespace pipeline
 
 class DescriptorTbl;
@@ -73,6 +75,11 @@ public:
     RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_id, int32 fragment_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
+
+    // for only use in pipelineX
+    RuntimeState(pipeline::PipelineXFragmentContext*, const TUniqueId& instance_id,
+                 const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
+                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
     // Used by pipelineX. This runtime state is only used for setup.
     RuntimeState(const TUniqueId& query_id, int32 fragment_id, const TQueryOptions& query_options,
@@ -125,6 +132,7 @@ public:
     TQueryType::type query_type() const { return _query_options.query_type; }
     int64_t timestamp_ms() const { return _timestamp_ms; }
     int32_t nano_seconds() const { return _nano_seconds; }
+    // if possible, use timezone_obj() rather than timezone()
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& user() const { return _user; }
@@ -385,9 +393,13 @@ public:
         if (_query_options.__isset.fragment_transmission_compression_codec) {
             if (_query_options.fragment_transmission_compression_codec == "lz4") {
                 return segment_v2::CompressionTypePB::LZ4;
+            } else if (_query_options.fragment_transmission_compression_codec == "snappy") {
+                return segment_v2::CompressionTypePB::SNAPPY;
+            } else {
+                return segment_v2::CompressionTypePB::NO_COMPRESSION;
             }
         }
-        return segment_v2::CompressionTypePB::SNAPPY;
+        return segment_v2::CompressionTypePB::NO_COMPRESSION;
     }
 
     bool skip_storage_engine_merge() const {
@@ -437,7 +449,17 @@ public:
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
 
-    RuntimeFilterMgr* runtime_filter_mgr() { return _runtime_filter_mgr.get(); }
+    RuntimeFilterMgr* runtime_filter_mgr() {
+        if (_pipeline_x_runtime_filter_mgr) {
+            return _pipeline_x_runtime_filter_mgr;
+        } else {
+            return _runtime_filter_mgr.get();
+        }
+    }
+
+    void set_pipeline_x_runtime_filter_mgr(RuntimeFilterMgr* pipeline_x_runtime_filter_mgr) {
+        _pipeline_x_runtime_filter_mgr = pipeline_x_runtime_filter_mgr;
+    }
 
     void set_query_ctx(QueryContext* ctx) { _query_ctx = ctx; }
 
@@ -464,6 +486,22 @@ public:
     bool enable_hash_join_early_start_probe() const {
         return _query_options.__isset.enable_hash_join_early_start_probe &&
                _query_options.enable_hash_join_early_start_probe;
+    }
+
+    bool enable_parallel_scan() const {
+        return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    int parallel_scan_max_scanners_count() const {
+        return _query_options.__isset.parallel_scan_max_scanners_count
+                       ? _query_options.parallel_scan_max_scanners_count
+                       : 0;
+    }
+
+    int64_t parallel_scan_min_rows_per_scanner() const {
+        return _query_options.__isset.parallel_scan_min_rows_per_scanner
+                       ? _query_options.parallel_scan_min_rows_per_scanner
+                       : 0;
     }
 
     int repeat_max_num() const {
@@ -513,12 +551,25 @@ public:
 
     void resize_op_id_to_local_state(int operator_size, int sink_size);
 
+    auto& pipeline_id_to_profile() { return _pipeline_id_to_profile; }
+
+    void set_task_execution_context(std::shared_ptr<TaskExecutionContext> context) {
+        _task_execution_context = context;
+    }
+
+    std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
+        return _task_execution_context;
+    }
+
 private:
     Status create_error_log_file();
 
-    static const int DEFAULT_BATCH_SIZE = 2048;
+    static const int DEFAULT_BATCH_SIZE = 4062;
 
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
+
+    // Hold execution context for other threads
+    std::weak_ptr<TaskExecutionContext> _task_execution_context;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.
@@ -530,6 +581,9 @@ private:
 
     // runtime filter
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
+
+    // owned by PipelineXFragmentContext
+    RuntimeFilterMgr* _pipeline_x_runtime_filter_mgr = nullptr;
 
     // Protects _data_stream_recvrs_pool
     std::mutex _data_stream_recvrs_lock;
@@ -615,13 +669,15 @@ private:
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase>>
-            _op_id_to_sink_local_state;
+
+    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 
     // true if max_filter_ratio is 0
     bool _load_zero_tolerance = false;
+
+    std::vector<std::unique_ptr<RuntimeProfile>> _pipeline_id_to_profile;
 
     // prohibit copies
     RuntimeState(const RuntimeState&);

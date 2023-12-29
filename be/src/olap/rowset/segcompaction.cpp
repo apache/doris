@@ -45,7 +45,6 @@
 #include "olap/merger.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
-#include "olap/reader.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_writer_context.h"
@@ -55,6 +54,7 @@
 #include "olap/rowset/segment_v2/segment_writer.h"
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_reader.h"
 #include "olap/tablet_schema.h"
 #include "runtime/thread_context.h"
 #include "util/debug_points.h"
@@ -302,10 +302,12 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
 
 void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segments) {
     Status status = Status::OK();
-    if (_cancelled) {
-        LOG(INFO) << "segcompaction worker is cancelled, skipping segcompaction task";
-    } else {
+    if (_is_compacting_state_mutable.exchange(false)) {
         status = _do_compact_segments(segments);
+    } else {
+        // note: be aware that _writer maybe released when the task is cancelled
+        LOG(INFO) << "segcompaction worker is cancelled, skipping segcompaction task";
+        return;
     }
     if (!status.ok()) {
         int16_t errcode = status.code();
@@ -330,6 +332,13 @@ void SegcompactionWorker::compact_segments(SegCompactionCandidatesSharedPtr segm
         _writer->_is_doing_segcompaction = false;
         _writer->_segcompacting_cond.notify_all();
     }
+    _is_compacting_state_mutable = true;
+}
+
+bool SegcompactionWorker::cancel() {
+    // return true if the task is canncellable (actual compaction is not started)
+    // return false when the task is not cancellable (it is in the middle of segcompaction)
+    return _is_compacting_state_mutable.exchange(false);
 }
 
 } // namespace doris

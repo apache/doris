@@ -67,12 +67,10 @@
 
 namespace doris::segment_v2 {
 const int32_t MAX_FIELD_LEN = 0x7FFFFFFFL;
-const int32_t MAX_BUFFER_DOCS = 100000000;
 const int32_t MERGE_FACTOR = 100000000;
 const int32_t MAX_LEAF_COUNT = 1024;
 const float MAXMBSortInHeap = 512.0 * 8;
 const int DIMS = 1;
-const std::string empty_value;
 
 template <FieldType field_type>
 class InvertedIndexColumnWriterImpl : public InvertedIndexColumnWriter {
@@ -139,9 +137,39 @@ public:
         return Status::OK();
     }
 
-    Status init_fulltext_index() {
-        bool create = true;
+    std::unique_ptr<lucene::analysis::Analyzer> create_chinese_analyzer() {
+        auto chinese_analyzer = std::make_unique<lucene::analysis::LanguageBasedAnalyzer>();
+        chinese_analyzer->setLanguage(L"chinese");
+        chinese_analyzer->initDict(config::inverted_index_dict_path);
 
+        auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
+        if (mode == INVERTED_INDEX_PARSER_FINE_GRANULARITY) {
+            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
+        } else {
+            chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
+        }
+
+        return chinese_analyzer;
+    }
+
+    Status create_char_string_reader(std::unique_ptr<lucene::util::Reader>& string_reader) {
+        CharFilterMap char_filter_map =
+                get_parser_char_filter_map_from_properties(_index_meta->properties());
+        if (!char_filter_map.empty()) {
+            string_reader = std::unique_ptr<lucene::util::Reader>(CharFilterFactory::create(
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE],
+                    new lucene::util::SStringReader<char>(),
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
+                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]));
+        } else {
+            string_reader = std::make_unique<lucene::util::SStringReader<char>>();
+        }
+        return Status::OK();
+    }
+
+    Status create_index_directory(std::unique_ptr<DorisCompoundDirectory>& dir) {
+        bool use_compound_file_writer = true;
+        bool can_use_ram_dir = true;
         auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                 _directory + "/" + _segment_file_name, _index_meta->index_id(),
                 _index_meta->get_index_suffix());
@@ -149,8 +177,7 @@ public:
         bool exists = false;
         auto st = _fs->exists(index_path.c_str(), &exists);
         if (!st.ok()) {
-            LOG(ERROR) << "index_path:"
-                       << " exists error:" << st;
+            LOG(ERROR) << "index_path: exists error:" << st;
             return st;
         }
         if (exists) {
@@ -158,63 +185,76 @@ public:
             return Status::InternalError("init_fulltext_index directory already exists");
         }
 
-        _char_string_reader = std::make_unique<lucene::util::SStringReader<char>>();
-        CharFilterMap char_filter_map =
-                get_parser_char_filter_map_from_properties(_index_meta->properties());
-        if (!char_filter_map.empty()) {
-            _char_string_reader.reset(CharFilterFactory::create(
-                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_TYPE],
-                    _char_string_reader.release(),
-                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_PATTERN],
-                    char_filter_map[INVERTED_INDEX_PARSER_CHAR_FILTER_REPLACEMENT]));
-        }
+        dir = std::unique_ptr<DorisCompoundDirectory>(DorisCompoundDirectoryFactory::getDirectory(
+                _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir));
+        return Status::OK();
+    }
 
-        _doc = std::make_unique<lucene::document::Document>();
-        _dir.reset(DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true));
+    Status create_index_writer(std::unique_ptr<lucene::index::IndexWriter>& index_writer) {
+        bool create_index = true;
+        bool close_dir_on_shutdown = true;
+        index_writer = std::make_unique<lucene::index::IndexWriter>(
+                _dir.get(), _analyzer.get(), create_index, close_dir_on_shutdown);
+        index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
+        _index_writer->setMaxBufferedDocs(config::inverted_index_max_buffered_docs);
+        index_writer->setMaxFieldLength(MAX_FIELD_LEN);
+        index_writer->setMergeFactor(MERGE_FACTOR);
+        index_writer->setUseCompoundFile(false);
 
-        if (_parser_type == InvertedIndexParserType::PARSER_STANDARD ||
-            _parser_type == InvertedIndexParserType::PARSER_UNICODE) {
-            _analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_ENGLISH) {
-            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-        } else if (_parser_type == InvertedIndexParserType::PARSER_CHINESE) {
-            auto chinese_analyzer = _CLNEW lucene::analysis::LanguageBasedAnalyzer();
-            chinese_analyzer->setLanguage(L"chinese");
-            chinese_analyzer->initDict(config::inverted_index_dict_path);
-            auto mode = get_parser_mode_string_from_properties(_index_meta->properties());
-            if (mode == INVERTED_INDEX_PARSER_FINE_GRANULARITY) {
-                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::All);
-            } else {
-                chinese_analyzer->setMode(lucene::analysis::AnalyzerMode::Default);
-            }
-            _analyzer.reset(chinese_analyzer);
-        } else {
-            // ANALYSER_NOT_SET, ANALYSER_NONE use default SimpleAnalyzer
-            _analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
-        }
-        _index_writer = std::make_unique<lucene::index::IndexWriter>(_dir.get(), _analyzer.get(),
-                                                                     create, true);
-        _index_writer->setMaxBufferedDocs(MAX_BUFFER_DOCS);
-        _index_writer->setRAMBufferSizeMB(config::inverted_index_ram_buffer_size);
-        _index_writer->setMaxFieldLength(MAX_FIELD_LEN);
-        _index_writer->setMergeFactor(MERGE_FACTOR);
-        _index_writer->setUseCompoundFile(false);
-        _doc->clear();
+        return Status::OK();
+    }
 
+    Status create_field(lucene::document::Field** field) {
         int field_config = int(lucene::document::Field::STORE_NO) |
                            int(lucene::document::Field::INDEX_NONORMS);
-        if (_parser_type == InvertedIndexParserType::PARSER_NONE) {
-            field_config |= int(lucene::document::Field::INDEX_UNTOKENIZED);
-        } else {
-            field_config |= int(lucene::document::Field::INDEX_TOKENIZED);
+        field_config |= (_parser_type == InvertedIndexParserType::PARSER_NONE)
+                                ? int(lucene::document::Field::INDEX_UNTOKENIZED)
+                                : int(lucene::document::Field::INDEX_TOKENIZED);
+        *field = new lucene::document::Field(_field_name.c_str(), field_config);
+        (*field)->setOmitTermFreqAndPositions(
+                get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
+                                INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES
+                        ? false
+                        : true);
+        return Status::OK();
+    }
+
+    Status create_analyzer(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        switch (_parser_type) {
+        case InvertedIndexParserType::PARSER_STANDARD:
+        case InvertedIndexParserType::PARSER_UNICODE:
+            analyzer = std::make_unique<lucene::analysis::standard95::StandardAnalyzer>();
+            break;
+        case InvertedIndexParserType::PARSER_ENGLISH:
+            analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+            break;
+        case InvertedIndexParserType::PARSER_CHINESE:
+            analyzer = create_chinese_analyzer();
+            break;
+        default:
+            analyzer = std::make_unique<lucene::analysis::SimpleAnalyzer<char>>();
+            break;
         }
-        _field = new lucene::document::Field(_field_name.c_str(), field_config);
-        if (get_parser_phrase_support_string_from_properties(_index_meta->properties()) ==
-            INVERTED_INDEX_PARSER_PHRASE_SUPPORT_YES) {
-            _field->setOmitTermFreqAndPositions(false);
-        } else {
-            _field->setOmitTermFreqAndPositions(true);
+        setup_analyzer_lowercase(analyzer);
+        return Status::OK();
+    }
+
+    void setup_analyzer_lowercase(std::unique_ptr<lucene::analysis::Analyzer>& analyzer) {
+        auto lowercase = get_parser_lowercase_from_properties(_index_meta->properties());
+        if (lowercase == "true") {
+            analyzer->set_lowercase(true);
+        } else if (lowercase == "false") {
+            analyzer->set_lowercase(false);
         }
+    }
+
+    Status init_fulltext_index() {
+        RETURN_IF_ERROR(create_index_directory(_dir));
+        RETURN_IF_ERROR(create_char_string_reader(_char_string_reader));
+        RETURN_IF_ERROR(create_analyzer(_analyzer));
+        RETURN_IF_ERROR(create_index_writer(_index_writer));
+        RETURN_IF_ERROR(create_field(&_field));
+        _doc = std::make_unique<lucene::document::Document>();
         _doc->add(*_field);
         return Status::OK();
     }
@@ -230,6 +270,17 @@ public:
         return Status::OK();
     }
 
+    Status add_null_document() {
+        try {
+            _index_writer->addNullDocument(_doc.get());
+        } catch (const CLuceneError& e) {
+            _dir->deleteDirectory();
+            return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>(
+                    "CLuceneError add_null_document: {}", e.what());
+        }
+        return Status::OK();
+    }
+
     Status add_nulls(uint32_t count) override {
         _null_bitmap.addRange(_rid, _rid + count);
         _rid += count;
@@ -241,8 +292,7 @@ public:
             }
 
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(empty_value.c_str(), 0);
-                RETURN_IF_ERROR(add_document());
+                RETURN_IF_ERROR(add_null_document());
             }
         }
         return Status::OK();
@@ -284,9 +334,19 @@ public:
                         "field or index writer is null in inverted index writer");
             }
             auto* v = (Slice*)values;
+            auto ignore_above_value =
+                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
+            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
-                new_fulltext_field(v->get_data(), v->get_size());
-                RETURN_IF_ERROR(add_document());
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
+                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                     v->get_size() > ignore_above) ||
+                    (_parser_type != InvertedIndexParserType::PARSER_NONE && v->empty())) {
+                    RETURN_IF_ERROR(add_null_document());
+                } else {
+                    new_fulltext_field(v->get_data(), v->get_size());
+                    RETURN_IF_ERROR(add_document());
+                }
                 ++v;
                 _rid++;
             }
@@ -309,6 +369,9 @@ public:
                 return Status::InternalError(
                         "field or index writer is null in inverted index writer");
             }
+            auto ignore_above_value =
+                    get_parser_ignore_above_value_from_properties(_index_meta->properties());
+            auto ignore_above = std::stoi(ignore_above_value);
             for (int i = 0; i < count; ++i) {
                 // offsets[i+1] is now row element count
                 std::vector<std::string> strings;
@@ -325,9 +388,16 @@ public:
                 }
 
                 auto value = join(strings, " ");
-                new_fulltext_field(value.c_str(), value.length());
+                // only ignore_above UNTOKENIZED strings and empty strings not tokenized
+                if ((_parser_type == InvertedIndexParserType::PARSER_NONE &&
+                     value.length() > ignore_above) ||
+                    (_parser_type != InvertedIndexParserType::PARSER_NONE && value.empty())) {
+                    RETURN_IF_ERROR(add_null_document());
+                } else {
+                    new_fulltext_field(value.c_str(), value.length());
+                    RETURN_IF_ERROR(add_document());
+                }
                 _rid++;
-                _index_writer->addDocument(_doc.get());
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
             for (int i = 0; i < count; ++i) {
@@ -466,7 +536,10 @@ public:
                 auto index_path = InvertedIndexDescriptor::get_temporary_index_path(
                         _directory + "/" + _segment_file_name, _index_meta->index_id(),
                         _index_meta->get_index_suffix());
-                dir = DorisCompoundDirectory::getDirectory(_fs, index_path.c_str(), true);
+                bool use_compound_file_writer = true;
+                bool can_use_ram_dir = true;
+                dir = DorisCompoundDirectoryFactory::getDirectory(
+                        _fs, index_path.c_str(), use_compound_file_writer, can_use_ram_dir);
                 write_null_bitmap(null_bitmap_out, dir);
                 _bkd_writer->max_doc_ = _rid;
                 _bkd_writer->docs_seen_ = _row_ids_seen_for_bkd;
@@ -519,12 +592,13 @@ private:
     roaring::Roaring _null_bitmap;
     uint64_t _reverted_index_size;
 
-    std::unique_ptr<lucene::document::Document> _doc {};
-    lucene::document::Field* _field {};
-    std::unique_ptr<lucene::index::IndexWriter> _index_writer {};
-    std::unique_ptr<lucene::analysis::Analyzer> _analyzer {};
-    std::unique_ptr<lucene::util::Reader> _char_string_reader {};
-    std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer;
+    std::unique_ptr<lucene::document::Document> _doc = nullptr;
+    lucene::document::Field* _field = nullptr;
+    std::unique_ptr<lucene::index::IndexWriter> _index_writer = nullptr;
+    std::unique_ptr<lucene::analysis::Analyzer> _analyzer = nullptr;
+    std::unique_ptr<lucene::util::Reader> _char_string_reader = nullptr;
+    std::shared_ptr<lucene::util::bkd::bkd_writer> _bkd_writer = nullptr;
+    std::unique_ptr<DorisCompoundDirectory> _dir = nullptr;
     std::string _segment_file_name;
     std::string _directory;
     io::FileSystemSPtr _fs;
@@ -532,7 +606,6 @@ private:
     const TabletIndex* _index_meta;
     InvertedIndexParserType _parser_type;
     std::wstring _field_name;
-    std::unique_ptr<DorisCompoundDirectory> _dir;
 };
 
 Status InvertedIndexColumnWriter::create(const Field* field,
@@ -540,127 +613,48 @@ Status InvertedIndexColumnWriter::create(const Field* field,
                                          const std::string& segment_file_name,
                                          const std::string& dir, const TabletIndex* index_meta,
                                          const io::FileSystemSPtr& fs) {
-    auto typeinfo = field->type_info();
+    const auto* typeinfo = field->type_info();
     FieldType type = typeinfo->type();
     std::string field_name = field->name();
     if (type == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-        const auto array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);
-        typeinfo = array_typeinfo->item_type_info();
-        type = typeinfo->type();
+        const auto* array_typeinfo = dynamic_cast<const ArrayTypeInfo*>(typeinfo);
+        if (array_typeinfo != nullptr) {
+            typeinfo = array_typeinfo->item_type_info();
+            type = typeinfo->type();
+        } else {
+            return Status::NotSupported("unsupported array type for inverted index: " +
+                                        std::to_string(int(type)));
+        }
     }
 
     switch (type) {
-    case FieldType::OLAP_FIELD_TYPE_CHAR: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_CHAR>>(
-                field_name, segment_file_name, dir, fs, index_meta);
+#define M(TYPE)                                                       \
+    case TYPE:                                                        \
+        *res = std::make_unique<InvertedIndexColumnWriterImpl<TYPE>>( \
+                field_name, segment_file_name, dir, fs, index_meta);  \
         break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_VARCHAR: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_VARCHAR>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_STRING: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_STRING>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIME: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DATETIME>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATE: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DATE>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DATEV2: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DATEV2>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_TINYINT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_TINYINT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_SMALLINT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_SMALLINT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_INT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_INT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_LARGEINT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_LARGEINT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL32: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL32>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL64: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL64>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL128I: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DECIMAL256: {
-        *res = std::make_unique<
-                InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DECIMAL256>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BOOL: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_BOOL>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_DOUBLE: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_DOUBLE>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_FLOAT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_FLOAT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
-    case FieldType::OLAP_FIELD_TYPE_BIGINT: {
-        *res = std::make_unique<InvertedIndexColumnWriterImpl<FieldType::OLAP_FIELD_TYPE_BIGINT>>(
-                field_name, segment_file_name, dir, fs, index_meta);
-        break;
-    }
+        M(FieldType::OLAP_FIELD_TYPE_TINYINT)
+        M(FieldType::OLAP_FIELD_TYPE_SMALLINT)
+        M(FieldType::OLAP_FIELD_TYPE_INT)
+        M(FieldType::OLAP_FIELD_TYPE_UNSIGNED_INT)
+        M(FieldType::OLAP_FIELD_TYPE_BIGINT)
+        M(FieldType::OLAP_FIELD_TYPE_LARGEINT)
+        M(FieldType::OLAP_FIELD_TYPE_CHAR)
+        M(FieldType::OLAP_FIELD_TYPE_VARCHAR)
+        M(FieldType::OLAP_FIELD_TYPE_STRING)
+        M(FieldType::OLAP_FIELD_TYPE_DATE)
+        M(FieldType::OLAP_FIELD_TYPE_DATETIME)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL)
+        M(FieldType::OLAP_FIELD_TYPE_DATEV2)
+        M(FieldType::OLAP_FIELD_TYPE_DATETIMEV2)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL32)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL64)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL128I)
+        M(FieldType::OLAP_FIELD_TYPE_DECIMAL256)
+        M(FieldType::OLAP_FIELD_TYPE_BOOL)
+        M(FieldType::OLAP_FIELD_TYPE_DOUBLE)
+        M(FieldType::OLAP_FIELD_TYPE_FLOAT)
+#undef M
     default:
         return Status::NotSupported("unsupported type for inverted index: " +
                                     std::to_string(int(type)));

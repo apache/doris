@@ -24,22 +24,22 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item] apply RFs: RF12 RF13
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF9 d_date->[d_date]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF9
+----------------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF9 d_date->[d_date]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF8 d_week_seq->[d_week_seq]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8
+----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF8 RF9
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalAssertNumRows
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalProject
 --------------------------------------------------filter((date_dim.d_date = '2001-03-24'))
 ----------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[date_dim]
 ------------------PhysicalProject
 --------------------hashAgg[GLOBAL]
 ----------------------PhysicalDistribute
@@ -55,22 +55,22 @@ PhysicalResultSink
 --------------------------------------PhysicalOlapScan[item]
 ------------------------------PhysicalDistribute
 --------------------------------PhysicalProject
-----------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF5 d_date->[d_date]
-------------------------------------PhysicalDistribute
---------------------------------------PhysicalProject
-----------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF5
+----------------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF5 d_date->[d_date]
 ------------------------------------PhysicalDistribute
 --------------------------------------PhysicalProject
 ----------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF4 d_week_seq->[d_week_seq]
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
-----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4
+----------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF4 RF5
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalAssertNumRows
 ----------------------------------------------PhysicalDistribute
 ------------------------------------------------PhysicalProject
 --------------------------------------------------filter((date_dim.d_date = '2001-03-24'))
 ----------------------------------------------------PhysicalOlapScan[date_dim]
+------------------------------------PhysicalDistribute
+--------------------------------------PhysicalProject
+----------------------------------------PhysicalOlapScan[date_dim]
 --------------PhysicalProject
 ----------------hashAgg[GLOBAL]
 ------------------PhysicalDistribute
@@ -86,20 +86,20 @@ PhysicalResultSink
 ----------------------------------PhysicalOlapScan[item]
 --------------------------PhysicalDistribute
 ----------------------------PhysicalProject
-------------------------------hashJoin[LEFT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF1 d_date->[d_date]
---------------------------------PhysicalDistribute
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF1
+------------------------------hashJoin[RIGHT_SEMI_JOIN] hashCondition=((date_dim.d_date = date_dim.d_date)) otherCondition=() build RFs:RF1 d_date->[d_date]
 --------------------------------PhysicalDistribute
 ----------------------------------PhysicalProject
 ------------------------------------hashJoin[INNER_JOIN] hashCondition=((date_dim.d_week_seq = date_dim.d_week_seq)) otherCondition=() build RFs:RF0 d_week_seq->[d_week_seq]
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0
+------------------------------------------PhysicalOlapScan[date_dim] apply RFs: RF0 RF1
 --------------------------------------PhysicalDistribute
 ----------------------------------------PhysicalAssertNumRows
 ------------------------------------------PhysicalDistribute
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((date_dim.d_date = '2001-03-24'))
 ------------------------------------------------PhysicalOlapScan[date_dim]
+--------------------------------PhysicalDistribute
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[date_dim]
 
