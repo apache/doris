@@ -104,7 +104,7 @@ CREATE MATERIALIZED VIEW mv1
 
 具体的语法可查看[CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-ASYNC-MATERIALIZED-VIEW.md)
 
-### 查看已创建的物化视图
+### 查看物化视图
 
 ```
 select * from mv_infos("database"="tpch") where Name="mv1";
@@ -114,7 +114,9 @@ select * from mv_infos("database"="tpch") where Name="mv1";
 
 和table相关的属性，仍通过[SHOW TABLES](../sql-manual/sql-reference/Show-Statements/SHOW-TABLES.md)来查看
 
-### 手动刷新物化视图
+### 刷新物化视图
+
+物化视图既可以定时刷新，也可以手动刷新，这里我们手动刷新物化视图的部分分区
 
 首先查看物化视图分区列表
 ```
@@ -126,16 +128,14 @@ SHOW PARTITIONS FROM mv1;
 REFRESH MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
 ```
 
-物化视图有多种刷新方式，无论哪种方式，都可以随时进行手动刷新，
-
 具体的语法可查看[REFRESH MATERIALIZED VIEW](../sql-manual/sql-reference/Utility-Statements/REFRESH-MATERIALIZED-VIEW.md)
 
-### 查看物化视图的数据
-```
-select * FROM mv1;
-```
+### 任务管理
 
-### 查看物化视图刷新数据的job
+每个物化视图都会默认有一个job负责刷新数据，job用来描述物化视图的刷新策略等信息，每次触发刷新，都会产生一个task，
+task用来描述具体的一次刷新信息，例如刷新用的时间，刷新了哪些分区等
+
+#### 查看物化视图刷新数据的job
 
 ```
 select * from jobs("type"="mv") order by CreateTime;
@@ -145,7 +145,7 @@ select * from jobs("type"="mv") order by CreateTime;
 
 具体的语法可查看[jobs("type"="mv")](../sql-manual/sql-functions/table-functions/jobs.md)
 
-### 暂停物化视图job定时调度
+#### 暂停物化视图job定时调度
 
 ```
 PAUSE MATERIALIZED VIEW JOB ON mv1;
@@ -155,7 +155,7 @@ PAUSE MATERIALIZED VIEW JOB ON mv1;
 
 具体的语法可查看[PAUSE MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/PAUSE-MATERIALIZED-VIEW.md)
 
-### 恢复物化视图job定时调度
+#### 恢复物化视图job定时调度
 
 ```
 RESUME MATERIALIZED VIEW JOB ON mv1;
@@ -165,7 +165,7 @@ RESUME MATERIALIZED VIEW JOB ON mv1;
 
 具体的语法可查看[RESUME MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
 
-### 查看物化视图刷新数据的task
+#### 查看物化视图刷新数据的task
 
 ```
 select * from tasks("type"="mv");
@@ -175,7 +175,7 @@ select * from tasks("type"="mv");
 
 具体的语法可查看[tasks("type"="mv")](../sql-manual/sql-functions/table-functions/tasks.md)
 
-### 取消物化视图刷新数据的task
+#### 取消物化视图刷新数据的task
 
 ```
 CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
@@ -205,3 +205,11 @@ DROP MATERIALIZED VIEW mv1;
 具体的语法可查看[DROP MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Drop/DROP-ASYNC-MATERIALIZED-VIEW.md)
 
 ## 物化视图的使用
+
+### 直接查看物化视图的数据
+
+物化视图本身也是一个 Table，所以可以直接查询
+
+```
+select * FROM mv1;
+```
