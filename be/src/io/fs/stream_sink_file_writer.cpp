@@ -100,10 +100,10 @@ Status StreamSinkFileWriter::appendv(const Slice* data, size_t data_cnt) {
         for (auto& stream : _streams) {
             ss << " " << stream->dst_id();
         }
-        LOG(WARNING) << "failed to send segment data to any replicas, load_id: " << print_id(_load_id)
-                     << ", index_id: " << _index_id << ", tablet_id: " << _tablet_id
-                     << ", segment_id: " << _segment_id << ", data_length: " << bytes_req
-                     << ", backends:" << ss.str();
+        LOG(WARNING) << "failed to send segment data to any replicas, load_id: "
+                     << print_id(_load_id) << ", index_id: " << _index_id
+                     << ", tablet_id: " << _tablet_id << ", segment_id: " << _segment_id
+                     << ", data_length: " << bytes_req << ", backends:" << ss.str();
         return Status::InternalError(
                 "failed to send segment data to any replicas, tablet_id={}, segment_id={}",
                 _tablet_id, _segment_id);
