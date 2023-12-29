@@ -409,8 +409,8 @@ from dwd_tbl INNER JOIN dict_tbl on dwd_tbl.user_id = dict_tbl.user_id
 用如下语句进行 uv, pv 查询
 
 ```sql
-select dim1, dim3, dim5, visit_time, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)) as uv, SUM(pv) as pv
-from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' group by dim1, dim3, dim5, visit_time;
+select dim1, dim3, dim5, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)) as uv, SUM(pv) as pv
+from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' group by dim1, dim3, dim5;
 ```
 
 ### 高效分页
@@ -433,7 +433,7 @@ CREATE TABLE `tbl` (
 ) DUPLICATE KEY (`key`, `name`)
 DISTRIBUTED BY HASH(`key`) BUCKETS 10
 PROPERTIES (
-    "replication_num" = "1",
+    "replication_num" = "1"
 );
 ```
 

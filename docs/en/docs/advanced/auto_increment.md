@@ -412,8 +412,8 @@ from dwd_tbl INNER JOIN dict_tbl on dwd_tbl.user_id = dict_tbl.user_id
 Perform UV and PV queries using the following statement:
 
 ```sql
-select dim1, dim3, dim5, visit_time, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)) as uv, SUM(pv) as pv
-from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' group by dim1, dim3, dim5, visit_time;
+select dim1, dim3, dim5, BITMAP_UNION(TO_BITMAP(dict_tbl.aid)) as uv, SUM(pv) as pv
+from dws_tbl where visit_time >= '2023-11-01' and visit_time <= '2023-11-30' group by dim1, dim3, dim5;
 ```
 
 ### Efficient Pagination
@@ -426,17 +426,13 @@ For instance, consider a business table that requires paginated display, and by 
 CREATE TABLE `tbl` (
     `key` int(11) NOT NULL COMMENT "",
     `name` varchar(26) NOT NULL COMMENT "",
-    `address` varchar(41) NOT NULL COMMENT "",
-    `city` varchar(11) NOT NULL COMMENT "",
-    `nation` varchar(16) NOT NULL COMMENT "",
-    `region` varchar(13) NOT NULL COMMENT "",
     `phone` varchar(16) NOT NULL COMMENT "",
-    `mktsegment` varchar(11) NOT NULL COMMENT "",
+    `value` varchar(11) NOT NULL COMMENT "",
     `unique_value` BIGINT NOT NULL AUTO_INCREMENT
 ) DUPLICATE KEY (`key`, `name`)
 DISTRIBUTED BY HASH(`key`) BUCKETS 10
 PROPERTIES (
-    "replication_num" = "1",
+    "replication_num" = "1"
 );
 ```
 
@@ -455,7 +451,7 @@ select * from tbl where unique_value > 99 order by unique_value limit 100;
 For directly fetching content from the 101st page, we can use the following sql:
 
 ```sql
-select key, name, address, city, nation, region, phone, mktsegment
+select key, name, phone, value, unique_value
 from tbl, (select uniuqe_value as max_value from tbl order by uniuqe_value limit 1 offset 9999) as previous_data
 where tbl.uniuqe_value > previous_data.max_value
 order by unique_value limit 100;
