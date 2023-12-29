@@ -135,13 +135,11 @@ REFRESH MATERIALIZED VIEW mv1 partitions(p_20231017_20231018);
 每个物化视图都会默认有一个job负责刷新数据，job用来描述物化视图的刷新策略等信息，每次触发刷新，都会产生一个task，
 task用来描述具体的一次刷新信息，例如刷新用的时间，刷新了哪些分区等
 
-#### 查看物化视图刷新数据的job
+#### 查看物化视图的job
 
 ```
 select * from jobs("type"="mv") order by CreateTime;
 ```
-
-每个物化视图底层都会默认创建一个job，用来定义物化视图的刷新逻辑，
 
 具体的语法可查看[jobs("type"="mv")](../sql-manual/sql-functions/table-functions/jobs.md)
 
@@ -165,21 +163,21 @@ RESUME MATERIALIZED VIEW JOB ON mv1;
 
 具体的语法可查看[RESUME MATERIALIZED VIEW JOB](../sql-manual/sql-reference/Utility-Statements/RESUME-MATERIALIZED-VIEW.md)
 
-#### 查看物化视图刷新数据的task
+#### 查看物化视图的task
 
 ```
 select * from tasks("type"="mv");
 ```
 
-每个job可以有一个或多个task，用来记录物化视图的刷新记录及状态等信息
-
 具体的语法可查看[tasks("type"="mv")](../sql-manual/sql-functions/table-functions/tasks.md)
 
-#### 取消物化视图刷新数据的task
+#### 取消物化视图的task
 
 ```
 CANCEL MATERIALIZED VIEW TASK realTaskId on mv1;
 ```
+
+可以取消本次task的运行
 
 具体的语法可查看[CANCEL MATERIALIZED VIEW TASK](../sql-manual/sql-reference/Utility-Statements/CANCEL-MATERIALIZED-VIEW-TASK.md)
 
@@ -213,3 +211,5 @@ DROP MATERIALIZED VIEW mv1;
 ```
 select * FROM mv1;
 ```
+
+### 透明改写
