@@ -1720,6 +1720,20 @@ build_libdeflate() {
     "${BUILD_SYSTEM}" install
 }
 
+# streamvbyte
+build_streamvbyte() {
+    check_if_source_exist "${STREAMVBYTE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${STREAMVBYTE_SOURCE}"
+
+    rm -rf "${BUILD_DIR}"
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DCMAKE_BUILD_TYPE=Release ..
+    "${BUILD_SYSTEM}" -j "${PARALLEL}"
+    "${BUILD_SYSTEM}" install
+}
+
 if [[ "${#packages[@]}" -eq 0 ]]; then
     packages=(
         libunixodbc
@@ -1784,6 +1798,7 @@ if [[ "${#packages[@]}" -eq 0 ]]; then
         dragonbox
         avx2neon
         libdeflate
+        streamvbyte
     )
     if [[ "$(uname -s)" == 'Darwin' ]]; then
         read -r -a packages <<<"binutils gettext ${packages[*]}"
