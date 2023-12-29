@@ -1504,8 +1504,6 @@ Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, r
 // todo(wb) need a UT here
 Status SegmentIterator::_vec_init_lazy_materialization() {
     _is_pred_column.resize(_schema->columns().size(), false);
-    std::vector<bool> is_pred_column_no_del_condition;
-    is_pred_column_no_del_condition.resize(_schema->columns().size(), false);
 
     // including short/vec/delete pred
     std::set<ColumnId> pred_column_ids;
@@ -1547,7 +1545,6 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         for (auto predicate : _col_predicates) {
             auto cid = predicate->column_id();
             _is_pred_column[cid] = true;
-            is_pred_column_no_del_condition[cid] = true;
             pred_column_ids.insert(cid);
 
             // check pred using short eval or vec eval
@@ -1601,16 +1598,10 @@ Status SegmentIterator::_vec_init_lazy_materialization() {
         if (!_common_expr_columns.empty()) {
             _is_need_expr_eval = true;
             for (auto cid : _schema->column_ids()) {
-                // pred column also needs to be filtered by expr, exclude delete condition column,
-                // Delete condition column not need to be filtered, query engine does not need it,
-                // after _output_column_by_sel_idx, delete condition materialize column will be erase
-                // at the end of the block.
-                // Eg:
-                //      `delete from table where a = 10;`
-                //      `select b from table;`
-                // a column only effective in segment iterator, the block from query engine only contain the b column,
-                // so no need to filter a column by expr.
-                if (_is_common_expr_column[cid] || is_pred_column_no_del_condition[cid]) {
+                // pred column also needs to be filtered by expr, exclude additional delete condition column.
+                // if delete condition column not in the block, no filter is needed
+                // and will be removed from _columns_to_filter in the first next_batch.
+                if (_is_common_expr_column[cid] || _is_pred_column[cid]) {
                     auto loc = _schema_block_id_map[cid];
                     _columns_to_filter.push_back(loc);
                 }
@@ -2184,21 +2175,21 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
         _replace_version_col(_current_batch_rows_read);
     }
 
-    // If col >= block->columns(), it means col should not be filtered, there is a BUG.
-    // such as delete condition column was incorrectly put into columns_to_filter,
-    // which is usually at the end of the block. only check during the first next_batch.
+    // Additional deleted filter condition will be materialized column be at the end of the block,
+    // after _output_column_by_sel_idx  will be erase, we not need to filter it,
+    // so erase it from _columns_to_filter in the first next_batch.
+    // Eg:
+    //      `delete from table where a = 10;`
+    //      `select b from table;`
+    // a column only effective in segment iterator, the block from query engine only contain the b column,
+    // so no need to filter a column by expr.
     if (_opts.stats->blocks_load == 0) {
-        for (const auto& col : _columns_to_filter) {
-            if (col >= block->columns()) {
-                std::ostringstream ss;
-                for (const auto& i : _columns_to_filter) {
-                    ss << i << "-";
-                }
-                throw Exception(
-                        ErrorCode::INTERNAL_ERROR,
-                        "filter block column id(index) greater than block->columns(), "
-                        "column id={}, all columns that need filter={}, block columns num={}",
-                        col, ss.str().substr(0, ss.str().length() - 1), block->columns());
+        for (auto it = _columns_to_filter.begin(); it != _columns_to_filter.end();) {
+            LOG(INFO) << "_is_common_expr_column 111 " << *it;
+            if (*it >= block->columns()) {
+                it = _columns_to_filter.erase(it);
+            } else {
+                ++it;
             }
         }
     }
